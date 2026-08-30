@@ -224,31 +224,42 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 // ---------- TaskAPI ----------
 
 // CreateTask CLI/其他系统手动提交审查任务（🔒）。与 webhook 任务同语义（§5.1 规则 5）。
-func (s *Service) CreateTask(ctx context.Context, c *app.RequestContext, req *api.CreateTaskRequest) (*api.CreateTaskResponse, int) {
+func (s *Service) CreateTask(ctx context.Context, req *api.CreateTaskRequest) (*api.CreateTaskResponse, int) {
 	kind, err := kindFromIDL(req.Kind)
 	if err != nil {
 		return nil, http.StatusBadRequest
 	}
-	platform := strings.ToLower(req.Platform)
+	return s.CreateTaskDirect(ctx, kind, req.Platform, req.Owner, req.Repo, req.Number, map[string]string(req.Artifacts))
+}
+
+// CreateTaskDirect 核心建任务（kind 为字符串词表），供 handler 与 MCP server 共用。
+func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
+	artifacts map[string]string) (*api.CreateTaskResponse, int) {
+	switch kind {
+	case requirement.KindRequirementCompliance, requirement.KindCodeReview, requirement.KindVisualCheck:
+	default:
+		return nil, http.StatusBadRequest
+	}
+	platform = strings.ToLower(platform)
 	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
 		return nil, http.StatusBadRequest
 	}
-	if req.Owner == "" || req.Repo == "" || req.Number == "" {
+	if owner == "" || repo == "" || number == "" {
 		return nil, http.StatusBadRequest
 	}
-	if _, err := strconv.Atoi(req.Number); err != nil {
+	if _, err := strconv.Atoi(number); err != nil {
 		return nil, http.StatusBadRequest // number 必须是纯数字（平台 PR 序号）
 	}
-	artifacts, _ := json.Marshal(map[string]string(req.Artifacts))
+	artifactsJSON, _ := json.Marshal(artifacts)
 	task := &storage.Task{
 		ID:            newTaskID(),
 		Kind:          kind,
 		Platform:      platform,
-		Owner:         req.Owner,
-		Repo:          req.Repo,
-		Number:        req.Number,
+		Owner:         owner,
+		Repo:          repo,
+		Number:        number,
 		Status:        storage.StatusPending,
-		ArtifactsJSON: string(artifacts),
+		ArtifactsJSON: string(artifactsJSON),
 		CreatedAt:     time.Now(),
 	}
 	if err := s.Store.CreateTask(ctx, task); err != nil {
@@ -261,7 +272,7 @@ func (s *Service) CreateTask(ctx context.Context, c *app.RequestContext, req *ap
 }
 
 // ListTasks 任务列表（🔒）：status 过滤 + limit 收口，created_at 倒序。
-func (s *Service) ListTasks(ctx context.Context, c *app.RequestContext, status string, limit int) (*api.ListTasksResponse, int) {
+func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api.ListTasksResponse, int) {
 	switch status {
 	case "", storage.StatusPending, storage.StatusRunning, storage.StatusDone,
 		storage.StatusFailed, storage.StatusStale:
@@ -300,7 +311,7 @@ func (s *Service) ListTasks(ctx context.Context, c *app.RequestContext, status s
 // SuppressFinding 误报反馈（🔒，设计 §3.3 反馈通道最小入口）：
 // 服务端按 Merger 同一指纹函数计算（file + 规范化评论文本哈希，行号不入指纹），
 // 置 suppressed 后每轮报告自动剔除该意见。下一轮审查起生效（总结评论不即时重渲）。
-func (s *Service) SuppressFinding(ctx context.Context, c *app.RequestContext, req *api.SuppressFindingRequest) (*api.SuppressFindingResponse, int) {
+func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingRequest) (*api.SuppressFindingResponse, int) {
 	platform := strings.ToLower(req.Platform)
 	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
 		return nil, http.StatusBadRequest
@@ -347,7 +358,7 @@ func (s *Service) SuppressFinding(ctx context.Context, c *app.RequestContext, re
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。
-func (s *Service) GetTask(ctx context.Context, c *app.RequestContext, taskID string) (*api.GetTaskResponse, int) {
+func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
 		if isNotFound(err) {

@@ -140,6 +140,27 @@ curl -X POST localhost:8899/findings/suppress \
 # 插件可观测（含仓库配置视图：.reviewagents.yaml 生效状态 + 信任边界告警）
 curl "localhost:8899/agents?platform=gitea&owner=acme&repo=app" -H "Authorization: Bearer $ARGUS_APITOKEN"
 
+## MCP Server（v3.1 方向 B 已实装）
+
+Argus 把审查能力暴露为 MCP 工具（streamable http，Bearer 鉴权同 🔒 路由），
+任意 MCP 客户端可直接调用：
+
+| 工具 | 说明 |
+|---|---|
+| `review_pr` | 发起审查并可选等待终态（platform/owner/repo/number + kind/wait/timeout_seconds）|
+| `requirement_compliance` | 需求复核固定形态（等价 review_pr 默认）|
+| `list_agents` | 插件清单；三参全传附带仓库配置视图 |
+| `get_report` | 按 taskId 取状态/verdict/完整报告 |
+
+客户端接入示例（任何支持 streamable http 的 MCP 客户端）：
+
+```json
+{"url": "http://<argus地址>:8899/mcp", "headers": {"Authorization": "Bearer $ARGUS_APITOKEN"}}
+```
+
+`review_pr(wait=true)` 返回结构化 JSON：`task_id` / `status` / `verdict` / `report`
+（完整报告 markdown）。实现：`internal/channel/mcpserver`（mark3labs/mcp-go）。
+
 # 方式 B：webhook（平台签名自动校验，重发幂等）
 curl -X POST localhost:8899/webhook/gitea -H "X-Gitea-Delivery: <uuid>" ...
 ```

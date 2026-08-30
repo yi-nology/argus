@@ -21,6 +21,12 @@
   原文 + 插件生效状态（locked/selected/routed/excluded_by_use/disabled/default）+ 信任边界告警。
 - **运维**：两阶段优雅停机（停领取→等在途 60s→硬取消）；`ARGUS_TASK_RETENTION_DAYS`
   保留清理；`argus_tasks_pending/running` gauge；部署交付 `deploy/`（compose + k8s kustomize）。
+- **Argus as MCP Server（方向 B 实装）**：`/mcp` streamable http（Bearer 鉴权），
+  四工具 `review_pr` / `requirement_compliance` / `list_agents` / `get_report`——
+  任意 MCP 客户端可发起审查并取回结构化结论与报告；依赖 mark3labs/mcp-go v0.58.0
+  （§8 纪律：随实装期进 go.mod）。实现 `internal/channel/mcpserver`（Hertz 桥接保留
+  Mcp-Session-Id 等响应头）。E2E 场景16：真实 MCP 客户端 initialize→list_agents→
+  review_pr(wait)→get_report 全链路。（mcp_server_test.go）
 - **反馈/诊断体验**：报告意见行带指纹短码（`（fp:xxxxxxxx）`），suppress 支持
   `fingerprint` 参数直达（前缀解析完整指纹）；`ARGUS_DEBUG=1` 留存 R1 spec/R2 摘要/
   R3 原始输出到任务记录（GET /tasks/:id 的 debug 字段）；多行意见渲染缩进修正；

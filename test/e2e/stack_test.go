@@ -23,6 +23,7 @@ import (
 	bizapi "argus/biz/handler/api"
 	routerapi "argus/biz/router/api"
 	"argus/internal/bootstrap"
+	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/knowledge/skill"
@@ -33,6 +34,7 @@ import (
 	"argus/internal/service"
 	"argus/internal/storage"
 	"argus/internal/worker"
+	"github.com/cloudwego/hertz/pkg/app"
 )
 
 // ---------- fake Gitea provider ----------
@@ -269,15 +271,16 @@ func (m *mockLLM) reply(w http.ResponseWriter, content string) {
 // ---------- e2e 栈 ----------
 
 type stack struct {
-	cfg    *config.Config
-	store  *storage.Store
-	sdk    *argusctx.SDKCtx
-	fake   *fakeProvider
-	llm    *mockLLM
-	runner *runner.Runner
-	reg    *plugin.Registry
-	engine *server.Hertz
-	cancel context.CancelFunc
+	cfg     *config.Config
+	store   *storage.Store
+	sdk     *argusctx.SDKCtx
+	fake    *fakeProvider
+	llm     *mockLLM
+	mcpBase string
+	runner  *runner.Runner
+	reg     *plugin.Registry
+	engine  *server.Hertz
+	cancel  context.CancelFunc
 }
 
 type stackOpt func(*stackOpts)
@@ -463,12 +466,34 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdkCtx, Registry: reg, Log: log, Version: "e2e"}
 	bizapi.SetService(svc)
 	routerapi.SetAuth = svc.BearerMiddleware()
-	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	hostPort := freeTCPPort()
+	h := server.New(server.WithHostPorts("127.0.0.1:" + hostPort))
 	routerapi.Register(h)
+	// MCP Server 挂载（与 main 一致：Bearer 鉴权 + streamable http 桥接）
+	mcpBridge := mcpserver.HertzBridge(mcpserver.New(svc, "v3.0.1-e2e"))
+	auth := svc.BearerMiddleware()
+	for _, m := range []string{"GET", "POST", "DELETE"} {
+		switch m {
+		case "GET":
+			h.GET("/mcp", append([]app.HandlerFunc{auth}, mcpBridge)...)
+		case "POST":
+			h.POST("/mcp", append([]app.HandlerFunc{auth}, mcpBridge)...)
+		case "DELETE":
+			h.DELETE("/mcp", append([]app.HandlerFunc{auth}, mcpBridge)...)
+		}
+	}
+	t.Cleanup(func() {
+		sctx, scancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer scancel()
+		_ = h.Shutdown(sctx)
+	})
+	go func() { _ = h.Run() }()
+	waitHTTPReady("127.0.0.1:" + hostPort)
 	_ = ctx
 
 	return &stack{cfg: cfg, store: store, sdk: sdkCtx, fake: fake, llm: llmMock,
-		runner: runnerRef, reg: reg, engine: h, cancel: cancel}
+		runner: runnerRef, reg: reg, engine: h, mcpBase: "http://127.0.0.1:" + hostPort + "/mcp",
+		cancel: cancel}
 }
 
 // countTasksByHead 统计某 head 的任务数（poller 幂等断言用）。

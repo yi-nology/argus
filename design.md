@@ -524,6 +524,9 @@ OPENAI_BASE_URL|API_KEY|MODEL`。
 - §5.1 轮询兜底（新增任务来源）：平台入站 webhook 不可达环境（试点实测）出站轮询 PR，
   同 SHA 双查去重与 webhook 完全同语义；轮询任务无事件类型，Triggers.Events 视为通过。
 - §5 路由表：新增 `GET /tasks`（列表）与 `POST /findings/suppress`；两者均 🔒。
+- §9.2 方向 B 实装：`/mcp` 由占位转正式（mark3labs/mcp-go streamable http + Bearer），
+  四工具 review_pr/requirement_compliance/list_agents/get_report；方向 A（toolpool）
+  仍为独立扩展点，不合流。
 - §7-7 评审语义：verdict 恒映射 CreateReview 事件（此前仅在有行内意见时提交）；
   PR 作者自审被平台拒绝时自动降级 COMMENT（原判定保留在评审 body）——生产须独立 bot 账号。
 - §4 防线补充（代码级）：`alignChecksToSpec` 剔除 R3 发明的清单外条目，防 R5.1 计数放大。

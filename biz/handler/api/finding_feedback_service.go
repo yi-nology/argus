@@ -23,6 +23,6 @@ func SuppressFinding(ctx context.Context, c *app.RequestContext) {
 		c.String(consts.StatusBadRequest, err.Error())
 		return
 	}
-	resp, status := Svc.SuppressFinding(ctx, c, &req)
+	resp, status := Svc.SuppressFinding(ctx, &req)
 	c.JSON(status, map[string]any{"code": status, "data": resp, "message": map[bool]string{true: "ok", false: "抑制失败"}[status == consts.StatusOK], "trace_id": ""})
 }

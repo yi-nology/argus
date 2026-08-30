@@ -201,7 +201,7 @@ func main() {
 
 	// ---- HTTP（ARGUS_ADDR 默认 :8899）----
 	h := server.Default(server.WithHostPorts(cfg.Addr))
-	registerCustom(h, store, sdk, cfg, log)
+	registerCustom(h, store, sdk, cfg, log, svc)
 	h.Spin()
 	// 优雅停机：HTTP 已停 → worker 停止领取并给在途任务 60s 自然完成；
 	// 超时才硬取消（任务保持 running，下次启动重置回 pending）。
@@ -224,7 +224,7 @@ func (f runnerFunc) Run(ctx context.Context, task plugin.Task, budget *plugin.To
 }
 
 // register 自定义路由：健康检查 / 指标 / MCP+A2A 占位（§5 路由表 v3.0 部分 + §9.2 方向 B 占位）。
-func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx, cfg *config.Config, log logx.Logger) {
+func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx, cfg *config.Config, log logx.Logger, svc *service.Service) {
 	register(h) // hz 生成路由（IDL 声明的 /webhook /tasks /agents + /ping）
 
 	// 存活（§10.1：hertz 无默认 healthz，自写一行）
@@ -263,8 +263,11 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 		}
 	})
 
-	// v3.1 预留占位（§9.2 方向 B / §2 a2a 接口位）
-	h.POST("/mcp", mcpserver.StubHandler())
+	// MCP Server（v3.1 方向 B 实装）：streamable http + Bearer 鉴权
+	mcpBridge := mcpserver.HertzBridge(mcpserver.New(svc, version))
+	h.GET("/mcp", append([]app.HandlerFunc{svc.BearerMiddleware()}, mcpBridge)...)
+	h.POST("/mcp", append([]app.HandlerFunc{svc.BearerMiddleware()}, mcpBridge)...)
+	h.DELETE("/mcp", append([]app.HandlerFunc{svc.BearerMiddleware()}, mcpBridge)...)
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})

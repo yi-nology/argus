@@ -1,10 +1,13 @@
 package e2e
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
@@ -14,6 +17,29 @@ import (
 )
 
 type utHeader = struct{ Key, Value string }
+
+func freeTCPPort() string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "18080"
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return strconv.Itoa(port)
+}
+
+func waitHTTPReady(addr string) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			time.Sleep(100 * time.Millisecond) // 等 hertz 完成路由装配
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 func performRequest(h *server.Hertz, method, url, body string, headers []utHeader) *ut.ResponseRecorder {
 	utHeaders := make([]ut.Header, 0, len(headers))

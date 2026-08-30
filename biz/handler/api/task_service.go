@@ -29,7 +29,7 @@ func CreateTask(ctx context.Context, c *app.RequestContext) {
 		c.String(consts.StatusServiceUnavailable, "service not ready")
 		return
 	}
-	resp, status := Svc.CreateTask(ctx, c, &req)
+	resp, status := Svc.CreateTask(ctx, &req)
 	if status != consts.StatusOK {
 		c.JSON(status, map[string]any{"code": status, "data": nil,
 			"message": "创建任务失败（校验平台/参数或查看服务日志）", "trace_id": ""})
@@ -46,7 +46,7 @@ func GetTask(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	taskID := c.Param("taskId")
-	resp, status := Svc.GetTask(ctx, c, taskID)
+	resp, status := Svc.GetTask(ctx, taskID)
 	if status != consts.StatusOK {
 		msg := "查询失败"
 		if status == consts.StatusNotFound {
@@ -96,7 +96,7 @@ func ListTasks(ctx context.Context, c *app.RequestContext) {
 	if req.Limit != nil {
 		limit = int(*req.Limit)
 	}
-	resp, status_code := Svc.ListTasks(ctx, c, status, limit)
+	resp, status_code := Svc.ListTasks(ctx, status, limit)
 	if status_code != consts.StatusOK {
 		c.JSON(status_code, map[string]any{"code": status_code, "data": nil, "message": "查询失败", "trace_id": ""})
 		return
