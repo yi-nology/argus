@@ -161,3 +161,18 @@ func TestExtractJSON(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// R3 发明额外 check 会放大 R5.1 计数——对齐校验回归。
+func TestAlignChecksToSpec(t *testing.T) {
+	spec, _ := acSpec(plugin.ACImplemented, plugin.ACMissing)
+	rep := &plugin.ComplianceReport{Checks: []plugin.ACCheck{
+		{ID: "AC-1", Status: plugin.ACImplemented},
+		{ID: "AC-2", Status: plugin.ACMissing},
+		{ID: "AC-9", Status: plugin.ACMissing}, // R3 发明的条目
+		{ID: "SQL 注入", Status: plugin.ACMissing},
+	}}
+	dropped := alignChecksToSpec(spec, rep)
+	if dropped != 2 || len(rep.Checks) != 2 {
+		t.Fatalf("应剔除 2 条发明条目，got dropped=%d kept=%d", dropped, len(rep.Checks))
+	}
+}

@@ -97,7 +97,17 @@ export ARGUS_POLL_REPOS=gitea:demo-user/argus-pilot  # 多仓库逗号分隔
 SDK 兼容备注：gitea 后端 `ChangedFile.Diff` 为空、内容在 `RawDiff`——Argus 的 diffprep
 已按文件切块回填（`TestPrepareFillFromRawDiff` 锚点），其他后端不受影响。
 
-## 7. 已知试点边界
+## 7. 账号语义：独立 bot 账号 vs 共用账号（重要）
+
+平台策略：**PR 作者不能给自己的 PR 提 blocking 评审**（Forgejo/Gitea 返回
+"reject your own pull is not allowed"）。试点中 Argus 与 PR 作者共用 demo-user 账号，
+因此 REQUEST_CHANGES/APPROVE 评审事件会被平台拒绝——Argus 自动降级为 COMMENT 评审
+（审查记录仍落地，原判定写进评审 body；日志 `argus.poster.review_failed` 可见）。
+
+**生产部署必须使用独立 bot 账号**（如 `argus-bot`，与 PR 作者不同），blocking 评审
+才能以正式评审状态落在 PR 上并计入合并门禁。
+
+## 8. 已知试点边界
 
 - 证书过期：`SKIP_TLS=1` 期间凭证走未校验 TLS 通道——试点仅限内网，正式使用应修复证书后关闭。
 - draft PR 默认不审（`ARGUS_SKIP_DRAFT=true`）；bot 自身事件自动跳过（`ARGUS_BOT_USERNAME`）。

@@ -35,8 +35,12 @@ func TestScenario01_PartialRequirement_RequestChanges(t *testing.T) {
 	if !strings.Contains(bodies[0], "❌ **AC-2**") {
 		t.Fatalf("报告缺 AC-2 判定:\n%s", bodies[0])
 	}
-	if len(reviews) != 0 {
-		t.Fatalf("无行内意见时不应 CreateReview: %d", len(reviews))
+	// v3.0.1 试点改造：无行内意见也必须留评审记录（PR 页可见审查状态）
+	if len(reviews) != 1 || reviews[0].Event != "REQUEST_CHANGES" {
+		t.Fatalf("应产生 REQUEST_CHANGES 评审记录: %+v", reviews)
+	}
+	if len(reviews[0].Comments) != 0 {
+		t.Fatalf("无行内意见时评审不应带行内评论: %+v", reviews[0].Comments)
 	}
 }
 

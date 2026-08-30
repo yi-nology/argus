@@ -157,6 +157,10 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	} else {
 		var report plugin.ComplianceReport
 		if e := json.Unmarshal([]byte(llm.ExtractJSON(final)), &report); e == nil {
+			dropped := alignChecksToSpec(spec, &report) // 对齐验收清单（防 R3 发明条目放大 R5.1 计数）
+			if dropped > 0 {
+				w.Log.Warn("argus.r3.checks_dropped", "count", dropped)
+			}
 			down := EnforceEvidence(&report) // 防线 #2 代码级校验
 			if down > 0 {
 				w.Log.Warn("argus.r3.evidence_downgraded", "count", down)
@@ -168,6 +172,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		if final2, e2 := w.runAgent(ctx, instruction, retryQ, tools); e2 == nil {
 			var report2 plugin.ComplianceReport
 			if e := json.Unmarshal([]byte(llm.ExtractJSON(final2)), &report2); e == nil {
+				alignChecksToSpec(spec, &report2)
 				EnforceEvidence(&report2)
 				return &report2, final2, nil
 			}

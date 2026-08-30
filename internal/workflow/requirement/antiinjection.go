@@ -61,6 +61,28 @@ func SanitizeSpec(spec *plugin.RequirementSpec) (warnings []string) {
 	return warnings
 }
 
+// alignChecksToSpec 对齐校验：R3 偶发发明验收清单之外的 check 条目（如按实现细节自拆子项），
+// 会放大 R5.1 的"未达标"计数——只保留 spec 中存在的 AC ID，返回剔除数。
+func alignChecksToSpec(spec *plugin.RequirementSpec, report *plugin.ComplianceReport) (dropped int) {
+	if report == nil || spec == nil {
+		return 0
+	}
+	known := make(map[string]bool, len(spec.ACs))
+	for _, ac := range spec.ACs {
+		known[ac.ID] = true
+	}
+	kept := report.Checks[:0]
+	for _, c := range report.Checks {
+		if known[c.ID] {
+			kept = append(kept, c)
+		} else {
+			dropped++
+		}
+	}
+	report.Checks = kept
+	return dropped
+}
+
 // ---------- 防线 #2（代码级校验）：无证据不判 implemented ----------
 
 var evidenceRe = regexp.MustCompile(`^\S+\.(go|js|ts|tsx|jsx|py|java|kt|rs|c|h|cpp|cc|php|rb|vue|sql|sh|yaml|yml|json|md|toml|xml|proto|mod|txt|cs|swift|m|scala|dart|ex|exs|groovy|bat|ps1)[:：][0-9]+(-[0-9]+)?$`)

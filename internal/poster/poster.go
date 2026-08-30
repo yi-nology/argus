@@ -52,7 +52,10 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		return &Result{Stale: true}, nil
 	}
 
-	// ---- 行内评论（有坐标的 findings；随 CreateReview 每轮独立）----
+	// ---- 评审记录（v3.0.1 试点改造：每轮必留，PR 页可见审查状态）----
+	// verdict 映射评审事件：request_changes→REQUEST_CHANGES / comment→COMMENT / approve→APPROVE。
+	// 有行内 findings 时一并附上；无行内意见也提交评审事件（否则 PR 页看不到任何审查动作，
+	// 评审状态恒为"暂无评审员"——真实试点暴露的可用性缺陷）。
 	inline := 0
 	var inlineFindings []plugin.Finding
 	for _, f := range rep.Findings {
@@ -60,34 +63,52 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 			inlineFindings = append(inlineFindings, f)
 		}
 	}
-	if len(inlineFindings) > 0 {
-		sort.SliceStable(inlineFindings, func(i, j int) bool {
-			return plugin.SeverityRank(inlineFindings[i].Severity) > plugin.SeverityRank(inlineFindings[j].Severity)
+	sort.SliceStable(inlineFindings, func(i, j int) bool {
+		return plugin.SeverityRank(inlineFindings[i].Severity) > plugin.SeverityRank(inlineFindings[j].Severity)
+	})
+	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
+	for _, f := range inlineFindings {
+		comments = append(comments, provider.ReviewComment{
+			Path: f.File, Line: f.Line,
+			Body: "**[" + strings.ToUpper(f.Severity) + "]** " + f.Comment + "\n\n<!-- argus:inline by=" + f.By + " -->",
 		})
-		comments := make([]provider.ReviewComment, 0, len(inlineFindings))
-		for _, f := range inlineFindings {
-			comments = append(comments, provider.ReviewComment{
-				Path: f.File, Line: f.Line,
-				Body: "**[" + strings.ToUpper(f.Severity) + "]** " + f.Comment + "\n\n<!-- argus:inline by=" + f.By + " -->",
-			})
-		}
-		event := "COMMENT"
-		if verdict == "request_changes" {
-			event = "REQUEST_CHANGES"
-		}
-		if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+	}
+	event := "COMMENT"
+	switch verdict {
+	case "request_changes":
+		event = "REQUEST_CHANGES"
+	case "approve":
+		event = "APPROVE"
+	}
+	reviewBody := "Argus 审查结论：" + rep.VerdictText + "\n\n完整报告见总结评论（该评论随每次同步更新）。" +
+		"\n\n<!-- argus:review task_id=" + rep.TaskID + " head=" + rep.HeadSHA + " verdict=" + verdict + " -->"
+	if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		provider.CreateReviewOptions{
+			CommitID: pr.HeadSHA,
+			Event:    event,
+			Body:     reviewBody,
+			Comments: comments,
+		}); err != nil {
+		// 平台策略降级（真实试点发现）：PR 作者本人不能给自己提 blocking 评审
+		//（Forgejo/Gitea "reject your own pull is not allowed"）。生产部署应使用
+		// 独立 bot 账号；共用账号时自动降级为 COMMENT——审查记录仍然落地，
+		// 结论语义保留在评审 body 与总结评论中。
+		p.Log.Warn("argus.poster.review_failed", "error", err.Error(), "event", event,
+			"fallback", "COMMENT 评审")
+		fallbackBody := "⚠️ 平台限制：当前账号与 PR 作者相同，无法提交 " + event +
+			" 评审，已降级为评论。原判定：" + rep.VerdictText + "\n\n" + reviewBody
+		if _, err2 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			provider.CreateReviewOptions{
 				CommitID: pr.HeadSHA,
-				Event:    event,
-				Body:     "Argus 行内审查意见（完整报告见总结评论）",
+				Event:    "COMMENT",
+				Body:     fallbackBody,
 				Comments: comments,
-			}); err != nil {
-			// 行内失败容忍：总结评论照发（报告里包含全部意见）
-			p.Log.Warn("argus.poster.inline_failed", "error", err.Error())
-			plugin.ReportPluginFailure("poster:inline")
-		} else {
-			inline = len(inlineFindings)
+			}); err2 != nil {
+			p.Log.Error("argus.poster.review_fallback_failed", "error", err2.Error())
+			plugin.ReportPluginFailure("poster:review")
 		}
+	} else {
+		inline = len(inlineFindings)
 	}
 
 	// ---- 总结评论：更新 → 扫描兜底 → 新建（三级降级，§7-7 / §10.2）----
