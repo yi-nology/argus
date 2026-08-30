@@ -75,6 +75,9 @@ curl -s localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"
 - [ ] webhook 路径：push 新提交后报告评论被**更新**而非新增
 - [ ] staleness：连续两次 push、第一次任务慢完成时总结评论仍是新 SHA 的结果（观察日志 `stale_skip`）
 - [ ] `/metrics` 出现 `argus_tasks_total`、`argus_llm_tokens_total` 样本
+- [ ] `GET /agents?platform=gitea&owner=<o>&repo=<r>` 返回 repoConfig 视图（配置原文/
+      插件生效状态/告警）；放一份含未知名与 `disable: [security]` 的 `.reviewagents.yaml`
+      应看到剔除与"lockRepoConfig 保护已忽略"告警
 
 ## 6. 已知试点边界
 

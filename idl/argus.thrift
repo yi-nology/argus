@@ -40,8 +40,37 @@ struct AgentManifestDTO {
     11: optional list<string> triggerLabels,
 }
 
+struct ListAgentsRequest {
+    1: optional string platform,  // api.query="platform" 仓库配置视图（三参全传才启用）
+    2: optional string owner,     // api.query="owner"
+    3: optional string repo,      // api.query="repo"
+}
+
+struct RoutingRuleView {
+    1: optional list<string> paths,
+    2: optional list<string> labels,
+    3: optional list<string> use,
+}
+
+struct RepoAgentStatus {
+    1: required string name,
+    2: required string repoEffect,      // default | selected | routed | excluded_by_use | disabled | locked
+    3: optional string routedBy,        // 被哪些 routing 规则引用（"0,2"）
+    4: optional string note,
+}
+
+struct RepoConfigView {
+    1: required bool loaded,            // 是否成功读取仓库 .reviewagents.yaml
+    2: optional list<string> use,
+    3: optional list<string> disable,
+    4: optional list<RoutingRuleView> routing,
+    5: optional list<string> warnings,  // 信任边界告警（未知名忽略/lock 保护拒绝）
+    6: optional list<RepoAgentStatus> plugins,
+}
+
 struct ListAgentsResponse {
     1: required list<AgentManifestDTO> agents,
+    2: optional RepoConfigView repoConfig,  // platform/owner/repo 三参全传时返回
 }
 
 struct CreateTaskRequest {
@@ -78,7 +107,7 @@ struct WebhookResponse {
 service TaskService {
     CreateTaskResponse CreateTask(1: CreateTaskRequest request) (api.post="/tasks")
     GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
-    ListAgentsResponse ListAgents() (api.get="/agents")
+    ListAgentsResponse ListAgents(1: ListAgentsRequest request) (api.get="/agents")
 }
 
 service WebhookService {

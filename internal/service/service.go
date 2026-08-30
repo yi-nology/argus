@@ -299,7 +299,9 @@ func (s *Service) GetTask(ctx context.Context, c *app.RequestContext, taskID str
 }
 
 // ListAgents 插拔层可观测（🔒）：Registry 全部插件清单/状态（含 needs/triggers）。
-func (s *Service) ListAgents() *api.ListAgentsResponse {
+// platform/owner/repo 三参全传时，附带该仓库 .reviewagents.yaml 的可观测视图：
+// 配置原文（信任边界规范化后）+ 各插件生效状态 + 告警（§3.4 落到看得见的地方）。
+func (s *Service) ListAgents(platform, owner, repo string) *api.ListAgentsResponse {
 	resp := &api.ListAgentsResponse{}
 	for _, reg := range s.Registry.Snapshot() {
 		m := reg.Manifest
@@ -328,7 +330,71 @@ func (s *Service) ListAgents() *api.ListAgentsResponse {
 		}
 		resp.Agents = append(resp.Agents, dto)
 	}
+
+	if platform != "" && owner != "" && repo != "" {
+		resp.RepoConfig = s.repoConfigView(platform, owner, repo)
+	}
 	return resp
+}
+
+// repoConfigView 拉取并解析仓库配置为可观测视图；失败降级为 loaded=false + 告警（不 5xx）。
+func (s *Service) repoConfigView(platform, owner, repo string) *api.RepoConfigView {
+	view := &api.RepoConfigView{Loaded: false}
+	addWarn := func(msg string) {
+		view.Warnings = append(view.Warnings, msg)
+	}
+	platform = strings.ToLower(platform)
+	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
+		addWarn("平台未接入: " + platform)
+		return view
+	}
+	repoInfo, err := s.SDK.GetRepo(context.Background(), platform, owner, repo)
+	if err != nil {
+		addWarn("获取仓库失败: " + err.Error())
+		return view
+	}
+	rc, err := s.SDK.LoadRepoConfig(context.Background(), platform, owner, repo, repoInfo.DefaultBranch)
+	if err != nil {
+		addWarn("读取 .reviewagents.yaml 失败: " + err.Error())
+		return view
+	}
+	view.Loaded = rc.Loaded
+	statuses, warnings := plugin.ObserveRepoConfig(s.Registry, rc)
+	plugin.SortStatuses(statuses)
+	view.Use = rc.Use
+	view.Disable = rc.Disable
+	for i, rule := range rc.Routing {
+		view.Routing = append(view.Routing, &api.RoutingRuleView{
+			Paths: rule.Paths, Labels: rule.Labels, Use: rule.Use,
+		})
+		_ = i
+	}
+	for _, w := range warnings {
+		view.Warnings = append(view.Warnings, w)
+	}
+	for _, st := range statuses {
+		item := &api.RepoAgentStatus{
+			Name:       st.Name,
+			RepoEffect: st.Effect,
+			Note:       strPtrOrEmpty(st.Note),
+		}
+		if len(st.RoutedBy) > 0 {
+			ids := make([]string, 0, len(st.RoutedBy))
+			for _, i := range st.RoutedBy {
+				ids = append(ids, fmt.Sprintf("%d", i))
+			}
+			item.RoutedBy = strPtr(strings.Join(ids, ","))
+		}
+		view.Plugins = append(view.Plugins, item)
+	}
+	return view
+}
+
+func strPtrOrEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // ---------- helpers ----------

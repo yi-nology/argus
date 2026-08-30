@@ -80,6 +80,7 @@ test/e2e/                      双打桩端到端：mock OpenAI + fake Gitea + m
 | 成本预算 | `plugin.TokenBudget` + `Dispatcher.PruneByBudget` | 任务内累计器判定（指标只观测）；裁剪按 cost 降序（heavy 先裁），lockRepoConfig 豁免+告警 |
 | 部分失败容忍 | `Dispatcher.Run` + `merger.Degraded` | 单插件失败/超时/熔断 → 报告"降级注明"，其余照常 |
 | 供应链信任 | `bootstrap`（LookPath 检查）| cli 二进制/remote endpoint 只能来自 plugins.yaml；可执行文件缺失→插件置 disabled，绝不换路径解析 |
+| 仓库配置可观测 | `GET /agents?platform&owner&repo` + `plugin.ObserveRepoConfig` | 返回 .reviewagents.yaml 规范化原文 + 各插件生效状态（locked/selected/routed/excluded_by_use/disabled/default）+ 信任边界告警 |
 
 ## 四、快速开始
 

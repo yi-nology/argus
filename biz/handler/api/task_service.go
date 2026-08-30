@@ -65,5 +65,17 @@ func ListAgents(ctx context.Context, c *app.RequestContext) {
 		c.String(consts.StatusServiceUnavailable, "service not ready")
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": Svc.ListAgents(), "message": "ok", "trace_id": ""})
+	var req api.ListAgentsRequest
+	_ = c.BindAndValidate(&req) // query 绑定（可全缺省=纯全局清单）
+	platform, owner, repo := "", "", ""
+	if req.Platform != nil {
+		platform = *req.Platform
+	}
+	if req.Owner != nil {
+		owner = *req.Owner
+	}
+	if req.Repo != nil {
+		repo = *req.Repo
+	}
+	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": Svc.ListAgents(platform, owner, repo), "message": "ok", "trace_id": ""})
 }

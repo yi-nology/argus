@@ -1302,8 +1302,1455 @@ func (p *AgentManifestDTO) String() string {
 
 }
 
+type ListAgentsRequest struct {
+	// api.query="platform" 仓库配置视图（三参全传才启用）
+	Platform *string `thrift:"platform,1,optional" form:"platform" json:"platform,omitempty" query:"platform"`
+	// api.query="owner"
+	Owner *string `thrift:"owner,2,optional" form:"owner" json:"owner,omitempty" query:"owner"`
+	// api.query="repo"
+	Repo *string `thrift:"repo,3,optional" form:"repo" json:"repo,omitempty" query:"repo"`
+}
+
+func NewListAgentsRequest() *ListAgentsRequest {
+	return &ListAgentsRequest{}
+}
+
+func (p *ListAgentsRequest) InitDefault() {
+}
+
+var ListAgentsRequest_Platform_DEFAULT string
+
+func (p *ListAgentsRequest) GetPlatform() (v string) {
+	if !p.IsSetPlatform() {
+		return ListAgentsRequest_Platform_DEFAULT
+	}
+	return *p.Platform
+}
+
+var ListAgentsRequest_Owner_DEFAULT string
+
+func (p *ListAgentsRequest) GetOwner() (v string) {
+	if !p.IsSetOwner() {
+		return ListAgentsRequest_Owner_DEFAULT
+	}
+	return *p.Owner
+}
+
+var ListAgentsRequest_Repo_DEFAULT string
+
+func (p *ListAgentsRequest) GetRepo() (v string) {
+	if !p.IsSetRepo() {
+		return ListAgentsRequest_Repo_DEFAULT
+	}
+	return *p.Repo
+}
+
+var fieldIDToName_ListAgentsRequest = map[int16]string{
+	1: "platform",
+	2: "owner",
+	3: "repo",
+}
+
+func (p *ListAgentsRequest) IsSetPlatform() bool {
+	return p.Platform != nil
+}
+
+func (p *ListAgentsRequest) IsSetOwner() bool {
+	return p.Owner != nil
+}
+
+func (p *ListAgentsRequest) IsSetRepo() bool {
+	return p.Repo != nil
+}
+
+func (p *ListAgentsRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListAgentsRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListAgentsRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Platform = _field
+	return nil
+}
+func (p *ListAgentsRequest) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Owner = _field
+	return nil
+}
+func (p *ListAgentsRequest) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Repo = _field
+	return nil
+}
+
+func (p *ListAgentsRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListAgentsRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListAgentsRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPlatform() {
+		if err = oprot.WriteFieldBegin("platform", thrift.STRING, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Platform); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListAgentsRequest) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetOwner() {
+		if err = oprot.WriteFieldBegin("owner", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Owner); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListAgentsRequest) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRepo() {
+		if err = oprot.WriteFieldBegin("repo", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Repo); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ListAgentsRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListAgentsRequest(%+v)", *p)
+
+}
+
+type RoutingRuleView struct {
+	Paths  []string `thrift:"paths,1,optional,list<string>" form:"paths" json:"paths,omitempty" query:"paths"`
+	Labels []string `thrift:"labels,2,optional,list<string>" form:"labels" json:"labels,omitempty" query:"labels"`
+	Use    []string `thrift:"use,3,optional,list<string>" form:"use" json:"use,omitempty" query:"use"`
+}
+
+func NewRoutingRuleView() *RoutingRuleView {
+	return &RoutingRuleView{}
+}
+
+func (p *RoutingRuleView) InitDefault() {
+}
+
+var RoutingRuleView_Paths_DEFAULT []string
+
+func (p *RoutingRuleView) GetPaths() (v []string) {
+	if !p.IsSetPaths() {
+		return RoutingRuleView_Paths_DEFAULT
+	}
+	return p.Paths
+}
+
+var RoutingRuleView_Labels_DEFAULT []string
+
+func (p *RoutingRuleView) GetLabels() (v []string) {
+	if !p.IsSetLabels() {
+		return RoutingRuleView_Labels_DEFAULT
+	}
+	return p.Labels
+}
+
+var RoutingRuleView_Use_DEFAULT []string
+
+func (p *RoutingRuleView) GetUse() (v []string) {
+	if !p.IsSetUse() {
+		return RoutingRuleView_Use_DEFAULT
+	}
+	return p.Use
+}
+
+var fieldIDToName_RoutingRuleView = map[int16]string{
+	1: "paths",
+	2: "labels",
+	3: "use",
+}
+
+func (p *RoutingRuleView) IsSetPaths() bool {
+	return p.Paths != nil
+}
+
+func (p *RoutingRuleView) IsSetLabels() bool {
+	return p.Labels != nil
+}
+
+func (p *RoutingRuleView) IsSetUse() bool {
+	return p.Use != nil
+}
+
+func (p *RoutingRuleView) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RoutingRuleView[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *RoutingRuleView) ReadField1(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Paths = _field
+	return nil
+}
+func (p *RoutingRuleView) ReadField2(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Labels = _field
+	return nil
+}
+func (p *RoutingRuleView) ReadField3(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Use = _field
+	return nil
+}
+
+func (p *RoutingRuleView) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RoutingRuleView"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RoutingRuleView) writeField1(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPaths() {
+		if err = oprot.WriteFieldBegin("paths", thrift.LIST, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Paths)); err != nil {
+			return err
+		}
+		for _, v := range p.Paths {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *RoutingRuleView) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetLabels() {
+		if err = oprot.WriteFieldBegin("labels", thrift.LIST, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Labels)); err != nil {
+			return err
+		}
+		for _, v := range p.Labels {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *RoutingRuleView) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetUse() {
+		if err = oprot.WriteFieldBegin("use", thrift.LIST, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Use)); err != nil {
+			return err
+		}
+		for _, v := range p.Use {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *RoutingRuleView) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RoutingRuleView(%+v)", *p)
+
+}
+
+type RepoAgentStatus struct {
+	Name string `thrift:"name,1,required" form:"name,required" json:"name,required" query:"name,required"`
+	// default | selected | excluded_by_use | disabled | locked
+	RepoEffect string `thrift:"repoEffect,2,required" form:"repoEffect,required" json:"repoEffect,required" query:"repoEffect,required"`
+	// 被哪些 routing 规则引用（"0,2"）
+	RoutedBy *string `thrift:"routedBy,3,optional" form:"routedBy" json:"routedBy,omitempty" query:"routedBy"`
+	Note     *string `thrift:"note,4,optional" form:"note" json:"note,omitempty" query:"note"`
+}
+
+func NewRepoAgentStatus() *RepoAgentStatus {
+	return &RepoAgentStatus{}
+}
+
+func (p *RepoAgentStatus) InitDefault() {
+}
+
+func (p *RepoAgentStatus) GetName() (v string) {
+	return p.Name
+}
+
+func (p *RepoAgentStatus) GetRepoEffect() (v string) {
+	return p.RepoEffect
+}
+
+var RepoAgentStatus_RoutedBy_DEFAULT string
+
+func (p *RepoAgentStatus) GetRoutedBy() (v string) {
+	if !p.IsSetRoutedBy() {
+		return RepoAgentStatus_RoutedBy_DEFAULT
+	}
+	return *p.RoutedBy
+}
+
+var RepoAgentStatus_Note_DEFAULT string
+
+func (p *RepoAgentStatus) GetNote() (v string) {
+	if !p.IsSetNote() {
+		return RepoAgentStatus_Note_DEFAULT
+	}
+	return *p.Note
+}
+
+var fieldIDToName_RepoAgentStatus = map[int16]string{
+	1: "name",
+	2: "repoEffect",
+	3: "routedBy",
+	4: "note",
+}
+
+func (p *RepoAgentStatus) IsSetRoutedBy() bool {
+	return p.RoutedBy != nil
+}
+
+func (p *RepoAgentStatus) IsSetNote() bool {
+	return p.Note != nil
+}
+
+func (p *RepoAgentStatus) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetName bool = false
+	var issetRepoEffect bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetName = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetRepoEffect = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetName {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetRepoEffect {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RepoAgentStatus[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RepoAgentStatus[fieldId]))
+}
+
+func (p *RepoAgentStatus) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Name = _field
+	return nil
+}
+func (p *RepoAgentStatus) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.RepoEffect = _field
+	return nil
+}
+func (p *RepoAgentStatus) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RoutedBy = _field
+	return nil
+}
+func (p *RepoAgentStatus) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Note = _field
+	return nil
+}
+
+func (p *RepoAgentStatus) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RepoAgentStatus"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RepoAgentStatus) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("name", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Name); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *RepoAgentStatus) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("repoEffect", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.RepoEffect); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *RepoAgentStatus) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRoutedBy() {
+		if err = oprot.WriteFieldBegin("routedBy", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RoutedBy); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *RepoAgentStatus) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetNote() {
+		if err = oprot.WriteFieldBegin("note", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Note); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *RepoAgentStatus) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RepoAgentStatus(%+v)", *p)
+
+}
+
+type RepoConfigView struct {
+	// 是否成功读取仓库 .reviewagents.yaml
+	Loaded  bool               `thrift:"loaded,1,required" form:"loaded,required" json:"loaded,required" query:"loaded,required"`
+	Use     []string           `thrift:"use,2,optional,list<string>" form:"use" json:"use,omitempty" query:"use"`
+	Disable []string           `thrift:"disable,3,optional,list<string>" form:"disable" json:"disable,omitempty" query:"disable"`
+	Routing []*RoutingRuleView `thrift:"routing,4,optional,list<RoutingRuleView>" form:"routing" json:"routing,omitempty" query:"routing"`
+	// 信任边界告警（未知名忽略/lock 保护拒绝）
+	Warnings []string           `thrift:"warnings,5,optional,list<string>" form:"warnings" json:"warnings,omitempty" query:"warnings"`
+	Plugins  []*RepoAgentStatus `thrift:"plugins,6,optional,list<RepoAgentStatus>" form:"plugins" json:"plugins,omitempty" query:"plugins"`
+}
+
+func NewRepoConfigView() *RepoConfigView {
+	return &RepoConfigView{}
+}
+
+func (p *RepoConfigView) InitDefault() {
+}
+
+func (p *RepoConfigView) GetLoaded() (v bool) {
+	return p.Loaded
+}
+
+var RepoConfigView_Use_DEFAULT []string
+
+func (p *RepoConfigView) GetUse() (v []string) {
+	if !p.IsSetUse() {
+		return RepoConfigView_Use_DEFAULT
+	}
+	return p.Use
+}
+
+var RepoConfigView_Disable_DEFAULT []string
+
+func (p *RepoConfigView) GetDisable() (v []string) {
+	if !p.IsSetDisable() {
+		return RepoConfigView_Disable_DEFAULT
+	}
+	return p.Disable
+}
+
+var RepoConfigView_Routing_DEFAULT []*RoutingRuleView
+
+func (p *RepoConfigView) GetRouting() (v []*RoutingRuleView) {
+	if !p.IsSetRouting() {
+		return RepoConfigView_Routing_DEFAULT
+	}
+	return p.Routing
+}
+
+var RepoConfigView_Warnings_DEFAULT []string
+
+func (p *RepoConfigView) GetWarnings() (v []string) {
+	if !p.IsSetWarnings() {
+		return RepoConfigView_Warnings_DEFAULT
+	}
+	return p.Warnings
+}
+
+var RepoConfigView_Plugins_DEFAULT []*RepoAgentStatus
+
+func (p *RepoConfigView) GetPlugins() (v []*RepoAgentStatus) {
+	if !p.IsSetPlugins() {
+		return RepoConfigView_Plugins_DEFAULT
+	}
+	return p.Plugins
+}
+
+var fieldIDToName_RepoConfigView = map[int16]string{
+	1: "loaded",
+	2: "use",
+	3: "disable",
+	4: "routing",
+	5: "warnings",
+	6: "plugins",
+}
+
+func (p *RepoConfigView) IsSetUse() bool {
+	return p.Use != nil
+}
+
+func (p *RepoConfigView) IsSetDisable() bool {
+	return p.Disable != nil
+}
+
+func (p *RepoConfigView) IsSetRouting() bool {
+	return p.Routing != nil
+}
+
+func (p *RepoConfigView) IsSetWarnings() bool {
+	return p.Warnings != nil
+}
+
+func (p *RepoConfigView) IsSetPlugins() bool {
+	return p.Plugins != nil
+}
+
+func (p *RepoConfigView) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetLoaded bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetLoaded = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetLoaded {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RepoConfigView[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RepoConfigView[fieldId]))
+}
+
+func (p *RepoConfigView) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Loaded = _field
+	return nil
+}
+func (p *RepoConfigView) ReadField2(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Use = _field
+	return nil
+}
+func (p *RepoConfigView) ReadField3(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Disable = _field
+	return nil
+}
+func (p *RepoConfigView) ReadField4(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*RoutingRuleView, 0, size)
+	values := make([]RoutingRuleView, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Routing = _field
+	return nil
+}
+func (p *RepoConfigView) ReadField5(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Warnings = _field
+	return nil
+}
+func (p *RepoConfigView) ReadField6(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*RepoAgentStatus, 0, size)
+	values := make([]RepoAgentStatus, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Plugins = _field
+	return nil
+}
+
+func (p *RepoConfigView) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RepoConfigView"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("loaded", thrift.BOOL, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.Loaded); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetUse() {
+		if err = oprot.WriteFieldBegin("use", thrift.LIST, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Use)); err != nil {
+			return err
+		}
+		for _, v := range p.Use {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDisable() {
+		if err = oprot.WriteFieldBegin("disable", thrift.LIST, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Disable)); err != nil {
+			return err
+		}
+		for _, v := range p.Disable {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRouting() {
+		if err = oprot.WriteFieldBegin("routing", thrift.LIST, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Routing)); err != nil {
+			return err
+		}
+		for _, v := range p.Routing {
+			if err := v.Write(oprot); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetWarnings() {
+		if err = oprot.WriteFieldBegin("warnings", thrift.LIST, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.Warnings)); err != nil {
+			return err
+		}
+		for _, v := range p.Warnings {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *RepoConfigView) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPlugins() {
+		if err = oprot.WriteFieldBegin("plugins", thrift.LIST, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Plugins)); err != nil {
+			return err
+		}
+		for _, v := range p.Plugins {
+			if err := v.Write(oprot); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *RepoConfigView) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RepoConfigView(%+v)", *p)
+
+}
+
 type ListAgentsResponse struct {
 	Agents []*AgentManifestDTO `thrift:"agents,1,required,list<AgentManifestDTO>" form:"agents,required" json:"agents,required" query:"agents,required"`
+	// platform/owner/repo 三参全传时返回
+	RepoConfig *RepoConfigView `thrift:"repoConfig,2,optional" form:"repoConfig" json:"repoConfig,omitempty" query:"repoConfig"`
 }
 
 func NewListAgentsResponse() *ListAgentsResponse {
@@ -1317,8 +2764,22 @@ func (p *ListAgentsResponse) GetAgents() (v []*AgentManifestDTO) {
 	return p.Agents
 }
 
+var ListAgentsResponse_RepoConfig_DEFAULT *RepoConfigView
+
+func (p *ListAgentsResponse) GetRepoConfig() (v *RepoConfigView) {
+	if !p.IsSetRepoConfig() {
+		return ListAgentsResponse_RepoConfig_DEFAULT
+	}
+	return p.RepoConfig
+}
+
 var fieldIDToName_ListAgentsResponse = map[int16]string{
 	1: "agents",
+	2: "repoConfig",
+}
+
+func (p *ListAgentsResponse) IsSetRepoConfig() bool {
+	return p.RepoConfig != nil
 }
 
 func (p *ListAgentsResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -1347,6 +2808,14 @@ func (p *ListAgentsResponse) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetAgents = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -1408,6 +2877,14 @@ func (p *ListAgentsResponse) ReadField1(iprot thrift.TProtocol) error {
 	p.Agents = _field
 	return nil
 }
+func (p *ListAgentsResponse) ReadField2(iprot thrift.TProtocol) error {
+	_field := NewRepoConfigView()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.RepoConfig = _field
+	return nil
+}
 
 func (p *ListAgentsResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1417,6 +2894,10 @@ func (p *ListAgentsResponse) Write(oprot thrift.TProtocol) (err error) {
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
 			goto WriteFieldError
 		}
 	}
@@ -1460,6 +2941,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListAgentsResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRepoConfig() {
+		if err = oprot.WriteFieldBegin("repoConfig", thrift.STRUCT, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.RepoConfig.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
 func (p *ListAgentsResponse) String() string {
@@ -2950,7 +4450,7 @@ type TaskService interface {
 
 	GetTask(ctx context.Context, taskId string) (r *GetTaskResponse, err error)
 
-	ListAgents(ctx context.Context) (r *ListAgentsResponse, err error)
+	ListAgents(ctx context.Context, request *ListAgentsRequest) (r *ListAgentsResponse, err error)
 }
 
 type TaskServiceClient struct {
@@ -2997,8 +4497,9 @@ func (p *TaskServiceClient) GetTask(ctx context.Context, taskId string) (r *GetT
 	}
 	return _result.GetSuccess(), nil
 }
-func (p *TaskServiceClient) ListAgents(ctx context.Context) (r *ListAgentsResponse, err error) {
+func (p *TaskServiceClient) ListAgents(ctx context.Context, request *ListAgentsRequest) (r *ListAgentsResponse, err error) {
 	var _args TaskServiceListAgentsArgs
+	_args.Request = request
 	var _result TaskServiceListAgentsResult
 	if err = p.Client_().Call(ctx, "ListAgents", &_args, &_result); err != nil {
 		return
@@ -3205,7 +4706,7 @@ func (p *taskServiceProcessorListAgents) Process(ctx context.Context, seqId int3
 	var err2 error
 	result := TaskServiceListAgentsResult{}
 	var retval *ListAgentsResponse
-	if retval, err2 = p.handler.ListAgents(ctx); err2 != nil {
+	if retval, err2 = p.handler.ListAgents(ctx, args.Request); err2 != nil {
 		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ListAgents: "+err2.Error())
 		oprot.WriteMessageBegin("ListAgents", thrift.EXCEPTION, seqId)
 		x.Write(oprot)
@@ -3816,6 +5317,7 @@ func (p *TaskServiceGetTaskResult) String() string {
 }
 
 type TaskServiceListAgentsArgs struct {
+	Request *ListAgentsRequest `thrift:"request,1"`
 }
 
 func NewTaskServiceListAgentsArgs() *TaskServiceListAgentsArgs {
@@ -3825,7 +5327,22 @@ func NewTaskServiceListAgentsArgs() *TaskServiceListAgentsArgs {
 func (p *TaskServiceListAgentsArgs) InitDefault() {
 }
 
-var fieldIDToName_TaskServiceListAgentsArgs = map[int16]string{}
+var TaskServiceListAgentsArgs_Request_DEFAULT *ListAgentsRequest
+
+func (p *TaskServiceListAgentsArgs) GetRequest() (v *ListAgentsRequest) {
+	if !p.IsSetRequest() {
+		return TaskServiceListAgentsArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TaskServiceListAgentsArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TaskServiceListAgentsArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
 
 func (p *TaskServiceListAgentsArgs) Read(iprot thrift.TProtocol) (err error) {
 
@@ -3844,8 +5361,20 @@ func (p *TaskServiceListAgentsArgs) Read(iprot thrift.TProtocol) (err error) {
 		if fieldTypeId == thrift.STOP {
 			break
 		}
-		if err = iprot.Skip(fieldTypeId); err != nil {
-			goto SkipFieldTypeError
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		}
 		if err = iprot.ReadFieldEnd(); err != nil {
 			goto ReadFieldEndError
@@ -3860,8 +5389,10 @@ ReadStructBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
 ReadFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-SkipFieldTypeError:
-	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TaskServiceListAgentsArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
 
 ReadFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
@@ -3869,11 +5400,25 @@ ReadStructEndError:
 	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
 }
 
+func (p *TaskServiceListAgentsArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewListAgentsRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
 func (p *TaskServiceListAgentsArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
 	if err = oprot.WriteStructBegin("ListAgents_args"); err != nil {
 		goto WriteStructBeginError
 	}
 	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
 	}
 	if err = oprot.WriteFieldStop(); err != nil {
 		goto WriteFieldStopError
@@ -3884,10 +5429,29 @@ func (p *TaskServiceListAgentsArgs) Write(oprot thrift.TProtocol) (err error) {
 	return nil
 WriteStructBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
 WriteFieldStopError:
 	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
 WriteStructEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TaskServiceListAgentsArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
 }
 
 func (p *TaskServiceListAgentsArgs) String() string {

@@ -354,6 +354,16 @@ func newStack(t TestingT, opt stackOpts) *stack {
 			Skills: []string{plugin.SkillCodeReview}, Needs: []string{"diff"},
 			Cost: plugin.CostStandard, Timeout: "60s",
 		},
+		{
+			Name: "security", Kind: "builtin",
+			Skills: []string{plugin.SkillCodeReview}, Needs: []string{"diff"},
+			Cost: plugin.CostHeavy, Timeout: "60s", LockRepoConfig: true,
+		},
+		{
+			// 与生产默认一致：remote 占位（endpoint 未配置 → 注册为不可用，可观测）
+			Name: "frontend-visual", Kind: "remote", Protocol: "a2a",
+			Skills: []string{plugin.SkillVisualCheck}, Needs: []string{"preview-url"},
+		},
 	}
 	if opt.withOCR {
 		script := writeOCRScript(t, tmp)
