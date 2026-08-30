@@ -33,6 +33,10 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 		if pc.Token == "" {
 			continue
 		}
+		if pc.Secret == "" {
+			log.Warn("argus.sdkctx.no_webhook_secret", "platform", name,
+				"hint", "未配置 SECRET：入站 webhook 将跳过签名校验（SDK 语义），生产必须配置")
+		}
 		if pc.SkipTLS {
 			log.Warn("argus.sdkctx.skip_tls", "platform", name,
 				"hint", "已跳过 TLS 证书校验（内网自建实例），请勿在公网环境开启")

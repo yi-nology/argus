@@ -129,8 +129,12 @@ func Render(r Report) string {
 			if by == "" {
 				by = "argus"
 			}
-			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s\n",
-				f.File, f.Line, strings.ToUpper(f.Severity), strings.TrimSpace(f.Comment), by)
+			// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）
+			fp := plugin.Fingerprint(f.File, f.Comment)[:8]
+			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
+			comment := strings.ReplaceAll(strings.TrimSpace(f.Comment), "\n", "\n  ")
+			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
+				f.File, f.Line, strings.ToUpper(f.Severity), comment, by, fp)
 		}
 	}
 

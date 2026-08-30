@@ -55,6 +55,9 @@ type Config struct {
 	// 任务保留天数（运维加固）：超期已终结任务（done/failed/stale）启动+每日清理。
 	// 0 = 永久保留（默认，行为与 v3.0 一致）。
 	TaskRetentionDays int
+
+	// Debug 留存阶段产物（R1 spec/R2 摘要/R3 原始输出）到任务记录，GET /tasks/:id 可查。
+	Debug bool
 }
 
 // MaxDiffCharsResolved 返回生效的 diff 总量上限（design §6：显式设置则覆盖公式；
@@ -107,6 +110,7 @@ func Load() *Config {
 		PollInterval:       envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:          os.Getenv("ARGUS_POLL_REPOS"),
 		TaskRetentionDays:  envInt("ARGUS_TASK_RETENTION_DAYS", 0),
+		Debug:              envBool("ARGUS_DEBUG", false),
 		LLM: LLMConfig{
 			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
 			APIKey:       os.Getenv("OPENAI_API_KEY"),

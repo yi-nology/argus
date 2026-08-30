@@ -43,6 +43,8 @@ type Task struct {
 	// SummaryCommentID 最近一次成功回帖的总结评论 ID（任务结束回填，供观测）。
 	SummaryCommentID int64  `gorm:"column:summary_comment_id"`
 	ArtifactsJSON    string `gorm:"column:artifacts_json;type:text"`
+	// DebugJSON 调试产物（ARGUS_DEBUG=1 时留存 R1 spec/R2 摘要/R3 原始输出）
+	DebugJSON string `gorm:"column:debug_json;type:text"`
 
 	CreatedAt  time.Time  `gorm:"column:created_at;index"`
 	UpdatedAt  time.Time  `gorm:"column:updated_at"`
@@ -333,6 +335,14 @@ func (s *Store) SetTaskHeadSHA(ctx context.Context, id, sha string) error {
 	defer s.writeMu.Unlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("head_sha", sha).Error
+}
+
+// SetTaskDebug 留存阶段调试产物（ARGUS_DEBUG=1）。
+func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+		Update("debug_json", debugJSON).Error
 }
 
 // HasNewerNonFailedTask staleness 单条件判定（§10.2 五轮评审修正）：

@@ -4,6 +4,7 @@ package requirement
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -39,6 +40,7 @@ type Output struct {
 	Summary    string // R2 变更摘要
 	Elapsed    time.Duration
 	Tokens     int
+	Debug      map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
 }
 
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
@@ -68,16 +70,21 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	start := time.Now()
 	rc := w.loadRepoConfig(ctx, task)
 
+	debug := map[string]string{}
 	// R1 需求解析
 	spec, err := w.ParseRequirement(ctx, task)
 	if err != nil {
 		return nil, err
+	}
+	if b, e := json.Marshal(spec); e == nil {
+		debug["r1_spec"] = string(b)
 	}
 	// R2 变更理解
 	summary, err := w.SummarizeChange(ctx, task)
 	if err != nil {
 		return nil, err
 	}
+	debug["r2_summary"] = summary
 	// 注入 R2 产物到 Artifacts，R4 插件可复用（公共前缀省 token）
 	if task.Artifacts == nil {
 		task.Artifacts = map[string]string{}
@@ -86,13 +93,25 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	task.Requirement = spec
 
 	// R3 完成度判定
-	report, _, err := w.CheckCompliance(ctx, task, spec, summary)
+	report, raw, err := w.CheckCompliance(ctx, task, spec, summary)
 	if err != nil {
 		return nil, err
 	}
+	if raw != "" {
+		debug["r3_raw"] = raw
+	}
+	if report != nil {
+		if b, e := json.Marshal(report); e == nil {
+			debug["r3_checks"] = string(b)
+		}
+	}
 
 	// R4 专家委派 + R5 汇总裁决
-	return w.finish(ctx, task, budget, rc, start, spec, report, summary)
+	out, err := w.finish(ctx, task, budget, rc, start, spec, report, summary)
+	if out != nil {
+		out.Debug = debug
+	}
+	return out, err
 }
 
 // RunReviewOnly 仅 R4+R5（code_review / visual_check 任务：无需求清单，R5.1/R5.3 需求条件跳过）。
@@ -108,7 +127,11 @@ func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *
 		task.Artifacts = map[string]string{}
 	}
 	task.Artifacts["change_summary"] = summary
-	return w.finish(ctx, task, budget, rc, start, nil, nil, summary)
+	out, err := w.finish(ctx, task, budget, rc, start, nil, nil, summary)
+	if out != nil {
+		out.Debug = map[string]string{"r2_summary": summary}
+	}
+	return out, err
 }
 
 // finish = R4 专家委派 + R5 确定性真值表。

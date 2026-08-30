@@ -95,6 +95,7 @@ struct GetTaskResponse {
     5: optional string reportRef,
     6: optional string failReason,
     7: optional string report,
+    8: optional string debug,       // ARGUS_DEBUG=1 时的阶段产物（R1 spec/R2 摘要/R3 原始输出）
 }
 
 struct WebhookResponse {
@@ -131,8 +132,9 @@ struct SuppressFindingRequest {
     2: required string owner,
     3: required string repo,
     4: required string number,
-    5: required string file,        // 与报告中的意见 file 一致
-    6: required string comment,     // 与报告中的意见原文一致（服务端按同一指纹函数计算）
+    5: optional string file,        // 与报告中的意见 file 一致
+    6: optional string comment,     // 与报告中的意见原文一致（与 fingerprint 二选一）
+    7: optional string fingerprint, // 报告意见行的 fp 短码（≥4 位前缀，服务端解析完整指纹）
 }
 
 struct SuppressFindingResponse {

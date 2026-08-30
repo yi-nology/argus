@@ -305,18 +305,44 @@ func (s *Service) SuppressFinding(ctx context.Context, c *app.RequestContext, re
 	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
 		return nil, http.StatusBadRequest
 	}
-	if req.File == "" || strings.TrimSpace(req.Comment) == "" {
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return strings.TrimSpace(*p)
+	}
+	if req.Number == "" {
 		return nil, http.StatusBadRequest
 	}
-	fp := plugin.Fingerprint(req.File, req.Comment)
+
+	var (
+		fp      string
+		file    = str(req.File)
+		comment = str(req.Comment)
+	)
+	switch {
+	case str(req.Fingerprint) != "":
+		// 模式一：报告意见行的 fp 短码直达（前缀解析完整指纹）
+		full, found := s.Store.ResolvePrintFingerprint(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
+		if !found {
+			return &api.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
+		}
+		fp = full
+	case file != "" && comment != "":
+		// 模式二：file + 意见原文（与 Merger 同一指纹函数）
+		fp = plugin.Fingerprint(file, comment)
+	default:
+		return nil, http.StatusBadRequest // fingerprint 或 (file+comment) 二选一
+	}
+
 	matched, err := s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
-		fp, plugin.Finding{File: req.File, Comment: req.Comment}, time.Now())
+		fp, plugin.Finding{File: file, Comment: comment}, time.Now())
 	if err != nil {
 		s.Log.Error("argus.api.suppress_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	s.Log.Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
-		"file", req.File, "matched", matched)
+		"file", file, "matched", matched, "fp", fp[:8])
 	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
@@ -358,6 +384,9 @@ func (s *Service) GetTask(ctx context.Context, c *app.RequestContext, taskID str
 				})
 			}
 		}
+	}
+	if task.DebugJSON != "" {
+		resp.Debug = strPtr(task.DebugJSON)
 	}
 	return resp, http.StatusOK
 }

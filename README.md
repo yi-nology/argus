@@ -128,6 +128,11 @@ curl localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"   
 curl localhost:8899/tasks?status=done -H "Authorization: Bearer $ARGUS_APITOKEN"  # 任务列表
 
 # 误报反馈：把某条意见标记为抑制（之后每轮报告自动剔除）
+# 方式一：报告意见行尾的 fp 短码直达
+curl -X POST localhost:8899/findings/suppress \
+  -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
+  -d '{"platform":"gitea","owner":"acme","repo":"app","number":"7","fingerprint":"ab12cd34"}'
+# 方式二：file + 意见原文（指纹函数对空白/标点不敏感）
 curl -X POST localhost:8899/findings/suppress \
   -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
   -d '{"platform":"gitea","owner":"acme","repo":"app","number":"7","file":"a.go","comment":"意见原文"}'

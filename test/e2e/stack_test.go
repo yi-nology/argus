@@ -290,6 +290,7 @@ type stackOpts struct {
 	correctness string
 	withOCR     bool
 	realLLM     bool              // true = 用环境变量 OPENAI_* 的真实模型（集成测试），不用 mock
+	debug       bool              // ARGUS_DEBUG：留存阶段产物
 	skills      map[string]string // skillRef name → content
 }
 
@@ -393,6 +394,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		Addr: "127.0.0.1:0", DBDSN: tmp + "/argus.db", APIToken: "e2e-token",
 		BotUsername: "argus-bot", SkipDraft: true, MaxConcurrentTasks: 2,
 		TaskTokenBudget: 200000, ReportMeta: true, PluginsFile: pluginsFile,
+		Debug:     opt.debug,
 		SkillsDir: skillsDir, WorkRoot: tmp + "/work",
 		Platforms: map[string]config.PlatformConfig{
 			"gitea": {BaseURL: "http://gitea.test", Token: "tok", Secret: "e2e-sign-secret"},

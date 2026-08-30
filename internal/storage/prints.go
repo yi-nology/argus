@@ -118,6 +118,20 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 	return matched, err
 }
 
+// ResolvePrintFingerprint 按短码前缀解析完整指纹（取最近更新的一条）。
+// found=false 表示该前缀在此 PR 下无匹配。
+func (s *Store) ResolvePrintFingerprint(ctx context.Context, platform, owner, repo, number, prefix string) (string, bool) {
+	var p FindingPrint
+	err := s.db.WithContext(ctx).Where(
+		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
+		platform, owner, repo, number, prefix+"%").
+		Order("last_seen_at DESC").First(&p).Error
+	if err != nil {
+		return "", false
+	}
+	return p.Print, true
+}
+
 // ListFindingPrints 观测辅助：某 PR 的全部指纹记录（GET 任务结果时可用）。
 func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, number string) ([]FindingPrint, error) {
 	var out []FindingPrint

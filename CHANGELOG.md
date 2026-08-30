@@ -21,6 +21,10 @@
   原文 + 插件生效状态（locked/selected/routed/excluded_by_use/disabled/default）+ 信任边界告警。
 - **运维**：两阶段优雅停机（停领取→等在途 60s→硬取消）；`ARGUS_TASK_RETENTION_DAYS`
   保留清理；`argus_tasks_pending/running` gauge；部署交付 `deploy/`（compose + k8s kustomize）。
+- **反馈/诊断体验**：报告意见行带指纹短码（`（fp:xxxxxxxx）`），suppress 支持
+  `fingerprint` 参数直达（前缀解析完整指纹）；`ARGUS_DEBUG=1` 留存 R1 spec/R2 摘要/
+  R3 原始输出到任务记录（GET /tasks/:id 的 debug 字段）；多行意见渲染缩进修正；
+  平台 SECRET 缺失启动告警（SDK 空 secret 跳过签名校验的语义显式化）。（E2E 场景15）
 
 ### 修复
 

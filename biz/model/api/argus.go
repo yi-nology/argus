@@ -3625,6 +3625,8 @@ type GetTaskResponse struct {
 	ReportRef  *string    `thrift:"reportRef,5,optional" form:"reportRef" json:"reportRef,omitempty" query:"reportRef"`
 	FailReason *string    `thrift:"failReason,6,optional" form:"failReason" json:"failReason,omitempty" query:"failReason"`
 	Report     *string    `thrift:"report,7,optional" form:"report" json:"report,omitempty" query:"report"`
+	// ARGUS_DEBUG=1 时的阶段产物（R1 spec/R2 摘要/R3 原始输出）
+	Debug *string `thrift:"debug,8,optional" form:"debug" json:"debug,omitempty" query:"debug"`
 }
 
 func NewGetTaskResponse() *GetTaskResponse {
@@ -3687,6 +3689,15 @@ func (p *GetTaskResponse) GetReport() (v string) {
 	return *p.Report
 }
 
+var GetTaskResponse_Debug_DEFAULT string
+
+func (p *GetTaskResponse) GetDebug() (v string) {
+	if !p.IsSetDebug() {
+		return GetTaskResponse_Debug_DEFAULT
+	}
+	return *p.Debug
+}
+
 var fieldIDToName_GetTaskResponse = map[int16]string{
 	1: "taskId",
 	2: "status",
@@ -3695,6 +3706,7 @@ var fieldIDToName_GetTaskResponse = map[int16]string{
 	5: "reportRef",
 	6: "failReason",
 	7: "report",
+	8: "debug",
 }
 
 func (p *GetTaskResponse) IsSetVerdict() bool {
@@ -3715,6 +3727,10 @@ func (p *GetTaskResponse) IsSetFailReason() bool {
 
 func (p *GetTaskResponse) IsSetReport() bool {
 	return p.Report != nil
+}
+
+func (p *GetTaskResponse) IsSetDebug() bool {
+	return p.Debug != nil
 }
 
 func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -3791,6 +3807,14 @@ func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
 		case 7:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -3925,6 +3949,17 @@ func (p *GetTaskResponse) ReadField7(iprot thrift.TProtocol) error {
 	p.Report = _field
 	return nil
 }
+func (p *GetTaskResponse) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Debug = _field
+	return nil
+}
 
 func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -3958,6 +3993,10 @@ func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
 			goto WriteFieldError
 		}
 	}
@@ -4113,6 +4152,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDebug() {
+		if err = oprot.WriteFieldBegin("debug", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Debug); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
 }
 
 func (p *GetTaskResponse) String() string {
@@ -5463,9 +5521,11 @@ type SuppressFindingRequest struct {
 	Repo     string `thrift:"repo,3,required" form:"repo,required" json:"repo,required" query:"repo,required"`
 	Number   string `thrift:"number,4,required" form:"number,required" json:"number,required" query:"number,required"`
 	// 与报告中的意见 file 一致
-	File string `thrift:"file,5,required" form:"file,required" json:"file,required" query:"file,required"`
-	// 与报告中的意见原文一致（服务端按同一指纹函数计算）
-	Comment string `thrift:"comment,6,required" form:"comment,required" json:"comment,required" query:"comment,required"`
+	File *string `thrift:"file,5,optional" form:"file" json:"file,omitempty" query:"file"`
+	// 与报告中的意见原文一致（与 fingerprint 二选一）
+	Comment *string `thrift:"comment,6,optional" form:"comment" json:"comment,omitempty" query:"comment"`
+	// 报告意见行的 fp 短码（≥4 位前缀，服务端解析完整指纹）
+	Fingerprint *string `thrift:"fingerprint,7,optional" form:"fingerprint" json:"fingerprint,omitempty" query:"fingerprint"`
 }
 
 func NewSuppressFindingRequest() *SuppressFindingRequest {
@@ -5491,12 +5551,31 @@ func (p *SuppressFindingRequest) GetNumber() (v string) {
 	return p.Number
 }
 
+var SuppressFindingRequest_File_DEFAULT string
+
 func (p *SuppressFindingRequest) GetFile() (v string) {
-	return p.File
+	if !p.IsSetFile() {
+		return SuppressFindingRequest_File_DEFAULT
+	}
+	return *p.File
 }
 
+var SuppressFindingRequest_Comment_DEFAULT string
+
 func (p *SuppressFindingRequest) GetComment() (v string) {
-	return p.Comment
+	if !p.IsSetComment() {
+		return SuppressFindingRequest_Comment_DEFAULT
+	}
+	return *p.Comment
+}
+
+var SuppressFindingRequest_Fingerprint_DEFAULT string
+
+func (p *SuppressFindingRequest) GetFingerprint() (v string) {
+	if !p.IsSetFingerprint() {
+		return SuppressFindingRequest_Fingerprint_DEFAULT
+	}
+	return *p.Fingerprint
 }
 
 var fieldIDToName_SuppressFindingRequest = map[int16]string{
@@ -5506,6 +5585,19 @@ var fieldIDToName_SuppressFindingRequest = map[int16]string{
 	4: "number",
 	5: "file",
 	6: "comment",
+	7: "fingerprint",
+}
+
+func (p *SuppressFindingRequest) IsSetFile() bool {
+	return p.File != nil
+}
+
+func (p *SuppressFindingRequest) IsSetComment() bool {
+	return p.Comment != nil
+}
+
+func (p *SuppressFindingRequest) IsSetFingerprint() bool {
+	return p.Fingerprint != nil
 }
 
 func (p *SuppressFindingRequest) Read(iprot thrift.TProtocol) (err error) {
@@ -5516,8 +5608,6 @@ func (p *SuppressFindingRequest) Read(iprot thrift.TProtocol) (err error) {
 	var issetOwner bool = false
 	var issetRepo bool = false
 	var issetNumber bool = false
-	var issetFile bool = false
-	var issetComment bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -5574,7 +5664,6 @@ func (p *SuppressFindingRequest) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField5(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetFile = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -5583,7 +5672,14 @@ func (p *SuppressFindingRequest) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField6(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetComment = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -5617,16 +5713,6 @@ func (p *SuppressFindingRequest) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetNumber {
 		fieldId = 4
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetFile {
-		fieldId = 5
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetComment {
-		fieldId = 6
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -5693,24 +5779,35 @@ func (p *SuppressFindingRequest) ReadField4(iprot thrift.TProtocol) error {
 }
 func (p *SuppressFindingRequest) ReadField5(iprot thrift.TProtocol) error {
 
-	var _field string
+	var _field *string
 	if v, err := iprot.ReadString(); err != nil {
 		return err
 	} else {
-		_field = v
+		_field = &v
 	}
 	p.File = _field
 	return nil
 }
 func (p *SuppressFindingRequest) ReadField6(iprot thrift.TProtocol) error {
 
-	var _field string
+	var _field *string
 	if v, err := iprot.ReadString(); err != nil {
 		return err
 	} else {
-		_field = v
+		_field = &v
 	}
 	p.Comment = _field
+	return nil
+}
+func (p *SuppressFindingRequest) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Fingerprint = _field
 	return nil
 }
 
@@ -5742,6 +5839,10 @@ func (p *SuppressFindingRequest) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField6(oprot); err != nil {
 			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -5831,14 +5932,16 @@ WriteFieldEndError:
 }
 
 func (p *SuppressFindingRequest) writeField5(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("file", thrift.STRING, 5); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteString(p.File); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
+	if p.IsSetFile() {
+		if err = oprot.WriteFieldBegin("file", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.File); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
 	}
 	return nil
 WriteFieldBeginError:
@@ -5848,20 +5951,41 @@ WriteFieldEndError:
 }
 
 func (p *SuppressFindingRequest) writeField6(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("comment", thrift.STRING, 6); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := oprot.WriteString(p.Comment); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
+	if p.IsSetComment() {
+		if err = oprot.WriteFieldBegin("comment", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Comment); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
 	}
 	return nil
 WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *SuppressFindingRequest) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetFingerprint() {
+		if err = oprot.WriteFieldBegin("fingerprint", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Fingerprint); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *SuppressFindingRequest) String() string {

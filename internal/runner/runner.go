@@ -179,6 +179,12 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		string(resultJSON), "", out.Tokens, res.SummaryCommentID); err != nil {
 		return err
 	}
+	// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
+	if r.Cfg.Debug && len(out.Debug) > 0 {
+		if b, e := json.Marshal(out.Debug); e == nil {
+			_ = r.Store.SetTaskDebug(ctx, task.ID, string(b))
+		}
+	}
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", status,
 		"verdict", out.Verdict, "rule", out.Rule, "findings", findingsCount(out.Merged),
