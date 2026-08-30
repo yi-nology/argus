@@ -191,3 +191,38 @@ func TestPrintUpsert(t *testing.T) {
 		t.Fatalf("suppressed 应保持: %v %v", suppressed, err)
 	}
 }
+
+// 保留策略：只清已终结的超期任务，pending/running 不动。
+func TestPruneTasks(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	old := time.Now().Add(-48 * time.Hour)
+	for _, tc := range []*Task{
+		{ID: "old-done", Kind: "code_review", Platform: "gitea", Owner: "o", Repo: "r", Number: "1",
+			Status: StatusDone, CreatedAt: old},
+		{ID: "old-failed", Kind: "code_review", Platform: "gitea", Owner: "o", Repo: "r", Number: "2",
+			Status: StatusFailed, CreatedAt: old},
+		{ID: "new-done", Kind: "code_review", Platform: "gitea", Owner: "o", Repo: "r", Number: "3",
+			Status: StatusDone, CreatedAt: time.Now()},
+		{ID: "old-pending", Kind: "code_review", Platform: "gitea", Owner: "o", Repo: "r", Number: "4",
+			Status: StatusPending, CreatedAt: old},
+	} {
+		if err := s.CreateTask(ctx, tc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.PruneTasks(ctx, time.Now().Add(-24*time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("应删除 2 条超期已终结任务，got n=%d err=%v", n, err)
+	}
+	if _, err := s.GetTask(ctx, "old-pending"); err != nil {
+		t.Fatal("pending 不应被清理")
+	}
+	if _, err := s.GetTask(ctx, "new-done"); err != nil {
+		t.Fatal("未过期任务不应被清理")
+	}
+	p, r, err := s.TaskCounts(ctx)
+	if err != nil || p != 1 || r != 0 {
+		t.Fatalf("TaskCounts 错误: pending=%d running=%d err=%v", p, r, err)
+	}
+}

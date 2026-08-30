@@ -143,9 +143,14 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	}
 
 	// ② 扫描既有评论的 HTML 注释头（review_targets 记录损坏时的审计兜底，§10.1）
+	// 只看最近 50 条：高频 PR 评论量大，全量扫描既慢又无必要（报告评论永远是较新的）。
 	if comments, err := p.SDK.ListIssueComments(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
 		var found int64
-		for _, c := range comments { // 取最后一个（最新）匹配
+		start := 0
+		if len(comments) > 50 {
+			start = len(comments) - 50
+		}
+		for _, c := range comments[start:] { // 取最后一个（最新）匹配
 			if strings.Contains(c.Body, reportview.ReportHeaderPrefix) {
 				found = c.ID
 			}

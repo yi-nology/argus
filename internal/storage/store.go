@@ -201,7 +201,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 // GetTaskByEventID webhook 幂等查询：命中 = 平台重发。
 func (s *Store) GetTaskByEventID(ctx context.Context, eventID string) (*Task, error) {
 	var t Task
-	err := s.db.WithContext(ctx).Where("event_id = ?", eventID).First(&t).Error
+	err := s.quietDB().WithContext(ctx).Where("event_id = ?", eventID).First(&t).Error
 	if err != nil {
 		return nil, err
 	}
@@ -256,13 +256,19 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 	return dupReason, existingID, nil
 }
 
+// quietDB 预期内"查无记录"的路径专用：GORM 默认把 ErrRecordNotFound 打成红色错误日志，
+// worker 每 500ms 空轮询一次会刷屏掩盖真实告警——这些路径静默。
+func (s *Store) quietDB() *gorm.DB {
+	return s.db.Session(&gorm.Session{Logger: logger.Discard})
+}
+
 // ClaimNextPending worker 原子抢占一个 pending 任务（pending→running）。
 // 返回 ok=false 表示当前无任务。
 func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var claimed *Task
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var t Task
 		err := tx.Where("status = ?", StatusPending).Order("created_at ASC, id ASC").First(&t).Error
 		if err != nil {
@@ -341,10 +347,33 @@ func (s *Store) HasNewerNonFailedTask(ctx context.Context, platform, owner, repo
 	return cnt > 0, err
 }
 
+// PruneTasks 保留策略：删除 created_at 早于 cutoff 的已终结任务
+// （done/failed/stale；pending/running 不动）。返回删除行数。
+func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res := s.db.WithContext(ctx).Where(
+		"status IN ? AND created_at < ?",
+		[]string{StatusDone, StatusFailed, StatusStale}, cutoff).Delete(&Task{})
+	return res.RowsAffected, res.Error
+}
+
+// TaskCounts 队列深度（pending/running），供指标暴露。
+func (s *Store) TaskCounts(ctx context.Context) (pending, running int64, err error) {
+	err = s.quietDB().WithContext(ctx).Model(&Task{}).
+		Where("status = ?", StatusPending).Count(&pending).Error
+	if err != nil {
+		return 0, 0, err
+	}
+	err = s.quietDB().WithContext(ctx).Model(&Task{}).
+		Where("status = ?", StatusRunning).Count(&running).Error
+	return pending, running, err
+}
+
 // GetReviewTarget 查询（不存在返回 nil,nil）。
 func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, number string) (*ReviewTarget, error) {
 	var t ReviewTarget
-	err := s.db.WithContext(ctx).Where(
+	err := s.quietDB().WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ?",
 		platform, owner, repo, number).First(&t).Error
 	if err != nil {

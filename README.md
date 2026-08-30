@@ -185,7 +185,23 @@ routing:
 要点：需要你生成一个 Forgejo Access Token（唯一人工步骤）；证书过期用 `ARGUS_GITEA_SKIP_TLS=1`；
 webhook 一键注册：`./scripts/setup-webhook.sh <owner/repo>`。
 
-## 七、部署定位
+## 七、运维与健壮性（v3.0.1 加固）
+
+- **优雅停机**：SIGTERM 后 HTTP 先停，worker 停止领取新任务并给在途审查 60s 自然完成
+  （`wp.Stop(60s)`）；超时才硬取消，任务保持 running、下次启动自动重置回 pending——
+  部署重启不会把跑到一半的审查杀掉重跑、双倍消耗 token。
+- **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS=30`（0=永久）——超期的已终结任务
+  （done/failed/stale）启动时+每日自动清理；pending/running 永不清理。
+- **队列积压可观测**：`argus_tasks_pending` / `argus_tasks_running` gauge（30s 采样），
+  积压一眼可见。
+- **日志卫生**：预期内"查无记录"（worker 空轮询、webhook 重放查询等）已静默，
+  不会每 500ms 刷红色错误淹没真实告警。
+- **凭据安全**：workcopy 克隆失败的报错会脱敏嵌入 URL 的 token；`SKIP_TLS=1` 时
+  启动日志有明示告警。
+- **单实例约束**：SQLite 模式下 Argus 必须单实例运行（连接数=1 + 写锁保证幂等/
+  去重事务性）；集群多副本部署必须切 MySQL。
+
+## 八、部署定位
 
 **学习期**：本机/内网运行，SQLite 单文件（`ARGUS_DB_DSN=argus.db`），LLM 复用 lacus `.env`；
 镜像构建自包含（vendor，无需私有 Gitea 凭证）：`make docker` → `argus:v3.0.0`。

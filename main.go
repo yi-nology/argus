@@ -137,9 +137,48 @@ func main() {
 		SkillProvider: skills, SkillRefs: complianceSkillRefs,
 	}
 
-	// ---- worker pool（§10.4 DB 即队列）----
+	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
 	wp := &worker.Pool{Store: store, N: cfg.MaxConcurrentTasks, Log: log, Run: runnerRef.Execute}
 	wp.Start(ctx)
+
+	// ---- 运维加固：任务保留清理 + 队列深度采样 ----
+	if cfg.TaskRetentionDays > 0 {
+		retention := time.Duration(cfg.TaskRetentionDays) * 24 * time.Hour
+		pruneOnce := func() {
+			if n, err := store.PruneTasks(ctx, time.Now().Add(-retention)); err != nil {
+				log.Warn("argus.boot.prune_failed", "error", err.Error())
+			} else if n > 0 {
+				log.Info("argus.boot.pruned", "removed", n, "retention_days", cfg.TaskRetentionDays)
+			}
+		}
+		pruneOnce()
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					pruneOnce()
+				}
+			}
+		}()
+	}
+	go func() { // 队列深度 gauge（30s 采样；argus_tasks_pending/running）
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if pending, running, err := store.TaskCounts(ctx); err == nil {
+					obs.SetTaskQueueDepth(pending, running)
+				}
+			}
+		}
+	}()
 
 	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
 	if cfg.PollInterval > 0 && cfg.PollRepos != "" {
@@ -164,6 +203,9 @@ func main() {
 	h := server.Default(server.WithHostPorts(cfg.Addr))
 	registerCustom(h, store, sdk, cfg, log)
 	h.Spin()
+	// 优雅停机：HTTP 已停 → worker 停止领取并给在途任务 60s 自然完成；
+	// 超时才硬取消（任务保持 running，下次启动重置回 pending）。
+	wp.Stop(60 * time.Second)
 	cancel()
 }
 

@@ -51,6 +51,10 @@ type Config struct {
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭
 	PollRepos    string        // "platform:owner/repo" 逗号分隔
+
+	// 任务保留天数（运维加固）：超期已终结任务（done/failed/stale）启动+每日清理。
+	// 0 = 永久保留（默认，行为与 v3.0 一致）。
+	TaskRetentionDays int
 }
 
 // MaxDiffCharsResolved 返回生效的 diff 总量上限（design §6：显式设置则覆盖公式；
@@ -102,6 +106,7 @@ func Load() *Config {
 		Platforms:          map[string]PlatformConfig{},
 		PollInterval:       envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:          os.Getenv("ARGUS_POLL_REPOS"),
+		TaskRetentionDays:  envInt("ARGUS_TASK_RETENTION_DAYS", 0),
 		LLM: LLMConfig{
 			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
 			APIKey:       os.Getenv("OPENAI_API_KEY"),

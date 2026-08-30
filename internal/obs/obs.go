@@ -39,12 +39,20 @@ var (
 	findingsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_findings_total", Help: "审查产出分布",
 	}, []string{"severity", "plugin"})
+
+	tasksPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "argus_tasks_pending", Help: "当前 pending 任务数（队列积压观测）",
+	})
+	tasksRunning = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "argus_tasks_running", Help: "当前 running 任务数",
+	})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
 func Init() {
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
+		tasksPending, tasksRunning,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -64,4 +72,10 @@ func Init() {
 	plugin.HookFindings = func(severity, name string, n int) {
 		findingsTotal.WithLabelValues(severity, name).Add(float64(n))
 	}
+}
+
+// SetTaskQueueDepth 队列深度 gauge（main 的周期采样器调用）。
+func SetTaskQueueDepth(pending, running int64) {
+	tasksPending.Set(float64(pending))
+	tasksRunning.Set(float64(running))
 }

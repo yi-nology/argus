@@ -162,11 +162,25 @@ func (w *Workcopy) prepare(ctx context.Context, pr plugin.PRContext, baseURL, to
 	for _, args := range steps {
 		if err := runGit(ctx, args, insecureTLS); err != nil {
 			_ = os.RemoveAll(dir)
-			return "", fmt.Errorf("workcopy: %s#%s 准备失败: %w", pr.Owner+"/"+pr.Repo, pr.Number, err)
+			// 脱敏：git 报错会原样打印嵌 token 的 clone URL
+			return "", fmt.Errorf("workcopy: %s#%s 准备失败: %s",
+				pr.Owner, pr.Repo, scrub(pr.Number, err.Error(), token))
 		}
 	}
 	w.log.Info("argus.workcopy.ready", "dir", dir, "pr", pr.Owner+"/"+pr.Repo+"#"+pr.Number)
 	return dir, nil
+}
+
+// scrub 从错误输出中抹除嵌入 URL 的凭证（git 报错会原样打印 clone URL）。
+func scrub(msg string, secrets ...string) string {
+	for _, s := range secrets {
+		if s == "" {
+			continue
+		}
+		msg = strings.ReplaceAll(msg, "oauth2:"+s+"@", "***@")
+		msg = strings.ReplaceAll(msg, s, "***")
+	}
+	return msg
 }
 
 func runGit(ctx context.Context, args []string, insecureTLS bool) error {
