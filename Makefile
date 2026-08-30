@@ -1,6 +1,6 @@
 # Argus 构建与运行（学习期本机/内网；集群部署走 buildkit+ArgoCD）
 BINARY  := argus
-VERSION ?= v3.0.0
+VERSION ?= v3.0.1
 GOFILES := $(shell find . -name "*.go")
 
 .PHONY: help build run test vet fmt e2e it docker compose-up compose-down k8s-apply clean

@@ -37,7 +37,7 @@ import (
 )
 
 // version 报告头与元信息里的服务版本。
-const version = "v3.0.0"
+const version = "v3.0.1"
 
 func main() {
 	config.LoadDotEnv()
