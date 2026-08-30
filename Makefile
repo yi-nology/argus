@@ -3,7 +3,7 @@ BINARY  := argus
 VERSION ?= v3.0.0
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build run test vet fmt e2e it docker clean
+.PHONY: help build run test vet fmt e2e it docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -13,6 +13,8 @@ help:
 	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
 	@echo "make check   - vet + fmt 检查"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
+	@echo "make compose-up / compose-down - docker-compose 部署（deploy/docker-compose）"
+	@echo "make k8s-apply - kustomize 部署到当前集群（deploy/k8s）"
 	@echo "make clean   - 清理本地产物"
 
 build:
@@ -43,6 +45,15 @@ check: vet
 docker:
 	go mod vendor
 	docker build -t argus:$(VERSION) .
+
+compose-up:
+	docker compose -f deploy/docker-compose/compose.yaml -p argus up -d --build
+
+compose-down:
+	docker compose -f deploy/docker-compose/compose.yaml -p argus down
+
+k8s-apply:
+	kubectl apply -k deploy/k8s
 
 clean:
 	rm -rf bin argus.db argus.db-shm argus.db-wal

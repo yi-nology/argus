@@ -13,14 +13,19 @@ RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags "-s -w" -o /out/argus 
 
 FROM alpine:3.20
 RUN apk add --no-cache git ca-certificates tzdata && \
-    addgroup -S argus && adduser -S argus -G argus
+    addgroup -S argus -g 1000 && adduser -S argus -G argus -u 1000
 WORKDIR /app
 COPY --from=builder /out/argus /app/argus
 COPY plugins.example.yaml /app/plugins.yaml
 COPY skills /app/skills
 # 工作副本沙箱与 SQLite 库放卷上，容器重建不丢任务
 RUN mkdir -p /data && chown -R argus:argus /app /data
-USER argus
+USER 1000:1000
+
+LABEL org.opencontainers.image.title="argus" \
+      org.opencontainers.image.description="可插拔多 Agent 审查平台（PR Bot / TaskAPI）" \
+      org.opencontainers.image.source="https://git.example.com/demo-user/argus-pilot" \
+      org.opencontainers.image.vendor="enjoydream"
 
 ENV ARGUS_ADDR=:8899 \
     ARGUS_DB_DSN=/data/argus.db \

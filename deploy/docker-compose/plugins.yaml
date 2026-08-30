@@ -1,0 +1,71 @@
+# Argus plugins.yaml —— Hub 全局插件声明（design §12）
+# 唯一能声明 cli 二进制 / remote endpoint 的地方；仓库的 .reviewagents.yaml 只能"选"不能"增"。
+#
+# 字段说明：
+#   name/kind       kind ∈ builtin | cli | remote
+#   protocol        kind=remote 时：a2a | mcp
+#   skills          requirement-compliance | code-review | visual-check（R4 按 skill 分派）
+#   needs           diff | repo-file-read | working-copy | requirement-spec | preview-url
+#   lockRepoConfig  仓库配置不可禁用/排除（§3.4 红线 3，默认含安全类）
+#   skillRefs       方法论注入（§9.1），从 ARGUS_SKILLS_DIR/<name>/SKILL.md 解析
+#   cost            fast | standard | heavy（token 预算吃紧时 heavy 先裁，锁定插件豁免）
+#   timeout         插件单次执行超时
+#   enabled         缺省 true
+#   cmd/mode        kind=cli：白名单可执行文件（§8 供应链信任）；mode= full | delegate
+#   endpoint        kind=remote：仅此处可声明
+
+agents:
+  # ---- builtin：进程内 Eino ADK agent ----
+  - name: requirement-compliance        # 整条 R1→R5 workflow 包成的插件
+    kind: builtin
+    skills: [requirement-compliance]
+    needs: [diff, repo-file-read, requirement-spec]
+    lockRepoConfig: true
+    skillRefs: [ocr-grading]            # OCR SKILL.md 的评分标准注入 R3（白嫖阿里分级）
+    cost: heavy
+    timeout: 600s
+
+  - name: correctness
+    kind: builtin
+    skills: [code-review]
+    needs: [diff, repo-file-read]
+    cost: standard
+    timeout: 120s
+
+  - name: security
+    kind: builtin
+    skills: [code-review]
+    needs: [diff, repo-file-read]
+    lockRepoConfig: true                # 审查对象不得关闭对自己的安全审查
+    cost: heavy
+    timeout: 120s
+
+  # ---- cli：外部命令行（OCR）----
+  - name: ocr                           # alibaba/open-code-review
+    kind: cli
+    skills: [code-review]
+    needs: [working-copy]               # 触发工作副本服务：浅克隆 + checkout PR head
+    # triggers.events 示例（SDK 归一化词表：cr.opened/cr.synchronize/cr.synchronized/cr.reopened）
+    # 如只在首次打开时跑 OCR，取消注释下一行即可（v3.0.1 起生效）：
+    # triggers: {events: [cr.opened]}
+    cmd: ["/opt/argus/bin/ocr", "diff", "--format", "json"]   # 安装期 pin 版本 + checksum（Makefile/部署脚本负责）
+    mode: full                          # full = OCR 全权审查；delegate = 只要它的文件筛选+规则（v3.1 实装）
+    cost: heavy
+    timeout: 300s
+
+  # ---- remote：远端 agent（v3.0 接口位，v3.1 实装协议子集）----
+  - name: review-service                # 生产 review-service 的 MCP server（§3.5 对接通道 B）
+    kind: remote
+    protocol: mcp
+    skills: [code-review]
+    endpoint: "http://review-service.svc/mcp"
+    cost: standard
+    timeout: 180s
+    enabled: false                      # endpoint 就绪后打开
+
+  - name: frontend-visual               # 前端视觉 agent 接口位：填 endpoint 即插
+    kind: remote
+    protocol: a2a
+    skills: [visual-check]
+    needs: [preview-url]
+    enabled: false

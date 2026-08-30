@@ -1,0 +1,15 @@
+# SQLite 单文件 + 工作副本沙箱 → 必须持久化。
+# storageClassName 留空用集群默认；集群无默认 SC 时改成实际值（如 local-path/nfs）。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: argus-data
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

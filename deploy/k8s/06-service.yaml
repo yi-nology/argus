@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: argus
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+spec:
+  type: ClusterIP            # webhook 接入改为 NodePort：nodePort: 30883（对齐工作区 wechat 习惯）
+  selector:
+    app.kubernetes.io/name: argus
+  ports:
+    - name: http
+      port: 8899
+      targetPort: http
+      # nodePort: 30883

@@ -1,0 +1,37 @@
+# Argus · docker-compose 部署（单机学习/内网环境）
+#
+# 用法：
+#   1) cp .env.example .env  并填入真实凭证（至少 ARGUS_APITOKEN + 一个平台 token）
+#   2) docker compose up -d
+#   3) curl http://127.0.0.1:8899/healthz
+#
+# 说明：
+#   - SQLite 落在 ./data 卷；插件配置 ./plugins.yaml 可改（改完 docker compose restart）
+#   - 平台→本机 webhook 不可达（NAT/VPN）时，启用 .env 里的 ARGUS_POLL_* 轮询兜底
+#   - 单实例约束：SQLite 模式禁止 scale > 1
+
+services:
+  argus:
+    image: argus:v3.0.1
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: argus
+    restart: unless-stopped
+    ports:
+      - "${ARGUS_HOST_PORT:-8899}:8899"   # 宿主端口冲突时在 .env 里设 ARGUS_HOST_PORT
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./plugins.yaml:/app/plugins.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8899/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"

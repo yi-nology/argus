@@ -1,0 +1,38 @@
+# 插件声明（Hub 全局；改完 kubectl rollout restart deployment/argus -n argus 生效）
+# 完整字段说明见仓库根 plugins.example.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-plugins
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+data:
+  plugins.yaml: |
+    agents:
+      - name: requirement-compliance
+        kind: builtin
+        skills: [requirement-compliance]
+        needs: [diff, repo-file-read, requirement-spec]
+        lockRepoConfig: true
+        skillRefs: [ocr-grading]
+        cost: heavy
+        timeout: 600s
+
+      - name: correctness
+        kind: builtin
+        skills: [code-review]
+        needs: [diff, repo-file-read]
+        cost: standard
+        timeout: 120s
+
+      - name: security
+        kind: builtin
+        skills: [code-review]
+        needs: [diff, repo-file-read]
+        lockRepoConfig: true
+        cost: heavy
+        timeout: 120s
+
+      # cli/remote 插件示例见仓库根 plugins.example.yaml；
+      # 集群内 cli 二进制需自行打进镜像或挂载（§8 供应链信任：路径白名单）。

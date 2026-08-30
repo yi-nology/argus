@@ -1,0 +1,85 @@
+# 关键约束（SQLite 单写模型）：
+#   - replicas 恒为 1，禁止多副本（storage.go 连接数=1 + 写锁保证幂等/去重事务性）
+#   - strategy 必须用 Recreate：RWO PVC + 滚动更新会卡在卷挂载
+#   - terminationGracePeriodSeconds(90) > worker 优雅停机 grace(60s)：
+#     SIGTERM 后 HTTP 停止、在途审查自然完成，超时才硬取消（保持 running 待重启重置）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argus
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8899"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: argus
+          image: argus:v3.0.1          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8899
+          envFrom:
+            - configMapRef:
+                name: argus-config
+            - secretRef:
+                name: argus-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: plugins
+              mountPath: /app/plugins.yaml
+              subPath: plugins.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz            # DB 连通 + LLM 端点可达（未配 LLM 时跳过后者）
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: argus-data
+        - name: plugins
+          configMap:
+            name: argus-plugins

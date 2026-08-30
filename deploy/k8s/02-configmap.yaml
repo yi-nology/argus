@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-config
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+data:
+  # 非敏感运行配置
+  ARGUS_ADDR: ":8899"
+  ARGUS_DB_DSN: "/data/argus.db"
+  ARGUS_WORK_ROOT: "/data/work"
+  ARGUS_BOT_USERNAME: "friday"            # 独立 bot 账号（blocking 评审 official 的前提）
+  ARGUS_SKIP_DRAFT: "true"
+  ARGUS_MAX_CONCURRENT_TASKS: "2"
+  ARGUS_TASK_TOKEN_BUDGET: "200000"
+  ARGUS_TASK_RETENTION_DAYS: "30"
+
+  # 平台接入（token/secret 在 argus-secret）
+  ARGUS_GITEA_URL: "https://git.example.com"
+  ARGUS_GITEA_SKIP_TLS: "1"               # 内网自签/过期证书实例开启；公网或证书修复后改 0
+
+  # 轮询兜底（平台→集群 webhook 不可达时启用；走 Ingress/NodePort 后可关闭）
+  ARGUS_POLL_INTERVAL: "20s"
+  ARGUS_POLL_REPOS: "gitea:demo-user/argus-pilot"
