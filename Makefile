@@ -1,0 +1,48 @@
+# Argus 构建与运行（学习期本机/内网；集群部署走 buildkit+ArgoCD）
+BINARY  := argus
+VERSION ?= v3.0.0
+GOFILES := $(shell find . -name "*.go")
+
+.PHONY: help build run test vet fmt e2e it docker clean
+
+help:
+	@echo "make build   - 编译二进制（静态，可跨平台）"
+	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
+	@echo "make test    - 单元测试（不联网）"
+	@echo "make e2e     - E2E 双打桩九场景（不联网，mock LLM）"
+	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
+	@echo "make check   - vet + fmt 检查"
+	@echo "make docker  - 构建镜像 argus:$(VERSION)"
+	@echo "make clean   - 清理本地产物"
+
+build:
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/$(BINARY) .
+
+run: build
+	./bin/$(BINARY)
+
+test:
+	go test ./... -count=1
+
+e2e:
+	go test ./test/e2e/ -count=1 -v
+
+it:
+	ARGUS_IT=1 go test ./test/e2e/ -run TestIntegration -count=1 -v
+
+vet:
+	go vet ./...
+
+fmt:
+	gofmt -l -w $(shell find . -name "*.go" -not -path "./vendor/*" -not -path "./biz/model/*")
+
+check: vet
+	@out=$$(gofmt -l . 2>/dev/null | grep -v -e '^vendor/' -e '^biz/model/' || true); \
+	if [ -n "$$out" ]; then echo "未格式化文件:"; echo "$$out"; exit 1; fi; echo "fmt ok"
+
+docker:
+	go mod vendor
+	docker build -t argus:$(VERSION) .
+
+clean:
+	rm -rf bin argus.db argus.db-shm argus.db-wal

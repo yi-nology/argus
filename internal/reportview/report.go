@@ -1,0 +1,194 @@
+// Package reportview 回帖报告模板渲染（design §11 实现契约）。
+// 独立成包以便单测覆盖渲染；纯函数、无 IO。
+package reportview
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"argus/internal/plugin"
+)
+
+// ReportHeaderPrefix 报告评论 HTML 注释头前缀（人不可见，机器定位用：§10.1 审计可追溯 +
+// review_targets 记录损坏时的扫描兜底）。
+const ReportHeaderPrefix = "<!-- argus:report "
+
+// ReportHeaderHTML 生成某任务的报告头。
+func ReportHeaderHTML(taskID, headSHA, version string) string {
+	return fmt.Sprintf("<!-- argus:report task_id=%s head=%s ver=%s -->", taskID, headSHA, version)
+}
+
+// ACCheckView 单条验收清单渲染条目。
+type ACCheckView struct {
+	ID     string
+	Text   string
+	Status string // implemented|partial|missing|unverifiable
+	Evid   string // 证据 file:line 或差距说明
+}
+
+// Icon 状态图标。
+func (v ACCheckView) Icon() string {
+	switch v.Status {
+	case plugin.ACImplemented:
+		return "✅"
+	case plugin.ACPartial:
+		return "⚠️"
+	case plugin.ACMissing:
+		return "❌"
+	default:
+		return "❓" // unverifiable：需人工确认
+	}
+}
+
+// ScopeView 需求外改动条目。
+type ScopeView struct {
+	File string
+	Note string
+}
+
+// Report 报告输入（由 workflow/poster 组装，渲染函数不做业务判断）。
+type Report struct {
+	TaskID    string
+	HeadSHA   string
+	Version   string
+	ReqSource string // "issue #12" | "PR 描述" | ""（空渲染"未关联需求"）
+
+	// 需求复核段：ACs 为空且 ShowCompliance=true 时渲染"无验收清单"分支（§11 N=0 分支）；
+	// false = code_review-only 任务，整段省略。
+	ShowCompliance bool
+	ACs            []ACCheckView
+	ScopeCreep     []ScopeView
+
+	Findings []plugin.Finding
+
+	// 结论段
+	VerdictText string // 已映射好图标与文案（⛔/⚠️/💬/✅ …），渲染层不再判断
+	Rule        string // 命中的 R5 规则（R5.1..R5.5，可空）
+
+	// 元信息行（ARGUS_REPORT_META 控制，默认开）
+	Meta       bool
+	Plugins    []string
+	Elapsed    time.Duration
+	Tokens     int
+	Degraded   []string // 降级注明（插件未参与原因）
+	Suppressed int      // 被误报抑制的 finding 数（脚注）
+}
+
+// Render 渲染整份 markdown 报告（含 HTML 注释头）。
+func Render(r Report) string {
+	var b strings.Builder
+	b.WriteString(ReportHeaderHTML(r.TaskID, r.HeadSHA, r.Version))
+	b.WriteString("\n## 📋 Argus 需求复核报告")
+
+	if r.ShowCompliance {
+		src := r.ReqSource
+		if src == "" {
+			src = "未关联"
+		}
+		fmt.Fprintf(&b, "（需求源: %s）\n", src)
+
+		done, total := complianceProgress(r.ACs)
+		switch {
+		case total == 0:
+			b.WriteString("\n\n### 验收清单完成度\n\n**无验收清单（需求模糊或未关联，需人工确认）**\n")
+		default:
+			icon := "✅"
+			if done < total {
+				icon = "⚠️"
+				for _, ac := range r.ACs {
+					if ac.Status == plugin.ACMissing || ac.Status == plugin.ACPartial {
+						icon = "⛔"
+						break
+					}
+				}
+			}
+			fmt.Fprintf(&b, "\n\n### 验收清单完成度: %d/%d %s\n", done, total, icon)
+			for _, ac := range r.ACs {
+				detail := ac.Evid
+				if detail == "" {
+					detail = "—"
+				}
+				fmt.Fprintf(&b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID, ac.Text, ac.Status, detail)
+			}
+		}
+
+		if len(r.ScopeCreep) > 0 {
+			b.WriteString("\n### ⚠️ 需求外改动（scope creep）\n")
+			for _, sc := range r.ScopeCreep {
+				fmt.Fprintf(&b, "- %s: %s\n", sc.File, sc.Note)
+			}
+		}
+	}
+
+	if len(r.Findings) > 0 {
+		b.WriteString("\n### 🔍 代码审查意见\n")
+		for _, f := range r.Findings {
+			by := f.By
+			if by == "" {
+				by = "argus"
+			}
+			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s\n",
+				f.File, f.Line, strings.ToUpper(f.Severity), strings.TrimSpace(f.Comment), by)
+		}
+	}
+
+	if len(r.Degraded) > 0 {
+		b.WriteString("\n<details><summary>插件降级说明</summary>\n\n")
+		for _, d := range r.Degraded {
+			fmt.Fprintf(&b, "- %s\n", d)
+		}
+		b.WriteString("\n</details>\n")
+	}
+
+	b.WriteString("\n### 结论: ")
+	b.WriteString(r.VerdictText)
+	if r.Rule != "" {
+		fmt.Fprintf(&b, "（%s）", r.Rule)
+	}
+	b.WriteString("\n")
+
+	if r.Meta {
+		fmt.Fprintf(&b, "\n> task `%s` · 插件: %s · 耗时 %ds · tokens %d\n",
+			r.TaskID, strings.Join(r.Plugins, ","), int(r.Elapsed.Seconds()), r.Tokens)
+		if r.Suppressed > 0 {
+			fmt.Fprintf(&b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)
+		}
+	}
+	return b.String()
+}
+
+// complianceProgress 统计达成数（implemented 计为达成；partial/missing/unverifiable 不计）。
+func complianceProgress(acs []ACCheckView) (done, total int) {
+	total = len(acs)
+	for _, ac := range acs {
+		if ac.Status == plugin.ACImplemented {
+			done++
+		}
+	}
+	return done, total
+}
+
+// VerdictText 把 R5 结论映射为模板结论文案（workflow 调用，保持单一出处）。
+func VerdictText(rule string, missingPartial int) string {
+	switch {
+	case rule == "R5.1":
+		return fmt.Sprintf("⛔ 需求未完成（%d 项未达标）", missingPartial)
+	case rule == "R5.2":
+		return "⛔ 存在高危问题，请修复后再提交"
+	case rule == "R5.3":
+		return "⚠️ 需人工确认"
+	case rule == "R5.4":
+		return "💬 有审查意见，请参考"
+	default:
+		return "✅ 通过"
+	}
+}
+
+// SortFindings 渲染前排序（severity 降序——Merger 已排，此处兜底防外部调用方绕过）。
+func SortFindings(fs []plugin.Finding) {
+	sort.SliceStable(fs, func(i, j int) bool {
+		return plugin.SeverityRank(fs[i].Severity) > plugin.SeverityRank(fs[j].Severity)
+	})
+}
