@@ -94,6 +94,16 @@ func (f *fakeProvider) GetRepo(_ context.Context, _, _ string) (*provider.Platfo
 	return f.repo, nil
 }
 
+func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cr == nil {
+		return nil, 0, nil
+	}
+	cp := *f.cr
+	return []*provider.ChangeRequest{&cp}, 1, nil
+}
+
 func (f *fakeProvider) GetCRDiff(_ context.Context, _, _, _ string) (*provider.MergeDiff, error) {
 	return f.diff, nil
 }
@@ -457,6 +467,29 @@ func newStack(t TestingT, opt stackOpts) *stack {
 
 	return &stack{cfg: cfg, store: store, sdk: sdkCtx, fake: fake, llm: llmMock,
 		runner: runnerRef, reg: reg, engine: h, cancel: cancel}
+}
+
+// countTasksByHead 统计某 head 的任务数（poller 幂等断言用）。
+func (s *stack) countTasksByHead(head string) int {
+	tasks, err := s.store.ListTasksByHead(context.Background(), "gitea", "acme", "app", "7", head)
+	if err != nil {
+		return -1
+	}
+	return len(tasks)
+}
+
+// anyTaskDoneByHead 某 head 是否已有 done 任务。
+func (s *stack) anyTaskDoneByHead(head string) bool {
+	tasks, err := s.store.ListTasksByHead(context.Background(), "gitea", "acme", "app", "7", head)
+	if err != nil {
+		return false
+	}
+	for _, t := range tasks {
+		if t.Status == storage.StatusDone {
+			return true
+		}
+	}
+	return false
 }
 
 // setEvent 预置 webhook 事件。

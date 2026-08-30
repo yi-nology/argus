@@ -141,6 +141,15 @@ func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number st
 	return p.GetCRDiff(ctx, owner, repo, number)
 }
 
+// ListCRs 列出仓库 PR（轮询兜底任务源用）。
+func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
+	p, err := s.Provider(platform)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.ListCRs(ctx, opts)
+}
+
 // GetRepo 拉取仓库信息（默认分支）。
 func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*provider.PlatformRepo, error) {
 	p, err := s.Provider(platform)

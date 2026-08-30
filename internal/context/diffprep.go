@@ -47,15 +47,21 @@ func noise(path string) bool {
 // Prepare 从 SDK 的 MergeDiff 构建 plugin.DiffContext：
 // 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
 // totalLimit <=0 表示不截断总量（单测用）。
+// 兼容性兜底（v3.0.1 真实试点发现）：gitea 后端的 ChangedFile.Diff 为空、内容在 RawDiff
+// （BuildRawDiff 拼接）——此时按 "diff --git" 切块回填到各文件，否则下游拿到空 diff。
 func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
-	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(md.Files))}
+	files := md.Files
+	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
+		files = fillFromRawDiff(files, md.RawDiff)
+	}
+	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
 	var b strings.Builder
 	remaining := totalLimit
 	if totalLimit > 0 {
 		b.Grow(totalLimit / 2)
 	}
 
-	for _, f := range md.Files {
+	for _, f := range files {
 		entry := plugin.DiffFile{
 			Path:      f.NewPath,
 			Additions: f.Additions,
@@ -97,4 +103,72 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 	}
 	dc.Text = b.String()
 	return dc
+}
+
+// fillFromRawDiff 把拼接的 unified diff 按 "diff --git" 切块回填到各 ChangedFile.Diff。
+// 路径对齐优先 NewPath（含 +++ b/<path> 行），删除文件回退 OldPath；未匹配的块忽略。
+func fillFromRawDiff(files []*provider.ChangedFile, raw string) []*provider.ChangedFile {
+	if len(files) == 0 {
+		return files
+	}
+	out := make([]*provider.ChangedFile, 0, len(files))
+	byPath := make(map[string]*provider.ChangedFile, len(files))
+	for _, f := range files {
+		cp := *f
+		out = append(out, &cp)
+		if cp.NewPath != "" {
+			byPath[cp.NewPath] = &cp
+		}
+		if cp.OldPath != "" {
+			byPath[cp.OldPath] = &cp
+		}
+	}
+	const sep = "diff --git "
+	chunks := strings.Split(raw, "\n"+sep)
+	for i, chunk := range chunks {
+		if i == 0 {
+			if strings.HasPrefix(chunk, sep) {
+				chunk = strings.TrimPrefix(chunk, sep)
+			} else if strings.TrimSpace(chunk) == "" {
+				continue
+			}
+		} else {
+			chunk = sep + chunk
+		}
+		path := rawDiffPath(chunk)
+		if path == "" {
+			continue
+		}
+		if f, ok := byPath[path]; ok {
+			f.Diff = chunk
+		}
+	}
+	return out
+}
+
+// rawDiffPath 从单文件 diff 块提取目标路径（+++ b/<path>，删除文件回退 --- a/<path>）。
+func rawDiffPath(chunk string) string {
+	var minus, plus string
+	for _, line := range strings.Split(chunk, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
+			plus = strings.TrimPrefix(line, "+++ b/")
+		case strings.HasPrefix(line, "--- a/"):
+			minus = strings.TrimPrefix(line, "--- a/")
+		}
+		if plus != "" {
+			break
+		}
+	}
+	// 去掉行尾制表符附加信息（如 "+++ b/x.go\t2026-01-02"）
+	if i := strings.IndexByte(plus, '\t'); i >= 0 {
+		plus = plus[:i]
+	}
+	if plus != "" && plus != "/dev/null" {
+		return plus
+	}
+	if i := strings.IndexByte(minus, '\t'); i >= 0 {
+		minus = minus[:i]
+	}
+	return minus
 }

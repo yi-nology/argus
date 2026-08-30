@@ -79,7 +79,25 @@ curl -s localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"
       插件生效状态/告警）；放一份含未知名与 `disable: [security]` 的 `.reviewagents.yaml`
       应看到剔除与"lockRepoConfig 保护已忽略"告警
 
-## 6. 已知试点边界
+## 6. webhook 不可达环境：轮询兜底模式（真实试点实测）
+
+试点环境实测结论：Forgejo（10.0.0.x 网段）到 Mac 的入站 webhook 投递始终未到达
+（本机 en0 抓包零包；跨网段反向探测 Mac 端口本身可达）。此类 NAT/VPN/egress 受限环境
+启用**轮询兜底**——Argus 出站轮询 PR 列表，发现新 PR 或 head 变化即建任务（复用同 SHA
+双查去重，天然幂等）：
+
+```bash
+export ARGUS_POLL_INTERVAL=20s                     # 0 = 关闭（默认）
+export ARGUS_POLL_REPOS=gitea:demo-user/argus-pilot  # 多仓库逗号分隔
+```
+
+轮询与 webhook 任务完全同语义：同 workflow、同回帖、staleness 不分来源。
+空改动 push 不会重复审查（head 不变即跳过）；draft PR 跳过；空闲时零 LLM 消耗。
+
+SDK 兼容备注：gitea 后端 `ChangedFile.Diff` 为空、内容在 `RawDiff`——Argus 的 diffprep
+已按文件切块回填（`TestPrepareFillFromRawDiff` 锚点），其他后端不受影响。
+
+## 7. 已知试点边界
 
 - 证书过期：`SKIP_TLS=1` 期间凭证走未校验 TLS 通道——试点仅限内网，正式使用应修复证书后关闭。
 - draft PR 默认不审（`ARGUS_SKIP_DRAFT=true`）；bot 自身事件自动跳过（`ARGUS_BOT_USERNAME`）。

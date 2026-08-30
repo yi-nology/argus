@@ -399,10 +399,7 @@ func strPtrOrEmpty(s string) *string {
 
 // ---------- helpers ----------
 
-func newTaskID() string {
-	id, _ := uuid.NewRandom()
-	return "t-" + id.String()[:8] + time.Now().Format("01021504")
-}
+func newTaskID() string { return storage.NewTaskID() }
 
 func kindFromIDL(k api.TaskKind) (string, error) {
 	switch k {

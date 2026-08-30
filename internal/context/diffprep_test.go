@@ -97,3 +97,36 @@ func TestPrepareSingleFileTruncation(t *testing.T) {
 		t.Fatal("缺截断标记")
 	}
 }
+
+// v3.0.1 真实试点回归：gitea 后端 ChangedFile.Diff 为空、内容在 RawDiff → 按文件切块回填。
+func TestPrepareFillFromRawDiff(t *testing.T) {
+	raw := "diff --git a/login.go b/login.go\nnew file mode 100644\n--- /dev/null\n+++ b/login.go\n@@ -0,0 +1,3 @@\n+package auth\n+\n+func login() {}\n" +
+		"diff --git a/go.sum b/go.sum\n--- /dev/null\n+++ b/go.sum\n@@ -0,0 +1,1 @@\n+huge lockfile\n"
+	md := &provider.MergeDiff{
+		Files: []*provider.ChangedFile{
+			{NewPath: "login.go", Additions: 3},
+			{NewPath: "go.sum", Additions: 1},
+		},
+		RawDiff: raw,
+	}
+	dc := Prepare(md, 100000)
+	got := map[string]struct {
+		Included bool
+		IsBinary bool
+	}{}
+	for _, f := range dc.Files {
+		got[f.Path] = struct {
+			Included bool
+			IsBinary bool
+		}{f.Included, f.IsBinary}
+	}
+	if !got["login.go"].Included {
+		t.Fatal("login.go 应被回填并进入文本")
+	}
+	if !strings.Contains(dc.Text, "func login()") {
+		t.Fatalf("diff 文本缺 RawDiff 切块内容:\n%s", dc.Text)
+	}
+	if got["go.sum"].Included {
+		t.Fatal("go.sum 是噪声，切块后仍应被剔除")
+	}
+}

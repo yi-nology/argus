@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -181,6 +183,11 @@ func (s *Store) ResetRunningToPending(ctx context.Context) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
+// NewTaskID 生成任务 ID（service/poller 共用单一出处）。
+func NewTaskID() string {
+	return "t-" + strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:16] + time.Now().Format("01021504")
+}
+
 // GetTask 按 ID 查询。
 func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 	var t Task
@@ -282,6 +289,15 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 		return nil, false, err
 	}
 	return claimed, claimed != nil, nil
+}
+
+// ListTasksByHead 查询同 PR 同 head 的任务（幂等断言/诊断用）。
+func (s *Store) ListTasksByHead(ctx context.Context, platform, owner, repo, number, headSHA string) ([]Task, error) {
+	var out []Task
+	err := s.db.WithContext(ctx).Where(
+		"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ?",
+		platform, owner, repo, number, headSHA).Order("created_at ASC").Find(&out).Error
+	return out, err
 }
 
 // UpdateTaskRunningStatus 局部更新状态字段（任务执行中的落点）。

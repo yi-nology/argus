@@ -47,6 +47,10 @@ type Config struct {
 	Platforms          map[string]PlatformConfig
 	LLM                LLMConfig
 	Version            string
+
+	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
+	PollInterval time.Duration // 0 = 关闭
+	PollRepos    string        // "platform:owner/repo" 逗号分隔
 }
 
 // MaxDiffCharsResolved 返回生效的 diff 总量上限（design §6：显式设置则覆盖公式；
@@ -96,6 +100,8 @@ func Load() *Config {
 		SkillsDir:          envStr("ARGUS_SKILLS_DIR", "skills"),
 		WorkRoot:           envStr("ARGUS_WORK_ROOT", "/tmp/argus-work"),
 		Platforms:          map[string]PlatformConfig{},
+		PollInterval:       envDuration("ARGUS_POLL_INTERVAL", 0),
+		PollRepos:          os.Getenv("ARGUS_POLL_REPOS"),
 		LLM: LLMConfig{
 			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
 			APIKey:       os.Getenv("OPENAI_API_KEY"),

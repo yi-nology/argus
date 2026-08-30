@@ -27,6 +27,7 @@ import (
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
+	"argus/internal/poller"
 	"argus/internal/poster"
 	"argus/internal/runner"
 	"argus/internal/service"
@@ -139,6 +140,19 @@ func main() {
 	// ---- worker pool（§10.4 DB 即队列）----
 	wp := &worker.Pool{Store: store, N: cfg.MaxConcurrentTasks, Log: log, Run: runnerRef.Execute}
 	wp.Start(ctx)
+
+	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
+	if cfg.PollInterval > 0 && cfg.PollRepos != "" {
+		targets, bad := poller.ParseTargets(cfg.PollRepos)
+		for _, b := range bad {
+			log.Warn("argus.poller.bad_target", "item", b, "format", "platform:owner/repo")
+		}
+		if len(targets) > 0 {
+			pl := &poller.Poller{SDK: sdk, Store: store, Targets: targets,
+				Interval: cfg.PollInterval, Log: log}
+			pl.Start(ctx)
+		}
+	}
 
 	// ---- service + biz 接线 ----
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
