@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,6 +236,9 @@ func (s *Service) CreateTask(ctx context.Context, c *app.RequestContext, req *ap
 	if req.Owner == "" || req.Repo == "" || req.Number == "" {
 		return nil, http.StatusBadRequest
 	}
+	if _, err := strconv.Atoi(req.Number); err != nil {
+		return nil, http.StatusBadRequest // number 必须是纯数字（平台 PR 序号）
+	}
 	artifacts, _ := json.Marshal(map[string]string(req.Artifacts))
 	task := &storage.Task{
 		ID:            newTaskID(),
@@ -254,6 +258,66 @@ func (s *Service) CreateTask(ctx context.Context, c *app.RequestContext, req *ap
 	s.Log.Info("argus.api.task_created", "task", task.ID, "kind", kind,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number)
 	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
+}
+
+// ListTasks 任务列表（🔒）：status 过滤 + limit 收口，created_at 倒序。
+func (s *Service) ListTasks(ctx context.Context, c *app.RequestContext, status string, limit int) (*api.ListTasksResponse, int) {
+	switch status {
+	case "", storage.StatusPending, storage.StatusRunning, storage.StatusDone,
+		storage.StatusFailed, storage.StatusStale:
+	default:
+		return nil, http.StatusBadRequest
+	}
+	tasks, err := s.Store.ListTasks(ctx, status, limit)
+	if err != nil {
+		s.Log.Error("argus.api.list_tasks_failed", "error", err.Error())
+		return nil, http.StatusInternalServerError
+	}
+	resp := &api.ListTasksResponse{}
+	for i := range tasks {
+		t := &tasks[i]
+		item := &api.TaskSummary{
+			TaskId:    t.ID,
+			Status:    t.Status,
+			Kind:      t.Kind,
+			Platform:  t.Platform,
+			Owner:     t.Owner,
+			Repo:      t.Repo,
+			Number:    t.Number,
+			CreatedAt: t.CreatedAt.Unix(),
+		}
+		if t.HeadSHA != "" {
+			item.HeadSha = strPtr(t.HeadSHA)
+		}
+		if t.Verdict != "" {
+			item.Verdict = strPtr(t.Verdict)
+		}
+		resp.Tasks = append(resp.Tasks, item)
+	}
+	return resp, http.StatusOK
+}
+
+// SuppressFinding 误报反馈（🔒，设计 §3.3 反馈通道最小入口）：
+// 服务端按 Merger 同一指纹函数计算（file + 规范化评论文本哈希，行号不入指纹），
+// 置 suppressed 后每轮报告自动剔除该意见。下一轮审查起生效（总结评论不即时重渲）。
+func (s *Service) SuppressFinding(ctx context.Context, c *app.RequestContext, req *api.SuppressFindingRequest) (*api.SuppressFindingResponse, int) {
+	platform := strings.ToLower(req.Platform)
+	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
+		return nil, http.StatusBadRequest
+	}
+	if req.File == "" || strings.TrimSpace(req.Comment) == "" {
+		return nil, http.StatusBadRequest
+	}
+	fp := plugin.Fingerprint(req.File, req.Comment)
+	matched, err := s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
+		fp, plugin.Finding{File: req.File, Comment: req.Comment}, time.Now())
+	if err != nil {
+		s.Log.Error("argus.api.suppress_failed", "error", err.Error())
+		return nil, http.StatusInternalServerError
+	}
+	s.Log.Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
+		"file", req.File, "matched", matched)
+	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。
@@ -301,7 +365,7 @@ func (s *Service) GetTask(ctx context.Context, c *app.RequestContext, taskID str
 // ListAgents 插拔层可观测（🔒）：Registry 全部插件清单/状态（含 needs/triggers）。
 // platform/owner/repo 三参全传时，附带该仓库 .reviewagents.yaml 的可观测视图：
 // 配置原文（信任边界规范化后）+ 各插件生效状态 + 告警（§3.4 落到看得见的地方）。
-func (s *Service) ListAgents(platform, owner, repo string) *api.ListAgentsResponse {
+func (s *Service) ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse {
 	resp := &api.ListAgentsResponse{}
 	for _, reg := range s.Registry.Snapshot() {
 		m := reg.Manifest
@@ -332,13 +396,13 @@ func (s *Service) ListAgents(platform, owner, repo string) *api.ListAgentsRespon
 	}
 
 	if platform != "" && owner != "" && repo != "" {
-		resp.RepoConfig = s.repoConfigView(platform, owner, repo)
+		resp.RepoConfig = s.repoConfigView(ctx, platform, owner, repo)
 	}
 	return resp
 }
 
 // repoConfigView 拉取并解析仓库配置为可观测视图；失败降级为 loaded=false + 告警（不 5xx）。
-func (s *Service) repoConfigView(platform, owner, repo string) *api.RepoConfigView {
+func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo string) *api.RepoConfigView {
 	view := &api.RepoConfigView{Loaded: false}
 	addWarn := func(msg string) {
 		view.Warnings = append(view.Warnings, msg)
@@ -348,12 +412,12 @@ func (s *Service) repoConfigView(platform, owner, repo string) *api.RepoConfigVi
 		addWarn("平台未接入: " + platform)
 		return view
 	}
-	repoInfo, err := s.SDK.GetRepo(context.Background(), platform, owner, repo)
+	repoInfo, err := s.SDK.GetRepo(ctx, platform, owner, repo)
 	if err != nil {
 		addWarn("获取仓库失败: " + err.Error())
 		return view
 	}
-	rc, err := s.SDK.LoadRepoConfig(context.Background(), platform, owner, repo, repoInfo.DefaultBranch)
+	rc, err := s.SDK.LoadRepoConfig(ctx, platform, owner, repo, repoInfo.DefaultBranch)
 	if err != nil {
 		addWarn("读取 .reviewagents.yaml 失败: " + err.Error())
 		return view

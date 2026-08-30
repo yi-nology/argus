@@ -81,6 +81,43 @@ func absDiff(a, b int) int {
 
 var _ plugin.PrintStore = (*Store)(nil)
 
+// SuppressPrint 误报反馈（§3.3 反馈通道最小入口，v3.0.1）：
+// 把指纹置为 suppressed（既有 → 更新并返回 matched=true；
+// 不存在 → 以 suppressed 预插（意见可能尚未在库），matched=false）。
+// 之后每轮 Merger 自动剔除该意见。
+func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number, fingerprint string,
+	f plugin.Finding, at time.Time) (matched bool, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p FindingPrint
+		err := tx.Where(
+			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+			platform, owner, repo, number, fingerprint).First(&p).Error
+		if err == nil {
+			matched = true
+			p.Status = PrintSuppressed
+			p.LastSeenAt = at
+			if f.File != "" {
+				p.File, p.Line, p.Severity, p.Comment = f.File, f.Line, f.Severity, f.Comment
+			}
+			return tx.Save(&p).Error
+		}
+		if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		p = FindingPrint{
+			Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
+			File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
+			Status:      PrintSuppressed,
+			FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
+			FirstSeenAt: at, LastSeenAt: at,
+		}
+		return tx.Create(&p).Error
+	})
+	return matched, err
+}
+
 // ListFindingPrints 观测辅助：某 PR 的全部指纹记录（GET 任务结果时可用）。
 func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, number string) ([]FindingPrint, error) {
 	var out []FindingPrint

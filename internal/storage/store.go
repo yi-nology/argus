@@ -370,6 +370,23 @@ func (s *Store) TaskCounts(ctx context.Context) (pending, running int64, err err
 	return pending, running, err
 }
 
+// ListTasks 任务列表（GET /tasks）：status 过滤（空=全部），created_at 倒序，limit 收口。
+func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	q := s.quietDB().WithContext(ctx).Order("created_at DESC, id DESC").Limit(limit)
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	var out []Task
+	err := q.Find(&out).Error
+	return out, err
+}
+
 // GetReviewTarget 查询（不存在返回 nil,nil）。
 func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, number string) (*ReviewTarget, error) {
 	var t ReviewTarget

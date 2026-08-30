@@ -77,5 +77,29 @@ func ListAgents(ctx context.Context, c *app.RequestContext) {
 	if req.Repo != nil {
 		repo = *req.Repo
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": Svc.ListAgents(platform, owner, repo), "message": "ok", "trace_id": ""})
+	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": Svc.ListAgents(ctx, platform, owner, repo), "message": "ok", "trace_id": ""})
+}
+
+// ListTasks .
+// @router /tasks [GET]
+func ListTasks(ctx context.Context, c *app.RequestContext) {
+	if Svc == nil {
+		c.String(consts.StatusServiceUnavailable, "service not ready")
+		return
+	}
+	var req api.ListTasksRequest
+	_ = c.BindAndValidate(&req)
+	status, limit := "", 0
+	if req.Status != nil {
+		status = *req.Status
+	}
+	if req.Limit != nil {
+		limit = int(*req.Limit)
+	}
+	resp, status_code := Svc.ListTasks(ctx, c, status, limit)
+	if status_code != consts.StatusOK {
+		c.JSON(status_code, map[string]any{"code": status_code, "data": nil, "message": "查询失败", "trace_id": ""})
+		return
+	}
+	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": resp, "message": "ok", "trace_id": ""})
 }

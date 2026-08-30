@@ -104,10 +104,51 @@ struct WebhookResponse {
     4: optional string taskId,      // duplicate 时为命中的既有任务（幂等断言落点）
 }
 
+struct ListTasksRequest {
+    1: optional string status (api.query="status"),  // pending|running|done|failed|stale，空=全部
+    2: optional i32 limit (api.query="limit"),       // 默认 20，上限 100
+}
+
+struct TaskSummary {
+    1: required string taskId,
+    2: required string status,
+    3: required string kind,
+    4: required string platform,
+    5: required string owner,
+    6: required string repo,
+    7: required string number,
+    8: optional string headSha,
+    9: optional string verdict,
+    10: required i64 createdAt,     // Unix 秒
+}
+
+struct ListTasksResponse {
+    1: required list<TaskSummary> tasks,
+}
+
+struct SuppressFindingRequest {
+    1: required string platform,
+    2: required string owner,
+    3: required string repo,
+    4: required string number,
+    5: required string file,        // 与报告中的意见 file 一致
+    6: required string comment,     // 与报告中的意见原文一致（服务端按同一指纹函数计算）
+}
+
+struct SuppressFindingResponse {
+    1: required bool matched,       // 是否命中既有指纹（false = 新增抑制记录，下轮起生效）
+    2: required string fingerprint, // 指纹（file + 规范化评论文本哈希；行号不入指纹）
+}
+
 service TaskService {
     CreateTaskResponse CreateTask(1: CreateTaskRequest request) (api.post="/tasks")
     GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
     ListAgentsResponse ListAgents(1: ListAgentsRequest request) (api.get="/agents")
+    ListTasksResponse ListTasks(1: ListTasksRequest request) (api.get="/tasks")
+}
+
+service FindingFeedbackService {
+    SuppressFindingResponse SuppressFinding(1: SuppressFindingRequest request) (api.post="/findings/suppress")
 }
 
 service WebhookService {

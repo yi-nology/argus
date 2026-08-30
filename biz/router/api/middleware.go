@@ -47,3 +47,16 @@ func authMw() []app.HandlerFunc {
 	}
 	return []app.HandlerFunc{SetAuth}
 }
+
+func _listtasksMw() []app.HandlerFunc {
+	return authMw() // 🔒
+}
+
+func _findingsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _suppressfindingMw() []app.HandlerFunc {
+	return authMw() // 🔒
+}

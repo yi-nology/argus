@@ -18,9 +18,14 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/agents", append(_listagentsMw(), api.ListAgents)...)
+	root.GET("/tasks", append(_listtasksMw(), api.ListTasks)...)
 	root.POST("/tasks", append(_createtaskMw(), api.CreateTask)...)
 	_tasks := root.Group("/tasks", _tasksMw()...)
 	_tasks.GET("/:taskId", append(_gettaskMw(), api.GetTask)...)
+	{
+		_findings := root.Group("/findings", _findingsMw()...)
+		_findings.POST("/suppress", append(_suppressfindingMw(), api.SuppressFinding)...)
+	}
 	{
 		_webhook := root.Group("/webhook", _webhookMw()...)
 		_webhook.POST("/:platform", append(_receiveMw(), api.Receive)...)

@@ -89,13 +89,22 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			return
 		default:
 		}
-		prs, _, err := p.SDK.ListCRs(ctx, t.Platform, provider.ListCROptions{
-			Owner: t.Owner, Repo: t.Repo, State: provider.CRStateOpened, Page: 1, PerPage: 30,
-		})
-		if err != nil {
-			p.Log.Warn("argus.poller.list_failed",
-				"repo", t.Owner+"/"+t.Repo, "error", err.Error())
-			continue
+		var prs []*provider.ChangeRequest
+		for page := 1; page <= 3; page++ { // 上限 3 页 × 30：超大盘仓库另议
+			pagePrs, _, err := p.SDK.ListCRs(ctx, t.Platform, provider.ListCROptions{
+				Owner: t.Owner, Repo: t.Repo, State: provider.CRStateOpened,
+				Page: page, PerPage: 30,
+			})
+			if err != nil {
+				p.Log.Warn("argus.poller.list_failed",
+					"repo", t.Owner+"/"+t.Repo, "error", err.Error())
+				prs = nil
+				break
+			}
+			prs = append(prs, pagePrs...)
+			if len(pagePrs) < 30 {
+				break
+			}
 		}
 		for _, cr := range prs {
 			if cr.Draft { // 与 webhook 路径的 §5.1 规则 3 对齐

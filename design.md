@@ -511,3 +511,23 @@ routing:
 ARGUS_MAX_DIFF_CHARS / ARGUS_TASK_TOKEN_BUDGET / ARGUS_REPORT_META / ARGUS_PLUGINS /
 ARGUS_GITEA_URL|TOKEN|SECRET / ARGUS_GITHUB_TOKEN|SECRET / ARGUS_GITLAB_URL|TOKEN|SECRET /
 OPENAI_BASE_URL|API_KEY|MODEL`。
+
+---
+
+## 13. v3.0.1 实施修订记录（2026-08-31）
+
+设计定稿后的实现期修订，全部由真实试点（git.example.com/Forgejo，bot 账号 friday）驱动，
+逐条含测试锚点；完整变更清单见 CHANGELOG.md，此处只记录与设计条文的差异：
+
+- §3.3 反馈通道：v3.1 候选的最小入口提前落地——`POST /findings/suppress`（🔒，按同一
+  指纹函数置 suppressed）。"未实装前不引依赖"不变：无新依赖。
+- §5.1 轮询兜底（新增任务来源）：平台入站 webhook 不可达环境（试点实测）出站轮询 PR，
+  同 SHA 双查去重与 webhook 完全同语义；轮询任务无事件类型，Triggers.Events 视为通过。
+- §5 路由表：新增 `GET /tasks`（列表）与 `POST /findings/suppress`；两者均 🔒。
+- §7-7 评审语义：verdict 恒映射 CreateReview 事件（此前仅在有行内意见时提交）；
+  PR 作者自审被平台拒绝时自动降级 COMMENT（原判定保留在评审 body）——生产须独立 bot 账号。
+- §4 防线补充（代码级）：`alignChecksToSpec` 剔除 R3 发明的清单外条目，防 R5.1 计数放大。
+- §10.4 停机：worker 两阶段优雅停机（停领取→等在途 60s→硬取消）；
+  `ARGUS_TASK_RETENTION_DAYS` 保留清理。
+- §10.1 观测：新增 `argus_tasks_pending/running` gauge；预期内 not-found 日志静默。
+- 部署：`deploy/`（docker-compose + k8s kustomize），SQLite 单实例约束在清单头注释声明。

@@ -125,6 +125,15 @@ curl -X POST localhost:8899/tasks \
   -d '{"kind":0,"platform":"gitea","owner":"acme","repo":"app","number":"7"}'
 
 curl localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"   # 查询/取报告
+curl localhost:8899/tasks?status=done -H "Authorization: Bearer $ARGUS_APITOKEN"  # 任务列表
+
+# 误报反馈：把某条意见标记为抑制（之后每轮报告自动剔除）
+curl -X POST localhost:8899/findings/suppress \
+  -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
+  -d '{"platform":"gitea","owner":"acme","repo":"app","number":"7","file":"a.go","comment":"意见原文"}'
+
+# 插件可观测（含仓库配置视图：.reviewagents.yaml 生效状态 + 信任边界告警）
+curl "localhost:8899/agents?platform=gitea&owner=acme&repo=app" -H "Authorization: Bearer $ARGUS_APITOKEN"
 
 # 方式 B：webhook（平台签名自动校验，重发幂等）
 curl -X POST localhost:8899/webhook/gitea -H "X-Gitea-Delivery: <uuid>" ...
