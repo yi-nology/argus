@@ -1,210 +1,218 @@
-# Argus —— 可插拔多 Agent 审查平台（v3.0）
+# Argus —— PR 自动审查 Bot（可插拔多 Agent 审查平台）
 
-> 设计文档：`design.md`（v3.0 定稿，经六轮评审）。本 README 讲清楚"它是什么、怎么工作、怎么跑"。
+> 给它一个 PR，它读完代码、对照需求、派出多个审查专家，然后把一份带证据的报告回帖到 PR 上，
+> 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
+> 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-## 一、Argus 是什么
+当前版本 **v3.0.2**（v3.0.1 全面审查修复版），已在真实 Forgejo（git.example.com）完成完整生命周期试点验证。
 
-Argus 是一个 **PR 评论 Bot + 异步任务平台**：给它一个 PR（webhook 自动触发，或 TaskAPI 手动提交），
-它会：
+---
 
-1. **解析需求**——从 PR 描述 / 关联 issue / 分支名 `#N` 中改写出验收清单（AC-1..N）；
-2. **核对完成度**——用带工具的 ReAct agent（`get_file`/`get_issue`/`get_diff`）逐条判定
-   `implemented | partial | missing | unverifiable`，并检测需求外改动（scope creep）；
-3. **委派专家插件**——并发调用可插拔的审查 agent（内置 LLM 审查、OCR CLI、远端 MCP 服务……）；
-4. **汇总裁决**——确定性真值表（不走 LLM）给出 `approve | comment | request_changes`；
-5. **回帖**——在 PR 上发/更新一份结构化报告（验收清单完成度 + scope creep + 行内评论 + 结论）。
+## 一、Argus 能做什么
 
-### 分层架构（一句话版）
+### 1. 需求复核：不只看代码，还看"做没做完"
 
-```
-L1 形态   PR Bot（v3.0）｜CLI/TaskAPI（v3.0）｜MCP/A2A Server（v3.1 占位）
-L2 门面   TaskAPI（异步任务）——webhook 和 CLI 最终都变成 tasks 表里的一行
-L3 编排   requirement-compliance workflow（R1→R5，确定性 Go 代码）
-L4 插拔   Registry → Dispatcher → Merger   ←—— 本项目的核心
-L5 上下文 git-platform-sdk（diff/issue/文件）｜工作副本沙箱｜SQLite 存储｜skill/RAG/工具池扩展点
-```
+- 自动从 **PR 描述 / 关联 issue（分支名 `#N` 也能关联）** 改写出验收清单（AC-1..N）；
+- 用带工具的 ReAct agent（`get_file` / `get_issue` / `get_diff`）**逐条判定**
+  `implemented | partial | missing | unverifiable`，每条判定必须带 `file:line` 证据——
+  无证据的判定会被代码级强制降级为 unverifiable；R3 少报/漏报的条目会被**双向对齐**
+  补齐为需人工确认（LLM 少写几条就想把 partial PR 洗成 APPROVE？不存在）；
+- 检测**需求外改动（scope creep）**：改了清单之外的东西会单独列出，请人确认。
 
-两条铁律贯穿全设计：
+### 2. 多专家并发审查：一个 PR，多双眼睛
 
-- **形态是 L1 适配器，agent 是 L4 插件**——加一种接入方式不动核心，加一个审查 agent 不动形态；
-- **路由/裁决/合并不走 LLM**——确定性代码保证可解释、可复现；自主性只给 R3 阶段内的 ReAct 工具调用。
+- 插件式架构（`plugins.yaml` 声明），单插件失败/超时/熔断只做"降级注明"，不拖垮整轮审查；
+- 内置 **requirement-compliance**（上面的需求复核全流程）、**correctness**（通用代码审查）、
+  **security**（安全审查，仓库配置禁不掉）三类 LLM agent；
+- 可插 **CLI 外部工具**（内置 OCR：alibaba/open-code-review，进程组托管、容错 JSON 解析）
+  和 **remote 远端 agent**（a2a/mcp 接口位已留）；
+- 支持**方法论注入**（skillRefs）：把 SKILL.md 里的评分标准注入对应阶段的 prompt；
+- **确定性路由与合并**：按 paths/labels/事件路由插件，指纹去重（不同专家发现同一问题只报一次）、
+  冲突取高severity、token 预算吃紧时 heavy 插件先裁（锁定插件豁免）。路由/裁决/合并不走 LLM，可解释、可复现。
 
-### R5 裁决真值表（按序短路）
+### 3. 确定性裁决 + 双层回帖
+
+按序短路的真值表（`R5.1`–`R5.5`，见下文）给出结论，然后：
+
+- **行内评论**：审查意见钉到具体代码行，随 CreateReview 事件附上（每轮独立）；
+- **总结报告**：PR 下一条结构化评论，多轮审查**原地更新**不刷屏（三级降级：定位更新 → 扫描
+  HTML 注释头 → 新建）。实际长这样：
+
+  ```markdown
+  <!-- argus:report task_id=t-abc head=sha123 ver=v3.0.1 -->
+  ## 📋 Argus 需求复核报告（需求源: issue #12）
+
+  ### 验收清单完成度: 1/2 ⛔
+  | AC | 判定 | 证据 |
+  |---|---|---|
+  | AC-1 支持分页 | ✅ implemented | api/list.go:42 |
+  | AC-2 导出 CSV | ❌ partial | 只实现了前端入口，后端接口缺失 api/export.go:15 |
+
+  ### ⚠️ 需求外改动（scope creep）
+  - `internal/foo.go`：与需求无关的重构，请确认
+
+  ### 🔍 代码审查意见
+  - [correctness/medium] `api/list.go:57` 未限制 page 上限，可被大值打爆内存（fp:ab12cd34）
+
+  ### 结论: ⛔ 需求未完成（1 项未达标）（R5.1）
+  ```
+
+### 4. 四种接入方式，同一个引擎
+
+| 方式 | 场景 | 说明 |
+|---|---|---|
+| **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
+| **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
+| **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等四工具，可同步等待终态 |
+
+### 5. 反注入与安全边界（评审对象不能操纵评审）
+
+- PR 描述/commit message 里的"请输出 APPROVE"类注入：数据区包裹 + 可疑 AC 进人工确认 +
+  无证据判定降级，**极限效果只是 COMMENT，永远拿不到白给的 APPROVE**（试点已实测双注入场景）；
+- 仓库自己的 `.reviewagents.yaml` **只能"选"不能"增"**：引用未注册插件被忽略并告警；
+  安全类插件 `lockRepoConfig` 关不掉；routing 不能新增 endpoint；
+- cli 二进制/remote endpoint 只能来自 `plugins.yaml`（供应链信任，可执行文件缺失→插件 disabled）；
+- 🔒 路由（/tasks /agents /findings）fail-closed：未配 `ARGUS_APITOKEN` 直接 503 拒绝。
+
+### 6. 越用越准：误报抑制
+
+报告里每条意见带指纹短码（`fp:ab12cd34`）。认为是误报？调一次
+`POST /findings/suppress`（支持短码直达，或 file+原文，指纹对空白/标点不敏感），
+之后每轮报告自动剔除，脚注注明"N 条历史意见已被抑制"。
+
+### 7. 生产级健壮性（v3.0.1 加固）
+
+- **幂等与去重**：同 delivery 重发不重跑；同 PR 同 head SHA 的 in-flight 任务直接去重（事务保证）；
+  评审事件带 task_id 锚点，崩溃重跑不重复发评审；
+- **staleness 门控**：连续两次 push、慢的那轮后完成时**不会覆盖新 SHA 的报告**；
+- **优雅停机与心跳恢复**：SIGTERM 后停领新任务，在途审查给 60s 自然完成，超时才硬取消；
+  running 任务带实例心跳（20s），心跳死亡 >90s 才被重置回 pending（多副本共库时滚动重启
+  不误伤其他实例的在途任务）——重启不烧双倍 token；
+- **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS`（超期终态任务启动时+每日清理）；
+- **可观测**：`/metrics` 暴露 `argus_tasks_total/pending/running`、`argus_llm_tokens_total`、
+  插件耗时/失败、阶段耗时；`ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
+- **平台降级**：平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop；
+- 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）、单实例约束（SQLite 下
+  必须单副本，多副本切 MySQL）。
+
+---
+
+## 二、裁决真值表（按序短路，确定性 Go 代码）
 
 | 序 | 条件 | 结论 |
 |---|---|---|
-| R5.1 | missing + partial > 0 | REQUEST_CHANGES（需求未完成，一票否决）|
-| R5.2 | 存在 high finding | REQUEST_CHANGES |
-| R5.3 | unverifiable>0 或 需求模糊/空清单 或 scope creep | COMMENT（人工确认）|
-| R5.4 | 存在 medium/low finding | COMMENT |
-| R5.5 | 其余 | APPROVE |
+| R5.1 | missing + partial > 0 | **REQUEST_CHANGES**（需求未完成，一票否决）|
+| R5.2 | 存在 high finding | **REQUEST_CHANGES** |
+| R5.3 | unverifiable>0 / 需求模糊或空清单 / scope creep | **COMMENT**（人工确认）|
+| R5.4 | 存在 medium/low finding | **COMMENT** |
+| R5.5 | 其余 | **APPROVE** |
 
-R5.3 的扩展是防注入的关键：攻击者即使通过 PR 描述注入指令踢掉难满足的 AC，极限效果也只是
-"人工确认"，永远拿不到白给的 APPROVE。
+R5.3 是防注入的兜底：攻击者即使通过注入踢掉难满足的 AC，结果也只是"人工确认"。
 
-## 二、目录导览（对照 design §5.2）
+---
+
+## 三、一次审查的旅程
 
 ```
-idl/argus.thrift               接口唯一事实来源（hz 生成路由/DTO）
-biz/                           hz 生成壳：handler 薄实现调 internal/service
-internal/
-  config/                      环境变量配置（§6/§12 全表）
-  plugin/                      L4：契约(AgentPlugin/Task/Result) + severity 词表 + 指纹
-    ├ registry.go              plugins.yaml → 注册表；仓库配置信任边界（§3.4）
-    ├ dispatcher.go            确定性路由 + fan-out + 超时 + 熔断(3败/5min) + 预算裁剪
-    ├ merger.go                指纹去重（规范化文本哈希+file，行号±2仅辅助）+ 冲突取高 + 误报抑制
-    ├ adapter_builtin/         requirement-compliance(workflow 外壳) + 通用审查 agent(skillRef 注入)
-    ├ adapter_cli/             OCR CLI 适配器（进程组 exec：Setpgid→TERM→KILL；容错 JSON 解析）
-    └ adapter_remote/          a2a/mcp 接口位（v3.0 占位）
-  workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度(ADK agent+工具) / R4 委派 / R5 真值表
-  context/                     diffprep(diff 清洗) + sdkctx(SDK 薄封装) + workcopy(浅克隆沙箱)
-  storage/                     GORM 三表：tasks(幂等/去重/抢占/staleness) + finding_prints + review_targets
-  llm/                         重试/JSON 反馈重试/token 记账
-  poster/                      行内评论(CreateReview) + 总结评论三级降级(更新→扫描→新建) + staleness 门控
-  runner/ worker/              任务执行编排 + DB 即队列的 worker pool
-  knowledge/ toolpool/         扩展点：Skill(file 实现)+RAG(Noop)+MCP 工具池(mock)
-  channel/mcpserver/           Argus as MCP Server 路由占位（v3.1）
-test/e2e/                      双打桩端到端：mock OpenAI + fake Gitea + mock OCR CLI，9 个场景
+PR opened/push ─┬─ webhook（签名校验、delivery 幂等）
+                ├─ poller（轮询发现，同 SHA 去重）
+                ├─ POST /tasks（Bearer）
+                └─ MCP review_pr
+                        │
+                        ▼
+              tasks 表（DB 即队列，worker pool 领取）
+                        │
+                        ▼
+  R1 需求解析 → R2 变更理解 → R3 完成度判定(ReAct+工具)
+  → R4 并发委派插件(builtin/cli/remote) → R5 真值表裁决
+                        │
+                        ▼
+      行内评论(CreateReview) + 总结报告(原地更新)
 ```
 
-## 三、关键设计如何落地（实现对照）
-
-| 设计承诺 | 实现位置 | 要点 |
-|---|---|---|
-| webhook 幂等 | `storage.CreateTaskForWebhook` + `service.Webhook` | 幂等键=平台 delivery ID（`X-Gitea-Delivery` 等，ParseWebhookEvent **之前**读取）；header 缺失 event_id 置 NULL |
-| 同 SHA 去重（含 in-flight 竞态） | `storage.CreateTaskForWebhook` | `last_head_sha` 双查 + pending/running 同 SHA 检查，**查询与落库同一事务**；SQLite 连接数=1 串行保正确性 |
-| staleness（过期任务不覆盖新结果） | `storage.HasNewerNonFailedTask` + `poster.Post` | 单条件：存在同 PR 更晚创建的非 failed 任务 ⇒ stale；findings 照常入库，不回帖不覆盖 review_targets |
-| 反注入四防线 | `prompts.go`(数据区包裹) + `antiinjection.go`(可疑 AC 进 Ambiguous / 无证据降级) + `Verdict`(只读结构化值) | LLM 输出不可信：implemented/partial 无 `file:line` 证据一律降级 unverifiable（代码级强制）|
-| 仓库配置信任边界 | `plugin.ResolveRepoConfig` | 只从默认分支读；未注册名忽略+告警；lockRepoConfig 插件仓库配置关不掉；routing 不能新增 endpoint |
-| 总结评论更新不刷屏 | `poster.postSummary` | review_targets 定位 → 失败扫 HTML 注释头 `<!-- argus:report ... -->` → 再失败新建；行内评论每轮独立 |
-| 成本预算 | `plugin.TokenBudget` + `Dispatcher.PruneByBudget` | 任务内累计器判定（指标只观测）；裁剪按 cost 降序（heavy 先裁），lockRepoConfig 豁免+告警 |
-| 部分失败容忍 | `Dispatcher.Run` + `merger.Degraded` | 单插件失败/超时/熔断 → 报告"降级注明"，其余照常 |
-| 供应链信任 | `bootstrap`（LookPath 检查）| cli 二进制/remote endpoint 只能来自 plugins.yaml；可执行文件缺失→插件置 disabled，绝不换路径解析 |
-| 仓库配置可观测 | `GET /agents?platform&owner&repo` + `plugin.ObserveRepoConfig` | 返回 .reviewagents.yaml 规范化原文 + 各插件生效状态（locked/selected/routed/excluded_by_use/disabled/default）+ 信任边界告警 |
+---
 
 ## 四、快速开始
 
-### 1. 准备
+### 1. 本地跑（学习期形态：SQLite 单文件）
 
 ```bash
 cd argus
-cp plugins.example.yaml plugins.yaml   # 按需裁剪
-# LLM：复用 lacus/.env（OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL）
-```
-
-### 2. 环境变量（全表见 design §12）
-
-```bash
+cp plugins.example.yaml plugins.yaml          # 按需裁剪
 export ARGUS_ADDR=:8899
-export ARGUS_DB_DSN=argus.db              # 集群部署换 MySQL DSN 即切
-export ARGUS_APITOKEN=change-me           # /tasks /agents 的 Bearer token（生产必须）
-export ARGUS_BOT_USERNAME=argus-bot       # webhook bot 自审保护
-export ARGUS_GITEA_URL=https://gitea.example.com
-export ARGUS_GITEA_TOKEN=xxx
-export ARGUS_GITEA_SECRET=webhook-sign-secret
-# GitHub/GitLab 同构：ARGUS_GITHUB_TOKEN|SECRET / ARGUS_GITLAB_URL|TOKEN|SECRET
-# 可选：ARGUS_SKIP_DRAFT(默认true) ARGUS_MAX_CONCURRENT_TASKS(默认2)
-#       ARGUS_TASK_TOKEN_BUDGET(默认200k) ARGUS_MAX_DIFF_CHARS ARGUS_PLUGINS(默认plugins.yaml)
+export ARGUS_APITOKEN=change-me               # 🔒 路由凭证，不配则拒绝服务
+export ARGUS_BOT_USERNAME=argus-bot           # webhook bot 自审保护
+export ARGUS_GITEA_URL=https://git.example.com
+export ARGUS_GITEA_TOKEN=<token>              # GitHub/GitLab 同构：ARGUS_GITHUB_* / ARGUS_GITLAB_*
+export ARGUS_GITEA_SECRET=webhook-secret
+# LLM 走 OpenAI 兼容协议：OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL（复用 lacus/.env 即可）
+make run                                      # 编译并启动，自动加载 lacus/.env 与 ./.env
+curl localhost:8899/healthz && curl localhost:8899/readyz
 ```
 
-### 3. 运行
+启动日志确认三行：`platform_ready` / `plugin_registered` / `http_ready`。
+
+### 2. 触发一次审查
 
 ```bash
-go build -o argus . && ./argus
-# 健康检查
-curl localhost:8899/healthz
-curl localhost:8899/readyz
-```
-
-### 4. 触发一次审查
-
-```bash
-# 方式 A：TaskAPI（与 webhook 任务同语义，同样回帖到 PR）
+# 方式 A：TaskAPI（不依赖 webhook，先跑通它）
 curl -X POST localhost:8899/tasks \
   -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
   -d '{"kind":0,"platform":"gitea","owner":"acme","repo":"app","number":"7"}'
 
-curl localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"   # 查询/取报告
-curl localhost:8899/tasks?status=done -H "Authorization: Bearer $ARGUS_APITOKEN"  # 任务列表
+curl localhost:8899/tasks/<taskId> -H "Authorization: Bearer $ARGUS_APITOKEN"   # 状态/报告
+curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGUS_APITOKEN"
 
-# 误报反馈：把某条意见标记为抑制（之后每轮报告自动剔除）
-# 方式一：报告意见行尾的 fp 短码直达
-curl -X POST localhost:8899/findings/suppress \
-  -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
-  -d '{"platform":"gitea","owner":"acme","repo":"app","number":"7","fingerprint":"ab12cd34"}'
-# 方式二：file + 意见原文（指纹函数对空白/标点不敏感）
-curl -X POST localhost:8899/findings/suppress \
-  -H "Authorization: Bearer $ARGUS_APITOKEN" -H "Content-Type: application/json" \
-  -d '{"platform":"gitea","owner":"acme","repo":"app","number":"7","file":"a.go","comment":"意见原文"}'
+# 方式 B：webhook（平台签名自动校验，重发幂等）
+./scripts/setup-webhook.sh acme/app           # 一键注册；之后开 PR / push 即自动审查
+```
 
-# 插件可观测（含仓库配置视图：.reviewagents.yaml 生效状态 + 信任边界告警）
-curl "localhost:8899/agents?platform=gitea&owner=acme&repo=app" -H "Authorization: Bearer $ARGUS_APITOKEN"
-
-## MCP Server（v3.1 方向 B 已实装）
-
-Argus 把审查能力暴露为 MCP 工具（streamable http，Bearer 鉴权同 🔒 路由），
-任意 MCP 客户端可直接调用：
-
-| 工具 | 说明 |
-|---|---|
-| `review_pr` | 发起审查并可选等待终态（platform/owner/repo/number + kind/wait/timeout_seconds）|
-| `requirement_compliance` | 需求复核固定形态（等价 review_pr 默认）|
-| `list_agents` | 插件清单；三参全传附带仓库配置视图 |
-| `get_report` | 按 taskId 取状态/verdict/完整报告 |
-
-客户端接入示例（任何支持 streamable http 的 MCP 客户端）：
+### 3. MCP 客户端接入
 
 ```json
 {"url": "http://<argus地址>:8899/mcp", "headers": {"Authorization": "Bearer $ARGUS_APITOKEN"}}
 ```
 
-`review_pr(wait=true)` 返回结构化 JSON：`task_id` / `status` / `verdict` / `report`
-（完整报告 markdown）。实现：`internal/channel/mcpserver`（mark3labs/mcp-go）。
+| 工具 | 说明 |
+|---|---|
+| `review_pr` | 发起审查并可选等待终态（platform/owner/repo/number + kind/wait/timeout_seconds，等待上界 10 分钟），返回 task_id/status/verdict/report |
+| `requirement_compliance` | 需求复核固定形态（等价 review_pr 默认）|
+| `list_agents` | 插件清单；三参全传附带仓库配置视图 |
+| `get_report` | 按 taskId 取状态/verdict/完整报告 |
 
-# 方式 B：webhook（平台签名自动校验，重发幂等）
-curl -X POST localhost:8899/webhook/gitea -H "X-Gitea-Delivery: <uuid>" ...
-```
+### 4. API 一览
 
-### 5. 测试与验证
+| 端点 | 鉴权 | 说明 |
+|---|---|---|
+| `GET /healthz` `GET /readyz` | 无 | 健康/就绪（平台降级在 readyz 可见）|
+| `GET /metrics` | 无 | Prometheus 指标（argus_* 前缀）|
+| `POST /webhook/{gitea\|github\|gitlab}` | HMAC 签名 | 平台事件入口，delivery 幂等 |
+| `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
+| `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
+| `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
+| `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
-```bash
-make test    # 单元测试（真值表/反注入/指纹/渲染/diffprep/存储，不联网）
-make e2e     # E2E 九场景双打桩（mock LLM + fake Gitea + mock OCR，不联网）
-make it      # 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*，约 1-3 分钟）
-make check   # vet + gofmt
-```
+### 5. 常用环境变量
 
-`make it` 已实测：mimo-v2.5 真实模型下 R1 改写出精准验收清单、R3 判定 partial/missing 带
-file:line 证据、correctness 插件抓出真实 medium 问题、R5.1 正确一票否决并回帖。
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ARGUS_ADDR` | `:8899` | 监听地址 |
+| `ARGUS_DB_DSN` | `argus.db` | SQLite 文件；切 MySQL DSN 即集群化（多副本必须）|
+| `ARGUS_APITOKEN` | 空 | 🔒 路由 Bearer；空则 fail-closed 503 |
+| `ARGUS_BOT_USERNAME` | - | bot 账号名（自审保护；生产建议独立账号）|
+| `ARGUS_MAX_CONCURRENT_TASKS` | 2 | worker 数，按 LLM 配额调 |
+| `ARGUS_TASK_TOKEN_BUDGET` | 200k | 单任务 token 预算，heavy 插件先裁 |
+| `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文预算 |
+| `ARGUS_SKIP_DRAFT` | true | 跳过 Draft PR |
+| `ARGUS_TASK_RETENTION_DAYS` | 0(永久) | 终态任务保留天数 |
+| `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|
+| `ARGUS_PLUGINS` | plugins.yaml | 插件声明文件 |
+| `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
+| `ARGUS_{GITEA,GITHUB,GITLAB}_{URL,TOKEN,SECRET,SKIP_TLS}` | - | 平台凭证；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）|
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
 
-### 6. Webhook 接入步骤（以 Gitea 为例）
-
-1. Gitea 仓库 → 设置 → Webhook → 添加 Gitea 类型 webhook：
-   - 目标 URL：`http://<argus地址>:8899/webhook/gitea`
-   - 请求方式：`POST`，内容类型：`application/json`（不要选 form）
-   - 密钥文本：填 `ARGUS_GITEA_SECRET` 的同值（HMAC-SHA256 签名校验，错签 401 拒绝）
-   - 触发条件：勾选"Pull Request"事件（或自定义只勾 opened/synchronize/reopened）
-2. 保存后点"测试投递"：Argus 日志出现 `argus.webhook.accepted`（或 `skipped`+原因）即通。
-3. 同步推送（synchronize）会更新既有报告评论而不是刷新评论；同 head SHA 重发/重复投递幂等。
-
-### 7. Docker 部署
-
-```bash
-make docker                     # go mod vendor + 多阶段构建（静态二进制 + git）
-docker run -d --name argus -p 8899:8899 -v argus-data:/data \
-  -e ARGUS_APITOKEN=change-me \
-  -e ARGUS_GITEA_URL=https://gitea.example.com \
-  -e ARGUS_GITEA_TOKEN=xxx \
-  -e ARGUS_GITEA_SECRET=webhook-secret \
-  argus:v3.0.0
-```
-
-镜像内含 git（workcopy 浅克隆用）；SQLite 与工作副本沙箱落 `/data` 卷，容器重建任务不丢。
-平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop。
-
-## 五、仓库侧配置（.reviewagents.yaml）
-
-放在**业务仓库默认分支**，只能"选"不能"增"（引用未注册插件会被忽略并告警）：
+### 6. 仓库侧配置（.reviewagents.yaml，放业务仓库默认分支）
 
 ```yaml
 use: [requirement-compliance, ocr]      # 白名单（锁定插件不受影响，永远参与）
@@ -214,44 +222,129 @@ routing:
   - {labels: ["ui"], use: [frontend-visual]}
 ```
 
-## 六、真实 Gitea 试点
+只能"选"不能"增"——引用未注册插件会被忽略并告警；`lockRepoConfig` 插件关不掉。
 
-接入内网 Forgejo（git.example.com）的完整步骤、验收清单与已知边界见 **[PILOT.md](PILOT.md)**。
-要点：需要你生成一个 Forgejo Access Token（唯一人工步骤）；证书过期用 `ARGUS_GITEA_SKIP_TLS=1`；
-webhook 一键注册：`./scripts/setup-webhook.sh <owner/repo>`。
+---
 
-## 七、运维与健壮性（v3.0.1 加固）
+## 五、部署
 
-- **优雅停机**：SIGTERM 后 HTTP 先停，worker 停止领取新任务并给在途审查 60s 自然完成
-  （`wp.Stop(60s)`）；超时才硬取消，任务保持 running、下次启动自动重置回 pending——
-  部署重启不会把跑到一半的审查杀掉重跑、双倍消耗 token。
-- **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS=30`（0=永久）——超期的已终结任务
-  （done/failed/stale）启动时+每日自动清理；pending/running 永不清理。
-- **队列积压可观测**：`argus_tasks_pending` / `argus_tasks_running` gauge（30s 采样），
-  积压一眼可见。
-- **日志卫生**：预期内"查无记录"（worker 空轮询、webhook 重放查询等）已静默，
-  不会每 500ms 刷红色错误淹没真实告警。
-- **凭据安全**：workcopy 克隆失败的报错会脱敏嵌入 URL 的 token；`SKIP_TLS=1` 时
-  启动日志有明示告警。
-- **单实例约束**：SQLite 模式下 Argus 必须单实例运行（连接数=1 + 写锁保证幂等/
-  去重事务性）；集群多副本部署必须切 MySQL。
+两种形态，详见 **[deploy/README.md](deploy/README.md)**：
 
-## 八、部署定位
+```bash
+# docker-compose（单机/内网，compose 冒烟已通过）
+make compose-up                               # 8899 被占时改 .env 的 ARGUS_HOST_PORT
 
-**学习期**：本机/内网运行，SQLite 单文件（`ARGUS_DB_DSN=argus.db`），LLM 复用 lacus `.env`；
-镜像构建自包含（vendor，无需私有 Gitea 凭证）：`make docker` → `argus:v3.0.0`。
-**后续**：推 Harbor 走 buildkit+ArgoCD 上 studio 集群（`cloud=studio-amd64`），DSN 切 MySQL，
-Prometheus 指标（`/metrics`，argus_* 前缀）对接现有 kube-prometheus-stack，日志已结构化（logx）。
+# k8s（kustomize；studio/test 集群可接 buildkit+Harbor+ArgoCD）
+make k8s-apply                                # 注意 replicas=1 + Recreate（SQLite 单写模型）
+```
 
-**生产清单（上线前自查）**：`ARGUS_APITOKEN` 必须设置——未配置时 🔒 路由（/tasks /agents）
-fail-closed 拒绝服务（503），webhook 与健康检查不受影响；
-`ARGUS_*_SECRET` 三个平台各自配置（空 secret 时 SDK 会跳过签名校验）；OCR 二进制用
-`scripts/install-ocr.sh` 安装并留存 sha256（§8 供应链信任）；worker 数按 LLM 配额调
-`ARGUS_MAX_CONCURRENT_TASKS`；磁盘监控 `/data`（SQLite + 工作副本沙箱，后者有 1h TTL 兜底回收）。
+**生产上线自查**：`ARGUS_APITOKEN` 必配（fail-closed 503）；各平台 `SECRET` 必配（v3.0.2 起空
+secret 的 webhook 直接拒绝服务）；OCR 二进制用 `scripts/install-ocr.sh` 安装并留存 sha256；
+SQLite 单实例约束（MySQL 模式支持实例崩溃后的心跳级任务恢复，多活副本尚未支持）；
+磁盘监控 `/data`（SQLite + 工作副本沙箱，后者 1h TTL 兜底回收）。
 
-## 八、当前边界（v3.0 未做，接口已留）
+---
 
-- remote 插件（a2a/mcp 协议子集）：`adapter_remote` 占位，v3.1 接 review-service MCP server；
+## 六、插件声明（plugins.yaml 要点）
+
+```yaml
+agents:
+  - name: requirement-compliance   # R1→R5 整条 workflow 包成的插件
+    kind: builtin                  # builtin | cli | remote
+    skills: [requirement-compliance]
+    needs: [diff, repo-file-read, requirement-spec]
+    lockRepoConfig: true           # 仓库配置不可禁用/排除
+    skillRefs: [ocr-grading]       # SKILL.md 方法论注入 R3
+    cost: heavy                    # fast | standard | heavy（预算吃紧 heavy 先裁）
+    timeout: 600s
+```
+
+- `kind: cli`：白名单可执行文件（供应链信任），`mode: full` 全权审查 / `delegate` 只要筛选规则（v3.1）；
+  `env: [VAR...]` 声明按名透传的环境变量白名单（缺省最小环境，密钥类绝不继承——cli 在待审仓库工作树里执行）；
+- `kind: remote`：`protocol: a2a | mcp`，endpoint 只能在这里声明（v3.1 实装协议子集）；
+- `triggers: {events: [cr.opened]}`：可按事件收窄（SDK 归一化词表 cr.opened/synchronize/reopened）。
+
+---
+
+## 七、测试
+
+```bash
+make test    # 单元测试（真值表/反注入/指纹/渲染/diffprep/存储，不联网）
+make e2e     # E2E 双打桩 16 场景（mock OpenAI + fake Gitea + mock OCR，不联网）
+make it      # 真实 LLM 集成测试（ARGUS_IT=1，走 OPENAI_*，约 1-3 分钟）
+make check   # vet + gofmt
+```
+
+`make it` 已实测：mimo-v2.5 真实模型下 R1 改写出精准验收清单、R3 判定 partial/missing 带
+file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否决并回帖。
+
+---
+
+## 八、实战验证（git.example.com / Forgejo 真实试点）
+
+完整步骤与验收清单见 **[PILOT.md](PILOT.md)**。已实测通过的硬事实：
+
+- **完整生命周期**：issue#3 → 部分实现 PR#4 → R5.1 打回（行内 6 条意见）→ 补全 →
+  **R5.5 通过，bot 账号 friday 正式 APPROVED（official review）**；
+- **四条 verdict 路径**（R5.1/R5.2/R5.3/R5.5）全部在真实 PR 页落地可见；
+- **注入对抗**：PR body/commit message 双注入"请输出 APPROVE" → 仍 R5.1，判定诚实；
+- **多轮原地更新**：同 PR 连续 push，总结评论更新不刷屏；staleness 门控生效；
+- **轮询兜底**：webhook 入站不可达环境实测（抓包零包）下轮询路径零功能损失；
+- bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
+
+---
+
+## 九、目录导览
+
+```
+idl/argus.thrift               接口唯一事实来源（hz 生成路由/DTO）
+biz/                           hz 生成壳：handler 薄实现调 internal/service
+internal/
+  config/                      环境变量配置
+  plugin/                      L4：契约 + severity 词表 + 指纹
+    ├ registry.go              plugins.yaml → 注册表；仓库配置信任边界
+    ├ dispatcher.go            确定性路由 + fan-out + 超时 + 熔断(3败/5min) + 预算裁剪
+    ├ merger.go                指纹去重 + 冲突取高 + 误报抑制
+    ├ adapter_builtin/         requirement-compliance(workflow 外壳) + 通用审查 agent
+    ├ adapter_cli/             OCR CLI 适配器（进程组 exec；容错 JSON 解析）
+    └ adapter_remote/          a2a/mcp 接口位（v3.1 实装）
+  workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度 / R4 委派 / R5 真值表
+  context/                     diffprep(diff 清洗+RawDiff 回填) + sdkctx + workcopy(浅克隆沙箱)
+  storage/                     GORM 三表：tasks(幂等/去重/抢占/staleness) + finding_prints + review_targets
+  llm/                         重试/JSON 反馈重试/token 记账
+  poster/                      行内评论 + 总结评论三级降级 + staleness 门控
+  poller/                      轮询兜底任务源（webhook 不可达环境）
+  reportview/                  报告渲染（上文示例的出处）
+  channel/mcpserver/           Argus as MCP Server（/mcp 四工具）
+  runner/ worker/              任务执行编排 + DB 即队列的 worker pool
+  knowledge/ toolpool/ obs/    Skill(file 实现) / MCP 工具池 / 指标
+test/e2e/                      双打桩 E2E 16 场景 + 真实 LLM 集成测试
+deploy/                        docker-compose + k8s kustomize 双形态
+scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
+skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
+```
+
+**设计骨架**（详见 `design.md`）：
+
+```
+L1 形态   PR Bot ｜ CLI/TaskAPI ｜ MCP/A2A Server
+L2 门面   TaskAPI——webhook/轮询/CLI 最终都变成 tasks 表里的一行
+L3 编排   requirement-compliance workflow（R1→R5，确定性 Go 代码）
+L4 插拔   Registry → Dispatcher → Merger   ←—— 核心扩展点
+L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/RAG/工具池
+```
+
+两条铁律：**形态是 L1 适配器，agent 是 L4 插件**（加接入方式不动核心，加审查 agent 不动形态）；
+**路由/裁决/合并不走 LLM**（可解释、可复现，自主性只给 R3 的 ReAct 工具调用）。
+
+---
+
+## 十、当前边界（接口已留，v3.1 方向）
+
+- remote 插件协议子集（a2a/mcp）：`adapter_remote` 接口位就绪，接 review-service MCP server；
 - cli `delegate` 模式：接口留好（生产参考 review-service `internal/ocr/delegate.go`）；
-- 误报反馈通道：`finding_prints.status=suppressed` 表结构已备，入口 v3.1 定；
-- MCP Server 门面（`/mcp` 501 占位）、A2A Server、SSE 会话、RAG 实装、IM 通知。
+- RAG 实装、A2A Server、SSE 会话、IM 通知。
+
+---
+
+*设计文档：[design.md](design.md) · 试点手册：[PILOT.md](PILOT.md) · 部署：[deploy/README.md](deploy/README.md) · 变更记录：[CHANGELOG.md](CHANGELOG.md)*
