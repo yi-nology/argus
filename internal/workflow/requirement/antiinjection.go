@@ -115,17 +115,37 @@ func alignChecksToSpec(spec *plugin.RequirementSpec, report *plugin.ComplianceRe
 
 var evidenceRe = regexp.MustCompile(`^\S+\.(go|js|ts|tsx|jsx|py|java|kt|rs|c|h|cpp|cc|php|rb|vue|sql|sh|yaml|yml|json|md|toml|xml|proto|mod|txt|cs|swift|m|scala|dart|ex|exs|groovy|bat|ps1)[:：][0-9]+(-[0-9]+)?$`)
 
-// ValidEvidence 证据必须是 file:line 形态。
+// ValidEvidence 判定证据字符串是否合法（file:line 格式）。
+// 支持 LLM 返回的多种格式：
+//   - 单条：config/config.go:72
+//   - 带范围：config/config.go:72-73
+//   - 带括号说明：config/config.go:72-73 (yaml.Unmarshal)
+//   - 多条逗号拼接：a.go:1 (x), b.go:2 (y)——任一条合法即通过
 func ValidEvidence(e string) bool {
 	e = strings.TrimSpace(e)
 	if e == "" {
 		return false
 	}
-	e = strings.ReplaceAll(e, "：", ":")
-	if i := strings.LastIndex(e, ":"); i >= 0 {
-		e = e[:i+1] + strings.Split(e[i+1:], " ")[0]
+	// 逗号分割：多条证据任一合法即通过
+	for _, part := range strings.Split(e, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		part = strings.ReplaceAll(part, "：", ":")
+		// 去掉括号内的说明文字：a.go:1 (xxx) → a.go:1
+		if i := strings.Index(part, "("); i > 0 {
+			part = strings.TrimSpace(part[:i])
+		}
+		// 提取 file:line 部分（去掉行尾多余内容）
+		if i := strings.LastIndex(part, ":"); i >= 0 {
+			candidate := part[:i+1] + strings.Split(part[i+1:], " ")[0]
+			if evidenceRe.MatchString(candidate) {
+				return true
+			}
+		}
 	}
-	return evidenceRe.MatchString(e)
+	return false
 }
 
 // EnforceEvidence 防线 #2 校验器：implemented/partial 无 file:line 证据 → 一律降级

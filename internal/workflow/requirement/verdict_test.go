@@ -149,6 +149,18 @@ func TestEnforceEvidence(t *testing.T) {
 	if !ValidEvidence("src/login.go:42") || !ValidEvidence("a/b.py：12") || ValidEvidence("看代码") {
 		t.Fatal("证据校验判断错误")
 	}
+	// 多条逗号拼接：任一条合法即通过
+	if !ValidEvidence("config/config.go:72-73 (yaml.Unmarshal), config/config_test.go:42-54 (TestLoad_YAMLFile)") {
+		t.Fatal("多条逗号拼接证据应通过")
+	}
+	// 带括号说明的单条
+	if !ValidEvidence("config/config.go:52 (os.Getenv)") {
+		t.Fatal("带括号说明的证据应通过")
+	}
+	// 纯中文（无合法 file:line）
+	if ValidEvidence("实现了，看代码就知道") {
+		t.Fatal("纯中文不应通过")
+	}
 }
 
 // TestExtractJSON JSON 提取容错。
