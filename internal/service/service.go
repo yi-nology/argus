@@ -5,11 +5,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +21,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
+	"argus/internal/progress"
 	"argus/internal/storage"
 	"argus/internal/workflow/requirement"
 )
@@ -33,6 +34,7 @@ type Service struct {
 	Registry *plugin.Registry
 	Log      Logger
 	Version  string
+	Bus      *progress.Bus // 任务进度事件（v3.1 SSE 数据源；nil 安全）
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。
@@ -87,7 +89,8 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 			return
 		}
 		auth := string(c.GetHeader("Authorization"))
-		if auth == "Bearer "+s.Cfg.APIToken {
+		// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
+		if subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+s.Cfg.APIToken)) == 1 {
 			c.Next(ctx)
 			return
 		}
@@ -114,6 +117,17 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	pcfg, configured := s.Cfg.Platforms[platform]
 	if !configured || pcfg.Token == "" {
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("平台未接入: " + platform)}, http.StatusNotFound
+	}
+	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
+	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
+	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
+	if pcfg.Secret == "" {
+		s.Log.Warn("argus.webhook.rejected_no_secret", "platform", platform,
+			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
+		return &api.WebhookResponse{
+			Status: "error",
+			Reason: strPtr("平台 webhook secret 未配置，拒绝服务（配置 " + "ARGUS_" + strings.ToUpper(platform) + "_SECRET 后恢复）"),
+		}, http.StatusServiceUnavailable
 	}
 
 	// 幂等键：在 ParseWebhookEvent 之前从原始请求头取 delivery（§5.2 四轮评审修正）
@@ -218,6 +232,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 
 	s.Log.Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", headSHA, "event_id", delivery)
+	s.publishCreated(task)
 	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
 
@@ -247,8 +262,10 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	if owner == "" || repo == "" || number == "" {
 		return nil, http.StatusBadRequest
 	}
-	if _, err := strconv.Atoi(number); err != nil {
-		return nil, http.StatusBadRequest // number 必须是纯数字（平台 PR 序号）
+	// number 必须是纯十进制数字（平台 PR 序号）；strconv.Atoi 会放过 "+123" 等带符号写法，
+	// 入库后运行期平台查询才失败。
+	if !isDigits(number) {
+		return nil, http.StatusBadRequest
 	}
 	artifactsJSON, _ := json.Marshal(artifacts)
 	task := &storage.Task{
@@ -266,6 +283,8 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		s.Log.Error("argus.api.task_create_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
+	s.publishCreated(task)
+
 	s.Log.Info("argus.api.task_created", "task", task.ID, "kind", kind,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number)
 	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
@@ -284,7 +303,8 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 		s.Log.Error("argus.api.list_tasks_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
-	resp := &api.ListTasksResponse{}
+	// 预分配空切片：nil 会被序列化成 "tasks":null，与 IDL required list 语义不符
+	resp := &api.ListTasksResponse{Tasks: []*api.TaskSummary{}}
 	for i := range tasks {
 		t := &tasks[i]
 		item := &api.TaskSummary{
@@ -355,6 +375,58 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	s.Log.Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
 	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
+}
+
+// publishCreated 广播 task.created（nil Bus 安全）。
+func (s *Service) publishCreated(t *storage.Task) {
+	if s.Bus == nil || t == nil {
+		return
+	}
+	s.Bus.Publish(progress.Event{
+		Type: "task.created", TaskID: t.ID, Platform: t.Platform,
+		Owner: t.Owner, Repo: t.Repo, Number: t.Number,
+	})
+}
+
+// UsageMonthly 本月各仓库 token 用量（GET /usage/monthly；🔒，v3.1）。
+func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
+	since := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
+	usage, err := s.Store.MonthlyTokensByRepo(ctx, since)
+	if err != nil {
+		return nil, http.StatusInternalServerError
+	}
+	items := make([]storage.RepoTokenUsage, 0, len(usage))
+	var total int64
+	for _, u := range usage {
+		items = append(items, u)
+		total += u.Tokens
+	}
+	return map[string]any{
+		"month":  since.Format("2006-01"),
+		"total":  total,
+		"budget": s.Cfg.RepoMonthlyTokenBudget,
+		"repos":  items,
+	}, http.StatusOK
+}
+
+// GetReportByRef 按 head SHA 查最近一次成功报告（GET /reports/:ref；🔒，v3.1）。
+func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskResponse, int) {
+	if ref == "" {
+		return nil, http.StatusBadRequest
+	}
+	task, err := s.Store.FindReportByHead(ctx, ref)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, http.StatusNotFound
+		}
+		return nil, http.StatusInternalServerError
+	}
+	return &api.GetTaskResponse{
+		TaskId:  task.ID,
+		Status:  task.Status,
+		Verdict: strPtr(task.Verdict),
+		Report:  strPtr(task.Report),
+	}, http.StatusOK
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。
@@ -550,4 +622,16 @@ func readBody(c *app.RequestContext) ([]byte, error) {
 
 func isNotFound(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "record not found")
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

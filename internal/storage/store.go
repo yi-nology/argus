@@ -46,6 +46,11 @@ type Task struct {
 	// DebugJSON 调试产物（ARGUS_DEBUG=1 时留存 R1 spec/R2 摘要/R3 原始输出）
 	DebugJSON string `gorm:"column:debug_json;type:text"`
 
+	// RunnerID 领取本任务的实例 ID（心跳归属；多副本共库时滚动发布不误伤他实例在途任务）
+	RunnerID string `gorm:"column:runner_id;size:64;index"`
+	// HeartbeatAt 最近心跳（worker 池周期刷新 running 任务；超时未续才会被重置回 pending）
+	HeartbeatAt *time.Time `gorm:"column:heartbeat_at"`
+
 	CreatedAt  time.Time  `gorm:"column:created_at;index"`
 	UpdatedAt  time.Time  `gorm:"column:updated_at"`
 	StartedAt  *time.Time `gorm:"column:started_at"`
@@ -121,12 +126,19 @@ type Store struct {
 	db      *gorm.DB
 	writeMu sync.Mutex
 	sqlite  bool
+	// RunnerID 本实例标识（Open 后由 main 赋值；claim/心跳用它归属 running 任务）
+	RunnerID string
 }
 
-// Open 打开数据库并自动迁移。DSN 含 "@tcp(" 或 "mysql" 视为 MySQL，否则 SQLite。
+// Open 打开数据库并自动迁移。DSN 以 "mysql://" 前缀或含 "@tcp("（go-sql-driver 形态）
+// 视为 MySQL，否则 SQLite——不做子串 "mysql" 判断：路径含 mysql 的 SQLite 文件会误判。
 func Open(dsn string) (*Store, error) {
 	s := &Store{}
-	if strings.Contains(dsn, "@tcp(") || strings.Contains(strings.ToLower(dsn), "mysql") {
+	if strings.HasPrefix(strings.ToLower(dsn), "mysql://") || strings.Contains(dsn, "@tcp(") {
+		// mysql:// 是便利前缀（go-sql-driver 不认识），大小写不敏感剥离
+		if len(dsn) >= 8 && strings.EqualFold(dsn[:8], "mysql://") {
+			dsn = dsn[8:]
+		}
 		db, err := gorm.Open(mysqlOpen(dsn), &gorm.Config{
 			Logger: logger.Default.LogMode(logger.Warn),
 		})
@@ -154,7 +166,41 @@ func Open(dsn string) (*Store, error) {
 	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
+	if !s.sqlite {
+		if err := s.upgradeMySQLLongText(); err != nil {
+			return nil, err
+		}
+	}
 	return s, nil
+}
+
+// longtextColumns MySQL 下需要 LONGTEXT 的大文本列。GORM `type:text` 在 MySQL 生成
+// TEXT（64KB 上限）：大报告/调试产物写入失败 → 任务卡 running → 重启重置重跑 →
+// 再失败，每次重启白烧一遍 LLM。AutoMigrate 之后幂等升级。
+var longtextColumns = map[string][]string{
+	"tasks":          {"report", "result_json", "fail_reason", "artifacts_json", "debug_json"},
+	"finding_prints": {"comment"},
+}
+
+func (s *Store) upgradeMySQLLongText() error {
+	for table, cols := range longtextColumns {
+		for _, col := range cols {
+			var cnt int64
+			// 探测失败必须暴露：静默跳过 ALTER 会让 64KB 死循环修复无声失效
+			if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
+				"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? AND DATA_TYPE = 'text'",
+				table, col).Scan(&cnt).Error; err != nil {
+				return fmt.Errorf("storage: 探测 %s.%s 列类型失败: %w", table, col, err)
+			}
+			if cnt == 0 {
+				continue
+			}
+			if err := s.db.Exec(fmt.Sprintf("ALTER TABLE `%s` MODIFY `%s` LONGTEXT", table, col)).Error; err != nil {
+				return fmt.Errorf("storage: %s.%s 升级 LONGTEXT 失败: %w", table, col, err)
+			}
+		}
+	}
+	return nil
 }
 
 // Close 关闭底层连接。
@@ -177,12 +223,30 @@ func (s *Store) Ping(ctx context.Context) error {
 	return sqlDB.PingContext(cctx)
 }
 
-// ResetRunningToPending 启动期把遗留 running 重置回 pending（§10.4：崩溃任务否则静默丢失）。
-func (s *Store) ResetRunningToPending(ctx context.Context) (int64, error) {
+// ResetRunningToPending 把心跳过期的 running 任务重置回 pending
+// （§10.4：崩溃任务否则静默丢失）。staleAfter 取心跳间隔的 ≥3 倍：
+// 只有 heartbeat_at 已死（或遗留的 NULL 心跳旧行）才重置——多副本共库时，
+// 一个实例滚动重启不会把其他存活实例正在执行的任务也重置（那会双执行、双回帖）。
+func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Duration) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	cutoff := time.Now().Add(-staleAfter)
 	res := s.db.WithContext(ctx).Model(&Task{}).
-		Where("status = ?", StatusRunning).
+		Where("status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)", StatusRunning, cutoff).
 		Update("status", StatusPending)
 	return res.RowsAffected, res.Error
+}
+
+// TouchRunningHeartbeats 续本实例全部 running 任务的心跳（worker 池周期调用）。
+func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
+	if s.RunnerID == "" {
+		return nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.db.WithContext(ctx).Model(&Task{}).
+		Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID).
+		Update("heartbeat_at", time.Now()).Error
 }
 
 // NewTaskID 生成任务 ID（service/poller 共用单一出处）。
@@ -227,6 +291,9 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		var target ReviewTarget
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
 			t.Platform, t.Owner, t.Repo, t.Number).First(&target).Error
+		if err != nil && !strings.Contains(err.Error(), "record not found") {
+			return err // 瞬时 DB 错误不能静默跳过去重检查
+		}
 		if err == nil && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
 			dupReason = "last_head_sha"
 			return nil
@@ -253,6 +320,13 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		return tx.Create(t).Error
 	})
 	if txErr != nil {
+		// event_id 唯一冲突（同 delivery 并发重发：幂等预查与落库之间存在窗口）——
+		// 回查既有任务按幂等重复处理，避免以 500 暴露（GitHub 对连续 500 会禁用 webhook）。
+		if t.EventID != nil {
+			if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
+				return "event_id", exist.ID, nil
+			}
+		}
 		return "", "", txErr
 	}
 	return dupReason, existingID, nil
@@ -278,7 +352,8 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 		}
 		now := time.Now()
 		res := tx.Model(&Task{}).Where("id = ? AND status = ?", t.ID, StatusPending).
-			Updates(map[string]any{"status": StatusRunning, "started_at": &now})
+			Updates(map[string]any{"status": StatusRunning, "started_at": &now,
+				"runner_id": s.RunnerID, "heartbeat_at": now})
 		if res.Error != nil {
 			return res.Error
 		}
@@ -287,6 +362,8 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 		}
 		t.Status = StatusRunning
 		t.StartedAt = &now
+		t.RunnerID = s.RunnerID
+		t.HeartbeatAt = &now
 		claimed = &t
 		return nil
 	})
@@ -299,7 +376,7 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 	return claimed, claimed != nil, nil
 }
 
-// ListTasksByHead 查询同 PR 同 head 的任务（幂等断言/诊断用）。
+// ListTasksByHead 查询同 PR 同 head 的任务（E2E 幂等断言/诊断用）。
 func (s *Store) ListTasksByHead(ctx context.Context, platform, owner, repo, number, headSHA string) ([]Task, error) {
 	var out []Task
 	err := s.db.WithContext(ctx).Where(
@@ -346,12 +423,14 @@ func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
 }
 
 // HasNewerNonFailedTask staleness 单条件判定（§10.2 五轮评审修正）：
-// 存在同 PR 更晚创建的非 failed 任务 ⇒ 本任务 stale。
+// 存在同 PR 更晚创建的非 failed 且带 head 的任务 ⇒ 本任务 stale。
+// 只统计 head_sha <> ” 的任务（webhook/poller 来源）：手动任务 head 为空（执行期才回填），
+// 若它先压 stale 再失败（手动任务参数/平台错误率高），本轮审查会被永久静默吞掉。
 // 数据全来自 tasks 表（head_sha/created_at），不依赖 review_targets.last_head_sha。
 func (s *Store) HasNewerNonFailedTask(ctx context.Context, platform, owner, repo, number, taskID string, createdAt time.Time) (bool, error) {
 	var cnt int64
 	err := s.db.WithContext(ctx).Model(&Task{}).
-		Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND id <> ? AND created_at > ? AND status <> ?",
+		Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND id <> ? AND created_at > ? AND status <> ? AND head_sha <> ''",
 			platform, owner, repo, number, taskID, createdAt, StatusFailed).
 		Count(&cnt).Error
 	return cnt > 0, err
@@ -395,6 +474,48 @@ func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task
 	var out []Task
 	err := q.Find(&out).Error
 	return out, err
+}
+
+// RepoTokenUsage 仓库维度 token 用量聚合（月度预算/用量报表，§5 v3.1）。
+type RepoTokenUsage struct {
+	Platform string `json:"platform"`
+	Owner    string `json:"owner"`
+	Repo     string `json:"repo"`
+	Tokens   int64  `json:"tokens"`
+	Tasks    int64  `json:"tasks"`
+}
+
+// RepoMonthlyTokens 单仓库自 since 起的 token 消耗（done 任务口径——failed 任务的
+// 中途消耗不计入预算，避免平台故障误烧预算）。
+func (s *Store) RepoMonthlyTokens(ctx context.Context, platform, owner, repo string, since time.Time) (int64, error) {
+	var total int64
+	err := s.quietDB().WithContext(ctx).Model(&Task{}).
+		Where("platform = ? AND owner = ? AND repo = ? AND status = ? AND created_at >= ?",
+			platform, owner, repo, StatusDone, since).
+		Select("COALESCE(SUM(tokens_used),0)").Scan(&total).Error
+	return total, err
+}
+
+// MonthlyTokensByRepo 全部仓库自 since 起的 token 用量（GET /usage/monthly）。
+func (s *Store) MonthlyTokensByRepo(ctx context.Context, since time.Time) ([]RepoTokenUsage, error) {
+	var out []RepoTokenUsage
+	err := s.quietDB().WithContext(ctx).Model(&Task{}).
+		Select("platform, owner, repo, SUM(tokens_used) AS tokens, COUNT(*) AS tasks").
+		Where("status = ? AND created_at >= ?", StatusDone, since).
+		Group("platform, owner, repo").Order("tokens DESC").Find(&out).Error
+	return out, err
+}
+
+// FindReportByHead 按 head SHA 查最近一次成功的报告（GET /reports/:ref）。
+func (s *Store) FindReportByHead(ctx context.Context, headSHA string) (*Task, error) {
+	var t Task
+	err := s.quietDB().WithContext(ctx).
+		Where("head_sha = ? AND status = ? AND report != ''", headSHA, StatusDone).
+		Order("created_at DESC").First(&t).Error
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // GetReviewTarget 查询（不存在返回 nil,nil）。

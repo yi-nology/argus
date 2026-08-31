@@ -98,6 +98,8 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 						"reason", "未配置 OPENAI_*，插件将不可用")
 				}
 				client := llm.NewClient(d.Model, d.Cfg.LLM.Model, nil)
+				client.ContextTokens = d.Cfg.LLM.ContextToken
+				client.MaxOutputTokens = d.Cfg.MaxTokensResolved()
 				p, err = adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
 					client, decl.SkillRefs, d.Skills)
 				if err != nil {
@@ -114,10 +116,10 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				enabled = false
 				p = &unavailablePlugin{manifest: manifest, reason: "可执行文件不存在: " + decl.Cmd[0]}
 			} else {
-				p = adapter_cli.New(manifest, decl.Cmd, decl.Mode, d.WC, d.Log)
+				p = adapter_cli.New(manifest, decl.Cmd, decl.Mode, decl.Env, d.WC, d.Log)
 			}
 		case plugin.KindRemote:
-			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint)
+			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool)
 			if err != nil {
 				d.Log.Warn("argus.bootstrap.remote_skipped", "plugin", decl.Name, "error", err.Error())
 				enabled = false

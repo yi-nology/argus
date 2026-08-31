@@ -35,9 +35,15 @@ type AgentDecl struct {
 	// kind=cli
 	Cmd  []string `yaml:"cmd"`
 	Mode string   `yaml:"mode"` // full | delegate
+	// Env cli 子进程的额外环境变量白名单（按名从 Argus 进程环境透传）。
+	// 缺省只给最小环境（PATH/HOME/TMPDIR/代理/CA），绝不继承 ARGUS_* / OPENAI_* 等密钥——
+	// cli 在不可信工作树里执行，全量继承环境等于把凭证交给待审代码。
+	Env []string `yaml:"env"`
 
 	// kind=remote
 	Endpoint string `yaml:"endpoint"`
+	// Tool mcp 协议要调用的工具名（缺省 review；review-service 用 create_review）。
+	Tool string `yaml:"tool"`
 }
 
 // TriggerDecl yaml 侧触发声明。

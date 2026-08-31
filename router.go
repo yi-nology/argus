@@ -4,6 +4,8 @@ package main
 
 import (
 	handler "argus/biz/handler"
+	api "argus/biz/handler/api"
+	routerapi "argus/biz/router/api"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
@@ -11,5 +13,8 @@ import (
 func customizedRegister(r *server.Hertz) {
 	r.GET("/ping", handler.Ping)
 
-	// your code ...
+	// v3.1 新增（🔒 复用 Bearer 鉴权；handler 在 biz/handler/api/report_service.go）
+	r.GET("/reports/:ref", append(routerapi.Auth(), api.ReportByRef)...)
+	r.GET("/usage/monthly", append(routerapi.Auth(), api.UsageMonthly)...)
+	r.GET("/events", append(routerapi.Auth(), api.Events)...)
 }
