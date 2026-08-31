@@ -193,7 +193,7 @@ func defaultPluginsFile() *plugin.PluginsFile {
 			Name: "correctness", Kind: "builtin",
 			Skills: []string{plugin.SkillCodeReview},
 			Needs:  []string{"diff", "repo-file-read"},
-			Cost:   plugin.CostStandard, Timeout: "120s", Enabled: &yes,
+			Cost:   plugin.CostStandard, Timeout: "300s", Enabled: &yes,
 		},
 		{
 			Name: "security", Kind: "builtin",
