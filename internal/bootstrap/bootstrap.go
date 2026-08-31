@@ -205,7 +205,7 @@ func defaultPluginsFile() *plugin.PluginsFile {
 			Name: "ocr", Kind: "cli",
 			Skills: []string{plugin.SkillCodeReview},
 			Needs:  []string{"working-copy"},
-			Cmd:    []string{"/opt/argus/bin/ocr", "diff", "--format", "json"},
+			Cmd:    []string{"/Users/demo-user/bin/ocr", "review", "--format", "json"},
 			Mode:   "full", Cost: plugin.CostHeavy, Timeout: "300s", Enabled: &yes,
 		},
 		{
