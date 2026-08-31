@@ -3,7 +3,7 @@ module argus
 go 1.26
 
 require (
-	git.example.com/enjoydream/ekit v0.0.0
+	git.example.com/enjoydream/ekit v0.17.0
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.17
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
@@ -13,7 +13,7 @@ require (
 	github.com/mark3labs/mcp-go v0.58.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.66.1
-	github.com/yi-nology/git-platform-sdk v0.49.0
+	github.com/yi-nology/git-platform-sdk v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.2
@@ -118,7 +118,3 @@ require (
 )
 
 replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
-
-replace github.com/yi-nology/git-platform-sdk => ../../git-platform-sdk
-
-replace git.example.com/enjoydream/ekit => ../../ekit

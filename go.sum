@@ -5,6 +5,8 @@ codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 h1:s2fK+FBwvcYsmKDjNhmoe7B8
 codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+git.example.com/enjoydream/ekit v0.17.0 h1:HrIbasIf/xgEgBf8oVDxNLUvI9yhQhQWmKhRQ0Jysd8=
+git.example.com/enjoydream/ekit v0.17.0/go.mod h1:StZJ9XpYQCFamWSEgwX1SKiRu77Gq/ZKVPBOf5PwPjI=
 gitee.com/openeuler/go-gitee v0.0.0-20251225091545-a0f78272dafc h1:6t9GlxYbB3vKZGpK86vr55FfPPqRRZE2L0SXbQNi+s8=
 gitee.com/openeuler/go-gitee v0.0.0-20251225091545-a0f78272dafc/go.mod h1:qGJhn1KxC5UE4BUmxCE/hTpFfuKbd3U3V9fNROrspfE=
 github.com/42wim/httpsig v1.2.4 h1:mI5bH0nm4xn7K18fo1K3okNDRq8CCJ0KbBYWyA6r8lU=
@@ -264,6 +266,8 @@ github.com/x-cray/logrus-prefixed-formatter v0.5.2 h1:00txxvfBM9muc0jiLIEAkAcIMJ
 github.com/x-cray/logrus-prefixed-formatter v0.5.2/go.mod h1:2duySbKsL6M18s5GU7VPsoEPHyzalCE06qoARUCeBBE=
 github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
+github.com/yi-nology/git-platform-sdk v0.50.0 h1:3jG7FU5OonzsF4UDWGhgBA0KVbrnYsOOApVpTvXQc08=
+github.com/yi-nology/git-platform-sdk v0.50.0/go.mod h1:jNrlwaPuIRssoPxJuFyjelDj+RamEr5LGzZ9UP7DabQ=
 github.com/yi-nology/go-gitcode v0.7.2 h1:ULEoYgRzhLXBlvZAfj7/9yP9F9pTqHL5vpNebiZcSr8=
 github.com/yi-nology/go-gitcode v0.7.2/go.mod h1:YE9snaa9ChVY7FoPj/4huVDkVNJaI/gpxHcWgNNGYls=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
