@@ -212,7 +212,7 @@ func Load() *Config {
 			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
 			APIKey:       os.Getenv("OPENAI_API_KEY"),
 			Model:        os.Getenv("OPENAI_MODEL"),
-			Timeout:      envDuration("OPENAI_TIMEOUT", 120*time.Second),
+			Timeout:      envDuration("OPENAI_TIMEOUT", 300*time.Second),
 			MaxTokens:    envInt("OPENAI_MAX_TOKENS", 0),
 			ContextToken: envInt("ARGUS_MODEL_CONTEXT_TOKENS", 128_000),
 		},
