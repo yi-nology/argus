@@ -1,15 +1,21 @@
 # Argus 镜像（design §6：学习期本机/内网；集群部署推 Harbor 走 buildkit+ArgoCD）
-# 依赖处理：本地 replace（ekit / git-platform-sdk）已由 `go mod vendor` 收进 vendor/，
-# 构建自包含（-mod=vendor），不需要私有 Gitea 凭证。vendor 由 `make docker` 自动生成。
-# glebarez/sqlite 为纯 Go 驱动，CGO_ENABLED=0 静态编译；
-# 运行层需要 git（workcopy 浅克隆）与 ca-certificates（平台/LLM HTTPS）。
+# 依赖处理（v3.1 起 go mod 模式，不再 vendor）：
+#   ekit（git.example.com 私有）走 BuildKit SSH 挂载直拉（insteadOf 重写为 git@），
+#   其余公共依赖走 GOPROXY。构建机器需：DOCKER_BUILDKIT=1 且 ssh-agent 装有 forgejo key
+#   （make docker 已带 --ssh default）。glebarez/sqlite 为纯 Go 驱动，CGO_ENABLED=0 静态编译；
+#   运行层需要 git（workcopy 浅克隆）与 ca-certificates（平台/LLM HTTPS）。
+# syntax=docker/dockerfile:1
 
 FROM golang:1.26-alpine AS builder
 WORKDIR /src
+RUN apk add --no-cache git openssh
 COPY go.mod go.sum ./
-COPY vendor ./vendor
 COPY . .
-RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags "-s -w" -o /out/argus .
+RUN git config --global url."git@git.example.com:".insteadOf "https://git.example.com/" && \
+    git config --global --add safe.directory /src
+RUN --mount=type=ssh \
+    GOPRIVATE=git.example.com/* CGO_ENABLED=0 \
+    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/argus .
 
 FROM alpine:3.20
 RUN apk add --no-cache git ca-certificates tzdata && \

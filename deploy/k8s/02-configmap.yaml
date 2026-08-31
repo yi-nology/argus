@@ -13,12 +13,17 @@ data:
   ARGUS_BOT_USERNAME: "friday"            # 独立 bot 账号（blocking 评审 official 的前提）
   ARGUS_SKIP_DRAFT: "true"
   ARGUS_MAX_CONCURRENT_TASKS: "2"
-  ARGUS_TASK_TOKEN_BUDGET: "200000"
+  ARGUS_TASK_TOKEN_BUDGET: "0" # 0 = 按模型窗口派生（60%）
+  ARGUS_MODEL_CONTEXT_TOKENS: "1000000"
   ARGUS_TASK_RETENTION_DAYS: "30"
 
   # 平台接入（token/secret 在 argus-secret）
   ARGUS_GITEA_URL: "https://git.example.com"
-  ARGUS_GITEA_SKIP_TLS: "1"               # 内网自签/过期证书实例开启；公网或证书修复后改 0
+  # ⚠️ SKIP_TLS=1 同时覆盖平台 API 与 git clone 两条通道：平台 token（header 与
+  # clone URL 内嵌）都在无证书校验的 TLS 上传输，同网段 MITM 可截获。
+  # 此处开启仅因 git.example.com 证书过期（试点实测）；证书修复后必须改 0，
+  # 或改用挂自签 CA（ca-certificates 卷 + SSL_CERT_FILE）。
+  ARGUS_GITEA_SKIP_TLS: "1"
 
   # 轮询兜底（平台→集群 webhook 不可达时启用；走 Ingress/NodePort 后可关闭）
   ARGUS_POLL_INTERVAL: "20s"

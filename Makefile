@@ -1,6 +1,6 @@
 # Argus 构建与运行（学习期本机/内网；集群部署走 buildkit+ArgoCD）
 BINARY  := argus
-VERSION ?= v3.0.1
+VERSION ?= v3.0.2
 GOFILES := $(shell find . -name "*.go")
 
 .PHONY: help build run test vet fmt e2e it docker compose-up compose-down k8s-apply clean
@@ -36,15 +36,15 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -l -w $(shell find . -name "*.go" -not -path "./vendor/*" -not -path "./biz/model/*")
+	gofmt -l -w $(shell find . -name "*.go" -not -path "./biz/model/*")
 
 check: vet
-	@out=$$(gofmt -l . 2>/dev/null | grep -v -e '^vendor/' -e '^biz/model/' || true); \
+	@out=$$(gofmt -l . 2>/dev/null | grep -v -e '^biz/model/' || true); \
 	if [ -n "$$out" ]; then echo "未格式化文件:"; echo "$$out"; exit 1; fi; echo "fmt ok"
 
 docker:
-	go mod vendor
-	docker build -t argus:$(VERSION) .
+	# go mod 模式（v3.1）：依赖经 module proxy / SSH 直拉（见 Dockerfile），不再 vendor
+	DOCKER_BUILDKIT=1 docker build --ssh default -t argus:$(VERSION) .
 
 compose-up:
 	docker compose -f deploy/docker-compose/compose.yaml -p argus up -d --build

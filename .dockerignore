@@ -1,0 +1,12 @@
+# 构建上下文瘦身：不进镜像的本地产物与敏感文件
+# 注意 vendor/ 必须保留——镜像构建依赖 vendor 自包含（无需私有凭证拉依赖）
+.git
+.env
+.env.*
+argus.db
+argus.db-shm
+argus.db-wal
+bin/
+deploy/
+*.md
+!README.md

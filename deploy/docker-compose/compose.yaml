@@ -16,6 +16,8 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      ssh:
+        - default   # 私有依赖 ekit 走 SSH 直拉（需本机 ssh-agent 已加载 forgejo key）
     container_name: argus
     restart: unless-stopped
     ports:
