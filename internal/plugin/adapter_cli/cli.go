@@ -25,17 +25,19 @@ import (
 type CLIPlugin struct {
 	manifest plugin.AgentManifest
 	Cmd      []string
-	Mode     string // full | delegate（delegate v3.0 留接口，§2）
+	Mode     string   // full | delegate（delegate v3.0 留接口，§2）
+	Env      []string // 额外透传的环境变量名白名单（来自 plugins.yaml env 声明）
 	wc       *argusctx.Workcopy
 	log      logx.Logger
 }
 
 // New 构造 cli 插件。
-func New(m plugin.AgentManifest, cmd []string, mode string, wc *argusctx.Workcopy, log logx.Logger) *CLIPlugin {
+func New(m plugin.AgentManifest, cmd []string, mode string, env []string,
+	wc *argusctx.Workcopy, log logx.Logger) *CLIPlugin {
 	if m.Timeout <= 0 {
 		m.Timeout = 300 * time.Second
 	}
-	return &CLIPlugin{manifest: m, Cmd: cmd, Mode: mode, wc: wc, log: log}
+	return &CLIPlugin{manifest: m, Cmd: cmd, Mode: mode, Env: env, wc: wc, log: log}
 }
 
 func (p *CLIPlugin) Manifest() plugin.AgentManifest { return p.manifest }
@@ -56,7 +58,7 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	}
 	defer p.wc.Release(task.PR)
 
-	stdout, err := runProcessGroup(ctx, p.Cmd, dir, p.manifest.Timeout)
+	stdout, err := runProcessGroup(ctx, p.Cmd, dir, p.childEnv(), p.manifest.Timeout)
 	if err != nil {
 		return plugin.Result{}, err
 	}
@@ -70,8 +72,59 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	return plugin.Result{Findings: findings}, nil
 }
 
+// maxChildStdout 子进程 stdout 采集上限（异常 cli 刷屏防内存放大）。
+const maxChildStdout = 1 << 20 // 1MB
+
+// cappedBuffer 限容写入器：超过上限后丢弃后续写入并标记截断。
+type cappedBuffer struct {
+	buf       strings.Builder
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if c.buf.Len()+len(p) > maxChildStdout {
+		room := maxChildStdout - c.buf.Len()
+		if room > 0 {
+			c.buf.Write(p[:room])
+		}
+		c.truncated = true
+		return len(p), nil // 吸收写入让子进程继续跑（管道不阻塞），内容只留上限内
+	}
+	c.buf.Write(p)
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string { return c.buf.String() }
+
+// childEnv 构造子进程最小环境：只给运行必需项 + plugins.yaml 显式声明的白名单变量。
+// 绝不全量继承——cli 在待审仓库的工作树里执行，.golangci 自定义插件等机制可执行任意代码，
+// 全量环境等于把 ARGUS_*/OPENAI_* 等凭证直接交给待审代码。
+func (p *CLIPlugin) childEnv() []string {
+	keep := map[string]bool{}
+	for _, k := range p.Env {
+		keep[k] = true
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if baseEnvAllow[name] || keep[name] {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "GIT_TERMINAL_PROMPT=0")
+}
+
+// baseEnvAllow cli 子进程的缺省白名单：路径/临时目录/语言/代理/CA。
+// 代理与 CA 是 cli 审查器访问外部 LLM API 的常见必需项。
+var baseEnvAllow = map[string]bool{
+	"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "LC_ALL": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
+	"http_proxy": true, "https_proxy": true, "no_proxy": true,
+	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+}
+
 // runProcessGroup 进程组执行：Setpgid + ctx 取消三段式（TERM → 3s → KILL，均作用于 -pid 整组）。
-func runProcessGroup(ctx context.Context, cmdLine []string, dir string, timeout time.Duration) (string, error) {
+func runProcessGroup(ctx context.Context, cmdLine []string, dir string, env []string, timeout time.Duration) (string, error) {
 	if len(cmdLine) == 0 {
 		return "", fmt.Errorf("cli 命令为空")
 	}
@@ -80,12 +133,12 @@ func runProcessGroup(ctx context.Context, cmdLine []string, dir string, timeout 
 
 	cmd := exec.CommandContext(cctx, cmdLine[0], cmdLine[1:]...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout, stderr := &cappedBuffer{}, &cappedBuffer{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("启动 %s 失败: %w", cmdLine[0], err)
@@ -115,7 +168,11 @@ func runProcessGroup(ctx context.Context, cmdLine []string, dir string, timeout 
 		}
 		return "", fmt.Errorf("cli 执行失败（%s）: %v: %s", cmdLine[0], waitErr, strings.TrimSpace(tail))
 	}
-	return stdout.String(), nil
+	out := stdout.String()
+	if stdout.truncated {
+		out += "\n…（cli stdout 超过 1MB 上限，已截断）"
+	}
+	return out, nil
 }
 
 // ---------- OCR JSON → Findings 容错解析 ----------
@@ -155,6 +212,11 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment})
 	}
 	if len(out) == 0 {
+		if len(items) == 0 {
+			// 合法的"零意见"输出（干净 PR 的 [] / {"comments":[]}）——
+			// 以前这里返回 error，连续 3 个干净 PR 会把插件熔断摘除 5 分钟。
+			return nil, nil
+		}
 		return nil, fmt.Errorf("cli JSON 中未解析出任何 finding（输出前 200 字节: %.200s）", trimmed)
 	}
 	return out, nil

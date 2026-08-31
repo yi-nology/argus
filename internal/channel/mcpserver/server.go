@@ -153,6 +153,11 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 	if f, ok := req.GetArguments()["timeout_seconds"].(float64); ok && f > 0 {
 		timeout = time.Duration(f * float64(time.Second))
 	}
+	// 上界 clamp：无上界的 wait 会变成不可回收的轮询协程（客户端断连也要到点才停），
+	// 并发挂起会挤占单连接 SQLite。需要更长等待请用 wait=false + get_report 轮询。
+	if timeout > maxWaitTimeout {
+		timeout = maxWaitTimeout
+	}
 
 	created, code := core.CreateTaskDirect(ctx, kind, platform, owner, repo, number, nil)
 	if code != http.StatusOK {
@@ -215,6 +220,9 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 	}
 }
 
+// maxWaitTimeout review_pr 等待终态的时长上界。
+const maxWaitTimeout = 10 * time.Minute
+
 // argString 取可选字符串参数。
 func argString(req mcp.CallToolRequest, key, def string) string {
 	if v, ok := req.GetArguments()[key].(string); ok && v != "" {
@@ -236,6 +244,9 @@ func HertzBridge(mcpSrv *server.MCPServer) app.HandlerFunc {
 			c.SetStatusCode(http.StatusBadRequest)
 			return
 		}
+		// 传播 hertz 请求的 ctx：客户端断连/超时能取消 inner handler（runReview 轮询随之退出），
+		// 否则 ctx 恒为 background，取消永不传播。
+		req = req.WithContext(ctx)
 		req.URL.Scheme = "http"
 		req.URL.Host = string(c.Host())
 		c.Request.Header.VisitAll(func(k, v []byte) {

@@ -20,6 +20,13 @@ import (
 	"argus/internal/storage"
 )
 
+// 心跳节奏：running 任务每 20s 续一次心跳；心跳死亡超过 90s（≥3 个间隔的安全余量）
+// 的任务视为实例已崩溃，可被任意存活实例重置回 pending（v3.0.2 多副本/崩溃恢复语义）。
+const (
+	HeartbeatInterval = 20 * time.Second
+	StaleRunningAfter = 90 * time.Second
+)
+
 // Pool worker 池。
 type Pool struct {
 	Store *storage.Store
@@ -56,7 +63,35 @@ func (p *Pool) Start(ctx context.Context) {
 		wg.Wait()
 		close(p.done)
 	}()
+	// 心跳 + stale 重拾协程：独立于 loopCtx 的超时控制，Stop 阶段一即退出
+	go p.heartbeatLoop(p.loopCtx)
 	p.Log.Info("argus.worker.started", "workers", p.N)
+}
+
+// heartbeatLoop 周期续本实例 running 任务心跳，并重置心跳已死的 running 任务
+// （本机上次硬取消残留 / 其他实例崩溃）。启动场景之外也能自愈，无需等下次重启。
+func (p *Pool) heartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(HeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			hbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := p.Store.TouchRunningHeartbeats(hbCtx); err != nil {
+				p.Log.Warn("argus.worker.heartbeat_failed", "error", err.Error())
+			}
+			if n, err := p.Store.ResetRunningToPending(hbCtx, StaleRunningAfter); err != nil {
+				p.Log.Warn("argus.worker.stale_reset_failed", "error", err.Error())
+			} else if n > 0 {
+				p.Log.Warn("argus.worker.stale_running_reset", "count", n,
+					"stale_after", StaleRunningAfter.String(),
+					"hint", "心跳过期的 running 任务已重置回 pending")
+			}
+			cancel()
+		}
+	}
 }
 
 // Stop 两阶段停机：取消领取循环 → 等 grace → 硬取消执行。幂等。

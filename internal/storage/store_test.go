@@ -117,10 +117,58 @@ func TestClaimAndReset(t *testing.T) {
 	if task.Status != StatusRunning {
 		t.Fatalf("抢占后应 running: %s", task.Status)
 	}
-	// 重置（模拟启动恢复）
-	n, err := s.ResetRunningToPending(ctx)
+	// 重置（模拟启动恢复；staleAfter=0 ⇒ 心跳必过期）
+	n, err := s.ResetRunningToPending(ctx, 0)
 	if err != nil || n != 1 {
 		t.Fatalf("重置失败: n=%d err=%v", n, err)
+	}
+}
+
+// v3.0.2 回归：心跳新鲜的 running 任务不得被重置（多副本共库时滚动重启
+// 不误伤其他实例在途任务的核心不变量）；心跳死亡（阈值归零）才重置。
+func TestResetRunningRespectsHeartbeat(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, mkTask("t1", nil, "")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.ClaimNextPending(ctx); err != nil || !ok {
+		t.Fatalf("claim 失败: ok=%v err=%v", ok, err)
+	}
+	// claim 即打心跳（刚刚）：90s 阈值下不得重置——丢了 heartbeat_at 条件会双执行
+	if n, err := s.ResetRunningToPending(ctx, 90*time.Second); err != nil || n != 0 {
+		t.Fatalf("心跳新鲜不应重置: n=%d err=%v", n, err)
+	}
+	// 阈值归零 ⇒ 心跳必过期：应重置（崩溃恢复路径）
+	if n, err := s.ResetRunningToPending(ctx, 0); err != nil || n != 1 {
+		t.Fatalf("过期心跳应重置: n=%d err=%v", n, err)
+	}
+}
+
+// v3.0.2 回归：空 head 的手动任务不构成 staleness——此前"手动任务先压 stale 再失败"
+// 会让 webhook 任务本轮审查永久静默丢失。
+func TestStalenessIgnoresEmptyHeadTasks(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	t1 := mkTask("t1", nil, "sha-a") // webhook 任务（带 head）
+	if err := s.CreateTask(ctx, t1); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	manual := mkTask("t2", nil, "") // 手动任务（head 为空，执行期才回填）
+	if err := s.CreateTask(ctx, manual); err != nil {
+		t.Fatal(err)
+	}
+	// 更晚的手动任务 pending：不压制 t1
+	stale, err := s.HasNewerNonFailedTask(ctx, "gitea", "acme", "app", "7", "t1", t1.CreatedAt)
+	if err != nil || stale {
+		t.Fatalf("空 head 手动任务不应构成 staleness: stale=%v err=%v", stale, err)
+	}
+	// 对照：带 head 的更晚任务仍构成 staleness
+	_ = s.CreateTask(ctx, mkTask("t3", nil, "sha-b"))
+	stale, err = s.HasNewerNonFailedTask(ctx, "gitea", "acme", "app", "7", "t1", t1.CreatedAt)
+	if err != nil || !stale {
+		t.Fatalf("带 head 的更晚任务应构成 staleness: stale=%v err=%v", stale, err)
 	}
 }
 

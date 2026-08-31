@@ -241,6 +241,19 @@ func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number
 	return rm.CreateReview(ctx, owner, repo, number, opts)
 }
 
+// ListReviews 列出 PR 的评审记录（poster 评审幂等锚点用）。
+func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number string) ([]provider.Review, error) {
+	p, err := s.Provider(platform)
+	if err != nil {
+		return nil, err
+	}
+	rm, ok := p.(provider.ReviewManager)
+	if !ok {
+		return nil, fmt.Errorf("sdkctx: 平台 %s 不支持 ReviewManager", platform)
+	}
+	return rm.ListReviews(ctx, owner, repo, number)
+}
+
 // LoadRepoConfig 从默认分支读 .reviewagents.yaml（§3.4 红线 1：绝不读 PR head / 工作副本）。
 // 读不到（404）返回 EmptyRepoConfig 而非错误。
 func (s *SDKCtx) LoadRepoConfig(ctx context.Context, platform, owner, repo, defaultBranch string) (*plugin.RepoConfig, error) {

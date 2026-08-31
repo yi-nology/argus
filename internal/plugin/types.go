@@ -240,6 +240,9 @@ type Task struct {
 	Requirement *RequirementSpec  // 按 Needs.RequirementSpec 注入
 	Artifacts   map[string]string // PreviewURL / change_summary / workcopy_dir 等开放位
 	SessionID   string            // 会话形态才有（v3.2）
+	// Budget 任务级 token 预算（Dispatcher.Run 注入）。插件内的 LLM 调用应计入，
+	// 否则 R4 审查插件（成本大头）对预算不可见，PruneByBudget/预算门形同虚设。
+	Budget *TokenBudget
 }
 
 func contains(list []string, want string) bool {

@@ -221,7 +221,9 @@ func (w *Workcopy) StartTTLScavenger(ctx context.Context, ttl time.Duration) {
 func (w *Workcopy) sweep(ttl time.Duration) {
 	w.mu.Lock()
 	var stale []string
+	live := make(map[string]bool, len(w.entries))
 	for k, e := range w.entries {
+		live[e.dir] = true
 		if e.refCount <= 0 || time.Since(e.lastUsed) > ttl {
 			stale = append(stale, e.dir)
 			delete(w.entries, k)
@@ -231,5 +233,20 @@ func (w *Workcopy) sweep(ttl time.Duration) {
 	for _, d := range stale {
 		_ = os.RemoveAll(d)
 		w.log.Warn("argus.workcopy.swept", "dir", filepath.Base(d))
+	}
+	// 孤儿目录回收：prepare 在 MkdirTemp 之后、登记进 entries 之前有数分钟克隆窗口，
+	// 进程在该窗口被 kill 会留下登记表之外的 wc-* 目录——只认内存表就永远清不掉，
+	// k8s PVC 慢性写满。按目录 mtime 判定，活跃登记目录豁免。
+	orphans, _ := filepath.Glob(filepath.Join(w.Root, "wc-*"))
+	for _, d := range orphans {
+		if live[d] {
+			continue
+		}
+		info, err := os.Stat(d)
+		if err != nil || time.Since(info.ModTime()) <= ttl {
+			continue
+		}
+		_ = os.RemoveAll(d)
+		w.log.Warn("argus.workcopy.orphan_swept", "dir", filepath.Base(d))
 	}
 }

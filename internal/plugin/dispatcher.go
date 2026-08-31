@@ -192,7 +192,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 		}
 	}
 
-	// 稳定顺序：lock > base/use > routing，同类按注册顺序（Select 遍历已有序）
+	// 稳定顺序：lock > base/use > routing，同类按名称字母序（Registry.Snapshot 已排序）
 	return out
 }
 
@@ -274,6 +274,8 @@ func (d *Dispatcher) PruneByBudget(sel []Selection, budget *TokenBudget) (keep [
 // 返回顺序与输入 Selection 顺序一致。
 func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget *TokenBudget) []Outcome {
 	outcomes := make([]Outcome, len(sel))
+	// 预算随 Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
+	task.Budget = budget
 	var wg sync.WaitGroup
 	for i, s := range sel {
 		reg := s.Reg
@@ -281,15 +283,16 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 		o.Name = reg.Manifest.Name
 		o.Manifest = reg.Manifest
 
+		// 预算门（锁定插件豁免）——必须在熔断门之前：先 Allow 再跳过会让半开探测
+		// （probing=true）等不到 Success/Failure 复位，插件被永久卡在熔断态。
+		if budget != nil && budget.Remaining() <= 0 && !reg.LockRepoConfig {
+			o.SkippedReason = "任务 token 预算耗尽"
+			continue
+		}
 		// 熔断门
 		if !d.breakers.Allow(reg.Manifest.Name) {
 			o.SkippedReason = "熔断中（连续失败，5 分钟后探测恢复）"
 			d.log.Warn("argus.plugin.circuit_open", "plugin", reg.Manifest.Name)
-			continue
-		}
-		// 预算门（锁定插件豁免）
-		if budget != nil && budget.Remaining() <= 0 && !reg.LockRepoConfig {
-			o.SkippedReason = "任务 token 预算耗尽"
 			continue
 		}
 

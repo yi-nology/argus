@@ -31,7 +31,10 @@ type Poller struct {
 	Store    *storage.Store
 	Targets  []Target
 	Interval time.Duration
-	Log      logx.Logger
+	// SkipDraft 与 webhook 路径的 ARGUS_SKIP_DRAFT 同源（main 装配时传 cfg.SkipDraft），
+	// 两条任务源对 draft 的行为保持一致。
+	SkipDraft bool
+	Log       logx.Logger
 }
 
 // ParseTargets 解析 "platform:owner/repo" 列表（逗号分隔）；非法项跳过并记入错误。
@@ -107,7 +110,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 		}
 		for _, cr := range prs {
-			if cr.Draft { // 与 webhook 路径的 §5.1 规则 3 对齐
+			if cr.Draft && p.SkipDraft { // 与 webhook 路径的 §5.1 规则 3 同源配置
 				continue
 			}
 			if cr.HeadSHA == "" {

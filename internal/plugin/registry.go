@@ -61,7 +61,7 @@ func (r *Registry) Get(name string) (*Registration, bool) {
 	return reg, ok
 }
 
-// Snapshot 按注册顺序返回全部登记（GET /agents 可观测）。
+// Snapshot 按名称字母序返回全部登记（GET /agents 可观测；顺序确定性保证）。
 func (r *Registry) Snapshot() []*Registration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

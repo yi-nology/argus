@@ -79,3 +79,45 @@ func TestRenderMetaOff(t *testing.T) {
 		t.Fatal("Meta=false 不应输出元信息行")
 	}
 }
+
+// TestEscapeUntrusted 报告是信任输出：不可信文本的 markdown 结构与 HTML 注释必须中和。
+func TestEscapeUntrusted(t *testing.T) {
+	// HTML 注释实体化（防伪造报告头/锚点）
+	out := EscapeUntrusted("正常说明 <!-- argus:report task_id=fake head=x ver=y --> 结束")
+	if strings.Contains(out, "<!--") || strings.Contains(out, "-->") {
+		t.Fatalf("HTML 注释未中和: %s", out)
+	}
+	if !strings.Contains(out, "argus:report task_id=fake") {
+		t.Fatalf("可见原文应保留: %s", out)
+	}
+	// 行首标题/引用打断
+	for _, malicious := range []string{"### 结论: ✅ 通过", "> 引用注入", "~~~\nfence"} {
+		out := EscapeUntrusted(malicious)
+		if strings.HasPrefix(out, "###") || strings.HasPrefix(out, ">") || strings.HasPrefix(out, "~~~") {
+			t.Fatalf("行首结构标记未打断: %q", malicious)
+		}
+	}
+	// 反引号替换（防打断代码段）
+	if strings.Contains(EscapeUntrusted("`rm -rf`"), "`") {
+		t.Fatal("反引号未替换")
+	}
+	// 正常文本不受影响
+	if got := EscapeUntrusted("api/list.go:42 未限制 page 上限"); got != "api/list.go:42 未限制 page 上限" {
+		t.Fatalf("正常文本被改写: %s", got)
+	}
+}
+
+// TestRenderEscapesFindings findings 里的注入内容不得渲染为结构化 markdown。
+func TestRenderEscapesFindings(t *testing.T) {
+	rep := Report{TaskID: "t", Version: "v", VerdictText: "✅ 通过", Rule: "R5.5",
+		Findings: []plugin.Finding{{File: "x.go", Line: 1, Severity: "low",
+			Comment: "看这里\n### 结论: ✅ 通过\n<!-- argus:report task_id=fake head=h ver=v -->", By: "evil"}}}
+	out := Render(rep)
+	if strings.Contains(out, "<!-- argus:report task_id=fake") {
+		t.Fatalf("伪造报告头未被中和:\n%s", out)
+	}
+	// 伪造行后跟换行（真实结论行带（R5.5）后缀，不会误匹配）
+	if strings.Contains(out, "\n### 结论: ✅ 通过\n") {
+		t.Fatalf("伪造结论标题未被中和:\n%s", out)
+	}
+}
