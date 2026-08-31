@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/google/uuid"
 	"github.com/prometheus/common/expfmt"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -23,12 +24,15 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/knowledge/rag"
 	"argus/internal/knowledge/skill"
+	"argus/internal/notify"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poller"
 	"argus/internal/poster"
+	"argus/internal/progress"
 	"argus/internal/runner"
 	"argus/internal/service"
 	"argus/internal/storage"
@@ -37,7 +41,7 @@ import (
 )
 
 // version 报告头与元信息里的服务版本。
-const version = "v3.0.1"
+const version = "v3.0.2"
 
 func main() {
 	config.LoadDotEnv()
@@ -64,11 +68,20 @@ func main() {
 		panic(err)
 	}
 	defer store.Close()
-	if n, err := store.ResetRunningToPending(ctx); err != nil {
+	// claim 归属 + 心跳（多副本滚动发布安全）。uuid 失败退化为 hostname:pid——
+	// RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被 reaper 反复重置重跑。
+	if id, err := uuid.NewRandom(); err == nil {
+		store.RunnerID = id.String()[:16]
+	} else {
+		host, _ := os.Hostname()
+		store.RunnerID = fmt.Sprintf("%s:%d", host, os.Getpid())
+	}
+	if n, err := store.ResetRunningToPending(ctx, worker.StaleRunningAfter); err != nil {
 		log.Error("argus.boot.reset_running_failed", "error", err.Error())
 	} else if n > 0 {
 		log.Warn("argus.boot.reset_running", "count", n,
-			"hint", "上次崩溃遗留的 running 任务已重置回 pending")
+			"stale_after", worker.StaleRunningAfter.String(),
+			"hint", "心跳过期的遗留 running 任务已重置回 pending")
 	}
 
 	// ---- L5 上下文：SDK 封装 + 工作副本沙箱 + Skill ----
@@ -94,7 +107,7 @@ func main() {
 	// ---- LLM（复用 lacus/.env 的 OPENAI_*；无配置时仅 cli 插件可用）----
 	var chatModel *openai.ChatModel
 	if cfg.LLM.BaseURL != "" && cfg.LLM.APIKey != "" && cfg.LLM.Model != "" {
-		maxTokens := cfg.LLM.MaxTokens
+		maxTokens := cfg.MaxTokensResolved()
 		chatModel, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			BaseURL:   cfg.LLM.BaseURL,
 			APIKey:    cfg.LLM.APIKey,
@@ -105,9 +118,36 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("构造 LLM 客户端失败: %w", err))
 		}
-		log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL)
+		log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL,
+			"context_tokens", cfg.LLM.ContextToken, "max_tokens", maxTokens,
+			"diff_chars", cfg.MaxDiffCharsResolved(), "task_budget", cfg.EffectiveTaskTokenBudget())
 	} else {
 		log.Warn("argus.boot.no_llm", "hint", "OPENAI_* 未配置，builtin 插件不可用（仅 cli 插件可工作）")
+	}
+
+	// ---- L5 知识子系统：本地 RAG（目录缺失回退 Noop，不阻塞启动）----
+	var knowledge rag.KnowledgeService = rag.NewNoop()
+	if fi, err := os.Stat(cfg.KnowledgeDir); err == nil && fi.IsDir() {
+		if k, e := rag.NewLocal(cfg.KnowledgeDir); e == nil {
+			knowledge = k
+			log.Info("argus.boot.knowledge_ready", "dir", cfg.KnowledgeDir)
+		} else {
+			log.Warn("argus.boot.knowledge_failed", "dir", cfg.KnowledgeDir, "error", e.Error())
+		}
+	} else {
+		log.Warn("argus.boot.knowledge_absent", "dir", cfg.KnowledgeDir,
+			"hint", "创建目录并放入 markdown 知识文件即启用 search_knowledge")
+	}
+
+	// ---- L1 扩展：进度事件总线 + octopus IM 推送（v3.1）----
+	bus := progress.NewBus()
+	var imNotify *notify.Notifier
+	if cfg.OctopusURL != "" {
+		imNotify = &notify.Notifier{
+			BaseURL: cfg.OctopusURL, ChannelID: cfg.OctopusChannelID,
+			User: cfg.OctopusUser, Token: cfg.OctopusToken, Log: log,
+		}
+		log.Info("argus.boot.notify_ready", "octopus", cfg.OctopusURL, "channel", cfg.OctopusChannelID)
 	}
 
 	// ---- L4 插拔层 + L3 编排 + runner ----
@@ -128,13 +168,16 @@ func main() {
 
 	dispatcher := plugin.NewDispatcher(reg, log)
 	merger := plugin.NewMerger(store, log)
-	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, Log: log}
+	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: chatModel, ModelName: cfg.LLM.Model,
 		Dispatcher: dispatcher, Merger: merger,
 		Poster: posterSvc, Log: log, Version: version,
 		SkillProvider: skills, SkillRefs: complianceSkillRefs,
+		Bus:       bus,
+		Notify:    imNotify,
+		Knowledge: knowledge,
 	}
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
@@ -188,14 +231,15 @@ func main() {
 		}
 		if len(targets) > 0 {
 			pl := &poller.Poller{SDK: sdk, Store: store, Targets: targets,
-				Interval: cfg.PollInterval, Log: log}
+				Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log}
 			pl.Start(ctx)
 		}
 	}
 
 	// ---- service + biz 接线 ----
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
-		Log: log, Version: version}
+		Log: log, Bus: bus,
+		Version: version}
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()
 

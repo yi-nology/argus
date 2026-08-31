@@ -18,11 +18,14 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/knowledge/rag"
 	"argus/internal/knowledge/skill"
 	"argus/internal/llm"
+	"argus/internal/notify"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
+	"argus/internal/progress"
 	"argus/internal/reportview"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
@@ -40,6 +43,9 @@ type Runner struct {
 	Merger     *plugin.Merger
 	ToolPool   toolpool.Pool
 	ToolSpecs  []toolpool.ToolSpec
+	Knowledge  rag.KnowledgeService
+	Bus        *progress.Bus    // 任务进度事件（v3.1 SSE；nil 安全）
+	Notify     *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
 	Poster     *poster.Poster
 	Log        logx.Logger
 	Version    string
@@ -87,39 +93,74 @@ func (r *Runner) WorkflowFactory() adapter_builtin.WorkflowFactory {
 // buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
 // 其余字段全部共享引用，构造成本可忽略。
 func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow {
+	c := llm.NewClient(r.Model, r.ModelName, budget)
+	// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
+	c.ContextTokens = r.Cfg.LLM.ContextToken
+	c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
 	return &requirement.Workflow{
-		LLM:        llm.NewClient(r.Model, r.ModelName, budget),
-		SDK:        r.SDK,
-		Dispatcher: r.Dispatcher,
-		Merger:     r.Merger,
-		Tools:      r.ToolPool,
-		ToolSpecs:  r.ToolSpecs,
-		SkillText:  r.skillText,
-		Log:        r.Log,
+		LLM:              c,
+		SDK:              r.SDK,
+		Dispatcher:       r.Dispatcher,
+		Merger:           r.Merger,
+		Tools:            r.ToolPool,
+		ToolSpecs:        r.ToolSpecs,
+		Knowledge:        r.Knowledge,
+		SkillText:        r.skillText,
+		Log:              r.Log,
+		ReqBodyMaxChars:  r.Cfg.ReqBodyMaxChars(),
+		ReqIssueMaxChars: r.Cfg.ReqIssueMaxChars(),
+		GetFileMaxChars:  r.Cfg.GetFileMaxRunes(),
+		GetIssueMaxChars: r.Cfg.GetIssueMaxRunes(),
+		GetDiffMaxChars:  r.Cfg.GetDiffMaxRunes(),
 	}
 }
 
-// skillText R3 方法论注入：聚合全部 builtin 插件 skillRef 解析结果（Runner 装配期填充）。
-// 由 main 在构造 Runner 时赋值（见 internal/bootstrap 装配代码）。
-var _ = func() {}
-
-// Execute 执行一个已 claim（running）的任务。始终终结任务状态（done/failed/stale）。
+// Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
+// 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
 	}
 	start := time.Now()
-	budget := plugin.NewTokenBudget(r.Cfg.TaskTokenBudget)
+	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	wf := r.buildWorkflow(budget)
+	r.publish("task.running", task, "", "")
+	// 仓库级月度预算门控（v3.1）：超限在调 LLM 前短路，任务直接 failed。
+	if r.Cfg.RepoMonthlyTokenBudget > 0 {
+		now := time.Now()
+		used, err := r.Store.RepoMonthlyTokens(ctx, task.Platform, task.Owner, task.Repo,
+			time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
+		if err != nil {
+			r.Log.Warn("argus.runner.budget_check_failed", "task", taskID, "error", err.Error())
+		} else if used >= int64(r.Cfg.RepoMonthlyTokenBudget) {
+			r.Log.Warn("argus.runner.repo_budget_exceeded", "task", taskID,
+				"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
+			_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "",
+				fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget),
+				0, 0)
+			r.announceTerminal(task, storage.StatusFailed, "", nil,
+				fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget))
+			plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+			return nil
+		}
+	}
 
 	err = r.run(ctx, task, wf, budget, start)
 	if err == nil {
 		return nil
 	}
+	// 停机硬取消：显式保持 running（不写终态），依赖"心跳过期重置"重跑。
+	// 此前语义靠"ctx 已死 → FinishTask 写库必然失败"的副作用成立，组件意图矛盾且脆弱。
+	if ctx.Err() != nil {
+		r.Log.Warn("argus.runner.task_cancelled", "task", taskID,
+			"action", "保持 running，待心跳过期重置回 pending")
+		return nil
+	}
 	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志，不在 PR 评论
 	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", err.Error())
 	_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", err.Error(), budget.Used(), 0)
+	r.announceTerminal(task, storage.StatusFailed, "", nil, err.Error())
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
 }
@@ -163,7 +204,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
 
-	res, err := r.Poster.Post(ctx, task, *pr, out.Verdict, rep)
+	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
 	if err != nil {
 		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
 		plugin.ReportPluginFailure("poster")
@@ -185,6 +226,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 			_ = r.Store.SetTaskDebug(ctx, task.ID, string(b))
 		}
 	}
+	r.announceTerminal(task, status, out.Verdict, out, "")
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", status,
 		"verdict", out.Verdict, "rule", out.Rule, "findings", findingsCount(out.Merged),
@@ -331,16 +373,38 @@ func countMissingPartial(report *plugin.ComplianceReport) int {
 	return n
 }
 
-func hasHigh(m *plugin.MergedFindings) bool {
-	if m == nil {
-		return false
+// publish 广播进度事件（nil Bus 安全）。
+func (r *Runner) publish(typ string, task *storage.Task, status, verdict string) {
+	if r.Bus == nil || task == nil {
+		return
 	}
-	for _, f := range m.Findings {
-		if f.Severity == plugin.SeverityHigh {
-			return true
+	r.Bus.Publish(progress.Event{
+		Type: typ, TaskID: task.ID, Platform: task.Platform,
+		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
+		Status: status, Verdict: verdict,
+	})
+}
+
+// finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
+func (r *Runner) announceTerminal(task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
+	r.publish("task.finished", task, status, verdict)
+	if r.Notify == nil {
+		return
+	}
+	ev := notify.TaskEvent{
+		TaskID: task.ID, Platform: task.Platform, Owner: task.Owner,
+		Repo: task.Repo, Number: task.Number, Status: status, Verdict: verdict,
+		FailReason: failReason,
+	}
+	if out != nil {
+		ev.Rule = out.Rule
+		ev.Tokens = out.Tokens
+		ev.Elapsed = out.Elapsed
+		if out.Merged != nil {
+			ev.Findings = len(out.Merged.Findings)
 		}
 	}
-	return false
+	r.Notify.NotifyTerminal(context.Background(), ev)
 }
 
 func findingsCount(m *plugin.MergedFindings) int {

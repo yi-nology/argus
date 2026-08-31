@@ -22,6 +22,11 @@ type Client struct {
 	Model     model.BaseChatModel
 	ModelName string
 
+	// 模型窗口（token，输入+输出合计）与单次输出预留，用于发送前输入自守恒
+	//（fitInput）：超限输入本地截断留痕，不发给 API 吃 400。0 = 不启用。
+	ContextTokens   int
+	MaxOutputTokens int
+
 	// OnUsage 每次调用后的 token 记账回调（stage, promptTokens, completionTokens）。
 	OnUsage func(stage string, prompt, completion int)
 	// Budget 任务 token 预算累计器（可 nil）。
@@ -61,15 +66,17 @@ func (c *Client) account(stage string, in []*schema.Message, out *schema.Message
 	plugin.ReportLLMTokens(stage, c.ModelName, p+comp)
 }
 
-// Generate 带重试的普通生成（指数退避 1 次；stage 仅用于记账/指标）。
+// Generate 带重试的普通生成（失败后延迟重试 1 次；stage 仅用于记账/指标）。
+// 确定性失败（鉴权/权限/上下文超限类 4xx）重试必然再败，直接上抛省一次白烧的调用。
 func (c *Client) Generate(ctx context.Context, stage string, msgs []*schema.Message) (*schema.Message, error) {
+	c.fitInput(msgs)
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(c.retryDelay): // 指数退避
+			case <-time.After(c.retryDelay * time.Duration(attempt)): // 线性退避（2s/次，可测注入）
 			}
 		}
 		out, err := c.Model.Generate(ctx, msgs)
@@ -78,8 +85,69 @@ func (c *Client) Generate(ctx context.Context, stage string, msgs []*schema.Mess
 			return out, nil
 		}
 		lastErr = err
+		if !retryableLLMError(err) {
+			break
+		}
 	}
 	return nil, fmt.Errorf("llm: %s 调用失败（已重试 1 次）: %w", stage, lastErr)
+}
+
+// retryableLLMError 判定是否值得重试：401/403/api key 等鉴权类、上下文超限类
+// 确定性失败不重试（错误经 eino/SDK 包装，唯一稳定表面是文本标记；
+// 保守白名单，判不准时仍重试）。
+func retryableLLMError(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{"401", "403", "unauthorized", "invalid api key", "invalid_api_key", "forbidden"} {
+		if strings.Contains(msg, marker) {
+			return false
+		}
+	}
+	for _, marker := range []string{
+		"context length", "context_length", "maximum context", "max context",
+		"too long", "too many tokens", "reduce the length", "input length",
+	} {
+		if strings.Contains(msg, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+// fitInput 发送前输入自守恒：总输入超（窗口-输出预留）×2 chars/token 的 9 折时，
+// 截断最长的 user 消息并留痕（中文按 2 chars/token 保守估算，4 会低估超窗）。
+// 兜底层——各阶段的数据区截断（diffprep/R1）先行生效，正常永远轮不到这里。
+func (c *Client) fitInput(msgs []*schema.Message) {
+	if c.ContextTokens <= 0 {
+		return
+	}
+	reserved := c.MaxOutputTokens
+	if reserved <= 0 {
+		reserved = c.ContextTokens / 20
+	}
+	limit := (c.ContextTokens - reserved) * 2 * 9 / 10
+	if limit <= 0 {
+		return
+	}
+	total := 0
+	longest := -1
+	for i, m := range msgs {
+		total += len([]rune(m.Content))
+		if m.Role == schema.User && (longest < 0 || len([]rune(m.Content)) > len([]rune(msgs[longest].Content))) {
+			longest = i
+		}
+	}
+	if total <= limit || longest < 0 {
+		return
+	}
+	keep := limit - (total - len([]rune(msgs[longest].Content)))
+	if keep < 0 {
+		keep = 0
+	}
+	r := []rune(msgs[longest].Content)
+	msgs[longest].Content = string(r[:keep]) + "\n…（输入超出模型窗口预算，已截断留痕）"
 }
 
 // GenerateJSON 生成并解析 JSON；解析失败把原始输出与错误回喂重试 1 次（§10.2 R3 行）。

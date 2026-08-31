@@ -171,8 +171,60 @@ func TestAlignChecksToSpec(t *testing.T) {
 		{ID: "AC-9", Status: plugin.ACMissing}, // R3 发明的条目
 		{ID: "SQL 注入", Status: plugin.ACMissing},
 	}}
-	dropped := alignChecksToSpec(spec, rep)
-	if dropped != 2 || len(rep.Checks) != 2 {
-		t.Fatalf("应剔除 2 条发明条目，got dropped=%d kept=%d", dropped, len(rep.Checks))
+	dropped, fixed := alignChecksToSpec(spec, rep)
+	if dropped != 2 || fixed != 0 || len(rep.Checks) != 2 {
+		t.Fatalf("应剔除 2 条发明条目，got dropped=%d fixed=%d kept=%d", dropped, fixed, len(rep.Checks))
 	}
+}
+
+// TestAlignChecksBackfill P0 回归：R3 少报/漏报不能缩水成 APPROVE。
+// spec 有 AC-1..AC-2 而 R3 只判了部分（或干脆空 checks）——漏掉的条目必须
+// 补齐为 unverifiable，让裁决落 R5.3 人工确认而非 R5.5。
+func TestAlignChecksBackfill(t *testing.T) {
+	t.Run("空checks_不落APPROVE", func(t *testing.T) {
+		spec, _ := acSpec(plugin.ACImplemented, plugin.ACImplemented)
+		rep := &plugin.ComplianceReport{} // 模拟 R3 输出 {"checks":[]}
+		alignChecksToSpec(spec, rep)
+		if len(rep.Checks) != 2 {
+			t.Fatalf("漏判条目应补齐，got %d 条", len(rep.Checks))
+		}
+		for _, c := range rep.Checks {
+			if c.Status != plugin.ACUnverifiable {
+				t.Fatalf("%s 应为 unverifiable，got %s", c.ID, c.Status)
+			}
+		}
+		if v, rule := Verdict(spec, rep, nil); v != "comment" || rule != "R5.3" {
+			t.Fatalf("少报必须落人工确认，got %s/%s", v, rule)
+		}
+	})
+	t.Run("漏判单条_补齐", func(t *testing.T) {
+		spec, _ := acSpec(plugin.ACImplemented, plugin.ACMissing)
+		rep := &plugin.ComplianceReport{Checks: []plugin.ACCheck{
+			{ID: "AC-1", Status: plugin.ACImplemented}, // AC-2（missing）被 R3 隐瞒
+		}}
+		_, fixed := alignChecksToSpec(spec, rep)
+		if fixed != 1 || len(rep.Checks) != 2 {
+			t.Fatalf("应补齐 1 条，got fixed=%d kept=%d", fixed, len(rep.Checks))
+		}
+		if v, rule := Verdict(spec, rep, nil); rule != "R5.3" {
+			t.Fatalf("补齐的 unverifiable 应触发 R5.3，got %s/%s", v, rule)
+		}
+	})
+	t.Run("词表外status_归一", func(t *testing.T) {
+		spec, _ := acSpec(plugin.ACImplemented, plugin.ACMissing)
+		rep := &plugin.ComplianceReport{Checks: []plugin.ACCheck{
+			{ID: "AC-1", Status: plugin.ACImplemented},
+			{ID: "AC-2", Status: "done"}, // 词表外：不能当作"不存在"放过
+		}}
+		_, fixed := alignChecksToSpec(spec, rep)
+		if fixed != 1 {
+			t.Fatalf("词表外 status 应归一，got fixed=%d", fixed)
+		}
+		if rep.Checks[1].Status != plugin.ACUnverifiable {
+			t.Fatalf("词表外 status 应为 unverifiable，got %s", rep.Checks[1].Status)
+		}
+		if v, _ := Verdict(spec, rep, nil); v != "comment" {
+			t.Fatalf("归一后应落 comment，got %s", v)
+		}
+	})
 }

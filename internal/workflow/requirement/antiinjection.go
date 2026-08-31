@@ -61,26 +61,54 @@ func SanitizeSpec(spec *plugin.RequirementSpec) (warnings []string) {
 	return warnings
 }
 
-// alignChecksToSpec 对齐校验：R3 偶发发明验收清单之外的 check 条目（如按实现细节自拆子项），
-// 会放大 R5.1 的"未达标"计数——只保留 spec 中存在的 AC ID，返回剔除数。
-func alignChecksToSpec(spec *plugin.RequirementSpec, report *plugin.ComplianceReport) (dropped int) {
+// alignChecksToSpec 双向对齐校验（防线：R3 输出不可信，缺漏与发明都要堵）：
+//   - 剔除 R3 发明的 spec 之外的条目（防放大 R5.1 计数）；
+//   - 补齐 spec 有而 R3 漏判的条目，置 unverifiable——否则 R3 少报/漏报会把
+//     partial PR 缩水成 R5.5 APPROVE（空 checks 绕过 R5.1/R5.3 的注入洞）；
+//   - status 词表校验：词表外的值（如 "done"）既不能计入 R5.1 也不算证据，
+//     一律归一为 unverifiable，防错写状态缩水未达标计数。
+//
+// 返回 (剔除数, 补齐+归一数)。
+func alignChecksToSpec(spec *plugin.RequirementSpec, report *plugin.ComplianceReport) (dropped, fixed int) {
 	if report == nil || spec == nil {
-		return 0
+		return 0, 0
 	}
 	known := make(map[string]bool, len(spec.ACs))
 	for _, ac := range spec.ACs {
 		known[ac.ID] = true
 	}
-	kept := report.Checks[:0]
+	kept := make([]plugin.ACCheck, 0, len(spec.ACs))
 	for _, c := range report.Checks {
-		if known[c.ID] {
-			kept = append(kept, c)
-		} else {
+		if !known[c.ID] {
 			dropped++
+			continue
+		}
+		switch c.Status {
+		case plugin.ACImplemented, plugin.ACPartial, plugin.ACMissing, plugin.ACUnverifiable:
+			kept = append(kept, c)
+		default:
+			c.Status = plugin.ACUnverifiable
+			c.Detail = strings.TrimSpace(c.Detail + "（status 词表外，已归一为 unverifiable）")
+			kept = append(kept, c)
+			fixed++
+		}
+	}
+	seen := make(map[string]bool, len(kept))
+	for _, c := range kept {
+		seen[c.ID] = true
+	}
+	for _, ac := range spec.ACs {
+		if !seen[ac.ID] {
+			kept = append(kept, plugin.ACCheck{
+				ID:     ac.ID,
+				Status: plugin.ACUnverifiable,
+				Detail: "R3 未判定该条目，已按对齐防线补齐为需人工确认",
+			})
+			fixed++
 		}
 	}
 	report.Checks = kept
-	return dropped
+	return dropped, fixed
 }
 
 // ---------- 防线 #2（代码级校验）：无证据不判 implemented ----------

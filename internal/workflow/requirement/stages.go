@@ -25,21 +25,59 @@ var issueRefRe = regexp.MustCompile(`#(\d{1,8})`)
 // maxIssueRefs 关联 issue 数量上限（防恶意刷引用）。
 const maxIssueRefs = 5
 
+// 缺省需求文本截断上限（字符）——Workflow 未装配 config 派生值时的兜底。
+const (
+	defaultReqBodyMaxChars  = 24_000
+	defaultReqIssueMaxChars = 8_000
+)
+
+// maxACs R1 产出的验收条目上限：超限条目转 Ambiguous（R5.3 人工确认），
+// 防超长需求改写出上百条 AC 拖垮 R3、也让"清单过大"显式落人工拆分。
+const maxACs = 30
+
+// maxACTextRunes 单条 AC 文本上限（字符），防 LLM 把整段原文塞进单条 AC。
+const maxACTextRunes = 500
+
+// maxDigestChunks 两级提炼时单段最多提炼的分块数（每块 bodyMax 字符）——
+// 超出部分截断留痕，防恶意超长文本制造海量 LLM 调用。
+const maxDigestChunks = 8
+
+// reqSegment R1 需求源分段（PR 描述 / 各关联 issue）。
+type reqSegment struct {
+	label     string
+	content   string
+	rawChars  int
+	truncated bool
+}
+
 // ParseRequirement R1：需求解析 → RequirementSpec。
 // 需求源：PR 描述 / 关联 issue / 分支名 #N。LLM 失败按"需求源全缺"降级（§10.2）。
+// 长度策略：单段硬上限（bodyMax×8）→ 总量 ≤ bodyMax 原文直进单次解析；
+// 超过则两级提炼（R1a 按 bodyMax 分块逐块提炼要点 → 合并后进 R1 解析）。
+// 任何截断/提炼路径都留痕 Ambiguous → R5.3 人工确认，绝不静默丢内容。
 func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plugin.RequirementSpec, error) {
 	start := time.Now()
 	defer func() { plugin.ReportStageDuration("R1", time.Since(start)) }()
 
-	pr := task.PR
-	var sb strings.Builder
-	if strings.TrimSpace(pr.Body) != "" {
-		sb.WriteString(DataFence("PR 描述", pr.Body))
-		sb.WriteString("\n")
+	bodyMax, issueMax := w.ReqBodyMaxChars, w.ReqIssueMaxChars
+	if bodyMax <= 0 {
+		bodyMax = defaultReqBodyMaxChars
 	}
-	if pr.HeadBranch != "" {
-		sb.WriteString(DataFence("分支名", pr.HeadBranch))
-		sb.WriteString("\n")
+	if issueMax <= 0 {
+		issueMax = defaultReqIssueMaxChars
+	}
+	digestMax := bodyMax * 8
+
+	pr := task.PR
+	var truncNotes []string
+	segments := make([]reqSegment, 0, 6)
+	if s := strings.TrimSpace(pr.Body); s != "" {
+		seg := reqSegment{label: "PR 描述", content: s, rawChars: len([]rune(s))}
+		if t, truncated := truncRunes(s, digestMax); truncated {
+			seg.content, seg.truncated = t, true
+			truncNotes = append(truncNotes, fmt.Sprintf("PR 描述超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", seg.rawChars, digestMax))
+		}
+		segments = append(segments, seg)
 	}
 
 	// 关联 issue：分支名 + 描述中 #N（去重，封顶）
@@ -53,15 +91,45 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 			w.Log.Warn("argus.r1.issue_fetch_failed", "issue", num, "error", err.Error())
 			continue
 		}
-		fmt.Fprintf(&sb, "%s\n", DataFence("issue #"+num+" "+issue.Title, issue.Body))
+		raw := issue.Title + "\n" + issue.Body // 标题同样攻击者可控，一起进数据区
+		seg := reqSegment{label: "issue #" + num, content: raw, rawChars: len([]rune(raw))}
+		if t, truncated := truncRunes(raw, issueMax*8); truncated {
+			seg.content, seg.truncated = t, true
+			truncNotes = append(truncNotes, fmt.Sprintf("issue #%s 正文超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", num, seg.rawChars, issueMax*8))
+		}
+		segments = append(segments, seg)
 	}
 
-	if strings.TrimSpace(sb.String()) == "" {
+	total := 0
+	for _, seg := range segments {
+		total += len([]rune(seg.content))
+	}
+	if total == 0 && strings.TrimSpace(pr.HeadBranch) == "" {
 		// 需求源全缺：task 照走，R1 产出空清单 + Ambiguous=[原文] → R5.3 → COMMENT（§10.2）
 		return &plugin.RequirementSpec{
 			Source:    "未关联",
 			Ambiguous: []string{"未在 PR 描述、分支名中找到关联需求，请补充需求说明"},
 		}, nil
+	}
+
+	// 组装 R1 输入：总量 ≤ bodyMax 原文直进；超过则两级提炼
+	var sb strings.Builder
+	if pr.HeadBranch != "" {
+		sb.WriteString(DataFence("分支名", pr.HeadBranch))
+		sb.WriteString("\n")
+	}
+	digested := false
+	if total > bodyMax {
+		digested = true
+		for _, seg := range segments {
+			digest, notes := w.digestSegment(ctx, seg, bodyMax)
+			truncNotes = append(truncNotes, notes...)
+			fmt.Fprintf(&sb, "%s\n", DataFence(seg.label+"（分段提炼要点）", digest))
+		}
+	} else {
+		for _, seg := range segments {
+			fmt.Fprintf(&sb, "%s\n", DataFence(seg.label, seg.content))
+		}
 	}
 
 	var spec plugin.RequirementSpec
@@ -87,11 +155,85 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	}
 	// 补充关联 issue 引用便于追溯
 	spec.IssueRefs = refs
+	// 截断/两级提炼留痕：Ambiguous 非空 → R5.3 COMMENT（人工确认），绝不静默
+	for _, n := range truncNotes {
+		spec.Ambiguous = append(spec.Ambiguous, "[超长截断] "+n)
+		w.Log.Warn("argus.r1.requirement_truncated", "note", n)
+	}
+	if digested {
+		spec.Ambiguous = append(spec.Ambiguous, "[两级提炼] 需求原文超长，已按分段提炼要点后解析，建议人工核对需求完整性")
+		w.Log.Warn("argus.r1.two_stage_digest", "segments", len(segments), "total_chars", total)
+	}
 	// 防线 #3：空清单也要有出处
 	if len(spec.ACs) == 0 && len(spec.Ambiguous) == 0 {
 		spec.Ambiguous = append(spec.Ambiguous, "需求信息未能改写出可判定条目，需人工确认")
 	}
+	// AC 条数上限：超限条目不丢弃，转 Ambiguous 落人工确认
+	if len(spec.ACs) > maxACs {
+		excess := spec.ACs[maxACs:]
+		ids := make([]string, 0, len(excess))
+		for _, ac := range excess {
+			ids = append(ids, ac.ID)
+		}
+		w.Log.Warn("argus.r1.ac_cap", "total", len(spec.ACs), "cap", maxACs)
+		spec.Ambiguous = append(spec.Ambiguous, fmt.Sprintf(
+			"[条目超限] 验收清单解析出 %d 条，超出 %d 条上限，多余条目（%s）转人工确认，建议拆分需求",
+			len(spec.ACs)+len(excess), maxACs, strings.Join(ids, ",")))
+		spec.ACs = spec.ACs[:maxACs]
+	}
+	// 单条 AC 文本截断（LLM 偶发把整段原文塞进单条 AC）
+	for i := range spec.ACs {
+		if t, truncated := truncRunes(spec.ACs[i].Text, maxACTextRunes); truncated {
+			spec.ACs[i].Text = t + "…（截断）"
+		}
+	}
 	return &spec, nil
+}
+
+// digestSegment R1a：单段需求按 chunkSize 分块，逐块提炼要点后拼接（单块输出 ≤4000 字）。
+// 任一块提炼失败则整段回退为截断原文，并通过 notes 留痕（→ Ambiguous → R5.3）。
+func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize int) (string, []string) {
+	var notes []string
+	chunks := chunkRunes(seg.content, chunkSize)
+	if len(chunks) > maxDigestChunks {
+		notes = append(notes, fmt.Sprintf("%s 超长（原 %d 字符），仅提炼前 %d 块（每块 %d 字符），请人工核对完整性",
+			seg.label, seg.rawChars, maxDigestChunks, chunkSize))
+		chunks = chunks[:maxDigestChunks]
+	}
+	parts := make([]string, 0, len(chunks))
+	for i, ch := range chunks {
+		msgs := []*schema.Message{
+			schema.SystemMessage(r1DigestSystem),
+			schema.UserMessage(DataFence(seg.label+fmt.Sprintf(" 需求片段 %d/%d（数据）", i+1, len(chunks)), ch) +
+				"\n请提炼以上需求片段的全部要点。"),
+		}
+		resp, err := w.LLM.Generate(ctx, "R1a", msgs)
+		if err != nil {
+			w.Log.Warn("argus.r1.digest_failed", "segment", seg.label, "chunk", i+1, "error", err.Error())
+			notes = append(notes, fmt.Sprintf("%s 片段提炼失败（块 %d/%d），以截断原文参与解析", seg.label, i+1, len(chunks)))
+			return seg.content, notes
+		}
+		parts = append(parts, truncSummary(resp.Content, 4000))
+	}
+	return strings.Join(parts, "\n"), notes
+}
+
+// chunkRunes 按 rune 等分为 ≤n 字符的块（最后一块可不足）。
+func chunkRunes(s string, n int) []string {
+	if n <= 0 {
+		return []string{s}
+	}
+	r := []rune(s)
+	var out []string
+	for len(r) > 0 {
+		k := n
+		if len(r) < k {
+			k = len(r)
+		}
+		out = append(out, string(r[:k]))
+		r = r[k:]
+	}
+	return out
 }
 
 // SummarizeChange R2：变更理解 → ChangeSummary（R3/R4 复用的 diff 公共前缀，省 token）。
@@ -157,9 +299,12 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	} else {
 		var report plugin.ComplianceReport
 		if e := json.Unmarshal([]byte(llm.ExtractJSON(final)), &report); e == nil {
-			dropped := alignChecksToSpec(spec, &report) // 对齐验收清单（防 R3 发明条目放大 R5.1 计数）
+			dropped, fixed := alignChecksToSpec(spec, &report) // 双向对齐（防发明条目放大 R5.1，也防漏报缩水成 APPROVE）
 			if dropped > 0 {
 				w.Log.Warn("argus.r3.checks_dropped", "count", dropped)
+			}
+			if fixed > 0 {
+				w.Log.Warn("argus.r3.checks_aligned", "count", fixed)
 			}
 			down := EnforceEvidence(&report) // 防线 #2 代码级校验
 			if down > 0 {
@@ -239,6 +384,16 @@ func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tool
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。
 func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTool, error) {
 	pr := task.PR
+	fileMax, issueMax, diffMax := w.GetFileMaxChars, w.GetIssueMaxChars, w.GetDiffMaxChars
+	if fileMax <= 0 {
+		fileMax = 20_000
+	}
+	if issueMax <= 0 {
+		issueMax = 8_000
+	}
+	if diffMax <= 0 {
+		diffMax = 30_000
+	}
 
 	getFile, err := utils.InferTool("get_file",
 		"读取仓库某文件在 PR head 提交时的完整内容，用于核实 diff 中看不到的实现。参数 path 为仓库相对路径。",
@@ -247,10 +402,12 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			if err != nil {
 				return &getFileOut{Error: err.Error()}, nil // 工具错误回注文本，不中断 ReAct
 			}
-			if len(content) > 20000 {
-				content = content[:20000] + "\n…（截断）"
+			if rc := len([]rune(content)); rc > fileMax {
+				content, _ = truncRunes(content, fileMax)
+				content += "\n…（截断）"
 			}
-			return &getFileOut{Content: content}, nil
+			// 文件内容是 PR 作者完全可控的注入面：回注 agent 前必须包数据区（防线 #1）
+			return &getFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
 		return nil, err
@@ -264,10 +421,12 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 				return &getIssueOut{Error: err.Error()}, nil
 			}
 			body := issue.Body
-			if len(body) > 8000 {
-				body = body[:8000] + "…（截断）"
+			if rc := len([]rune(body)); rc > issueMax {
+				body, _ = truncRunes(body, issueMax)
+				body += "…（截断）"
 			}
-			return &getIssueOut{Title: issue.Title, Body: body}, nil
+			// 标题+正文一起进数据区（两者都攻击者可控）
+			return &getIssueOut{Body: DataFence("get_issue 标题与正文（数据）", issue.Title+"\n"+body)}, nil
 		})
 	if err != nil {
 		return nil, err
@@ -278,10 +437,11 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 		func(ctx context.Context, _ *emptyIn) (*getDiffOut, error) {
 			if task.Diff != nil {
 				text := task.Diff.Text
-				if len(text) > 30000 {
-					text = text[:30000] + "…（截断）"
+				if rc := len([]rune(text)); rc > diffMax {
+					text, _ = truncRunes(text, diffMax)
+					text += "…（截断）"
 				}
-				return &getDiffOut{Diff: text}, nil
+				return &getDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
 			}
 			return &getDiffOut{Diff: ""}, nil
 		})
@@ -290,6 +450,11 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 	}
 
 	tools := []tool.BaseTool{getFile, getIssue, getDiff}
+	if w.Knowledge != nil {
+		if kt := w.Knowledge.AsTool(); kt != nil {
+			tools = append(tools, kt)
+		}
+	}
 	if w.Tools != nil {
 		extra, err := w.Tools.Tools(ctx, w.ToolSpecs)
 		if err != nil {
@@ -369,10 +534,21 @@ func renderACs(spec *plugin.RequirementSpec) string {
 
 func truncSummary(s string, n int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
+	if out, truncated := truncRunes(s, n); truncated {
+		return out + "…"
 	}
-	return s[:n] + "…"
+	return s
+}
+
+// truncRunes 按 rune 截断，避免多字节字符被腰斩产生非法 UTF-8 进 LLM 上下文。
+// 第二个返回值 = 是否真发生了截断（rune 口径）——多字节内容"字节超限 rune 未超"时
+// 不该打截断标记。
+func truncRunes(s string, n int) (string, bool) {
+	r := []rune(s)
+	if len(r) <= n {
+		return s, false
+	}
+	return string(r[:n]), true
 }
 
 func firstNonEmpty(vals ...string) string {

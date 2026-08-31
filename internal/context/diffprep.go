@@ -18,8 +18,21 @@ var noisePatterns = []string{
 	".pb.go", "_pb2.py", ".min.js", ".min.css", ".map", ".snap", ".svg", ".gif", ".png", ".jpg", ".jpeg", ".webp",
 }
 
-// SingleFileMaxChars 单文件 diff 字符截断（防单文件刷爆预算）。
+// SingleFileMaxChars 单文件 diff 字符截断下限（防单文件刷爆预算）。
+// 实际生效值随总量缩放：max(下限, 总量/50)——大窗口模型下大文件不提前腰斩。
 const SingleFileMaxChars = 8000
+
+// singleFileLimit 按总量推导单文件上限：总量/50，不低于全局下限。
+func singleFileLimit(totalLimit int) int {
+	if totalLimit <= 0 {
+		return SingleFileMaxChars
+	}
+	n := totalLimit / 50
+	if n < SingleFileMaxChars {
+		n = SingleFileMaxChars
+	}
+	return n
+}
 
 // noise 判定路径是否为噪声。
 func noise(path string) bool {
@@ -60,6 +73,7 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 	if totalLimit > 0 {
 		b.Grow(totalLimit / 2)
 	}
+	singleMax := singleFileLimit(totalLimit)
 
 	for _, f := range files {
 		entry := plugin.DiffFile{
@@ -86,12 +100,17 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 			continue
 		}
 		text := f.Diff
-		if len(text) > SingleFileMaxChars {
-			text = text[:SingleFileMaxChars] + fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+		if rc := len([]rune(text)); rc > singleMax {
+			text, _ = truncRunes(text, singleMax)
+			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
 		}
-		if totalLimit > 0 && len(text) > remaining {
-			text = text[:remaining] + "\n…（总量截断）"
-			dc.Truncated = true
+		if totalLimit > 0 {
+			if rc := len([]rune(text)); rc > remaining {
+				text, _ = truncRunes(text, remaining)
+				text += "\n…（总量截断）"
+				dc.Truncated = true
+			}
+			remaining -= len([]rune(text))
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -103,6 +122,16 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 	}
 	dc.Text = b.String()
 	return dc
+}
+
+// truncRunes 按 rune 截断，避免多字节字符被腰斩产生非法 UTF-8 进 LLM 上下文。
+// 第二个返回值 = 是否真发生了截断（rune 口径）。
+func truncRunes(s string, n int) (string, bool) {
+	r := []rune(s)
+	if len(r) <= n {
+		return s, false
+	}
+	return string(r[:n]), true
 }
 
 // fillFromRawDiff 把拼接的 unified diff 按 "diff --git" 切块回填到各 ChangedFile.Diff。

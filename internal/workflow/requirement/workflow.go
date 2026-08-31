@@ -10,6 +10,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/knowledge/rag"
 	"argus/internal/llm"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
@@ -51,8 +52,19 @@ type Workflow struct {
 	Merger     *plugin.Merger
 	Tools      toolpool.Pool // v3.0 mock 或 nil
 	ToolSpecs  []toolpool.ToolSpec
+	Knowledge  rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
 	SkillText  func(ctx context.Context) string // R3 方法论注入（runner 装配；nil = 无）
 	Log        logx.Logger
+
+	// R1 需求文本截断上限（字符；<=0 用包内缺省）。截断必须留痕：
+	// 在 spec.Ambiguous 追加提示 → R5.3 → 人工确认，不允许静默丢内容。
+	ReqBodyMaxChars  int
+	ReqIssueMaxChars int
+
+	// R3 工具返回内容上限（rune；<=0 用包内缺省）。随模型窗口从 config 派生。
+	GetFileMaxChars  int
+	GetIssueMaxChars int
+	GetDiffMaxChars  int
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
