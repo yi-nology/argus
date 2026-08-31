@@ -20,6 +20,53 @@ func ReportHeaderHTML(taskID, headSHA, version string) string {
 	return fmt.Sprintf("<!-- argus:report task_id=%s head=%s ver=%s -->", taskID, headSHA, version)
 }
 
+// EscapeUntrusted 中和不可信文本（LLM/cli 产出、PR 内容衍生物）中的 markdown 结构与
+// HTML 注释边界：报告是反注入体系的最终信任输出，意见文本若原样渲染，攻击者可借
+// diff 注入伪造"### 结论"标题、伪造报告头（干扰原地更新定位）等。
+// 策略：HTML 注释开/闭序列实体化（保留可见原文）；行首标题/引用/代码围栏标记前
+// 插零宽空格打断结构；反引号替换为同类引号防打断代码段。
+func EscapeUntrusted(s string) string {
+	if s == "" {
+		return s
+	}
+	s = strings.ReplaceAll(s, "<!--", "&lt;!--")
+	s = strings.ReplaceAll(s, "-->", "--&gt;")
+	s = strings.ReplaceAll(s, "`", "′")
+	var b strings.Builder
+	b.Grow(len(s))
+	for i, line := range strings.Split(s, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		trimmed := strings.TrimLeft(line, " \t")
+		inject := false
+		switch {
+		case strings.HasPrefix(trimmed, "#"), strings.HasPrefix(trimmed, ">"), strings.HasPrefix(trimmed, "~~~"):
+			inject = true // ATX 标题 / 引用 / 波浪围栏
+		case len(trimmed) >= 2 && strings.Trim(trimmed, "=-") == "":
+			inject = true // setext 下划线（=== / ---）：可把上一行意见抬成大标题/水平线
+		case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "+ "), strings.HasPrefix(trimmed, "* "):
+			inject = true // 无序列表项：可向意见列表混入伪造条目
+		case isOrderedMarker(trimmed):
+			inject = true // 有序列表项（1. 2.）
+		}
+		if inject {
+			b.WriteString("&#8203;")
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
+// isOrderedMarker 行首是否为有序列表标记（"12. xxx"）。
+func isOrderedMarker(trimmed string) bool {
+	i := 0
+	for i < len(trimmed) && trimmed[i] >= '0' && trimmed[i] <= '9' {
+		i++
+	}
+	return i > 0 && i+1 < len(trimmed) && trimmed[i] == '.' && trimmed[i+1] == ' '
+}
+
 // ACCheckView 单条验收清单渲染条目。
 type ACCheckView struct {
 	ID     string
@@ -87,7 +134,7 @@ func Render(r Report) string {
 		if src == "" {
 			src = "未关联"
 		}
-		fmt.Fprintf(&b, "（需求源: %s）\n", src)
+		fmt.Fprintf(&b, "（需求源: %s）\n", EscapeUntrusted(src))
 
 		done, total := complianceProgress(r.ACs)
 		switch {
@@ -110,14 +157,15 @@ func Render(r Report) string {
 				if detail == "" {
 					detail = "—"
 				}
-				fmt.Fprintf(&b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID, ac.Text, ac.Status, detail)
+				fmt.Fprintf(&b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID,
+					EscapeUntrusted(ac.Text), ac.Status, EscapeUntrusted(detail))
 			}
 		}
 
 		if len(r.ScopeCreep) > 0 {
 			b.WriteString("\n### ⚠️ 需求外改动（scope creep）\n")
 			for _, sc := range r.ScopeCreep {
-				fmt.Fprintf(&b, "- %s: %s\n", sc.File, sc.Note)
+				fmt.Fprintf(&b, "- %s: %s\n", EscapeUntrusted(sc.File), EscapeUntrusted(sc.Note))
 			}
 		}
 	}
@@ -132,16 +180,17 @@ func Render(r Report) string {
 			// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）
 			fp := plugin.Fingerprint(f.File, f.Comment)[:8]
 			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
-			comment := strings.ReplaceAll(strings.TrimSpace(f.Comment), "\n", "\n  ")
+			comment := strings.ReplaceAll(strings.TrimSpace(EscapeUntrusted(f.Comment)), "\n", "\n  ")
 			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
-				f.File, f.Line, strings.ToUpper(f.Severity), comment, by, fp)
+				EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
+				EscapeUntrusted(by), fp)
 		}
 	}
 
 	if len(r.Degraded) > 0 {
 		b.WriteString("\n<details><summary>插件降级说明</summary>\n\n")
 		for _, d := range r.Degraded {
-			fmt.Fprintf(&b, "- %s\n", d)
+			fmt.Fprintf(&b, "- %s\n", EscapeUntrusted(d))
 		}
 		b.WriteString("\n</details>\n")
 	}

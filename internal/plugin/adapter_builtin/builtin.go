@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -53,7 +54,8 @@ func (p *CompliancePlugin) Manifest() plugin.AgentManifest { return p.manifest }
 // Invoke 执行整条 R1→R5。注意：经协议形态（MCP/A2A v3.1）重入时 budget 为 nil = 不限预算；
 // 任务预算由 runner 在直接调用 workflow 时注入。
 func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, error) {
-	out, err := p.factory(nil).Run(ctx, task, nil)
+	// 任务预算经 Task.Budget 透传（Dispatcher 注入；协议形态直调时为 nil = 不限）
+	out, err := p.factory(task.Budget).Run(ctx, task, task.Budget)
 	if err != nil {
 		return plugin.Result{}, err
 	}
@@ -75,13 +77,15 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 
 // Reviewer 通用 LLM 审查 agent（correctness / security…同一结构不同人设）。
 type Reviewer struct {
-	manifest   plugin.AgentManifest
-	focus      string // 审查焦点人设
-	llm        *llm.Client
-	skillRefs  []skill.Ref
-	skills     skill.Provider
-	skillText  string // 启动时解析缓存（含 checksum 头）
-	skillReady bool
+	manifest  plugin.AgentManifest
+	focus     string // 审查焦点人设
+	llm       *llm.Client
+	skillRefs []skill.Ref
+	skills    skill.Provider
+	// skillText 惰性解析缓存（含 checksum 头）；多个 worker 并发 Invoke 同一插件，
+	// 用 Once 保证只解析一次（原先裸 bool 无同步，配 skillRefs 即成数据竞争）。
+	skillOnce sync.Once
+	skillText string
 }
 
 // NewReviewer 构造通用审查 agent。skillRefs 在启动期一次性解析进提示词缓存。
@@ -118,20 +122,20 @@ func (r *Reviewer) systemPrompt() string {
 
 // ensureSkillText 惰性解析 skillRef（含 checksum 头，防内容漂移难排查 §9.1）。
 func (r *Reviewer) ensureSkillText(ctx context.Context) {
-	if r.skillReady || r.skills == nil || len(r.skillRefs) == 0 {
-		r.skillReady = true
-		return
-	}
-	var parts []string
-	for _, ref := range r.skillRefs {
-		s, err := r.skills.Resolve(ctx, ref)
-		if err != nil {
-			continue
+	r.skillOnce.Do(func() {
+		if r.skills == nil || len(r.skillRefs) == 0 {
+			return
 		}
-		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
-	}
-	r.skillText = strings.Join(parts, "\n")
-	r.skillReady = true
+		var parts []string
+		for _, ref := range r.skillRefs {
+			s, err := r.skills.Resolve(ctx, ref)
+			if err != nil {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
+		}
+		r.skillText = strings.Join(parts, "\n")
+	})
 }
 
 // Invoke 执行审查：数据区（diff + 变更摘要）→ LLM → findings JSON → Result。
@@ -162,7 +166,17 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 		Findings []plugin.Finding `json:"findings"`
 		Notes    string           `json:"notes"`
 	}
-	if err := r.llm.GenerateJSON(ctx, "plugin:"+r.manifest.Name, msgs, &out); err != nil {
+	// 计入任务预算：构造期注入的 budget 为 nil（Reviewer 全局单例），任务级
+	// 预算由 Dispatcher.Run 经 Task.Budget 传入——否则 R4 主成本对预算不可见。
+	client := r.llm
+	if task.Budget != nil {
+		// 浅拷贝安全的前提：llm.Client 只有无锁值字段（Budget 指针共享是有意为之）。
+		// 若未来给 Client 加互斥/缓冲字段，这里会变成并发拷贝竞争——改用显式 setter。
+		c := *r.llm
+		c.Budget = task.Budget
+		client = &c
+	}
+	if err := client.GenerateJSON(ctx, "plugin:"+r.manifest.Name, msgs, &out); err != nil {
 		return plugin.Result{}, err
 	}
 	for i := range out.Findings {

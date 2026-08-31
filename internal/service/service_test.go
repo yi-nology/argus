@@ -35,6 +35,35 @@ func doGet(h *server.Hertz, auth string) *ut.ResponseRecorder {
 	return ut.PerformRequest(h.Engine, http.MethodGet, "/agents", nil, headers...)
 }
 
+// v3.0.2 回归：平台 secret 未配置时 webhook fail-closed 503（SDK 空 secret 会跳过
+// 签名校验，此前请求期照常放行等于无鉴权）。
+func TestWebhookNoSecretFailsClosed(t *testing.T) {
+	svc := &Service{Cfg: &config.Config{Platforms: map[string]config.PlatformConfig{
+		"gitea": {Token: "tk", Secret: ""}, // 有 token 无 secret：升级后必须拒绝
+	}}, Log: testLogger{}}
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.POST("/webhook/:platform", func(ctx context.Context, c *app.RequestContext) {
+		_, code := svc.Webhook(ctx, c, c.Param("platform"))
+		c.SetStatusCode(code)
+	})
+	resp := ut.PerformRequest(h.Engine, http.MethodPost, "/webhook/gitea", nil)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("空 secret 应 503 fail-closed，got %d", resp.Code)
+	}
+	// 对照：配置了 secret 的平台放行进入后续流程（签名会失败→401，而不是 503）
+	svc.Cfg.Platforms["gitea"] = config.PlatformConfig{Token: "tk", Secret: "s"}
+	h2 := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h2.POST("/webhook/:platform", func(ctx context.Context, c *app.RequestContext) {
+		_, code := svc.Webhook(ctx, c, c.Param("platform"))
+		c.SetStatusCode(code)
+	})
+	resp2 := ut.PerformRequest(h2.Engine, http.MethodPost, "/webhook/gitea", nil,
+		ut.Header{Key: "Content-Type", Value: "application/json"})
+	if resp2.Code == http.StatusServiceUnavailable {
+		t.Fatal("配了 secret 不应 503（应走到签名校验 400/401）")
+	}
+}
+
 // 已配置 token：401 / 401 / 200。
 func TestBearerWithToken(t *testing.T) {
 	h := bearerEngine("secret-1")

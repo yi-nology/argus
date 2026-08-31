@@ -164,6 +164,17 @@ func (f *fakeProvider) CreateReview(_ context.Context, _, _, _ string, opts prov
 	return &provider.ReviewResult{ID: "rev-1"}, nil
 }
 
+// ListReviews 评审幂等锚点查询：回放已提交评审的 body（含 task_id 锚点）。
+func (f *fakeProvider) ListReviews(_ context.Context, _, _, _ string) ([]provider.Review, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]provider.Review, 0, len(f.reviews))
+	for i, r := range f.reviews {
+		out = append(out, provider.Review{ID: int64(i + 1), Body: r.Body})
+	}
+	return out, nil
+}
+
 // ParseWebhookEvent 假签名校验：X-Test-Signature == secret；然后回放预置事件。
 func (f *fakeProvider) ParseWebhookEvent(r *http.Request, secret string) (*provider.NormalizedEvent, error) {
 	if r.Header.Get("X-Test-Signature") != f.secret {

@@ -8,6 +8,7 @@ package poster
 
 import (
 	"context"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -26,7 +27,13 @@ type Poster struct {
 	Store   *storage.Store
 	Version string
 	Log     logx.Logger
+	// BotUsername bot 账号名（扫描兜底时校验报告头评论作者；空 = 不校验作者）
+	BotUsername string
 }
+
+// reportHeaderRe 严格报告头：字段齐全且独占一行（head 允许为空——手动任务回填失败时
+// 报告头是 head=）。宽匹配 Contains 会被含该前缀的第三方评论劫持更新目标。
+var reportHeaderRe = regexp.MustCompile(`(?m)^<!-- argus:report task_id=\S+ head=\S* ver=\S+ -->[ \t]*$`)
 
 // Result 回帖结果。
 type Result struct {
@@ -36,8 +43,9 @@ type Result struct {
 }
 
 // Post 执行回帖。报告内容由 runner 组装成 reportview.Report（本包只管发到哪里、怎么降级）。
+// diff 用于行内评论预校验（可为 nil = 跳过校验）。
 func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRContext,
-	verdict string, rep reportview.Report) (*Result, error) {
+	diff *plugin.DiffContext, verdict string, rep reportview.Report) (*Result, error) {
 
 	// ---- staleness 门控（§10.2 单条件判定）----
 	stale, err := p.Store.HasNewerNonFailedTask(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
@@ -63,6 +71,24 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 			inlineFindings = append(inlineFindings, f)
 		}
 	}
+	// 行内预校验：file 必须在 diff 文件列表内。LLM 幻觉文件/行号直发会被平台
+	// 整单拒绝（422），连累评审事件与全部行内意见一起丢——被剔除的留在总结评论里。
+	if diff != nil && len(inlineFindings) > 0 {
+		inDiff := make(map[string]bool, len(diff.Files))
+		for _, df := range diff.Files {
+			inDiff[df.Path] = true
+		}
+		kept := inlineFindings[:0]
+		for _, f := range inlineFindings {
+			if inDiff[f.File] {
+				kept = append(kept, f)
+			} else {
+				p.Log.Warn("argus.poster.inline_dropped_not_in_diff",
+					"task", task.ID, "file", f.File, "line", f.Line)
+			}
+		}
+		inlineFindings = kept
+	}
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
 		return plugin.SeverityRank(inlineFindings[i].Severity) > plugin.SeverityRank(inlineFindings[j].Severity)
 	})
@@ -70,7 +96,8 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	for _, f := range inlineFindings {
 		comments = append(comments, provider.ReviewComment{
 			Path: f.File, Line: f.Line,
-			Body: "**[" + strings.ToUpper(f.Severity) + "]** " + f.Comment + "\n\n<!-- argus:inline by=" + f.By + " -->",
+			Body: "**[" + strings.ToUpper(f.Severity) + "]** " + reportview.EscapeUntrusted(f.Comment) +
+				"\n\n<!-- argus:inline by=" + f.By + " -->",
 		})
 	}
 	event := "COMMENT"
@@ -80,35 +107,62 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	case "approve":
 		event = "APPROVE"
 	}
-	reviewBody := "Argus 审查结论：" + rep.VerdictText + "\n\n完整报告见总结评论（该评论随每次同步更新）。" +
-		"\n\n<!-- argus:review task_id=" + rep.TaskID + " head=" + rep.HeadSHA + " verdict=" + verdict + " -->"
-	if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
-		provider.CreateReviewOptions{
-			CommitID: pr.HeadSHA,
-			Event:    event,
-			Body:     reviewBody,
-			Comments: comments,
-		}); err != nil {
-		// 平台策略降级（真实试点发现）：PR 作者本人不能给自己提 blocking 评审
-		//（Forgejo/Gitea "reject your own pull is not allowed"）。生产部署应使用
-		// 独立 bot 账号；共用账号时自动降级为 COMMENT——审查记录仍然落地，
-		// 结论语义保留在评审 body 与总结评论中。
-		p.Log.Warn("argus.poster.review_failed", "error", err.Error(), "event", event,
-			"fallback", "COMMENT 评审")
-		fallbackBody := "⚠️ 平台限制：当前账号与 PR 作者相同，无法提交 " + event +
-			" 评审，已降级为评论。原判定：" + rep.VerdictText + "\n\n" + reviewBody
-		if _, err2 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+	reviewAnchor := "\n\n<!-- argus:review task_id=" + rep.TaskID + " head=" + rep.HeadSHA + " verdict=" + verdict + " -->"
+	reviewBody := "Argus 审查结论：" + rep.VerdictText + "\n\n完整报告见总结评论（该评论随每次同步更新）。" + reviewAnchor
+	// 评审幂等锚点：任务模型 at-least-once（崩溃/硬取消落在发评审与落终态之间 → 重跑），
+	// 重跑会再发一条完整评审（行内评论重复）。锚点只写不查等于没有——发前按 task_id 查一次；
+	// 查询失败不阻断正常路径（宁多查一次 API，不因兜底接口缺失丢评审）。
+	alreadyPosted := false
+	if posted, err := p.SDK.ListReviews(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
+		for _, r := range posted {
+			if strings.Contains(r.Body, "argus:review task_id="+rep.TaskID+" ") {
+				alreadyPosted = true
+				p.Log.Warn("argus.poster.review_already_posted",
+					"task", rep.TaskID, "review_id", r.ID, "action", "跳过重复评审（总结评论照常更新）")
+				break
+			}
+		}
+	}
+	if !alreadyPosted {
+		if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			provider.CreateReviewOptions{
 				CommitID: pr.HeadSHA,
-				Event:    "COMMENT",
-				Body:     fallbackBody,
+				Event:    event,
+				Body:     reviewBody,
 				Comments: comments,
-			}); err2 != nil {
-			p.Log.Error("argus.poster.review_fallback_failed", "error", err2.Error())
-			plugin.ReportPluginFailure("poster:review")
+			}); err != nil {
+			// 平台策略降级（真实试点发现）：PR 作者本人不能给自己提 blocking 评审
+			//（Forgejo/Gitea "reject your own pull is not allowed"）。生产部署应使用
+			// 独立 bot 账号；共用账号时自动降级为 COMMENT——审查记录仍然落地，
+			// 结论语义保留在评审 body 与总结评论中。
+			p.Log.Warn("argus.poster.review_failed", "error", err.Error(), "event", event,
+				"fallback", "COMMENT 评审")
+			fallbackBody := "⚠️ 平台限制：当前账号与 PR 作者相同，无法提交 " + event +
+				" 评审，已降级为评论。原判定：" + rep.VerdictText + "\n\n" + reviewBody
+			if _, err2 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+				provider.CreateReviewOptions{
+					CommitID: pr.HeadSHA,
+					Event:    "COMMENT",
+					Body:     fallbackBody,
+					Comments: comments,
+				}); err2 != nil {
+				// 行内意见可能整体非法（如全部行号越界）——去掉 comments 以纯评论事件兜底，
+				// 保住评审记录与结论语义（此前整轮评审事件直接丢失）。
+				p.Log.Warn("argus.poster.review_fallback_failed", "error", err2.Error(),
+					"fallback", "无行内意见评审")
+				if _, err3 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+					provider.CreateReviewOptions{
+						CommitID: pr.HeadSHA,
+						Event:    "COMMENT",
+						Body:     fallbackBody,
+					}); err3 != nil {
+					p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
+					plugin.ReportPluginFailure("poster:review")
+				}
+			}
+		} else {
+			inline = len(inlineFindings)
 		}
-	} else {
-		inline = len(inlineFindings)
 	}
 
 	// ---- 总结评论：更新 → 扫描兜底 → 新建（三级降级，§7-7 / §10.2）----
@@ -142,18 +196,20 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 			"error", err.Error(), "fallback", "scan")
 	}
 
-	// ② 扫描既有评论的 HTML 注释头（review_targets 记录损坏时的审计兜底，§10.1）
-	// 只看最近 50 条：高频 PR 评论量大，全量扫描既慢又无必要（报告评论永远是较新的）。
+	// ② 扫描既有评论的完整报告头（review_targets 记录损坏时的审计兜底，§10.1）。
+	// 严格匹配 + 作者校验：宽匹配会被含该前缀的第三方评论劫持更新目标。
+	// SDK 只返回第一页（最旧一页，≤50 条），报告评论如已被顶出第一页则扫描不中，
+	// 走 ③ 新建——SDK 分页能力补齐前的已知边界。
 	if comments, err := p.SDK.ListIssueComments(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
 		var found int64
-		start := 0
-		if len(comments) > 50 {
-			start = len(comments) - 50
-		}
-		for _, c := range comments[start:] { // 取最后一个（最新）匹配
-			if strings.Contains(c.Body, reportview.ReportHeaderPrefix) {
-				found = c.ID
+		for _, c := range comments {
+			if !reportHeaderRe.MatchString(c.Body) {
+				continue
 			}
+			if p.BotUsername != "" && (c.Author == nil || c.Author.Username != p.BotUsername) {
+				continue
+			}
+			found = c.ID // 列表升序，取最后一个匹配（最新）
 		}
 		if found > 0 {
 			if _, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, found, body); err == nil {
