@@ -13,8 +13,9 @@ COPY go.mod go.sum ./
 COPY . .
 RUN git config --global url."git@git.example.com:".insteadOf "https://git.example.com/" && \
     git config --global --add safe.directory /src
+ARG TARGETARCH=amd64
 RUN --mount=type=ssh \
-    GOPRIVATE=git.example.com/* CGO_ENABLED=0 \
+    GOPRIVATE=git.example.com/* CGO_ENABLED=0 GOARCH=${TARGETARCH} \
     go build -mod=mod -trimpath -ldflags "-s -w" -o /out/argus .
 
 FROM alpine:3.20

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
@@ -90,7 +91,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		inlineFindings = kept
 	}
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
-		return plugin.SeverityRank(inlineFindings[i].Severity) > plugin.SeverityRank(inlineFindings[j].Severity)
+		return severity.Rank(inlineFindings[i].Severity) > severity.Rank(inlineFindings[j].Severity)
 	})
 	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
 	for _, f := range inlineFindings {
@@ -112,6 +113,8 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	// 评审幂等锚点：任务模型 at-least-once（崩溃/硬取消落在发评审与落终态之间 → 重跑），
 	// 重跑会再发一条完整评审（行内评论重复）。锚点只写不查等于没有——发前按 task_id 查一次；
 	// 查询失败不阻断正常路径（宁多查一次 API，不因兜底接口缺失丢评审）。
+	// 性能注意：ListReviews 拉取该 PR 全部评审（break 早退），大 PR（50+ review）有延迟；
+	// 若后续需要优化，可在 tasks 表加 review_posted bool 列跳过此 API 调用。
 	alreadyPosted := false
 	if posted, err := p.SDK.ListReviews(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
 		for _, r := range posted {

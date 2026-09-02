@@ -2,21 +2,90 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 
 	"argus/internal/plugin"
 )
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	dsn := filepath.Join(t.TempDir(), "test.db")
+	if mysqlDSN := os.Getenv("ARGUS_TEST_MYSQL_DSN"); mysqlDSN != "" {
+		dsn = setupTestMySQL(t, mysqlDSN)
+	}
+	s, err := Open(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// setupTestMySQL creates an isolated test database from the base DSN.
+// The base DSN should point to the server without a specific database,
+// e.g. "root:test@tcp(localhost:3306)/argus_test?parseTime=true".
+// The dbname portion is used as a prefix; a unique suffix is appended per test.
+func setupTestMySQL(t *testing.T, baseDSN string) string {
+	t.Helper()
+	// Extract the database name from the DSN to use as a prefix.
+	// DSN format: user:pass@tcp(host:port)/dbname?params
+	dbName := "argus_test"
+	afterSlash := baseDSN
+	if idx := strings.Index(baseDSN, "/"); idx >= 0 {
+		afterSlash = baseDSN[idx+1:]
+	}
+	if qIdx := strings.Index(afterSlash, "?"); qIdx >= 0 {
+		dbName = afterSlash[:qIdx]
+	} else if afterSlash != "" {
+		dbName = afterSlash
+	}
+
+	// Build a server-level DSN (no database) for admin operations.
+	serverDSN := baseDSN
+	if idx := strings.Index(baseDSN, "/"); idx >= 0 {
+		q := ""
+		if qIdx := strings.Index(baseDSN[idx:], "?"); qIdx >= 0 {
+			q = baseDSN[idx+qIdx:]
+		}
+		serverDSN = baseDSN[:idx+1] + q
+	}
+
+	admin, err := sql.Open("mysql", serverDSN)
+	if err != nil {
+		t.Fatalf("openTestStore: sql.Open admin: %v", err)
+	}
+	if err := admin.Ping(); err != nil {
+		t.Fatalf("openTestStore: admin ping: %v", err)
+	}
+
+	// Sanitize test name for use as a database name.
+	safe := strings.NewReplacer("/", "_", " ", "_", "-", "_", ".", "_").Replace(t.Name())
+	testDB := fmt.Sprintf("%s_%s", dbName, safe)
+	if len(testDB) > 64 {
+		testDB = testDB[:64]
+	}
+
+	_, err = admin.Exec("CREATE DATABASE `" + testDB + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+	if err != nil {
+		t.Fatalf("openTestStore: create db %q: %v", testDB, err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + testDB + "`")
+		_ = admin.Close()
+	})
+
+	// Return a DSN pointing at the new test database.
+	// Replace the database name in the original DSN.
+	testDSN := strings.Replace(baseDSN, dbName, testDB, 1)
+	return testDSN
 }
 
 func mkTask(id string, eventID *string, headSHA string) *Task {

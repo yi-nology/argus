@@ -3,7 +3,7 @@ package requirement
 import (
 	"testing"
 
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 )
 

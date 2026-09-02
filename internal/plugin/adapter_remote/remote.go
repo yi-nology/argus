@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/textutil"
+
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 )
 
@@ -92,7 +94,7 @@ func buildPayload(task plugin.Task) (*remotePayload, string, error) {
 		HeadBranch:    task.PR.HeadBranch,
 		ChangeSummary: task.Artifacts["change_summary"],
 	}
-	if t, truncated := truncRunes(p.Body, payloadBodyMaxChars); truncated {
+	if t, truncated := textutil.TruncRunes(p.Body, payloadBodyMaxChars); truncated {
 		p.Body = t + "…（截断）"
 	}
 	if task.Diff != nil {
@@ -124,10 +126,3 @@ func textFromContents(texts []string) string {
 	return strings.Join(texts, "\n")
 }
 
-func truncRunes(s string, n int) (string, bool) {
-	r := []rune(s)
-	if len(r) <= n {
-		return s, false
-	}
-	return string(r[:n]), true
-}

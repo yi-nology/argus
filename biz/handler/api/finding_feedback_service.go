@@ -6,6 +6,8 @@ import (
 	"context"
 
 	api "argus/biz/model/api"
+	"git.example.com/enjoydream/ekit/handler/validatorh"
+	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
@@ -14,15 +16,18 @@ import (
 // 之后每轮报告自动剔除该意见（设计 §3.3 反馈通道的最小入口）。
 // @router /findings/suppress [POST]
 func SuppressFinding(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	var req api.SuppressFindingRequest
-	if err := c.BindAndValidate(&req); err != nil {
-		c.String(consts.StatusBadRequest, err.Error())
+	if err := validatorh.BindAndValidate(c, &req); err != nil {
+		mw.Fail(c, err)
 		return
 	}
 	resp, status := Svc.SuppressFinding(ctx, &req)
-	c.JSON(status, map[string]any{"code": status, "data": resp, "message": map[bool]string{true: "ok", false: "抑制失败"}[status == consts.StatusOK], "trace_id": ""})
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "抑制失败")
+		return
+	}
+	mw.SuccessRespMsg(c, resp, "ok")
 }

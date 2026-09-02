@@ -1,14 +1,15 @@
 // events_service.go GET /events SSE 任务进度流（v3.1；🔒 复用 Bearer 鉴权）。
 // 数据源 = progress.Bus（service 发布 created，runner 发布 running/finished）。
+// 流式写入走 ekit hertz.NewStream（底层 hertzsse.Writer：自动设头、逐事件 flush、
+// 断连时写失败返回 error 自然退出，消灭 io.Pipe + 手拼帧 + 专用 goroutine）。
 package api
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"time"
 
+	hertzsse "git.example.com/enjoydream/ekit/hertz/sse"
+	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
@@ -18,52 +19,40 @@ const sseKeepalive = 15 * time.Second
 // Events SSE 流：task.created / task.running / task.finished（JSON in data:）。
 // @router /events [GET]
 func Events(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil || Svc.Bus == nil {
-		c.String(consts.StatusServiceUnavailable, "event bus not ready")
+	if !ensureSvc(c) {
+		return
+	}
+	if Svc.Bus == nil {
+		mw.ErrorResp(c, consts.StatusServiceUnavailable, "event bus not ready")
 		return
 	}
 	ch, cancel := Svc.Bus.Subscribe(ctx)
 	defer cancel()
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no") // Nginx 反代不缓冲
-	c.Status(consts.StatusOK)
+	c.Header("X-Accel-Buffering", "no") // Nginx 反代不缓冲（Content-Type/Cache-Control 由 sse.Writer 设置）
 
-	pr, pw := io.Pipe()
-	c.SetBodyStream(pr, -1)
+	s := hertzsse.NewStream(c)
+	defer s.Close()
+	_ = s.KeepAlive() // 连接即注释行探测（SSE 规范：冒号开头为注释，客户端忽略）
 
-	go func() {
-		defer pw.Close()
-		// 连接即注释行探测（SSE 规范：冒号开头为注释）
-		if _, err := fmt.Fprint(pw, ": connected\n\n"); err != nil {
+	keepalive := time.NewTicker(sseKeepalive)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		keepalive := time.NewTicker(sseKeepalive)
-		defer keepalive.Stop()
-		for {
-			select {
-			case <-ctx.Done():
+		case <-keepalive.C:
+			if err := s.KeepAlive(); err != nil {
+				return // 客户端断连：写失败即退出
+			}
+		case ev, ok := <-ch:
+			if !ok {
 				return
-			case <-keepalive.C:
-				if _, err := fmt.Fprint(pw, ": ping\n\n"); err != nil {
-					return
-				}
-			case ev, ok := <-ch:
-				if !ok {
-					return
-				}
-				b, err := json.Marshal(ev)
-				if err != nil {
-					continue
-				}
-				if _, err := fmt.Fprintf(pw, "event: %s\ndata: %s\n\n", ev.Type, b); err != nil {
-					return
-				}
+			}
+			if err := s.Send(ev.Type, ev); err != nil {
+				return
 			}
 		}
-	}()
-	// SetBodyStream 接管响应写：handler 返回后 Hertz 持续冲洗 body 流直至 pw 关闭
-	<-ctx.Done()
+	}
 }

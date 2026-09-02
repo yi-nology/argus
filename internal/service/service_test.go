@@ -89,3 +89,40 @@ func TestBearerNoTokenFailsClosed(t *testing.T) {
 		t.Fatal("fail-open 回归")
 	}
 }
+
+// Content-Length 预检：超大 body 返回 413（在 body 读取前拒绝）。
+func TestWebhook_BodyTooLarge(t *testing.T) {
+	svc := &Service{
+		Cfg: &config.Config{
+			WebhookMaxBody: 1024, // 1KB 限制
+			Platforms: map[string]config.PlatformConfig{
+				"gitea": {Token: "tk", Secret: "s"},
+			},
+		},
+		Log: testLogger{},
+	}
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.POST("/webhook/:platform", func(ctx context.Context, c *app.RequestContext) {
+		_, code := svc.Webhook(ctx, c, c.Param("platform"))
+		c.SetStatusCode(code)
+	})
+
+	// Content-Length 超限 → 413（body 读取前即拒绝，不依赖 SDK）
+	resp := ut.PerformRequest(h.Engine, http.MethodPost, "/webhook/gitea", nil,
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+		ut.Header{Key: "Content-Length", Value: "9999"},
+	)
+	if resp.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("超大 body 应 413，got %d", resp.Code)
+	}
+
+	// WebhookMaxBody=0 时跳过预检（不返回 413）
+	svc.Cfg.WebhookMaxBody = 0
+	resp2 := ut.PerformRequest(h.Engine, http.MethodPost, "/webhook/gitea", nil,
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+		ut.Header{Key: "Content-Length", Value: "9999"},
+	)
+	if resp2.Code == http.StatusRequestEntityTooLarge {
+		t.Fatal("WebhookMaxBody=0 时不应 413")
+	}
+}

@@ -15,9 +15,11 @@ import (
 	"syscall"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/workcopy"
+	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	argusctx "argus/internal/context"
 	"argus/internal/plugin"
 )
 
@@ -27,13 +29,13 @@ type CLIPlugin struct {
 	Cmd      []string
 	Mode     string   // full | delegate（delegate v3.0 留接口，§2）
 	Env      []string // 额外透传的环境变量名白名单（来自 plugins.yaml env 声明）
-	wc       *argusctx.Workcopy
+	wc       *workcopy.Pool
 	log      logx.Logger
 }
 
 // New 构造 cli 插件。
 func New(m plugin.AgentManifest, cmd []string, mode string, env []string,
-	wc *argusctx.Workcopy, log logx.Logger) *CLIPlugin {
+	wc *workcopy.Pool, log logx.Logger) *CLIPlugin {
 	if m.Timeout <= 0 {
 		m.Timeout = 300 * time.Second
 	}
@@ -52,11 +54,11 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	if p.wc == nil {
 		return plugin.Result{}, fmt.Errorf("cli 插件未接入工作副本服务")
 	}
-	dir, err := p.wc.Ensure(ctx, task.PR)
+	dir, err := p.wc.Ensure(ctx, prToKey(task.PR))
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("准备工作副本失败: %w", err)
 	}
-	defer p.wc.Release(task.PR)
+	defer p.wc.Release(prToKey(task.PR))
 
 	stdout, err := runProcessGroup(ctx, p.Cmd, dir, p.childEnv(), p.manifest.Timeout)
 	if err != nil {
@@ -144,7 +146,7 @@ func runProcessGroup(ctx context.Context, cmdLine []string, dir string, env []st
 		return "", fmt.Errorf("启动 %s 失败: %w", cmdLine[0], err)
 	}
 	done := make(chan struct{})
-	go func() {
+	async.GoSafe(func() {
 		select {
 		case <-cctx.Done(): // 超时/取消：TERM 整组 → grace 后 KILL 整组
 			if cmd.Process != nil {
@@ -154,7 +156,7 @@ func runProcessGroup(ctx context.Context, cmdLine []string, dir string, env []st
 			}
 		case <-done:
 		}
-	}()
+	})
 	waitErr := cmd.Wait()
 	close(done)
 	if waitErr != nil {
@@ -202,14 +204,15 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 		line, _ := strconv.Atoi(strings.TrimSpace(firstString(obj, "line", "Line", "Line_number", "line_number")))
 		comment := firstString(obj, "comment", "Comment", "message", "Message", "body", "Body", "description", "Description")
 		rawSev := firstString(obj, "level", "Level", "severity", "Severity", "priority", "Priority")
-		sev, ok := plugin.NormalizeSeverity(rawSev)
+		sev, ok := severity.Normalize(rawSev)
 		if !ok {
-			sev = plugin.SeverityLow // 越界归 low（Merger 亦会兜底告警）
+			sev = severity.Low // 越界归 low（Merger 亦会兜底告警）
 		}
 		if comment == "" {
 			continue
 		}
-		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment})
+		suggestedFix := firstString(obj, "suggested_fix", "SuggestedFix", "suggestedFix", "fix", "Fix")
+		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment, SuggestedFix: suggestedFix})
 	}
 	if len(out) == 0 {
 		if len(items) == 0 {
@@ -261,4 +264,16 @@ func firstString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// prToKey 将 plugin.PRContext 转换为 agentkit/workcopy.WorktreeKey。
+func prToKey(pr plugin.PRContext) workcopy.WorktreeKey {
+	return workcopy.WorktreeKey{
+		Platform:      pr.Platform,
+		Owner:         pr.Owner,
+		Repo:          pr.Repo,
+		Number:        pr.Number,
+		HeadSHA:       pr.HeadSHA,
+		DefaultBranch: pr.DefaultBranch,
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"git.example.com/enjoydream/agentkit/breaker"
 )
 
 func TestNormalizeSeverity(t *testing.T) {
@@ -114,7 +116,7 @@ func TestTriggerMatchEvents(t *testing.T) {
 }
 
 func TestBreaker(t *testing.T) {
-	bs := NewBreakers()
+	bs := breaker.NewBreakers(0, 0)
 	now := time.Now()
 	bs.Now = func() time.Time { return now }
 
@@ -128,7 +130,7 @@ func TestBreaker(t *testing.T) {
 	if bs.Allow(name) {
 		t.Fatal("3 连败后应熔断")
 	}
-	now = now.Add(BreakerCooldown + time.Second)
+	now = now.Add(breaker.DefaultCooldown + time.Second)
 	if !bs.Allow(name) {
 		t.Fatal("冷却后应半开放行一个探测")
 	}

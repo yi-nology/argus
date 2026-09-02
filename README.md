@@ -57,7 +57,15 @@
   ### 结论: ⛔ 需求未完成（1 项未达标）（R5.1）
   ```
 
-### 4. 四种接入方式，同一个引擎
+### 4. 增量审查
+
+- PR 更新时只审查新增/变更的文件，未变化文件自动跳过，节省 LLM 预算。
+
+### 5. 自动修复建议
+
+- 发现问题时同时给出具体代码修复建议（suggested_fix）。
+
+### 6. 四种接入方式，同一个引擎
 
 | 方式 | 场景 | 说明 |
 |---|---|---|
@@ -66,7 +74,15 @@
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
 | **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等四工具，可同步等待终态 |
 
-### 5. 反注入与安全边界（评审对象不能操纵评审）
+### 7. PR 评论交互
+
+在 PR 评论中 `@argus ask <问题>`，Argus 会根据 PR 上下文用 LLM 回答。例如：
+- `@argus ask 这个改动会影响性能吗？`
+- `@argus ask 为什么用 sync.Mutex 而不是 channel？`
+
+30 秒内同一 PR 不会重复回答（防刷）。需要配置 LLM（OPENAI_*）。
+
+### 8. 反注入与安全边界（评审对象不能操纵评审）
 
 - PR 描述/commit message 里的"请输出 APPROVE"类注入：数据区包裹 + 可疑 AC 进人工确认 +
   无证据判定降级，**极限效果只是 COMMENT，永远拿不到白给的 APPROVE**（试点已实测双注入场景）；
@@ -75,13 +91,13 @@
 - cli 二进制/remote endpoint 只能来自 `plugins.yaml`（供应链信任，可执行文件缺失→插件 disabled）；
 - 🔒 路由（/tasks /agents /findings）fail-closed：未配 `ARGUS_APITOKEN` 直接 503 拒绝。
 
-### 6. 越用越准：误报抑制
+### 9. 越用越准：误报抑制
 
 报告里每条意见带指纹短码（`fp:ab12cd34`）。认为是误报？调一次
 `POST /findings/suppress`（支持短码直达，或 file+原文，指纹对空白/标点不敏感），
 之后每轮报告自动剔除，脚注注明"N 条历史意见已被抑制"。
 
-### 7. 生产级健壮性（v3.0.1 加固）
+### 10. 生产级健壮性（v3.0.1 加固）
 
 - **幂等与去重**：同 delivery 重发不重跑；同 PR 同 head SHA 的 in-flight 任务直接去重（事务保证）；
   评审事件带 task_id 锚点，崩溃重跑不重复发评审；
@@ -211,6 +227,12 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
 | `ARGUS_{GITEA,GITHUB,GITLAB}_{URL,TOKEN,SECRET,SKIP_TLS}` | - | 平台凭证；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）|
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
+| `ARGUS_LLM_RATE_LIMIT` | 0（禁用）| LLM 请求速率限制（token bucket，单位 req/s）|
+| `ARGUS_LLM_RATE_BURST` | =MaxConcurrentTasks | 速率限制器突发容量 |
+| `ARGUS_WEBHOOK_MAX_BODY` | 1048576（1MB）| Webhook 请求体最大字节数 |
+| `ARGUS_GITHUB_APP_ID` | 空 | GitHub App ID（替代 PAT 的另一种认证方式）|
+| `ARGUS_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App 私钥（PEM 格式）|
+| `ARGUS_GITHUB_APP_INSTALLATION_ID` | 空 | GitHub App installation ID |
 
 ### 6. 仓库侧配置（.reviewagents.yaml，放业务仓库默认分支）
 

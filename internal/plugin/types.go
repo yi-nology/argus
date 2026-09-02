@@ -178,6 +178,8 @@ type DiffFile struct {
 	IsDeleted bool
 	IsRenamed bool
 	Included  bool // 是否进入了 Text（噪声文件被剔除但保留元信息）
+	// AlreadyReviewed 增量审查标记：该文件 diff 与上次审查完全一致，无需重新审查。
+	AlreadyReviewed bool
 }
 
 // DiffContext 清洗后的 diff（design §4 术语：diffprep）。
@@ -185,6 +187,8 @@ type DiffContext struct {
 	Text      string
 	Files     []DiffFile
 	Truncated bool
+	// NoNewChanges 增量审查标记：当前 diff 与上次审查完全一致，无新变更。
+	NoNewChanges bool
 }
 
 // AcceptanceCriterion 验收条目。
@@ -256,11 +260,12 @@ func contains(list []string, want string) bool {
 
 // Finding 单条审查意见。Severity 必须经过 NormalizeSeverity 归一化。
 type Finding struct {
-	File     string `json:"file"`
-	Line     int    `json:"line"`
-	Severity string `json:"severity"`
-	Comment  string `json:"comment"`
-	By       string `json:"by"`
+	File         string `json:"file"`
+	Line         int    `json:"line"`
+	Severity     string `json:"severity"`
+	Comment      string `json:"comment"`
+	By           string `json:"by"`
+	SuggestedFix string `json:"suggested_fix,omitempty"` // 可选：修复建议代码片段
 }
 
 // Result 插件输出。

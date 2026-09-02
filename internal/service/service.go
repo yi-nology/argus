@@ -10,31 +10,53 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/google/uuid"
 	"github.com/yi-nology/git-platform-sdk/provider"
+	"gorm.io/gorm"
+
+	mw "git.example.com/enjoydream/ekit/middleware"
+	"git.example.com/enjoydream/agentkit/severity"
 
 	api "argus/biz/model/api"
+	"git.example.com/enjoydream/agentkit/audit"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
 	"argus/internal/workflow/requirement"
 )
 
+// Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).
+const (
+	auditTaskCreate      audit.Action = "task.create"
+	auditFindingSuppress audit.Action = "finding.suppress"
+)
+
 // Service 门面：biz handler 只跟它说话。
 type Service struct {
 	Cfg      *config.Config
+	Audit    *audit.Logger // 审计日志（nil 安全）
 	Store    *storage.Store
 	SDK      *argusctx.SDKCtx
 	Registry *plugin.Registry
 	Log      Logger
 	Version  string
-	Bus      *progress.Bus // 任务进度事件（v3.1 SSE 数据源；nil 安全）
+	Bus      *progress.Bus         // 任务进度事件（v3.1 SSE 数据源；nil 安全）
+	Model    model.BaseChatModel   // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
+
+	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
+	qaThrottleMu sync.Mutex
+	qaThrottles  map[string]time.Time // PR 级 30s 节流
+	qaSeenDeliveries map[string]time.Time // delivery ID 幂等（防平台重试）
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。
@@ -44,33 +66,26 @@ type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
 
-// ---------- 统一响应壳（工作区惯例）----------
+// noopLogger 未配置日志时的安全兜底（避免 nil 接口方法调用 panic）。
+type noopLogger struct{}
 
-type envelope struct {
-	Code    int    `json:"code"`
-	Data    any    `json:"data"`
-	Message string `json:"message"`
-	TraceID string `json:"trace_id"`
-}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}
 
-func traceOf(c *app.RequestContext) string {
-	if v := string(c.GetHeader("X-Trace-ID")); v != "" {
-		return v
+// log 返回安全 Logger（nil → noopLogger）。
+func (s *Service) log() Logger {
+	if s.Log != nil {
+		return s.Log
 	}
-	id, _ := uuid.NewRandom()
-	return id.String()
+	return noopLogger{}
 }
+
+// ---------- 统一响应壳（ekit mw：{code,data,message,trace_id}）----------
+// trace_id 由 ekit traceid.Middleware 注入（main 注册），mw 响应函数自动携带。
 
 // strPtr 可选字段指针化（hz 生成 DTO 的 optional 字段均为指针）。
 func strPtr(s string) *string { return &s }
-
-func ok(c *app.RequestContext, data any) {
-	c.JSON(http.StatusOK, envelope{Code: 0, Data: data, Message: "ok", TraceID: traceOf(c)})
-}
-
-func fail(c *app.RequestContext, httpStatus, code int, msg string) {
-	c.JSON(httpStatus, envelope{Code: code, Data: nil, Message: msg, TraceID: traceOf(c)})
-}
 
 // BearerMiddleware 🔒 路由的 Bearer 静态 token 校验（§5；webhook 不挂，靠平台签名）。
 // fail-closed（v3.0.1 修订——原实现在 APIToken 未配置时直接放行，等于鉴权裸奔）：
@@ -79,13 +94,10 @@ func fail(c *app.RequestContext, httpStatus, code int, msg string) {
 func (s *Service) BearerMiddleware() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		if s.Cfg.APIToken == "" {
-			s.Log.Warn("argus.auth.rejected_no_token",
+			s.log().Warn("argus.auth.rejected_no_token",
 				"path", string(c.URI().Path()), "hint", "ARGUS_APITOKEN 未配置，🔒 路由拒绝服务")
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, envelope{
-				Code:    50300,
-				Message: "鉴权未配置：服务端未设置 ARGUS_APITOKEN，🔒 路由拒绝服务（webhook 与健康检查不受影响）",
-				TraceID: traceOf(c),
-			})
+			mw.ErrorResp(c, http.StatusServiceUnavailable,
+				"鉴权未配置：服务端未设置 ARGUS_APITOKEN，🔒 路由拒绝服务（webhook 与健康检查不受影响）")
 			return
 		}
 		auth := string(c.GetHeader("Authorization"))
@@ -94,9 +106,7 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 			c.Next(ctx)
 			return
 		}
-		c.AbortWithStatusJSON(http.StatusUnauthorized, envelope{
-			Code: 40100, Message: "缺少或错误的 Authorization: Bearer token", TraceID: traceOf(c),
-		})
+		mw.ErrorResp(c, http.StatusUnauthorized, "缺少或错误的 Authorization: Bearer token")
 	}
 }
 
@@ -105,29 +115,50 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 // 事件类型白名单（§5.1 规则 1）。注意 Type = "cr." + 平台原生 action 透传，按平台词表维护；
 // GitLab 的 MR action 词表不同（cr.open/cr.update 等），接入 GitLab 前必须先核词表（design §5.1）。
 var crEventWhitelist = map[string]string{
+	// Gitea / GitHub
 	"cr.opened":       "opened",
 	"cr.synchronize":  "synchronize",
 	"cr.synchronized": "synchronized",
 	"cr.reopened":     "reopened",
+	// GitLab MR actions ("cr." + action, SDK 透传)
+	"cr.open":       "open",
+	"cr.close":      "close",
+	"cr.reopen":     "reopen",
+	"cr.update":     "update",
+	"cr.merged":     "merged",
+	"cr.approved":   "approved",
+	"cr.unapproved": "unapproved",
 }
 
 // Webhook 平台 webhook 入口：返回 (IDL 响应体, HTTP 状态码)。
 func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform string) (*api.WebhookResponse, int) {
-	platform = strings.ToLower(platform)
-	pcfg, configured := s.Cfg.Platforms[platform]
-	if !configured || pcfg.Token == "" {
+	platform, pcfg, ok := s.requirePlatform(platform)
+	if !ok {
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("平台未接入: " + platform)}, http.StatusNotFound
 	}
 	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
 	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
 	if pcfg.Secret == "" {
-		s.Log.Warn("argus.webhook.rejected_no_secret", "platform", platform,
+		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
 		return &api.WebhookResponse{
 			Status: "error",
 			Reason: strPtr("平台 webhook secret 未配置，拒绝服务（配置 " + "ARGUS_" + strings.ToUpper(platform) + "_SECRET 后恢复）"),
 		}, http.StatusServiceUnavailable
+	}
+
+	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
+	// Hertz WithMaxRequestBodySize 作为第二道防线（框架层拦截）。
+	if s.Cfg.WebhookMaxBody > 0 {
+		if cl := string(c.GetHeader("Content-Length")); cl != "" {
+			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
+				return &api.WebhookResponse{
+					Status: "error",
+					Reason: strPtr(fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)),
+				}, http.StatusRequestEntityTooLarge
+			}
+		}
 	}
 
 	// 幂等键：在 ParseWebhookEvent 之前从原始请求头取 delivery（§5.2 四轮评审修正）
@@ -136,8 +167,8 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	})
 
 	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
-	rawBody, err := readBody(c)
-	if err != nil {
+	rawBody := c.Request.Body()
+	if len(rawBody) == 0 {
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("读取 body 失败")}, http.StatusBadRequest
 	}
 	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
@@ -152,7 +183,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	if err != nil {
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
-			s.Log.Warn("argus.webhook.signature_rejected", "platform", platform)
+			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
 			return &api.WebhookResponse{Status: "error", Reason: strPtr("签名校验失败")}, http.StatusUnauthorized
 		}
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("事件解析失败: " + err.Error())}, http.StatusBadRequest
@@ -161,7 +192,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
 	if delivery != "" {
 		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
-			s.Log.Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
+			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
 			return &api.WebhookResponse{
 				Status:  "duplicate",
 				Reason:  strPtr("重复投递，命中既有任务"),
@@ -173,6 +204,17 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 
 	skipped := func(reason string) (*api.WebhookResponse, int) {
 		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(reason), EventId: strPtr(delivery)}, http.StatusOK
+	}
+
+	// GitHub App 安装事件：记录安装信息，不建审查任务
+	if ev.Type == "installation" || ev.Type == "installation_repositories" {
+		return s.handleInstallationEvent(ev, delivery), http.StatusOK
+	}
+
+	// Q&A 评论路由：issue_comment 事件中含 @argus ask → 直接 LLM 回答（不建 task）。
+	if isCommentEvent(ev) {
+		s.HandleComment(ctx, ev, delivery)
+		return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), Reason: strPtr("qa comment")}, http.StatusOK
 	}
 
 	// §5.1 规则 1：事件类型白名单（防评论风暴、防自我触发循环）
@@ -194,11 +236,11 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	// 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
 	headSHA := ev.CR.HeadSHA
 	if delivery == "" {
-		s.Log.Warn("argus.webhook.delivery_header_missing",
+		s.log().Warn("argus.webhook.delivery_header_missing",
 			"platform", platform, "event", "幂等键缺失，本次投递不做幂等（event_id=NULL）")
 	}
 	task := &storage.Task{
-		ID:        newTaskID(),
+		ID:        storage.NewTaskID(),
 		Kind:      requirement.KindRequirementCompliance,
 		Platform:  platform,
 		Owner:     ev.Repo.Owner,
@@ -216,7 +258,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	// 规则 4：同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/TOCTOU）
 	dupReason, existingID, err := s.Store.CreateTaskForWebhook(ctx, task)
 	if err != nil {
-		s.Log.Error("argus.webhook.task_create_failed", "error", err.Error())
+		s.log().Error("argus.webhook.task_create_failed", "error", err.Error())
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
 	}
 	if dupReason == "last_head_sha" {
@@ -230,8 +272,12 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		return resp, http.StatusOK
 	}
 
-	s.Log.Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
+	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", headSHA, "event_id", delivery)
+	if s.Audit != nil {
+		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
+	}
 	s.publishCreated(task)
 	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
@@ -255,8 +301,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	default:
 		return nil, http.StatusBadRequest
 	}
-	platform = strings.ToLower(platform)
-	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
+	if _, _, ok := s.requirePlatform(platform); !ok {
 		return nil, http.StatusBadRequest
 	}
 	if owner == "" || repo == "" || number == "" {
@@ -269,7 +314,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	}
 	artifactsJSON, _ := json.Marshal(artifacts)
 	task := &storage.Task{
-		ID:            newTaskID(),
+		ID:            storage.NewTaskID(),
 		Kind:          kind,
 		Platform:      platform,
 		Owner:         owner,
@@ -280,12 +325,12 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		CreatedAt:     time.Now(),
 	}
 	if err := s.Store.CreateTask(ctx, task); err != nil {
-		s.Log.Error("argus.api.task_create_failed", "error", err.Error())
+		s.log().Error("argus.api.task_create_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	s.publishCreated(task)
 
-	s.Log.Info("argus.api.task_created", "task", task.ID, "kind", kind,
+	s.log().Info("argus.api.task_created", "task", task.ID, "kind", kind,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number)
 	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
 }
@@ -300,7 +345,7 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 	}
 	tasks, err := s.Store.ListTasks(ctx, status, limit)
 	if err != nil {
-		s.Log.Error("argus.api.list_tasks_failed", "error", err.Error())
+		s.log().Error("argus.api.list_tasks_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	// 预分配空切片：nil 会被序列化成 "tasks":null，与 IDL required list 语义不符
@@ -332,8 +377,8 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 // 服务端按 Merger 同一指纹函数计算（file + 规范化评论文本哈希，行号不入指纹），
 // 置 suppressed 后每轮报告自动剔除该意见。下一轮审查起生效（总结评论不即时重渲）。
 func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingRequest) (*api.SuppressFindingResponse, int) {
-	platform := strings.ToLower(req.Platform)
-	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
+	platform, _, ok := s.requirePlatform(req.Platform)
+	if !ok {
 		return nil, http.StatusBadRequest
 	}
 	str := func(p *string) string {
@@ -361,7 +406,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		fp = full
 	case file != "" && comment != "":
 		// 模式二：file + 意见原文（与 Merger 同一指纹函数）
-		fp = plugin.Fingerprint(file, comment)
+		fp = severity.Fingerprint(file, comment)
 	default:
 		return nil, http.StatusBadRequest // fingerprint 或 (file+comment) 二选一
 	}
@@ -369,11 +414,16 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	matched, err := s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
 		fp, plugin.Finding{File: file, Comment: comment}, time.Now())
 	if err != nil {
-		s.Log.Error("argus.api.suppress_failed", "error", err.Error())
+		s.log().Error("argus.api.suppress_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
-	s.Log.Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
+	s.log().Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
+	if s.Audit != nil {
+		s.Audit.Log(auditFindingSuppress,
+			"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
+			"file", file, "fingerprint", fp[:8], "matched", matched)
+	}
 	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
@@ -416,7 +466,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 	}
 	task, err := s.Store.FindReportByHead(ctx, ref)
 	if err != nil {
-		if isNotFound(err) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
@@ -433,7 +483,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
-		if isNotFound(err) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
@@ -519,8 +569,8 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 	addWarn := func(msg string) {
 		view.Warnings = append(view.Warnings, msg)
 	}
-	platform = strings.ToLower(platform)
-	if pc, ok := s.Cfg.Platforms[platform]; !ok || pc.Token == "" {
+	platform, _, ok := s.requirePlatform(platform)
+	if !ok {
 		addWarn("平台未接入: " + platform)
 		return view
 	}
@@ -539,11 +589,10 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 	plugin.SortStatuses(statuses)
 	view.Use = rc.Use
 	view.Disable = rc.Disable
-	for i, rule := range rc.Routing {
+	for _, rule := range rc.Routing {
 		view.Routing = append(view.Routing, &api.RoutingRuleView{
 			Paths: rule.Paths, Labels: rule.Labels, Use: rule.Use,
 		})
-		_ = i
 	}
 	for _, w := range warnings {
 		view.Warnings = append(view.Warnings, w)
@@ -575,7 +624,19 @@ func strPtrOrEmpty(s string) *string {
 
 // ---------- helpers ----------
 
-func newTaskID() string { return storage.NewTaskID() }
+// requirePlatform 平台准入检查：规范化 platform 名并返回 (pcfg, true) 表示已接入且有凭证（PAT 或 GitHub App）。
+func (s *Service) requirePlatform(platform string) (string, *config.PlatformConfig, bool) {
+	platform = strings.ToLower(platform)
+	pc, ok := s.Cfg.Platforms[platform]
+	if !ok {
+		return platform, nil, false
+	}
+	// GitHub App installation token 也算已配置
+	if pc.Token == "" && !pc.GitHubAppEnabled() {
+		return platform, nil, false
+	}
+	return platform, &pc, true
+}
 
 func kindFromIDL(k api.TaskKind) (string, error) {
 	switch k {
@@ -612,16 +673,58 @@ func protocolToIDL(p plugin.Protocol) api.AgentProtocol {
 	}
 }
 
-func readBody(c *app.RequestContext) ([]byte, error) {
-	body := c.Request.Body()
-	if len(body) == 0 {
-		return nil, fmt.Errorf("空 body")
+// handleInstallationEvent 处理 GitHub App installation / installation_repositories 事件。
+// 记录安装信息到日志（安装 ID、账号、仓库列表），不建审查任务。
+// SDK 的 ParseWebhookEvent 对 installation 事件只填充 Type + RawPayload，
+// 需要从原始 payload 提取结构化信息。
+func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery string) *api.WebhookResponse {
+	var payload struct {
+		Action       string `json:"action"`
+		Installation struct {
+			ID      int64 `json:"id"`
+			Account struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"account"`
+			RepositorySelection string `json:"repository_selection"`
+		} `json:"installation"`
+		Repositories []struct {
+			Name     string `json:"name"`
+			FullName string `json:"full_name"`
+		} `json:"repositories"`
 	}
-	return body, nil
-}
+	if err := json.Unmarshal(ev.RawPayload, &payload); err != nil {
+		s.log().Warn("argus.installation.parse_failed", "error", err.Error())
+		return &api.WebhookResponse{Status: "skipped", Reason: strPtr("installation 事件解析失败"), EventId: strPtr(delivery)}
+	}
 
-func isNotFound(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "record not found")
+	repoNames := make([]string, 0, len(payload.Repositories))
+	for _, r := range payload.Repositories {
+		repoNames = append(repoNames, r.FullName)
+	}
+
+	s.log().Info("argus.installation.event",
+		"action", payload.Action,
+		"installation_id", payload.Installation.ID,
+		"account", payload.Installation.Account.Login,
+		"account_type", payload.Installation.Account.Type,
+		"repository_selection", payload.Installation.RepositorySelection,
+		"repos", repoNames,
+		"event_id", delivery,
+	)
+	if s.Audit != nil {
+		s.Audit.Log("github_app_installation",
+			"action", payload.Action,
+			"installation_id", payload.Installation.ID,
+			"account", payload.Installation.Account.Login,
+			"repos", repoNames,
+		)
+	}
+	return &api.WebhookResponse{
+		Status:  "accepted",
+		Reason:  strPtr("installation event logged"),
+		EventId: strPtr(delivery),
+	}
 }
 
 func isDigits(s string) bool {
@@ -634,4 +737,218 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// ---------- Q&A 评论交互（@argus ask）----------
+
+// qaCommentPayload 解析 issue_comment webhook 原始负载中我们关心的字段。
+// 仅用于从 RawPayload 提取评论正文与 PR 信息，不做全量反序列化。
+type qaCommentPayload struct {
+	Comment struct {
+		Body string `json:"body"`
+	} `json:"comment"`
+	Issue struct {
+		Number     int    `json:"number"`
+		Title      string `json:"title"`
+		HTMLURL    string `json:"html_url"`
+		PullRequest struct {
+			URL string `json:"url"` // 非空 = 这是 PR（不是普通 issue）
+		} `json:"pull_request"`
+	} `json:"issue"`
+}
+
+// isCommentEvent 判定 NormalizedEvent 是否为可处理的评论事件。
+// GitHub issue_comment → ev.Type == "issue_comment"；
+// Gitea/Forgejo 未识别事件 → ev.Type 为空但 payload 含 comment 字段。
+func isCommentEvent(ev *provider.NormalizedEvent) bool {
+	if ev.Type == "issue_comment" {
+		return true
+	}
+	if ev.Type != "" {
+		return false
+	}
+	// Gitea 后端不识别的事件类型 → Type 为空；用 payload 结构兜底判定。
+	var probe struct {
+		Comment *json.RawMessage `json:"comment"`
+	}
+	return len(ev.RawPayload) > 0 &&
+		json.Unmarshal(ev.RawPayload, &probe) == nil &&
+		probe.Comment != nil
+}
+
+// HandleComment 处理 @argus ask 评论：提取问题 → 加载 PR 上下文 → LLM 回答 → 回帖。
+// 轻量路径：不建 task、不入 DB、不走 worker pool。
+func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEvent, delivery string) {
+	if s.Model == nil {
+		s.log().Warn("argus.qa.no_model", "hint", "LLM 未配置，Q&A 评论忽略")
+		return
+	}
+
+	var payload qaCommentPayload
+	if err := json.Unmarshal(ev.RawPayload, &payload); err != nil {
+		s.log().Warn("argus.qa.parse_failed", "error", err.Error())
+		return
+	}
+
+	// bot 自身评论防循环
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+		return
+	}
+	// delivery 幂等：防平台重试导致重复 LLM 调用 + 重复回复
+	if delivery != "" {
+		s.qaThrottleMu.Lock()
+		if s.qaSeenDeliveries == nil {
+			s.qaSeenDeliveries = make(map[string]time.Time)
+		}
+		if _, seen := s.qaSeenDeliveries[delivery]; seen {
+			s.qaThrottleMu.Unlock()
+			return
+		}
+		s.qaSeenDeliveries[delivery] = time.Now()
+		// 清理旧条目
+		if len(s.qaSeenDeliveries) > 200 {
+			for k, t := range s.qaSeenDeliveries {
+				if time.Since(t) > time.Hour {
+					delete(s.qaSeenDeliveries, k)
+				}
+			}
+		}
+		s.qaThrottleMu.Unlock()
+	}
+	if ev.Repo == nil {
+		return
+	}
+
+	question := extractQuestion(payload.Comment.Body, s.Cfg.BotUsername)
+	if question == "" {
+		return // 不含 @argus ask 指令，忽略
+	}
+	if payload.Issue.PullRequest.URL == "" {
+		return // 普通 issue 上的评论，不处理
+	}
+
+	prNum := fmt.Sprintf("%d", payload.Issue.Number)
+	prRef := ev.Repo.Owner + "/" + ev.Repo.Name + "#" + prNum
+
+	// per-PR 节流（30 秒冷却）
+	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
+	s.qaThrottleMu.Lock()
+	if s.qaThrottles == nil {
+		s.qaThrottles = make(map[string]time.Time)
+	}
+	if last, ok := s.qaThrottles[throttleKey]; ok && time.Since(last) < 30*time.Second {
+		s.qaThrottleMu.Unlock()
+		s.log().Warn("argus.qa.throttled", "pr", prRef, "question", question)
+		return
+	}
+	s.qaThrottles[throttleKey] = time.Now()
+	// 防内存泄漏：map 超100 条时清理 1 小时前的旧条目
+	if len(s.qaThrottles) > 100 {
+		for k, t := range s.qaThrottles {
+			if time.Since(t) > time.Hour {
+				delete(s.qaThrottles, k)
+			}
+		}
+	}
+	s.qaThrottleMu.Unlock()
+
+	s.log().Info("argus.qa.received", "pr", prRef, "question", question,
+		"actor", ev.Actor.Username, "event_id", delivery)
+
+	// 加载 PR 上下文（title + description + changed files summary）
+	platform := string(ev.Source)
+	prCtx, err := s.loadQAContext(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum)
+	if err != nil {
+		s.log().Error("argus.qa.context_failed", "pr", prRef, "error", err.Error())
+		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "加载 PR 上下文失败: "+err.Error())
+		return
+	}
+
+	// LLM 回答
+	client := llm.NewClient(s.Model, "", nil)
+	msgs := []*schema.Message{
+		schema.SystemMessage("你是一个代码审查助手。用户在 PR 上提了一个问题，请根据 PR 上下文回答。回答要简洁、准确、有帮助。如果 PR 上下文中没有足够信息来回答，请说明。"),
+		schema.UserMessage("PR 上下文:\n" + prCtx + "\n\n用户问题: " + question),
+	}
+	resp, err := client.Generate(ctx, "qa", msgs)
+	if err != nil {
+		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
+		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "LLM 调用失败: "+err.Error())
+		return
+	}
+	answer := strings.TrimSpace(resp.Content)
+
+	// 回帖
+	replyBody := "> " + question + "\n\n" + answer +
+		"\n\n<!-- argus:qa delivery=" + delivery + " -->"
+	if _, err := s.SDK.CreateIssueComment(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, replyBody); err != nil {
+		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
+		return
+	}
+
+	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", len(answer))
+	if s.Audit != nil {
+		s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", len(answer))
+	}
+}
+
+// extractQuestion 从评论正文提取 @argus ask 后面的问题文本。
+// 支持 "@argus ask ..." 和 "@argus ..." 两种格式；返回空串表示不匹配。
+func extractQuestion(body, botUsername string) string {
+	lower := strings.ToLower(strings.TrimSpace(body))
+	mention := "@" + strings.ToLower(botUsername)
+	if !strings.HasPrefix(lower, mention) {
+		return ""
+	}
+	rest := strings.TrimSpace(body[len(mention):])
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, "ask"))
+	return strings.TrimSpace(rest)
+}
+
+// loadQAContext 获取 PR 标题、描述、变更文件列表的轻量摘要（不含 diff 内容）。
+func (s *Service) loadQAContext(ctx context.Context, platform, owner, repo, number string) (string, error) {
+	cr, err := s.SDK.GetCR(ctx, platform, owner, repo, number)
+	if err != nil {
+		return "", fmt.Errorf("获取 PR 失败: %w", err)
+	}
+
+	var b strings.Builder
+	b.WriteString("标题: ")
+	b.WriteString(cr.Title)
+	b.WriteString("\n描述: ")
+	if cr.Description != "" {
+		b.WriteString(cr.Description)
+	} else {
+		b.WriteString("(无)")
+	}
+	if cr.Author != nil && cr.Author.Username != "" {
+		b.WriteString("\n作者: ")
+		b.WriteString(cr.Author.Username)
+	}
+
+	// 变更文件摘要（仅文件名 + 统计，不拉全文 diff——省 token）
+	if diff, err := s.SDK.GetCRDiff(ctx, platform, owner, repo, number); err == nil && len(diff.Files) > 0 {
+		b.WriteString("\n变更文件:")
+		for _, f := range diff.Files {
+			b.WriteString("\n  - ")
+			b.WriteString(f.NewPath)
+			if f.IsNew {
+				b.WriteString(" (新增)")
+			} else if f.IsDeleted {
+				b.WriteString(" (删除)")
+			} else {
+				fmt.Fprintf(&b, " (+%d/-%d)", f.Additions, f.Deletions)
+			}
+		}
+	}
+	return b.String(), nil
+}
+
+// postQAError 当 Q&A 流程失败时，向 PR 发一条错误说明（避免用户无响应）。
+func (s *Service) postQAError(ctx context.Context, platform, owner, repo, number, msg string) {
+	body := ":warning: **Argus Q&A 错误**: " + msg +
+		"\n\n<!-- argus:qa error -->"
+	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, number, body); err != nil {
+		s.log().Error("argus.qa.error_reply_failed", "error", err.Error())
+	}
 }

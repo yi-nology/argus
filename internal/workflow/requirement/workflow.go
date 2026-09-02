@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
-	"argus/internal/knowledge/rag"
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
 )
@@ -172,7 +173,9 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）
+	r5Start := time.Now()
 	verdict, rule := Verdict(spec, report, merged.Findings)
+	plugin.ReportStageDuration("R5", time.Since(r5Start))
 
 	out := &Output{
 		Verdict:    verdict,
@@ -187,7 +190,6 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	if w.LLM.Budget != nil {
 		out.Tokens = w.LLM.Budget.Used()
 	}
-	plugin.ReportStageDuration("R5", time.Since(stageStart))
 	return out, nil
 }
 
@@ -205,9 +207,9 @@ func Verdict(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, find
 	var high, midLow, unverifiable int
 	for _, f := range findings {
 		switch f.Severity {
-		case plugin.SeverityHigh:
+		case severity.High:
 			high++
-		case plugin.SeverityMedium, plugin.SeverityLow:
+		case severity.Medium, severity.Low:
 			midLow++
 		}
 	}

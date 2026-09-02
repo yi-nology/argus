@@ -15,7 +15,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/textutil"
+
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 )
 
@@ -73,7 +75,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	segments := make([]reqSegment, 0, 6)
 	if s := strings.TrimSpace(pr.Body); s != "" {
 		seg := reqSegment{label: "PR 描述", content: s, rawChars: len([]rune(s))}
-		if t, truncated := truncRunes(s, digestMax); truncated {
+		if t, truncated := textutil.TruncRunes(s, digestMax); truncated {
 			seg.content, seg.truncated = t, true
 			truncNotes = append(truncNotes, fmt.Sprintf("PR 描述超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", seg.rawChars, digestMax))
 		}
@@ -93,7 +95,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 		}
 		raw := issue.Title + "\n" + issue.Body // 标题同样攻击者可控，一起进数据区
 		seg := reqSegment{label: "issue #" + num, content: raw, rawChars: len([]rune(raw))}
-		if t, truncated := truncRunes(raw, issueMax*8); truncated {
+		if t, truncated := textutil.TruncRunes(raw, issueMax*8); truncated {
 			seg.content, seg.truncated = t, true
 			truncNotes = append(truncNotes, fmt.Sprintf("issue #%s 正文超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", num, seg.rawChars, issueMax*8))
 		}
@@ -178,12 +180,12 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 		w.Log.Warn("argus.r1.ac_cap", "total", len(spec.ACs), "cap", maxACs)
 		spec.Ambiguous = append(spec.Ambiguous, fmt.Sprintf(
 			"[条目超限] 验收清单解析出 %d 条，超出 %d 条上限，多余条目（%s）转人工确认，建议拆分需求",
-			len(spec.ACs)+len(excess), maxACs, strings.Join(ids, ",")))
+			len(spec.ACs), maxACs, strings.Join(ids, ",")))
 		spec.ACs = spec.ACs[:maxACs]
 	}
 	// 单条 AC 文本截断（LLM 偶发把整段原文塞进单条 AC）
 	for i := range spec.ACs {
-		if t, truncated := truncRunes(spec.ACs[i].Text, maxACTextRunes); truncated {
+		if t, truncated := textutil.TruncRunes(spec.ACs[i].Text, maxACTextRunes); truncated {
 			spec.ACs[i].Text = t + "…（截断）"
 		}
 	}
@@ -403,7 +405,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 				return &getFileOut{Error: err.Error()}, nil // 工具错误回注文本，不中断 ReAct
 			}
 			if rc := len([]rune(content)); rc > fileMax {
-				content, _ = truncRunes(content, fileMax)
+				content, _ = textutil.TruncRunes(content, fileMax)
 				content += "\n…（截断）"
 			}
 			// 文件内容是 PR 作者完全可控的注入面：回注 agent 前必须包数据区（防线 #1）
@@ -422,7 +424,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			}
 			body := issue.Body
 			if rc := len([]rune(body)); rc > issueMax {
-				body, _ = truncRunes(body, issueMax)
+				body, _ = textutil.TruncRunes(body, issueMax)
 				body += "…（截断）"
 			}
 			// 标题+正文一起进数据区（两者都攻击者可控）
@@ -438,7 +440,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			if task.Diff != nil {
 				text := task.Diff.Text
 				if rc := len([]rune(text)); rc > diffMax {
-					text, _ = truncRunes(text, diffMax)
+					text, _ = textutil.TruncRunes(text, diffMax)
 					text += "…（截断）"
 				}
 				return &getDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
@@ -460,7 +462,20 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 		if err != nil {
 			w.Log.Warn("argus.r3.toolpool_error", "error", err.Error())
 		} else {
-			tools = append(tools, extra...)
+			// 去重：pool 工具名与内置工具碰撞时跳过（防 mock 覆盖真实知识检索）
+			seen := make(map[string]bool, len(tools))
+			for _, t := range tools {
+				if info, err := t.Info(ctx); err == nil {
+					seen[info.Name] = true
+				}
+			}
+			for _, t := range extra {
+				info, err := t.Info(ctx)
+				if err != nil || seen[info.Name] {
+					continue
+				}
+				tools = append(tools, t)
+			}
 		}
 	}
 	return tools, nil
@@ -534,22 +549,12 @@ func renderACs(spec *plugin.RequirementSpec) string {
 
 func truncSummary(s string, n int) string {
 	s = strings.TrimSpace(s)
-	if out, truncated := truncRunes(s, n); truncated {
+	if out, truncated := textutil.TruncRunes(s, n); truncated {
 		return out + "…"
 	}
 	return s
 }
 
-// truncRunes 按 rune 截断，避免多字节字符被腰斩产生非法 UTF-8 进 LLM 上下文。
-// 第二个返回值 = 是否真发生了截断（rune 口径）——多字节内容"字节超限 rune 未超"时
-// 不该打截断标记。
-func truncRunes(s string, n int) (string, bool) {
-	r := []rune(s)
-	if len(r) <= n {
-		return s, false
-	}
-	return string(r[:n]), true
-}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

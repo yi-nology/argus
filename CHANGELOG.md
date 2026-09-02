@@ -1,5 +1,73 @@
 # Changelog
 
+## v3.0.3 — 2026-08-31（ekit v0.17.3 升级 + bootstrap 生命周期接管）
+
+ekit v0.17.0 → v0.17.4（v0.17.1/2 app-lifecycle 顺序死锁修复 + v0.17.3 timedWait
+ctx 取消支持 + WorkerManager + v0.17.4 hlog 递归防御 panic + RunServer 文档修正）。main 装配接入 `bootstrap.Run`：
+
+- main 拆为 main/runApp：runApp 用 `app.Context()` 贯穿全部子系统，资源按
+  [store, worker, http] 注册 → 停机逆序执行（http 5s 排水 → worker 两阶段 60s grace →
+  store 最后关）；prune/queue-depth ticker 换 `WorkerManager.AddTicker`（ctx 取消
+  自动退出，无需手动管理 ticker 生命周期）；`h.Spin()` + 手工 wp.Stop/cancel 换
+  `ekithertz.RunServer` + `AddResource`；
+  ShutdownTimeout=90s（覆盖 http 排水 + worker grace + 硬取消余量；k8s 终止宽限 90s 内）。
+- **bootstrap 语义**：userFn 返回 = 主动关机——runApp 末尾 `<-ctx.Done()` 阻塞；
+  SIGTERM 由 bootstrap 统一承接（实测：启动存活 → SIGTERM → cancel → http →
+  worker → store → 1s 退出，关闭序列与设计一致）。
+- **修复 hlog 桥接无限递归（P0）**：`hlog.SetLogger(ekithertz.NewLogger(logx.WithService(...)))`
+  是死循环——logx.WithService 走 logx 默认 hlog 后端，装回 hlog 后 adapter↔logx
+  互调无界递归（实测：主 goroutine 卡死 + 100% CPU + SIGTERM 无响应）。
+  必须传 slog 实例：`ekithertz.NewLogger(logx.NewSlogLogger(...))`。
+  ⚠️ ekit AGENTS.md 的示例即此雷，待上游修正。
+- e2e fake 适配并行 WIP：runner postStartMarker 的"审查中"占位评论（锚点 `argus:start`）
+  在 fake 中独立计数（markerN），不计入 created/comments——summary 断言语义不变。
+
+## v3.0.3 — 2026-08-31（ekit 化：共享库能力全面收编）
+
+工作区共享库 ekit v0.17.0 的能力替换手写实现；不改业务语义，E2E 与单测全绿。
+
+### 行为修复
+
+- **trace_id 恒空**：所有 API 响应壳此前硬编码 `"trace_id": ""`。main 注册
+  ekit `traceid.Middleware`（生成/透传 `X-Trace-Id`，12 位短 ID），响应壳经
+  `mw.SuccessRespMsg`/`mw.ErrorRespWithStatus` 自动携带；`logx.Ctx*` 日志同步
+  关联 trace_id。透传语义保留：客户端带 `X-Trace-Id` 则原样回显（traceid_smoke_test.go）。
+- **/metrics 缺 go/process 收集器**：`obs.Init` 补 `ekitmetrics.Init("argus")`——
+  注释声称含 go/process 指标但从未注册，现补齐（含 `app_build_info`/`app_start_time_seconds`）。
+- **"record not found" 字符串匹配**：storage/service 5 处 `strings.Contains(err.Error(),...)`
+  改 `errors.Is(err, gorm.ErrRecordNotFound)`，驱动层错误包装变化不再误判。
+
+### ekit 替换清单
+
+- 响应壳：service/handler 手拼 `{code,data,message,trace_id}` map → `mw.SuccessRespMsg`/
+  `mw.ErrorRespWithStatus`/`mw.ErrorRespBiz`（webhook 成功 body 的 code 由 200 归一为 0，
+  平台侧只看 HTTP 状态码）；Bearer 鉴权 401/503 同壳。
+- 参数绑定：`c.BindAndValidate` → `validatorh.BindAndValidate`（追加 validator 规则）+
+  `mw.ErrorRespBiz`（绑定失败从裸文本 400 改为统一 JSON 壳）。
+- SSE：GET /events 手写 io.Pipe + 专用 goroutine + 手拼帧 → `ekithertz.NewStream`
+  （自动设头、逐事件 flush、断连写失败自然退出）。
+- goroutine 纪律：9 处裸 `go func` → `async.GoSafe`（worker/poller/bus/dispatcher/
+  cli 看门狗/workcopy TTL/main ticker），panic 统一经 `async.SetPanicHandler` 走 logx。
+- /metrics handler：手写 expfmt 循环 → `ekithertz.MetricsHandlerFor(ekitmetrics.Registry)`。
+- 日志桥接：`hlog.SetLogger(ekithertz.NewLogger(...))`——Hertz 框架内部日志并入 logx。
+- 事务：`db.WithContext(ctx).Transaction` → `gormx.InTransactionContext`（语义等价）。
+- octopus 推送：手写 `http.Client` → `httpx.NewClient`（WithBaseURL/WithTimeout/
+  WithBearerToken，`X-User-Id` 经 `WithOnBeforeRequest` 注入；非 2xx 经
+  `ServiceError` 保留 send_rejected/send_failed 两种告警语义）。
+- env 解析：`config.GetStringWithDefault`/`GetInt`/`GetBool`；⚠️ 非法值回退默认的
+  stderr 留痕（warnBadEnv）保留——ekit 的 `*WithDefault` 是静默回退，故包一层告警。
+
+### 评估后不换（语义不匹配）
+
+- `mw.BearerTokenAuth`（fail-open：未配 token 直接放行，与 argus fail-closed 纪律相反）；
+- ~~`bootstrap.Run + ekithertz.RunServer`~~（v0.17.2 修复顺序死锁后已采纳，见上节）；
+- `concurrency/progress.Tracker`（单对象阶段进度条，非 pub/sub 事件总线）；
+- `pathx.MatchesPath`（不支持中部 `**` 与 basename 全深度匹配，插件路由语义会变）；
+- `gormx.Open`（默认注入 Info 级日志+OTel，SQLite 单连接串行是幂等正确性前提）；
+- `httpx` for a2a client（serviceURL 由 Agent Card 运行时发现，任意 URL 与 httpx
+  固定上游+path 模型不匹配；ctx 超时已由 dispatcher 统一控制）；
+- `LoadDotEnv`/`envDuration`（ekit 无 .env 能力；`ParseDuration` 静默回退丢告警）。
+
 ## v3.0.2 — 2026-08-31（全面审查修复：1×P0 + 9×P1 + P2/P3）
 
 三路并行代码审查（workflow+插件 / 任务生命周期 / I/O+安全面）发现的问题全量修复。

@@ -170,6 +170,10 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 	}
 
 	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+	adaptiveAfter := time.Now().Add(1 * time.Minute) // 1 分钟后拉长轮询间隔
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
 	for {
 		t, code := core.GetTask(ctx, taskID)
 		if code != http.StatusOK {
@@ -212,10 +216,15 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 			})
 			return mcp.NewToolResultText(string(b)), nil
 		}
+		// 自适应退避：1 分钟后轮询间隔从 2s 拉长到 5s，减少 DB 压力
+		if time.Now().After(adaptiveAfter) && pollInterval < 5*time.Second {
+			pollInterval = 5 * time.Second
+			ticker.Reset(pollInterval)
+		}
 		select {
 		case <-ctx.Done():
 			return mcp.NewToolResultError("调用方取消"), nil
-		case <-time.After(2 * time.Second):
+		case <-ticker.C:
 		}
 	}
 }
@@ -285,5 +294,7 @@ func (w *bridgeWriter) WriteHeader(code int) {
 	}
 }
 
-// Flush 流式刷新占位：工具调用为 POST 一问一答，无需真实刷新。
-func (w *bridgeWriter) Flush() {}
+// Flush 将缓冲数据推送给客户端（Hertz hijack writer 或裸 Response）。
+func (w *bridgeWriter) Flush() {
+	_ = w.c.Flush()
+}

@@ -11,9 +11,11 @@ import (
 
 	"github.com/yi-nology/git-platform-sdk/provider"
 
+	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/progress"
 	"argus/internal/storage"
 	"argus/internal/workflow/requirement"
 )
@@ -35,6 +37,7 @@ type Poller struct {
 	// 两条任务源对 draft 的行为保持一致。
 	SkipDraft bool
 	Log       logx.Logger
+	Bus       *progress.Bus // task.created 事件（SSE；nil 安全）
 }
 
 // ParseTargets 解析 "platform:owner/repo" 列表（逗号分隔）；非法项跳过并记入错误。
@@ -67,7 +70,7 @@ func ParseTargets(raw string) ([]Target, []string) {
 
 // Start 启动轮询循环；ctx 取消时退出。
 func (p *Poller) Start(ctx context.Context) {
-	go func() {
+	async.GoSafe(func() {
 		ticker := time.NewTicker(p.Interval)
 		defer ticker.Stop()
 		for {
@@ -78,7 +81,7 @@ func (p *Poller) Start(ctx context.Context) {
 				p.pollOnce(ctx)
 			}
 		}
-	}()
+	})
 	p.Log.Info("argus.poller.started",
 		"interval", p.Interval.String(),
 		"repos", len(p.Targets),
@@ -138,6 +141,12 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 			p.Log.Info("argus.poller.task_created",
 				"pr", t.Owner+"/"+t.Repo+"#"+cr.Number, "head", cr.HeadSHA, "task", task.ID)
+			if p.Bus != nil {
+				p.Bus.Publish(progress.Event{
+					Type: "task.created", TaskID: task.ID, Platform: task.Platform,
+					Owner: task.Owner, Repo: task.Repo, Number: task.Number,
+				})
+			}
 		}
 	}
 }

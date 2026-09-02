@@ -12,15 +12,16 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
+	"golang.org/x/time/rate"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"argus/internal/knowledge/rag"
-	"argus/internal/knowledge/skill"
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/notify"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
@@ -50,35 +51,48 @@ type Runner struct {
 	Log        logx.Logger
 	Version    string
 
+	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
+	LLMLimiter *rate.Limiter
+
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
 	SkillRefs     []string
 
-	skillOnce  sync.Once
-	skillCache string
+	skillMu      sync.Mutex
+	skillCache   string
+	skillLoaded  bool
+	skillRefresh time.Time // 下次刷新时间（10 分钟周期，与 RAG rescan 对齐）
 }
 
-// skillText 惰性解析 skillRef（§9.1：含 checksum，防内容漂移难排查），启动后缓存。
-func (r *Runner) skillText(ctx context.Context) string {
+// skillText 惰性解析 skillRef（§9.1：含 checksum，防内容漂移难排查），10 分钟周期刷新。
+// 改 skill 文件后无需重启，下一个任务自动加载新内容。
+func (r *Runner) skillText(_ context.Context) string {
 	if r.SkillProvider == nil || len(r.SkillRefs) == 0 {
 		return ""
 	}
-	r.skillOnce.Do(func() {
-		var parts []string
-		for _, ref := range r.SkillRefs {
-			name, ver := ref, ""
-			if i := strings.Index(ref, "@"); i >= 0 {
-				name, ver = ref[:i], ref[i+1:]
-			}
-			s, err := r.SkillProvider.Resolve(ctx, skill.Ref{Name: name, Version: ver, Source: "file"})
-			if err != nil {
-				r.Log.Warn("argus.runner.skill_resolve_failed", "ref", ref, "error", err.Error())
-				continue
-			}
-			parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
+	r.skillMu.Lock()
+	defer r.skillMu.Unlock()
+	if r.skillLoaded && time.Now().Before(r.skillRefresh) {
+		return r.skillCache
+	}
+	// 用 Background ctx：skill 是本地文件读取，不需要任务级取消。
+	bgCtx := context.Background()
+	var parts []string
+	for _, ref := range r.SkillRefs {
+		name, ver := ref, ""
+		if i := strings.Index(ref, "@"); i >= 0 {
+			name, ver = ref[:i], ref[i+1:]
 		}
-		r.skillCache = strings.Join(parts, "\n")
-	})
+		s, err := r.SkillProvider.Resolve(bgCtx, skill.Ref{Name: name, Version: ver, Source: "file"})
+		if err != nil {
+			r.Log.Warn("argus.runner.skill_resolve_failed", "ref", ref, "error", err.Error())
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
+	}
+	r.skillCache = strings.Join(parts, "\n")
+	r.skillLoaded = true
+	r.skillRefresh = time.Now().Add(10 * time.Minute)
 	return r.skillCache
 }
 
@@ -97,6 +111,11 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 	// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
 	c.ContextTokens = r.Cfg.LLM.ContextToken
 	c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
+	c.Limiter = r.LLMLimiter
+	// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
+	c.OnUsage = func(stage string, prompt, completion int) {
+		plugin.ReportLLMTokens(stage, r.ModelName, prompt+completion)
+	}
 	return &requirement.Workflow{
 		LLM:              c,
 		SDK:              r.SDK,
@@ -126,6 +145,10 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	wf := r.buildWorkflow(budget)
 	r.publish("task.running", task, "", "")
+
+	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
+	r.postStartMarker(ctx, task)
+
 	// 仓库级月度预算门控（v3.1）：超限在调 LLM 前短路，任务直接 failed。
 	if r.Cfg.RepoMonthlyTokenBudget > 0 {
 		now := time.Now()
@@ -136,11 +159,9 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		} else if used >= int64(r.Cfg.RepoMonthlyTokenBudget) {
 			r.Log.Warn("argus.runner.repo_budget_exceeded", "task", taskID,
 				"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
-			_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "",
-				fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget),
-				0, 0)
-			r.announceTerminal(task, storage.StatusFailed, "", nil,
-				fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget))
+			reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
+			_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0)
+			r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
 			plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 			return nil
 		}
@@ -160,7 +181,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志，不在 PR 评论
 	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", err.Error())
 	_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", err.Error(), budget.Used(), 0)
-	r.announceTerminal(task, storage.StatusFailed, "", nil, err.Error())
+	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, err.Error())
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
 }
@@ -172,9 +193,19 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if err != nil {
 		return err
 	}
-	diff, err := r.buildDiff(ctx, pr)
+	diff, err := r.buildDiffIncremental(ctx, pr, task)
 	if err != nil {
 		return err
+	}
+	// 增量审查：diff 与上次完全一致 → 标记 stale，跳过 LLM
+	if diff.NoNewChanges {
+		r.Log.Info("argus.runner.no_new_changes", "task", task.ID,
+			"pr", fmt.Sprintf("%s/%s/%s#%s", task.Platform, task.Owner, task.Repo, task.Number))
+		_ = r.Store.FinishTask(ctx, task.ID, storage.StatusStale, "", "", "",
+			"增量审查：diff 与上次审查完全一致，无新变更", 0, 0)
+		r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
+		plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
+		return nil
 	}
 	if task.HeadSHA == "" && pr.HeadSHA != "" {
 		_ = r.Store.SetTaskHeadSHA(ctx, task.ID, pr.HeadSHA)
@@ -211,7 +242,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		return fmt.Errorf("回帖失败: %w", err)
 	}
 
-	resultJSON, _ := json.Marshal(toResultPayload(out))
+	resultJSON, _ := json.Marshal(toResultPayload(out, diff.Text))
 	status := storage.StatusDone
 	if res.Stale {
 		status = storage.StatusStale // findings/指纹已入库，不回帖不覆盖（§10.2）
@@ -226,7 +257,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 			_ = r.Store.SetTaskDebug(ctx, task.ID, string(b))
 		}
 	}
-	r.announceTerminal(task, status, out.Verdict, out, "")
+	r.announceTerminal(ctx, task, status, out.Verdict, out, "")
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", status,
 		"verdict", out.Verdict, "rule", out.Rule, "findings", findingsCount(out.Merged),
@@ -275,6 +306,37 @@ func (r *Runner) buildDiff(ctx context.Context, pr *plugin.PRContext) (*plugin.D
 	return argusctx.Prepare(md, r.Cfg.MaxDiffCharsResolved()), nil
 }
 
+// buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。
+// 仅在 synchronize 事件（PR 更新）且存在前置审查记录时激活增量路径；
+// 其余场景退化为全量 Prepare。
+func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext, task *storage.Task) (*plugin.DiffContext, error) {
+	md, err := r.SDK.GetCRDiff(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
+	if err != nil {
+		return nil, fmt.Errorf("获取 diff 失败: %w", err)
+	}
+	totalLimit := r.Cfg.MaxDiffCharsResolved()
+
+	// 非 synchronize 事件 → 全量审查（首次审查 / reopen 等）
+	if task.EventType != "cr.synchronize" {
+		return argusctx.Prepare(md, totalLimit), nil
+	}
+
+	// 查询同 PR 最近一次 done 任务的 diff 文本
+	lastDiff, err := r.Store.GetLastReviewedDiff(ctx, task.Platform, task.Owner, task.Repo, task.Number)
+	if err != nil {
+		r.Log.Warn("argus.runner.get_last_diff_failed", "task", task.ID, "error", err.Error())
+		return argusctx.Prepare(md, totalLimit), nil // 降级全量
+	}
+
+	if lastDiff == "" {
+		return argusctx.Prepare(md, totalLimit), nil // 无前置记录 → 全量
+	}
+
+	r.Log.Info("argus.runner.incremental_diff", "task", task.ID,
+		"last_diff_chars", len(lastDiff))
+	return argusctx.PrepareIncremental(md, lastDiff, totalLimit), nil
+}
+
 // buildReport 报告输入组装（模板渲染交给 reportview）。
 func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requirement.Output) reportview.Report {
 	rep := reportview.Report{
@@ -294,16 +356,18 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 	if out.Spec != nil {
 		rep.ShowCompliance = true
 		rep.ReqSource = out.Spec.Source
+		// 预建 check map，O(1) 查找替代 O(N*M) 嵌套循环
+		checkMap := map[string]*plugin.ACCheck{}
+		if out.Report != nil {
+			for i := range out.Report.Checks {
+				checkMap[out.Report.Checks[i].ID] = &out.Report.Checks[i]
+			}
+		}
 		for _, ac := range out.Spec.ACs {
 			view := reportview.ACCheckView{ID: ac.ID, Text: ac.Text, Status: plugin.ACUnverifiable, Evid: "未判定"}
-			if out.Report != nil {
-				for _, c := range out.Report.Checks {
-					if c.ID == ac.ID {
-						view.Status = c.Status
-						view.Evid = firstNonEmpty(c.Evidence, c.Detail)
-						break
-					}
-				}
+			if c, ok := checkMap[ac.ID]; ok {
+				view.Status = c.Status
+				view.Evid = firstNonEmpty(c.Evidence, c.Detail)
 			}
 			rep.ACs = append(rep.ACs, view)
 		}
@@ -326,10 +390,12 @@ type ResultPayload struct {
 	Summary    string                   `json:"change_summary,omitempty"`
 	Plugins    []string                 `json:"plugins"`
 	Degraded   []string                 `json:"degraded,omitempty"`
+	// DiffText 本次审查的 diff 原文（增量审查时用于 diff-of-diffs 比对）。
+	DiffText string `json:"diff_text,omitempty"`
 }
 
-func toResultPayload(out *requirement.Output) *ResultPayload {
-	p := &ResultPayload{Verdict: out.Verdict, Rule: out.Rule, Plugins: out.PluginsRun, Summary: out.Summary}
+func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
+	p := &ResultPayload{Verdict: out.Verdict, Rule: out.Rule, Plugins: out.PluginsRun, Summary: out.Summary, DiffText: diffText}
 	if out.Merged != nil {
 		p.Findings = out.Merged.Findings
 		p.Degraded = out.Merged.Degraded
@@ -385,8 +451,23 @@ func (r *Runner) publish(typ string, task *storage.Task, status, verdict string)
 	})
 }
 
+// postStartMarker 审查开始时在 MR 上留一条"审查中"评论，便于用户感知进度。
+// 失败不阻塞审查流程（仅告警）。
+func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
+	if r.SDK == nil {
+		return
+	}
+	body := fmt.Sprintf(
+		"🔍 Argus 正在审查中，请稍候…\n\n<!-- argus:start task_id=%s -->",
+		task.ID,
+	)
+	if _, err := r.SDK.CreateIssueComment(ctx, task.Platform, task.Owner, task.Repo, task.Number, body); err != nil {
+		r.Log.Warn("argus.runner.start_marker_failed", "task", task.ID, "error", err.Error())
+	}
+}
+
 // finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
-func (r *Runner) announceTerminal(task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
+func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
 	r.publish("task.finished", task, status, verdict)
 	if r.Notify == nil {
 		return
@@ -404,7 +485,7 @@ func (r *Runner) announceTerminal(task *storage.Task, status, verdict string, ou
 			ev.Findings = len(out.Merged.Findings)
 		}
 	}
-	r.Notify.NotifyTerminal(context.Background(), ev)
+	r.Notify.NotifyTerminal(ctx, ev)
 }
 
 func findingsCount(m *plugin.MergedFindings) int {

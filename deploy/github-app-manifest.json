@@ -1,0 +1,26 @@
+{
+  "name": "Argus Code Review",
+  "description": "AI-powered code review bot — automated PR analysis, requirement compliance checks, and inline review comments.",
+  "url": "https://github.com/your-org/argus",
+  "hook_attributes": {
+    "url": "https://argus.example.com/webhook/github",
+    "active": true
+  },
+  "redirect_url": "https://argus.example.com/callback",
+  "setup_url": "https://argus.example.com/setup",
+  "public": false,
+  "default_permissions": {
+    "pull_requests": "write",
+    "issues": "write",
+    "contents": "read",
+    "metadata": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "issue_comment",
+    "push",
+    "installation",
+    "installation_repositories"
+  ]
+}

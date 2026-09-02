@@ -1,0 +1,35 @@
+# Argus 轻量镜像 —— 本地构建模式（不依赖 Docker Hub 拉构建层）
+# 用法：
+#   1. CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o bin/argus-amd64 .
+#   2. docker buildx build --platform linux/amd64 -f Dockerfile.local -t argus:v3.0.2 --load .
+#   或直接 docker build -f Dockerfile.local -t argus:v3.0.2 .
+# syntax=docker/dockerfile:1
+
+FROM alpine:3.20-amd64
+RUN apk add --no-cache git ca-certificates tzdata && \
+    addgroup -S argus -g 1000 && adduser -S argus -G argus -u 1000
+WORKDIR /app
+COPY bin/argus-amd64 /app/argus
+COPY bin/ocr-amd64 /opt/argus/bin/ocr
+COPY plugins.example.yaml /app/plugins.yaml
+COPY skills /app/skills
+RUN mkdir -p /data /opt/argus/bin && chown -R argus:argus /app /data /opt/argus
+USER 1000:1000
+
+LABEL org.opencontainers.image.title="argus" \
+      org.opencontainers.image.description="可插拔多 Agent 审查平台（PR Bot / TaskAPI）" \
+      org.opencontainers.image.source="https://git.example.com/demo-user/argus-pilot" \
+      org.opencontainers.image.vendor="enjoydream"
+
+ENV ARGUS_ADDR=:8899 \
+    ARGUS_DB_DSN=/data/argus.db \
+    ARGUS_WORK_ROOT=/data/work \
+    ARGUS_PLUGINS=/app/plugins.yaml \
+    ARGUS_SKILLS_DIR=/app/skills
+EXPOSE 8899
+VOLUME ["/data"]
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8899/healthz || exit 1
+
+ENTRYPOINT ["/app/argus"]

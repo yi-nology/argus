@@ -6,7 +6,9 @@
 argus.db
 argus.db-shm
 argus.db-wal
-bin/
+bin/*
+!bin/argus-amd64
+!bin/ocr-amd64
 deploy/
 *.md
 !README.md

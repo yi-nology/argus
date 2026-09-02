@@ -44,12 +44,16 @@ func TestDiffPrep_LargeTotal_TotalTruncated(t *testing.T) {
 	if !dc.Truncated {
 		t.Fatal("总量超限应 Truncated")
 	}
-	// a.go Included，b.go 应被截断（剩余<第二个文件长度）
+	// a.go Included 全量，b.go 剩余 2000 rune → 截断后 Included
 	if !dc.Files[0].Included {
 		t.Fatal("a.go 应 Included")
 	}
-	if dc.Files[1].Included {
-		t.Fatal("b.go 不应 Included（总量超限）")
+	if !dc.Files[1].Included {
+		t.Fatal("b.go 应 Included（截断后仍有剩余空间）")
+	}
+	// 总文本应接近 10000 rune（a.go 8000 + b.go 截断到 ~2000）
+	if len([]rune(dc.Text)) > 11000 {
+		t.Fatalf("总文本应 ~10000 rune，实际 %d", len([]rune(dc.Text)))
 	}
 }
 

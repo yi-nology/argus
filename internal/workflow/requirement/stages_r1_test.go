@@ -11,7 +11,7 @@ import (
 
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"argus/internal/llm"
+	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 )
 

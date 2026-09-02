@@ -5,9 +5,10 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	ekitconfig "git.example.com/enjoydream/ekit/config"
 )
 
 // PlatformConfig 单个 git 平台的接入凭证。
@@ -18,6 +19,15 @@ type PlatformConfig struct {
 	// SkipTLS 跳过 TLS 证书校验（内网自建实例自签/过期证书场景，如 git.example.com）。
 	// 仅影响平台 API 与工作副本克隆；开启时日志告警提示风险。
 	SkipTLS bool
+	// TokenStyle 覆盖默认认证头风格: "bearer" (Authorization: Bearer) / "private" (PRIVATE-TOKEN)。
+	// 空值使用平台默认值（GitLab=private, GitHub=bearer）。
+	TokenStyle string
+
+	// GitHub App 认证（仅 github 平台）：配置后自动用 installation token 替代 PAT。
+	// 三者全配才启用；AppID + PrivateKey 用于签发 JWT，InstallationID 用于换取 token。
+	GitHubAppID          int64  // ARGUS_GITHUB_APP_ID
+	GitHubAppPrivateKey  string // ARGUS_GITHUB_APP_PRIVATE_KEY（PEM 内容或 base64 编码）
+	GitHubAppInstallationID int64 // ARGUS_GITHUB_APP_INSTALLATION_ID
 }
 
 // LLMConfig OpenAI 兼容端点（复用 lacus/.env）。
@@ -63,6 +73,16 @@ type Config struct {
 	// 仓库级月度 token 预算（v3.1）：单仓库本月 done 任务累计消耗上限，
 	// 超限任务直接 failed（不调 LLM）。0 = 关闭（缺省）。
 	RepoMonthlyTokenBudget int
+
+	// LLMRateLimit 全局 LLM 请求速率限制（requests/sec）；0 = 不限速。
+	// 配合 LLMRateBurst 使用，token bucket 限速器在 LLM 调用前阻塞等待。
+	LLMRateLimit float64
+	// LLMRateBurst 限速器突发容量；0 = 默认等于 MaxConcurrentTasks。
+	LLMRateBurst int
+
+	// WebhookMaxBody Webhook 请求体上限（字节）；默认 1MB。
+	// Hertz WithMaxRequestBodySize + Content-Length 双重防护。
+	WebhookMaxBody int
 
 	// 任务保留天数（运维加固）：超期已终结任务（done/failed/stale）启动+每日清理。
 	// 0 = 永久保留（默认，行为与 v3.0 一致）。
@@ -171,6 +191,11 @@ func (c *Config) GetDiffMaxRunes() int {
 	return c.MaxDiffCharsResolved()
 }
 
+// GitHubAppEnabled 三者全配时返回 true（AppID + PrivateKey + InstallationID）。
+func (pc *PlatformConfig) GitHubAppEnabled() bool {
+	return pc.GitHubAppID > 0 && pc.GitHubAppPrivateKey != "" && pc.GitHubAppInstallationID > 0
+}
+
 // EnabledPlatforms 返回已配置 token 的平台名（小写）。
 func (c *Config) EnabledPlatforms() []string {
 	names := make([]string, 0, len(c.Platforms))
@@ -203,6 +228,9 @@ func Load() *Config {
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),
 		TaskRetentionDays:      envInt("ARGUS_TASK_RETENTION_DAYS", 0),
 		RepoMonthlyTokenBudget: envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
+		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
+		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
+		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),
 		OctopusURL:             os.Getenv("ARGUS_OCTOPUS_URL"),
 		OctopusChannelID:       int64(envInt("ARGUS_OCTOPUS_CHANNEL_ID", 0)),
 		OctopusUser:            envStr("ARGUS_OCTOPUS_USER", "argus-bot"),
@@ -220,29 +248,37 @@ func Load() *Config {
 	for _, p := range []string{"gitea", "github", "gitlab"} {
 		prefix := "ARGUS_" + strings.ToUpper(p) + "_"
 		cfg.Platforms[p] = PlatformConfig{
-			BaseURL: os.Getenv(prefix + "URL"),
-			Token:   os.Getenv(prefix + "TOKEN"),
-			Secret:  os.Getenv(prefix + "SECRET"),
-			SkipTLS: envBool(prefix+"SKIP_TLS", false),
+			BaseURL:    os.Getenv(prefix + "URL"),
+			Token:      os.Getenv(prefix + "TOKEN"),
+			Secret:     os.Getenv(prefix + "SECRET"),
+			SkipTLS:    envBool(prefix+"SKIP_TLS", false),
+			TokenStyle: os.Getenv(prefix + "TOKEN_STYLE"),
 		}
+	}
+	// GitHub App 认证：三者全配时启用（覆盖 Token）
+	if gh, ok := cfg.Platforms["github"]; ok {
+		gh.GitHubAppID = int64(envInt("ARGUS_GITHUB_APP_ID", 0))
+		gh.GitHubAppPrivateKey = os.Getenv("ARGUS_GITHUB_APP_PRIVATE_KEY")
+		gh.GitHubAppInstallationID = int64(envInt("ARGUS_GITHUB_APP_INSTALLATION_ID", 0))
+		cfg.Platforms["github"] = gh
 	}
 	return cfg
 }
 
+// env 读取助手：类型解析复用 ekit config（strconv 同源），非法值回退默认时
+// 保留 warnBadEnv 留痕——ekit 的 *WithDefault 系列是静默回退，不能直接换。
+
 func envStr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
+	return ekitconfig.GetStringWithDefault(key, def)
 }
 
 func envBool(key string, def bool) bool {
-	v := strings.ToLower(os.Getenv(key))
+	v := os.Getenv(key)
 	if v == "" {
 		return def
 	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
+	b, ok := ekitconfig.GetBool(key)
+	if !ok {
 		warnBadEnv(key, v, def)
 		return def
 	}
@@ -254,8 +290,8 @@ func envInt(key string, def int) int {
 	if v == "" {
 		return def
 	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
+	n, ok := ekitconfig.GetInt(key)
+	if !ok {
 		warnBadEnv(key, v, def)
 		return def
 	}
@@ -273,6 +309,19 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func envFloat(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	var f float64
+	if _, err := fmt.Sscanf(v, "%f", &f); err != nil {
+		warnBadEnv(key, v, def)
+		return def
+	}
+	return f
 }
 
 // warnBadEnv 非法环境变量值回退默认时必须留痕——静默回退会让
@@ -314,15 +363,21 @@ func (c *Config) Validate() error {
 	if c.MaxConcurrentTasks <= 0 {
 		c.MaxConcurrentTasks = 1
 	}
+	if c.LLMRateBurst <= 0 {
+		c.LLMRateBurst = c.MaxConcurrentTasks
+	}
+	if c.WebhookMaxBody <= 0 {
+		c.WebhookMaxBody = 1 << 20 // 1MB
+	}
 	// TaskTokenBudget=0 合法：按 EffectiveTaskTokenBudget 从模型窗口派生，不强制回填。
 	enabled := 0
 	for _, p := range c.Platforms {
-		if p.Token != "" {
+		if p.Token != "" || p.GitHubAppEnabled() {
 			enabled++
 		}
 	}
 	if enabled == 0 {
-		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN 至少一项）")
+		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN 至少一项，或配置 GitHub App）")
 	}
 	return nil
 }

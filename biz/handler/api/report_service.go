@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 
+	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
@@ -12,34 +13,32 @@ import (
 // ReportByRef 按 head SHA 查最近一次成功审查报告。
 // @router /reports/:ref [GET]
 func ReportByRef(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	ref := c.Param("ref")
 	if ref == "" {
-		c.JSON(consts.StatusBadRequest, map[string]any{"code": 400, "message": "缺少 ref"})
+		mw.ErrorResp(c, consts.StatusBadRequest, "缺少 ref")
 		return
 	}
 	resp, status := Svc.GetReportByRef(ctx, ref)
 	if status != consts.StatusOK {
-		c.JSON(status, map[string]any{"code": status, "data": nil, "message": "未找到该 commit 的报告", "trace_id": ""})
+		mw.ErrorResp(c, status, "未找到该 commit 的报告")
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": resp, "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, resp, "ok")
 }
 
 // UsageMonthly 本月各仓库 token 用量与预算水位。
 // @router /usage/monthly [GET]
 func UsageMonthly(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	data, status := Svc.UsageMonthly(ctx)
 	if status != consts.StatusOK {
-		c.JSON(status, map[string]any{"code": status, "message": "用量查询失败"})
+		mw.ErrorResp(c, status, "用量查询失败")
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": data, "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, data, "ok")
 }

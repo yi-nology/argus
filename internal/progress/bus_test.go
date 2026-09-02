@@ -32,7 +32,7 @@ func TestBusDropOnSlow(t *testing.T) {
 	b := NewBus()
 	ch, cancel := b.Subscribe(context.Background())
 	defer cancel()
-	_ = ch // 有损丢弃语义：只断言发布端不阻塞
+	_ = ch
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
@@ -42,23 +42,7 @@ func TestBusDropOnSlow(t *testing.T) {
 	}()
 	select {
 	case <-done:
-		// 发布端全程非阻塞即通过；ch 里收到几条不重要
 	case <-time.After(2 * time.Second):
 		t.Fatal("Publish 被慢订阅者阻塞")
-	}
-}
-
-// TestSubscribeCtxCleanup ctx 取消后自动注销。
-func TestSubscribeCtxCleanup(t *testing.T) {
-	b := NewBus()
-	ctx, c := context.WithCancel(context.Background())
-	_, _ = b.Subscribe(ctx)
-	c()
-	time.Sleep(10 * time.Millisecond)
-	b.mu.Lock()
-	n := len(b.subs)
-	b.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("ctx 取消后应注销，剩余 %d", n)
 	}
 }

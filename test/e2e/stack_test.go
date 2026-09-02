@@ -26,14 +26,17 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"argus/internal/knowledge/skill"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
 	"argus/internal/runner"
 	"argus/internal/service"
 	"argus/internal/storage"
-	"argus/internal/worker"
+	agentkitworker "git.example.com/enjoydream/agentkit/worker"
+
+	argusworker "argus/internal/worker"
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
@@ -53,6 +56,7 @@ type fakeProvider struct {
 	files       map[string]string
 	comments    []*provider.IssueComment
 	nextID      int64
+	markerN     int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
 	secret      string
 	ev          *provider.NormalizedEvent
 	webhookMode string // "ok" | "badsig"
@@ -136,11 +140,29 @@ func (f *fakeProvider) ListIssueComments(_ context.Context, _, _, _ string) ([]*
 func (f *fakeProvider) CreateIssueComment(_ context.Context, _, _, _ string, body string) (*provider.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// "审查中"占位（runner WIP postStartMarker，锚点 argus:start）：独立计数，
+	// 不进 comments 流——summary 相关的 created/bodies 断言只针对审查报告评论。
+	if strings.Contains(body, "argus:start") {
+		f.markerN++
+		f.nextID++
+		return &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}, nil
+	}
 	f.createdN++
 	f.nextID++
 	c := &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
 	f.comments = append(f.comments, c)
 	return c, nil
+}
+
+// CreateNote DiffManager 路径（sdkctx v3.0.3 起优先走 MR Notes API）：
+// 必须显式实现，否则 DiffManager 断言命中嵌入接口的 promoted method（nil panic 兜底）。
+// 语义与 CreateIssueComment 一致：新建一条总结评论，返回字符串 note ID。
+func (f *fakeProvider) CreateNote(ctx context.Context, _, _, _ string, body string) (string, error) {
+	c, err := f.CreateIssueComment(ctx, "", "", "", body)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", c.ID), nil
 }
 
 func (f *fakeProvider) UpdateIssueComment(_ context.Context, _, _, _ string, commentID int64, body string) (*provider.IssueComment, error) {
@@ -426,7 +448,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	sdkCtx := argusctx.NewSDKCtxStubbed(log, map[string]provider.Provider{"gitea": fake})
 
 	// workcopy：指向本地 file:// fixture（CLI 插件场景用）
-	wc := argusctx.NewWorkcopy(cfg.WorkRoot, log)
+	wc := workcopy.NewPool(cfg.WorkRoot, log)
 	if opt.withOCR {
 		fixture := makeFixtureRepo(t, tmp)
 		wc.CredentialOf = func(string) (string, string, bool) { return "file://" + fixture, "x", true }
@@ -469,7 +491,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	if opt.workers > 0 {
-		wp := &worker.Pool{Store: store, N: opt.workers, Log: log, Run: runnerRef.Execute}
+		wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store}, N: opt.workers, Log: log, Run: runnerRef.Execute}
 		wp.Start(ctx)
 	}
 

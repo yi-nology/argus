@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/breaker"
+	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
 
@@ -87,20 +89,23 @@ func (o Outcome) Notes() string {
 // Dispatcher 确定性路由 + fan-out 执行（design §3.3）。
 type Dispatcher struct {
 	reg      *Registry
-	breakers *Breakers
+	breakers *breaker.Breakers
 	log      logx.Logger
 	Now      func() time.Time
+	// MaxConcurrent 限制同时执行的插件数（0 = 不限制）。
+	// 百炼等 API 有 burst rate limit，并发过高会触发 429。
+	MaxConcurrent int
 }
 
 func NewDispatcher(reg *Registry, log logx.Logger) *Dispatcher {
-	return &Dispatcher{reg: reg, breakers: NewBreakers(), log: log, Now: time.Now}
+	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(0, 0), log: log, Now: time.Now, MaxConcurrent: 2}
 }
 
 // Registry 暴露注册表（workflow 加载仓库配置后做信任边界解析用）。
 func (d *Dispatcher) Registry() *Registry { return d.reg }
 
 // Breakers 暴露给观测/测试。
-func (d *Dispatcher) Breakers() *Breakers { return d.breakers }
+func (d *Dispatcher) Breakers() *breaker.Breakers { return d.breakers }
 
 // Select 按 `技能需求 × 仓库配置 × Triggers` 选出插件集合（确定性，无 LLM）。
 // 语义：
@@ -110,11 +115,8 @@ func (d *Dispatcher) Breakers() *Breakers { return d.breakers }
 //   - 仓库 use 非空 = 白名单（锁定插件除外）；disable 黑名单；
 //   - routing 命中（paths/labels）追加其 use 引用的插件。
 func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
-	want := map[string]bool{}
-	for _, s := range skills {
-		want[s] = true
-	}
 	var out []Selection
+	seen := map[string]bool{} // O(1) 去重，替代 O(N) 线性扫描
 	add := func(reg *Registration, reason string) {
 		if !reg.Enabled {
 			return
@@ -122,11 +124,10 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 		if !skillsIntersect(reg.Manifest.Skills, skills) {
 			return
 		}
-		for _, s := range out { // 去重，保留首个原因
-			if s.Reg.Manifest.Name == reg.Manifest.Name {
-				return
-			}
+		if seen[reg.Manifest.Name] { // 保留首个原因
+			return
 		}
+		seen[reg.Manifest.Name] = true
 		out = append(out, Selection{Reg: reg, Reason: reason})
 	}
 
@@ -276,6 +277,13 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 	outcomes := make([]Outcome, len(sel))
 	// 预算随 Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
 	task.Budget = budget
+
+	// 并发信号量：限制同时执行的插件数，避免百炼等 API 触发 burst rate limit (429)。
+	var sem chan struct{}
+	if d.MaxConcurrent > 0 {
+		sem = make(chan struct{}, d.MaxConcurrent)
+	}
+
 	var wg sync.WaitGroup
 	for i, s := range sel {
 		reg := s.Reg
@@ -297,8 +305,13 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 		}
 
 		wg.Add(1)
-		go func(i int, reg *Registration, o *Outcome) {
+		async.GoSafe(func() {
 			defer wg.Done()
+			// 获取信号量（限制并发）
+			if sem != nil {
+				sem <- struct{}{}
+				defer func() { <-sem }()
+			}
 			timeout := reg.Manifest.Timeout
 			if timeout <= 0 {
 				timeout = 120 * time.Second
@@ -320,7 +333,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
 			}
 			obsPluginDuration(reg.Manifest.Name, o.Duration)
-		}(i, reg, o)
+		})
 	}
 	wg.Wait()
 	return outcomes

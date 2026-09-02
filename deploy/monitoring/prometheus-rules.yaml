@@ -1,0 +1,145 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argus-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: argus
+    app.kubernetes.io/part-of: argus
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: argus.rules
+      interval: 30s
+      rules:
+        # ───────────────────────────────────────────────
+        # Recording rules: pre-aggregated for dashboard
+        # ───────────────────────────────────────────────
+        - record: argus:task_throughput:rate5m
+          expr: sum by (status) (rate(argus_tasks_total[5m]))
+          labels:
+            component: argus
+
+        - record: argus:plugin_failure_rate:rate5m
+          expr: sum by (plugin) (rate(argus_plugin_failures_total[5m]))
+          labels:
+            component: argus
+
+        - record: argus:stage_duration:p95
+          expr: histogram_quantile(0.95, sum by (stage, le) (rate(argus_stage_duration_seconds_bucket[5m])))
+          labels:
+            component: argus
+
+        - record: argus:plugin_duration:p95
+          expr: histogram_quantile(0.95, sum by (plugin, le) (rate(argus_plugin_duration_seconds_bucket[5m])))
+          labels:
+            component: argus
+
+        - record: argus:llm_tokens:rate5m
+          expr: sum by (model) (rate(argus_llm_tokens_total[5m]))
+          labels:
+            component: argus
+
+        # ───────────────────────────────────────────────
+        # Alert rules
+        # ───────────────────────────────────────────────
+
+        # Alert: tasks stuck — running > 0 for 15min with no successful completion
+        - alert: ArgusTaskStuck
+          expr: |
+            argus_tasks_running > 0
+            and
+            increase(argus_tasks_total{status="success"}[15m]) == 0
+          for: 15m
+          labels:
+            severity: critical
+            team: argus
+          annotations:
+            summary: "Argus task appears stuck"
+            description: >-
+              {{ $value }} task(s) have been running for 15 minutes with no
+              successful completions in the same window. Check for deadlocks,
+              hung LLM calls, or downstream service outages.
+            runbook_url: "https://wiki.internal/argus/runbook#task-stuck"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=3"
+
+        # Alert: plugin failure rate spike
+        - alert: ArgusHighFailureRate
+          expr: sum(rate(argus_plugin_failures_total[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus plugin failure rate exceeds 0.5/s"
+            description: >-
+              Aggregate plugin failure rate is {{ $value | humanize }}/s over the
+              last 5 minutes. Failing plugin breakdown:
+              {{ range query "topk(5, sum by (plugin) (rate(argus_plugin_failures_total[5m])))" }}
+                {{ .Labels.plugin }}: {{ .Value | humanize }}/s
+              {{ end }}
+            runbook_url: "https://wiki.internal/argus/runbook#plugin-failures"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=6"
+
+        # Alert: queue backlog
+        - alert: ArgusQueueBacklog
+          expr: argus_tasks_pending > 10
+          for: 10m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus task queue has {{ $value }} pending tasks"
+            description: >-
+              The pending task queue has been above 10 for over 10 minutes.
+              This may indicate insufficient worker capacity or a processing
+              bottleneck. Check plugin health and LLM provider latency.
+            runbook_url: "https://wiki.internal/argus/runbook#queue-backlog"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=3"
+
+        # Alert: LLM budget exhaustion (task failures mentioning budget)
+        # NOTE: This requires argus_tasks_total to include failures whose
+        # status label contains the failure reason, OR a separate metric.
+        # As a pragmatic fallback we alert on sustained task failures when
+        # the LLM token rate drops to zero (provider rejecting calls).
+        - alert: ArgusLLMBudgetExhausted
+          expr: |
+            (
+              sum(rate(argus_tasks_total{status="failure"}[5m]))
+              /
+              sum(rate(argus_tasks_total[5m]))
+            ) > 0.8
+            and
+            sum(rate(argus_llm_tokens_total[5m])) == 0
+          for: 10m
+          labels:
+            severity: critical
+            team: argus
+          annotations:
+            summary: "Possible LLM budget exhaustion — >80% task failures with zero token usage"
+            description: >-
+              Over 80% of tasks are failing and no LLM tokens are being consumed.
+              This pattern strongly suggests the LLM provider is rejecting calls
+              due to budget/quota limits. Verify billing status and API key validity.
+            runbook_url: "https://wiki.internal/argus/runbook#llm-budget"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=8"
+
+        # Alert: notification delivery failures
+        - alert: ArgusNotifyFailures
+          expr: sum(rate(argus_notify_failures_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus notification delivery failing ({{ $value | humanize }}/s)"
+            description: >-
+              Notification push failures have been occurring for 10+ minutes.
+              Breakdown by channel:
+              {{ range query "sum by (channel) (rate(argus_notify_failures_total[10m]))" }}
+                {{ .Labels.channel }}: {{ .Value | humanize }}/s
+              {{ end }}
+              Check octopus service reachability and channel credentials.
+            runbook_url: "https://wiki.internal/argus/runbook#notify-failures"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=12"

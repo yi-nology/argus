@@ -1,17 +1,22 @@
 // Package notify L1 扩展：审查终态 IM 推送（v3.1，经 octopus 消息平台）。
 // 调 octopus /api/v2/send/quick（X-User-Id 机器账号头，octopus AuthMiddleware
 // 按 header 自动建账号）。未配置 ARGUS_OCTOPUS_URL 时禁用（零调用）。
+// HTTP 层走 ekit network/httpx（单一固定上游：统一超时/Bearer/机器账号头）。
 package notify
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/imroc/req/v3"
+
+	"argus/internal/obs"
+
+	"git.example.com/enjoydream/ekit/network/httpx"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
 
@@ -21,8 +26,10 @@ type Notifier struct {
 	ChannelID int64  // octopus 渠道 ID（企微/飞书/钉钉机器人渠道）
 	User      string // 机器账号名（默认 argus-bot）
 	Token     string // 可选 Bearer（octopus 前置网关需要时用）
-	Client    *http.Client
 	Log       logx.Logger
+
+	once   sync.Once
+	client *httpx.Client
 }
 
 // TaskEvent 终态摘要（runner 装配）。
@@ -50,35 +57,41 @@ func (n *Notifier) NotifyTerminal(ctx context.Context, e TaskEvent) {
 	if content == "" {
 		return
 	}
-	body, _ := json.Marshal(map[string]any{
+	var out map[string]any
+	if err := n.clientOf().PostJSON(ctx, "/api/v2/send/quick", map[string]any{
 		"channelId": n.ChannelID,
 		"content":   content,
 		"msgType":   "markdown",
-	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(n.BaseURL, "/")+"/api/v2/send/quick", bytes.NewReader(body))
-	if err != nil {
-		n.Log.Warn("argus.notify.build_failed", "error", err.Error())
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", n.machineUser())
-	if n.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+n.Token)
-	}
-	client := n.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
+	}, &out); err != nil {
+		var svcErr *httpx.ServiceError
+		if errors.As(err, &svcErr) {
+			obs.IncrNotifyFailure(fmt.Sprintf("%d", svcErr.Code))
+			n.Log.Warn("argus.notify.send_rejected", "task", e.TaskID, "status", svcErr.Code)
+			return
+		}
+		obs.IncrNotifyFailure("error")
 		n.Log.Warn("argus.notify.send_failed", "task", e.TaskID, "error", err.Error())
-		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		n.Log.Warn("argus.notify.send_rejected", "task", e.TaskID, "status", resp.StatusCode)
-	}
+}
+
+// clientOf 惰性构建 httpx 客户端：10s 超时 + X-User-Id 机器账号头 + 可选 Bearer
+// （X-User-Id 无对应 Option，经 OnBeforeRequest 注入）。
+func (n *Notifier) clientOf() *httpx.Client {
+	n.once.Do(func() {
+		opts := []httpx.Option{
+			httpx.WithBaseURL(strings.TrimRight(n.BaseURL, "/")),
+			httpx.WithTimeout(10 * time.Second),
+			httpx.WithOnBeforeRequest(func(_ *req.Client, r *req.Request) error {
+				r.Headers.Set("X-User-Id", n.machineUser())
+				return nil
+			}),
+		}
+		if n.Token != "" {
+			opts = append(opts, httpx.WithBearerToken(n.Token))
+		}
+		n.client = httpx.NewClient("argus-notify", opts...)
+	})
+	return n.client
 }
 
 func (n *Notifier) machineUser() string {

@@ -8,6 +8,8 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -18,6 +20,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"git.example.com/enjoydream/ekit/data/gormx"
 )
 
 // Task tasks 表记录。Status 词表钉死：pending / running / done / failed / stale（§10.4）。
@@ -33,6 +37,7 @@ type Task struct {
 	EventType string `gorm:"column:event_type;size:32"`
 	// EventID = 平台 delivery ID（X-Gitea-Delivery 等），幂等键。
 	// 缺 header 时保持 NULL（唯一索引允许多个 NULL；置空字符串会误判 duplicate）。
+	// 注意：MySQL 8.0+ / SQLite 支持 UNIQUE 列多 NULL；MariaDB 10.5- 行为不同，需 COALESCE 兼容。
 	EventID    *string `gorm:"column:event_id;size:128;uniqueIndex"`
 	Status     string  `gorm:"column:status;size:16;not null;default:pending;index"`
 	Verdict    string  `gorm:"column:verdict;size:32"`
@@ -161,6 +166,8 @@ func Open(dsn string) (*Store, error) {
 		}
 		sqlDB, _ := db.DB()
 		sqlDB.SetMaxOpenConns(1) // 单写串行：webhook 并发幂等/去重的正确性基础
+		sqlDB.SetMaxIdleConns(1) // idle=max-open 避免连接反复开关的 WAL 开销
+		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
 	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}); err != nil {
@@ -286,12 +293,12 @@ func (s *Store) CreateTask(ctx context.Context, t *Task) error {
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	txErr := gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		// 规则 4a：review_targets.last_head_sha == 本次 head
 		var target ReviewTarget
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
 			t.Platform, t.Owner, t.Repo, t.Number).First(&target).Error
-		if err != nil && !strings.Contains(err.Error(), "record not found") {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err // 瞬时 DB 错误不能静默跳过去重检查
 		}
 		if err == nil && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
@@ -368,7 +375,7 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 		return nil
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "record not found") {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, false, nil
 		}
 		return nil, false, err
@@ -525,7 +532,7 @@ func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, numb
 		"platform = ? AND owner = ? AND repo = ? AND number = ?",
 		platform, owner, repo, number).First(&t).Error
 	if err != nil {
-		if strings.Contains(err.Error(), "record not found") {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -538,12 +545,12 @@ func (s *Store) UpsertReviewTarget(ctx context.Context, platform, owner, repo, n
 	summaryCommentID int64, headSHA string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		var t ReviewTarget
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
 			platform, owner, repo, number).First(&t).Error
 		if err != nil {
-			if !strings.Contains(err.Error(), "record not found") {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
 			t = ReviewTarget{Platform: platform, Owner: owner, Repo: repo, Number: number}
@@ -556,4 +563,38 @@ func (s *Store) UpsertReviewTarget(ctx context.Context, platform, owner, repo, n
 		}
 		return tx.Save(&t).Error
 	})
+}
+
+// GetLastReviewedDiff 查询同 PR 最近一次 done 任务的 diff 文本（增量审查 diff-of-diffs）。
+// 返回空字符串表示无前置审查记录。
+func (s *Store) GetLastReviewedDiff(ctx context.Context, platform, owner, repo, number string) (string, error) {
+	var t Task
+	err := s.quietDB().WithContext(ctx).
+		Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status = ?",
+			platform, owner, repo, number, StatusDone).
+		Order("created_at DESC").First(&t).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	if t.ResultJSON == "" {
+		return "", nil
+	}
+	// 从 result_json 中提取 diff_text 字段（轻量解析，不反序列化整个结构）
+	var payload struct {
+		DiffText string `json:"diff_text"`
+	}
+	if err := jsonUnmarshal([]byte(t.ResultJSON), &payload); err != nil {
+		return "", nil // result_json 格式异常不阻塞审查
+	}
+	return payload.DiffText, nil
+}
+
+// jsonUnmarshal 是 encoding/json.Unmarshal 的包内别名，便于测试 mock。
+var jsonUnmarshal = jsonUnmarshalFn
+
+func jsonUnmarshalFn(data []byte, v any) error {
+	return json.Unmarshal(data, v)
 }

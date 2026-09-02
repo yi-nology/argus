@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"argus/internal/plugin"
 	"github.com/yi-nology/git-platform-sdk/provider"
+
+	"git.example.com/enjoydream/agentkit/textutil"
+
+	"argus/internal/plugin"
 )
 
 // 噪声路径规则（复用 v1 原型实现，design §4 术语：diffprep）。
@@ -101,12 +104,12 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 		}
 		text := f.Diff
 		if rc := len([]rune(text)); rc > singleMax {
-			text, _ = truncRunes(text, singleMax)
+			text, _ = textutil.TruncRunes(text, singleMax)
 			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
 		}
 		if totalLimit > 0 {
 			if rc := len([]rune(text)); rc > remaining {
-				text, _ = truncRunes(text, remaining)
+				text, _ = textutil.TruncRunes(text, remaining)
 				text += "\n…（总量截断）"
 				dc.Truncated = true
 			}
@@ -116,7 +119,6 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 			b.WriteString("\n")
 		}
 		b.WriteString(text)
-		remaining -= len(text)
 		entry.Included = true
 		dc.Files = append(dc.Files, entry)
 	}
@@ -124,14 +126,139 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 	return dc
 }
 
-// truncRunes 按 rune 截断，避免多字节字符被腰斩产生非法 UTF-8 进 LLM 上下文。
-// 第二个返回值 = 是否真发生了截断（rune 口径）。
-func truncRunes(s string, n int) (string, bool) {
-	r := []rune(s)
-	if len(r) <= n {
-		return s, false
+// minIncrementalChars 增量 diff 的最小有效长度。
+// 低于此阈值视为太短（可能是纯空白/上下文行），回退到全量审查。
+const minIncrementalChars = 100
+
+// PrepareIncremental 增量 diffprep：对比当前 diff 与上次审查的 diff，只保留新增/变更部分。
+// lastDiffText 为空时等价于全量审查（首次审查场景）。
+// 返回的 DiffContext 中：
+//   - Text: 仅包含有变化的文件 diff
+//   - Files: 全部文件（未变文件标记 AlreadyReviewed=true）
+//   - NoNewChanges: true 表示 diff 完全一致，无需审查
+func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit int) *plugin.DiffContext {
+	// 无上次审查记录 → 全量审查
+	if lastDiffText == "" {
+		return Prepare(md, totalLimit)
 	}
-	return string(r[:n]), true
+
+	files := md.Files
+	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
+		files = fillFromRawDiff(files, md.RawDiff)
+	}
+
+	// 解析上次 diff 为 per-file map
+	lastByPath := parseDiffByFile(lastDiffText)
+
+	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
+	var b strings.Builder
+	remaining := totalLimit
+	if totalLimit > 0 {
+		b.Grow(totalLimit / 2)
+	}
+	singleMax := singleFileLimit(totalLimit)
+
+	hasChanges := false
+	for _, f := range files {
+		entry := plugin.DiffFile{
+			Path:      f.NewPath,
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+			IsBinary:  f.IsBinary,
+			IsNew:     f.IsNew,
+			IsDeleted: f.IsDeleted,
+			IsRenamed: f.IsRenamed,
+		}
+		if f.NewPath == "" {
+			entry.Path = f.OldPath
+		}
+
+		// 噪声/二进制：不进文本，元信息保留（与 Prepare 一致）
+		if f.IsBinary || noise(entry.Path) {
+			dc.Files = append(dc.Files, entry)
+			continue
+		}
+
+		// 比对：当前文件 diff 与上次是否一致
+		lastDiff, existed := lastByPath[entry.Path]
+		if existed && f.Diff == lastDiff {
+			// 完全一致 → 标记已审查，不进文本
+			entry.AlreadyReviewed = true
+			dc.Files = append(dc.Files, entry)
+			continue
+		}
+
+		// 文件有变化（新增/修改/删除），或上次不存在该文件
+		hasChanges = true
+
+		if totalLimit > 0 && remaining <= 0 {
+			entry.Included = false
+			dc.Files = append(dc.Files, entry)
+			dc.Truncated = true
+			continue
+		}
+		text := f.Diff
+		if rc := len([]rune(text)); rc > singleMax {
+			text, _ = textutil.TruncRunes(text, singleMax)
+			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+		}
+		if totalLimit > 0 {
+			if rc := len([]rune(text)); rc > remaining {
+				text, _ = textutil.TruncRunes(text, remaining)
+				text += "\n…（总量截断）"
+				dc.Truncated = true
+			}
+			remaining -= len([]rune(text))
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(text)
+		entry.Included = true
+		dc.Files = append(dc.Files, entry)
+	}
+
+	dc.Text = b.String()
+
+	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
+	if hasChanges && len([]rune(dc.Text)) < minIncrementalChars {
+		return Prepare(md, totalLimit)
+	}
+
+	if !hasChanges {
+		dc.NoNewChanges = true
+	}
+	return dc
+}
+
+// parseDiffByFile 将拼接的 unified diff 按文件路径切分为 map[path]diffText。
+// 与 fillFromRawDiff 不同，这里保留 "diff --git " 前缀，使存储值与 ChangedFile.Diff 一致。
+func parseDiffByFile(raw string) map[string]string {
+	result := make(map[string]string)
+	if raw == "" {
+		return result
+	}
+	const sep = "diff --git "
+	chunks := strings.Split(raw, "\n"+sep)
+	for i, chunk := range chunks {
+		if i == 0 {
+			if strings.HasPrefix(chunk, sep) {
+				// 已有前缀，保留原样
+			} else if strings.TrimSpace(chunk) == "" {
+				continue
+			} else {
+				// 无前缀（罕见），补回
+				chunk = sep + chunk
+			}
+		} else {
+			chunk = sep + chunk
+		}
+		path := rawDiffPath(chunk)
+		if path != "" {
+			result[path] = chunk
+		}
+	}
+	return result
 }
 
 // fillFromRawDiff 把拼接的 unified diff 按 "diff --git" 切块回填到各 ChangedFile.Diff。

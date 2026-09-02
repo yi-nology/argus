@@ -13,10 +13,10 @@ import (
 
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/config"
-	argusctx "argus/internal/context"
-	"argus/internal/knowledge/skill"
-	"argus/internal/llm"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/plugin/adapter_cli"
@@ -27,7 +27,7 @@ import (
 type Deps struct {
 	Cfg    *config.Config
 	Log    logx.Logger
-	WC     *argusctx.Workcopy
+	WC     *workcopy.Pool
 	Model  model.BaseChatModel // 可 nil（无 LLM 配置时仅 cli 插件可用）
 	Skills skill.Provider
 	// WorkflowFactory 由 runner 提供（requirement-compliance 插件延迟注册）。

@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 
+	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
@@ -13,11 +14,14 @@ import (
 // IDL 只声明路由）。响应壳 {code,data,message,trace_id}，data 为 WebhookResponse。
 // @router /webhook/:platform [POST]
 func Receive(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	platform := c.Param("platform")
 	resp, status := Svc.Webhook(ctx, c, platform)
-	c.JSON(status, map[string]any{"code": status, "data": resp, "message": resp.Status, "trace_id": ""})
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, resp.Status)
+		return
+	}
+	mw.SuccessRespMsg(c, resp, resp.Status)
 }

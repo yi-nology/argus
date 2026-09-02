@@ -46,13 +46,18 @@ var (
 	tasksRunning = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "argus_tasks_running", Help: "当前 running 任务数",
 	})
+	notifyFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_notify_failures_total", Help: "IM 通知推送失败计数（octopus 可达性观测）",
+	}, []string{"channel"})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
+// metrics.Init 补齐 go/process/buildinfo 通用收集器（此前 /metrics 只有 argus_* 指标）。
 func Init() {
+	ekitmetrics.Init("argus")
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
-		tasksPending, tasksRunning,
+		tasksPending, tasksRunning, notifyFailures,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -78,4 +83,9 @@ func Init() {
 func SetTaskQueueDepth(pending, running int64) {
 	tasksPending.Set(float64(pending))
 	tasksRunning.Set(float64(running))
+}
+
+// IncrNotifyFailure IM 通知推送失败计数。
+func IncrNotifyFailure(channel string) {
+	notifyFailures.WithLabelValues(channel).Inc()
 }

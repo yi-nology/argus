@@ -6,6 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"git.example.com/enjoydream/agentkit/severity"
+
 	"argus/internal/plugin"
 )
 
@@ -59,7 +61,7 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 		p.LastTaskID = taskID
 		p.LastSeenAt = at
 		p.TimesSeen++
-		p.Severity = plugin.HigherSeverity(p.Severity, f.Severity)
+		p.Severity = severity.Higher(p.Severity, f.Severity)
 		if absDiff(p.Line, f.Line) <= 2 && f.Line > 0 {
 			p.Line = f.Line
 		}

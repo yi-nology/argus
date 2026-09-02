@@ -7,6 +7,8 @@ import (
 
 	api "argus/biz/model/api"
 	"argus/internal/service"
+	"git.example.com/enjoydream/ekit/handler/validatorh"
+	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
@@ -17,32 +19,38 @@ var Svc *service.Service
 // SetService 装配入口。
 func SetService(s *service.Service) { Svc = s }
 
+// ensureSvc 装配守卫：Svc 未注入时返回 503。
+func ensureSvc(c *app.RequestContext) bool {
+	if Svc != nil {
+		return true
+	}
+	mw.ErrorResp(c, consts.StatusServiceUnavailable, "service not ready")
+	return false
+}
+
 // CreateTask .
 // @router /tasks [POST]
 func CreateTask(ctx context.Context, c *app.RequestContext) {
 	var req api.CreateTaskRequest
-	if err := c.BindAndValidate(&req); err != nil {
-		c.String(consts.StatusBadRequest, err.Error())
+	if err := validatorh.BindAndValidate(c, &req); err != nil {
+		mw.Fail(c, err)
 		return
 	}
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	resp, status := Svc.CreateTask(ctx, &req)
 	if status != consts.StatusOK {
-		c.JSON(status, map[string]any{"code": status, "data": nil,
-			"message": "创建任务失败（校验平台/参数或查看服务日志）", "trace_id": ""})
+		mw.ErrorResp(c, status, "创建任务失败（校验平台/参数或查看服务日志）")
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": resp, "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, resp, "ok")
 }
 
 // GetTask .
 // @router /tasks/:taskId [GET]
 func GetTask(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	taskID := c.Param("taskId")
@@ -52,21 +60,20 @@ func GetTask(ctx context.Context, c *app.RequestContext) {
 		if status == consts.StatusNotFound {
 			msg = "任务不存在"
 		}
-		c.JSON(status, map[string]any{"code": status, "data": nil, "message": msg, "trace_id": ""})
+		mw.ErrorResp(c, status, msg)
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": resp, "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, resp, "ok")
 }
 
 // ListAgents .
 // @router /agents [GET]
 func ListAgents(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	var req api.ListAgentsRequest
-	_ = c.BindAndValidate(&req) // query 绑定（可全缺省=纯全局清单）
+	_ = validatorh.BindAndValidate(c, &req) // query 绑定（可全缺省=纯全局清单）
 	platform, owner, repo := "", "", ""
 	if req.Platform != nil {
 		platform = *req.Platform
@@ -77,18 +84,17 @@ func ListAgents(ctx context.Context, c *app.RequestContext) {
 	if req.Repo != nil {
 		repo = *req.Repo
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": Svc.ListAgents(ctx, platform, owner, repo), "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, Svc.ListAgents(ctx, platform, owner, repo), "ok")
 }
 
 // ListTasks .
 // @router /tasks [GET]
 func ListTasks(ctx context.Context, c *app.RequestContext) {
-	if Svc == nil {
-		c.String(consts.StatusServiceUnavailable, "service not ready")
+	if !ensureSvc(c) {
 		return
 	}
 	var req api.ListTasksRequest
-	_ = c.BindAndValidate(&req)
+	_ = validatorh.BindAndValidate(c, &req)
 	status, limit := "", 0
 	if req.Status != nil {
 		status = *req.Status
@@ -96,10 +102,10 @@ func ListTasks(ctx context.Context, c *app.RequestContext) {
 	if req.Limit != nil {
 		limit = int(*req.Limit)
 	}
-	resp, status_code := Svc.ListTasks(ctx, status, limit)
-	if status_code != consts.StatusOK {
-		c.JSON(status_code, map[string]any{"code": status_code, "data": nil, "message": "查询失败", "trace_id": ""})
+	resp, statusCode := Svc.ListTasks(ctx, status, limit)
+	if statusCode != consts.StatusOK {
+		mw.ErrorResp(c, statusCode, "查询失败")
 		return
 	}
-	c.JSON(consts.StatusOK, map[string]any{"code": 0, "data": resp, "message": "ok", "trace_id": ""})
+	mw.SuccessRespMsg(c, resp, "ok")
 }
