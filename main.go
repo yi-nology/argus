@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -159,18 +161,33 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		log.Warn("argus.boot.no_llm", "hint", "OPENAI_* 未配置，builtin 插件不可用（仅 cli 插件可工作）")
 	}
 
-	// ---- L5 知识子系统：本地 RAG（目录缺失回退 Noop，不阻塞启动）----
+	// ---- L5 知识子系统：Milvus 向量检索 > 本地 RAG > Noop ----
 	var knowledge rag.KnowledgeService = rag.NewNoop()
-	if fi, err := os.Stat(cfg.KnowledgeDir); err == nil && fi.IsDir() {
-		if k, e := rag.NewLocal(cfg.KnowledgeDir); e == nil {
+	if cfg.MilvusAddr != "" && cfg.EmbeddingBaseURL != "" {
+		// Milvus 向量检索模式
+		embedder := rag.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)
+		milvusCfg := rag.MilvusConfig{
+			Address:    cfg.MilvusAddr,
+			Collection: cfg.MilvusCollection,
+			Dimension:  cfg.EmbeddingDim,
+		}
+		if k, e := rag.NewMilvusStore(ctx, milvusCfg, embedder); e == nil {
 			knowledge = k
-			log.Info("argus.boot.knowledge_ready", "dir", cfg.KnowledgeDir)
+			log.Info("argus.boot.milvus_ready", "addr", cfg.MilvusAddr, "collection", cfg.MilvusCollection,
+				"embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
+			// 启动时索引 knowledge 目录到 Milvus
+			if fi, err := os.Stat(cfg.KnowledgeDir); err == nil && fi.IsDir() {
+				indexKnowledgeDir(ctx, k, cfg.KnowledgeDir, log)
+			}
 		} else {
-			log.Warn("argus.boot.knowledge_failed", "dir", cfg.KnowledgeDir, "error", e.Error())
+			log.Warn("argus.boot.milvus_failed", "addr", cfg.MilvusAddr, "error", e.Error(),
+				"fallback", "本地 RAG")
+			// 回退到本地 RAG
+			knowledge = fallbackLocalRAG(cfg.KnowledgeDir, log)
 		}
 	} else {
-		log.Warn("argus.boot.knowledge_absent", "dir", cfg.KnowledgeDir,
-			"hint", "创建目录并放入 markdown 知识文件即启用 search_knowledge")
+		// 本地 RAG 模式
+		knowledge = fallbackLocalRAG(cfg.KnowledgeDir, log)
 	}
 
 	// ---- L1 扩展：进度事件总线 + octopus IM 推送（v3.1）----
@@ -368,4 +385,47 @@ func llmReachable(baseURL string) bool {
 	}
 	defer resp.Body.Close()
 	return true
+}
+
+// fallbackLocalRAG 本地 RAG 回退（目录缺失回退 Noop）。
+func fallbackLocalRAG(dir string, log logx.Logger) rag.KnowledgeService {
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		if k, e := rag.NewLocal(dir); e == nil {
+			log.Info("argus.boot.knowledge_ready", "dir", dir)
+			return k
+		} else {
+			log.Warn("argus.boot.knowledge_failed", "dir", dir, "error", e.Error())
+		}
+	} else {
+		log.Warn("argus.boot.knowledge_absent", "dir", dir,
+			"hint", "创建目录并放入 markdown 知识文件即启用 search_knowledge")
+	}
+	return rag.NewNoop()
+}
+
+// indexKnowledgeDir 将知识库目录中的 markdown 文件索引到 Milvus。
+func indexKnowledgeDir(ctx context.Context, store *rag.MilvusStore, dir string, log logx.Logger) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Warn("argus.boot.index_dir_failed", "dir", dir, "error", err.Error())
+		return
+	}
+	indexed := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Warn("argus.boot.index_file_failed", "file", entry.Name(), "error", err.Error())
+			continue
+		}
+		if err := store.Index(ctx, entry.Name(), string(data)); err != nil {
+			log.Warn("argus.boot.index_failed", "file", entry.Name(), "error", err.Error())
+			continue
+		}
+		indexed++
+	}
+	log.Info("argus.boot.knowledge_indexed", "dir", dir, "files", indexed)
 }

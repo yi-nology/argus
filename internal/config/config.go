@@ -90,6 +90,15 @@ type Config struct {
 
 	// Debug 留存阶段产物（R1 spec/R2 摘要/R3 原始输出）到任务记录，GET /tasks/:id 可查。
 	Debug bool
+
+	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
+	MilvusAddr      string // Milvus 地址，如 "localhost:19530"
+	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
+	// Embedding 配置（Milvus 向量化）。
+	EmbeddingBaseURL string // OpenAI 兼容端点
+	EmbeddingAPIKey  string
+	EmbeddingModel   string // 如 text-embedding-3-small / text-embedding-v3
+	EmbeddingDim     int    // 向量维度
 }
 
 // 上限派生基准（design §6 v3.1 修订）：模型窗口是唯一基准，全部上限按比例派生，
@@ -236,6 +245,14 @@ func Load() *Config {
 		OctopusUser:            envStr("ARGUS_OCTOPUS_USER", "argus-bot"),
 		OctopusToken:           os.Getenv("ARGUS_OCTOPUS_TOKEN"),
 		Debug:                  envBool("ARGUS_DEBUG", false),
+		// Milvus 向量检索
+		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
+		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),
+		// Embedding
+		EmbeddingBaseURL: os.Getenv("ARGUS_EMBEDDING_BASE_URL"),
+		EmbeddingAPIKey:  os.Getenv("ARGUS_EMBEDDING_API_KEY"),
+		EmbeddingModel:   envStr("ARGUS_EMBEDDING_MODEL", "text-embedding-v3"),
+		EmbeddingDim:     envInt("ARGUS_EMBEDDING_DIM", 1024),
 		LLM: LLMConfig{
 			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
 			APIKey:       os.Getenv("OPENAI_API_KEY"),
