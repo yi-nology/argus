@@ -40,6 +40,8 @@ type Runner struct {
 	SDK        *argusctx.SDKCtx
 	Model      model.BaseChatModel // eino 模型（每任务包一层 llm.Client 以隔离预算）
 	ModelName  string
+	// LLM 装配期构造的生成器（*llm.Client 或 *llm.Resilient）。非 nil 时优先于 Model。
+	LLM        llm.Generator
 	Dispatcher *plugin.Dispatcher
 	Merger     *plugin.Merger
 	ToolPool   toolpool.Pool
@@ -107,17 +109,30 @@ func (r *Runner) WorkflowFactory() adapter_builtin.WorkflowFactory {
 // buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
 // 其余字段全部共享引用，构造成本可忽略。
 func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow {
-	c := llm.NewClient(r.Model, r.ModelName, budget)
-	// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
-	c.ContextTokens = r.Cfg.LLM.ContextToken
-	c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
-	c.Limiter = r.LLMLimiter
-	// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
-	c.OnUsage = func(stage string, prompt, completion int) {
-		plugin.ReportLLMTokens(stage, r.ModelName, prompt+completion)
+	// 优先使用装配期构造的 Generator（*llm.Client 或 *llm.Resilient 降级链）；
+	// 通过 BudgetInjector 注入任务级预算（Resilient 副本共享熔断状态，Client 浅拷贝）。
+	var gen llm.Generator
+	if r.LLM != nil {
+		gen = r.LLM
+		if budget != nil {
+			if bi, ok := gen.(llm.BudgetInjector); ok {
+				gen = bi.WithBudget(budget)
+			}
+		}
+	} else {
+		c := llm.NewClient(r.Model, r.ModelName, budget)
+		// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
+		c.ContextTokens = r.Cfg.LLM.ContextToken
+		c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
+		c.Limiter = r.LLMLimiter
+		// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
+		c.OnUsage = func(stage string, prompt, completion int) {
+			plugin.ReportLLMTokens(stage, r.ModelName, prompt+completion)
+		}
+		gen = c
 	}
 	return &requirement.Workflow{
-		LLM:              c,
+		LLM:              gen,
 		SDK:              r.SDK,
 		Dispatcher:       r.Dispatcher,
 		Merger:           r.Merger,

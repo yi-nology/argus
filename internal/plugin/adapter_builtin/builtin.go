@@ -79,7 +79,7 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 type Reviewer struct {
 	manifest  plugin.AgentManifest
 	focus     string // 审查焦点人设
-	llm       *llm.Client
+	llm       llm.Generator
 	skillRefs []skill.Ref
 	skills    skill.Provider
 	// skillText 惰性解析缓存（含 checksum 头），10 分钟周期刷新。
@@ -91,7 +91,7 @@ type Reviewer struct {
 }
 
 // NewReviewer 构造通用审查 agent。skillRefs 在启动期一次性解析进提示词缓存。
-func NewReviewer(m plugin.AgentManifest, focus string, client *llm.Client,
+func NewReviewer(m plugin.AgentManifest, focus string, client llm.Generator,
 	skillRefs []string, sp skill.Provider) (*Reviewer, error) {
 	if m.Timeout <= 0 {
 		m.Timeout = 120 * time.Second
@@ -178,11 +178,9 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 	// 预算由 Dispatcher.Run 经 Task.Budget 传入——否则 R4 主成本对预算不可见。
 	client := r.llm
 	if task.Budget != nil {
-		// 浅拷贝安全的前提：llm.Client 只有无锁值字段（Budget 指针共享是有意为之）。
-		// 若未来给 Client 加互斥/缓冲字段，这里会变成并发拷贝竞争——改用显式 setter。
-		c := *r.llm
-		c.Budget = task.Budget
-		client = &c
+		if bi, ok := r.llm.(llm.BudgetInjector); ok {
+			client = bi.WithBudget(task.Budget)
+		}
 	}
 	if err := client.GenerateJSON(ctx, "plugin:"+r.manifest.Name, msgs, &out); err != nil {
 		return plugin.Result{}, err

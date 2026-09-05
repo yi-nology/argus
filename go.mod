@@ -3,7 +3,7 @@ module argus
 go 1.26
 
 require (
-	git.example.com/enjoydream/agentkit v0.1.0
+	git.example.com/enjoydream/agentkit v0.2.3
 	git.example.com/enjoydream/ekit v0.20.1
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.18

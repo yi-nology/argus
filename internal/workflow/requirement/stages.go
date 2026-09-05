@@ -345,7 +345,7 @@ func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tool
 		Name:          "argus-compliance",
 		Description:   "需求完成度判定专家",
 		Instruction:   instruction,
-		Model:         w.LLM.Model,
+		Model:         w.LLM.RawModel(),
 		MaxIterations: 12,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools},

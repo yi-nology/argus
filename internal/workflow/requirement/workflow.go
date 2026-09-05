@@ -47,7 +47,7 @@ type Output struct {
 
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
 type Workflow struct {
-	LLM        *llm.Client
+	LLM        llm.Generator
 	SDK        *argusctx.SDKCtx
 	Dispatcher *plugin.Dispatcher
 	Merger     *plugin.Merger
@@ -187,9 +187,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		Summary:    summary,
 		Elapsed:    time.Since(start),
 	}
-	if w.LLM.Budget != nil {
-		out.Tokens = w.LLM.Budget.Used()
-	}
+	out.Tokens = w.LLM.UsedTokens()
 	return out, nil
 }
 

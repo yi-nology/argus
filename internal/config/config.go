@@ -38,6 +38,13 @@ type LLMConfig struct {
 	Timeout      time.Duration
 	MaxTokens    int // 单次生成上限；0 = 按 MaxTokensResolved 从窗口派生；推理模型（如 mimo）需 >= 4096
 	ContextToken int // 模型上下文窗口（token 数，输入+输出合计），其余上限的唯一派生基准
+
+	// 降级备选模型（可选）：四项全配时启用 Resilient 多模型降级链，
+	// 主模型失败（429/超时/超窗等）自动切换到备选。
+	FallbackBaseURL      string
+	FallbackAPIKey       string
+	FallbackModel        string
+	FallbackContextToken int
 }
 
 // Config 服务全局配置。
@@ -260,6 +267,11 @@ func Load() *Config {
 			Timeout:      envDuration("OPENAI_TIMEOUT", 300*time.Second),
 			MaxTokens:    envInt("OPENAI_MAX_TOKENS", 0),
 			ContextToken: envInt("ARGUS_MODEL_CONTEXT_TOKENS", 128_000),
+
+			FallbackBaseURL:      os.Getenv("OPENAI_FALLBACK_BASE_URL"),
+			FallbackAPIKey:       os.Getenv("OPENAI_FALLBACK_API_KEY"),
+			FallbackModel:        os.Getenv("OPENAI_FALLBACK_MODEL"),
+			FallbackContextToken: envInt("OPENAI_FALLBACK_CONTEXT_TOKENS", 128_000),
 		},
 	}
 	for _, p := range []string{"gitea", "github", "gitlab"} {

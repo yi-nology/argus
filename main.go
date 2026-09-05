@@ -29,6 +29,7 @@ import (
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
 	"git.example.com/enjoydream/agentkit/audit"
+	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/bootstrap"
 	"argus/internal/channel/mcpserver"
@@ -141,7 +142,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	skills := skill.NewFileProvider(cfg.SkillsDir)
 
 	// ---- LLM（复用 lacus/.env 的 OPENAI_*；无配置时仅 cli 插件可用）----
+	// 配置 OPENAI_FALLBACK_* 四项后启用 Resilient 多模型降级链。
 	var chatModel *openai.ChatModel
+	var llmGen llm.Generator
 	if cfg.LLM.BaseURL != "" && cfg.LLM.APIKey != "" && cfg.LLM.Model != "" {
 		maxTokens := cfg.MaxTokensResolved()
 		chatModel, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{
@@ -153,6 +156,37 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		})
 		if err != nil {
 			panic(fmt.Errorf("构造 LLM 客户端失败: %w", err))
+		}
+
+		fallbackReady := cfg.LLM.FallbackBaseURL != "" && cfg.LLM.FallbackAPIKey != "" && cfg.LLM.FallbackModel != ""
+		if fallbackReady {
+			primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+				BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
+				ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensResolved(),
+				Timeout: cfg.LLM.Timeout,
+			})
+			if e != nil {
+				panic(fmt.Errorf("构造主 LLM Provider 失败: %w", e))
+			}
+			fallback, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+				BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
+				ContextTokens: cfg.LLM.FallbackContextToken,
+			})
+			if e != nil {
+				panic(fmt.Errorf("构造降级 LLM Provider 失败: %w", e))
+			}
+			resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallback), llm.ResilientConfig{})
+			if e != nil {
+				panic(fmt.Errorf("构造 Resilient 失败: %w", e))
+			}
+			llmGen = resilient
+			log.Info("argus.boot.llm_resilient", "chain", resilient.String(),
+				"primary_ctx", cfg.LLM.ContextToken, "fallback_ctx", cfg.LLM.FallbackContextToken)
+		} else {
+			c := llm.NewClient(chatModel, cfg.LLM.Model, nil)
+			c.ContextTokens = cfg.LLM.ContextToken
+			c.MaxOutputTokens = cfg.MaxTokensResolved()
+			llmGen = c
 		}
 		log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL,
 			"context_tokens", cfg.LLM.ContextToken, "max_tokens", maxTokens,
@@ -230,6 +264,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: chatModel, ModelName: cfg.LLM.Model,
+		LLM:        llmGen,
 		Dispatcher: dispatcher, Merger: merger,
 		Poster: posterSvc, Log: log, Version: version,
 		SkillProvider: skills, SkillRefs: complianceSkillRefs,
