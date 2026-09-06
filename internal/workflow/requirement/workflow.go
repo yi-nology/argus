@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/cloudwego/eino/components/tool"
+
 	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
@@ -55,6 +57,9 @@ type Workflow struct {
 	ToolSpecs  []toolpool.ToolSpec
 	Knowledge  rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
 	SkillText  func(ctx context.Context) string // R3 方法论注入（runner 装配；nil = 无）
+	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
+	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
+	SkillTool tool.BaseTool
 	Log        logx.Logger
 
 	// R1 需求文本截断上限（字符；<=0 用包内缺省）。截断必须留痕：

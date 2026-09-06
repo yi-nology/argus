@@ -102,6 +102,12 @@ type Config struct {
 	// Debug 留存阶段产物（R1 spec/R2 摘要/R3 原始输出）到任务记录，GET /tasks/:id 可查。
 	Debug bool
 
+	// SkillMode skill 注入模式（ARGUS_SKILL_MODE）：
+	//   inject（默认）= 全文拼进 R3 系统提示词（现状，skill 少/小时最优）；
+	//   tool          = 决策使用（渐进披露）——提示词只注入可用清单（名称+描述），
+	//                   R3 agent 经 use_skill 工具按需加载全文（skill 多/大时用）。
+	SkillMode string
+
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
 	MilvusAddr      string // Milvus 地址，如 "localhost:19530"
 	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
@@ -256,6 +262,7 @@ func Load() *Config {
 		OctopusUser:            envStr("ARGUS_OCTOPUS_USER", "argus-bot"),
 		OctopusToken:           os.Getenv("ARGUS_OCTOPUS_TOKEN"),
 		Debug:                  envBool("ARGUS_DEBUG", false),
+		SkillMode:              envStr("ARGUS_SKILL_MODE", "inject"),
 		// Milvus 向量检索
 		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
 		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),

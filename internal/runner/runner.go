@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
 	"golang.org/x/time/rate"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -81,6 +82,7 @@ func (r *Runner) skillText(_ context.Context) string {
 	// 用 Background ctx：skill 是本地文件读取，不需要任务级取消。
 	bgCtx := context.Background()
 	var parts []string
+	toolMode := r.Cfg.SkillMode == "tool"
 	for _, ref := range r.SkillRefs {
 		name, ver := ref, ""
 		if i := strings.Index(ref, "@"); i >= 0 {
@@ -89,6 +91,15 @@ func (r *Runner) skillText(_ context.Context) string {
 		s, err := r.SkillProvider.Resolve(bgCtx, skill.Ref{Name: name, Version: ver, Source: "file"})
 		if err != nil {
 			r.Log.Warn("argus.runner.skill_resolve_failed", "ref", ref, "error", err.Error())
+			continue
+		}
+		if toolMode {
+			// 渐进披露：只给名称+描述（agent 决策依据），正文走 use_skill 工具
+			desc := s.Description
+			if desc == "" {
+				desc = "（无描述）"
+			}
+			parts = append(parts, fmt.Sprintf("- **%s**：%s", s.Name, desc))
 			continue
 		}
 		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
@@ -110,6 +121,15 @@ func (r *Runner) WorkflowFactory() adapter_builtin.WorkflowFactory {
 // buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
 // 其余字段全部共享引用，构造成本可忽略。
 func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow {
+	// 决策使用模式：use_skill 工具进 R3 工具表（与静态注入互斥，ARGUS_SKILL_MODE）
+	var skillTool tool.BaseTool
+	if r.Cfg.SkillMode == "tool" && r.SkillProvider != nil && len(r.SkillRefs) > 0 {
+		if st, e := skill.AsSkillTool(r.SkillProvider, r.SkillRefs); e == nil {
+			skillTool = st
+		} else {
+			r.Log.Warn("argus.runner.skill_tool_failed", "error", e.Error(), "fallback", "静态注入")
+		}
+	}
 	// 优先使用装配期构造的 Generator（*llm.Client 或 *llm.Resilient 降级链）；
 	// 通过 BudgetInjector 注入任务级预算（Resilient 副本共享熔断状态，Client 浅拷贝）。
 	var gen llm.Generator
@@ -134,6 +154,7 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 	}
 	return &requirement.Workflow{
 		LLM:              gen,
+		SkillTool:        skillTool,
 		SDK:              r.SDK,
 		Dispatcher:       r.Dispatcher,
 		Merger:           r.Merger,

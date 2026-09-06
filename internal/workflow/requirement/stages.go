@@ -457,6 +457,11 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			tools = append(tools, kt)
 		}
 	}
+	if w.SkillTool != nil {
+		// 决策使用模式：提示词只带可用清单（runner.skillText 返回摘要），
+		// 全文由 agent 按相关性经 use_skill 工具按需加载
+		tools = append(tools, w.SkillTool)
+	}
 	if w.Tools != nil {
 		extra, err := w.Tools.Tools(ctx, w.ToolSpecs)
 		if err != nil {
