@@ -126,3 +126,23 @@ func TestWebhook_BodyTooLarge(t *testing.T) {
 		t.Fatal("WebhookMaxBody=0 时不应 413")
 	}
 }
+
+func TestExtractSuppressFP(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"suppress fp:abcd1234", "abcd1234", true},
+		{"suppress fp:ABCD1234 更正", "abcd1234", true},
+		{"suppress fp:abc", "", false},          // 短码过短
+		{"suppress fp:xyz123!", "", false},      // 非十六进制
+		{"ask 这段代码为什么这样写", "", false}, // 非 suppress 指令
+	}
+	for _, c := range cases {
+		got, ok := extractSuppressFP(c.in)
+		if ok != c.ok || got != c.want {
+			t.Errorf("extractSuppressFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}

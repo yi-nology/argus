@@ -12,10 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/agentrun"
 	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/ekit/observability/logx"
+
 	"argus/internal/plugin"
 	"argus/internal/workflow/requirement"
 )
@@ -75,6 +79,10 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 	}, nil
 }
 
+// ToolsHook R4 复用审查工具表的钩子（bootstrap 由 runner 注入；nil = 单轮调用模式）。
+// 返回 (工具表, 策略提示, 错误)；每次调用应重建工具表（toolprior 限流计数按尝试重置）。
+type ToolsHook func(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) ([]tool.BaseTool, string, error)
+
 // Reviewer 通用 LLM 审查 agent（correctness / security…同一结构不同人设）。
 type Reviewer struct {
 	manifest  plugin.AgentManifest
@@ -82,6 +90,10 @@ type Reviewer struct {
 	llm       llm.Generator
 	skillRefs []skill.Ref
 	skills    skill.Provider
+	// toolsHook 非 nil 时走 ReAct 模式（agentrun + 工具表，模型可自查代码上下文）；
+	// ReAct 失败自动落回单轮 GenerateJSON——审查不因工具链故障而失败。
+	toolsHook ToolsHook
+	log       logx.Logger
 	// skillText 惰性解析缓存（含 checksum 头），10 分钟周期刷新。
 	// 改 skill 文件后无需重启，下一个任务自动加载新内容。
 	skillMu      sync.Mutex
@@ -92,11 +104,14 @@ type Reviewer struct {
 
 // NewReviewer 构造通用审查 agent。skillRefs 在启动期一次性解析进提示词缓存。
 func NewReviewer(m plugin.AgentManifest, focus string, client llm.Generator,
-	skillRefs []string, sp skill.Provider) (*Reviewer, error) {
+	skillRefs []string, sp skill.Provider, opts ...ReviewerOption) (*Reviewer, error) {
 	if m.Timeout <= 0 {
 		m.Timeout = 120 * time.Second
 	}
 	r := &Reviewer{manifest: m, focus: focus, llm: client}
+	for _, o := range opts {
+		o(r)
+	}
 	if sp != nil {
 		r.skills = sp
 		for _, ref := range skillRefs {
@@ -109,6 +124,15 @@ func NewReviewer(m plugin.AgentManifest, focus string, client llm.Generator,
 	}
 	return r, nil
 }
+
+// ReviewerOption 可选能力注入。
+type ReviewerOption func(*Reviewer)
+
+// WithToolsHook 启用 ReAct 模式（工具表由 runner 侧提供，复用 R3 基础设施）。
+func WithToolsHook(h ToolsHook) ReviewerOption { return func(r *Reviewer) { r.toolsHook = h } }
+
+// WithLogger 注入日志（ReAct 工具轨迹观测用；nil = 静默）。
+func WithLogger(log logx.Logger) ReviewerOption { return func(r *Reviewer) { r.log = log } }
 
 func (r *Reviewer) Manifest() plugin.AgentManifest { return r.manifest }
 
@@ -146,8 +170,101 @@ func (r *Reviewer) ensureSkillText(_ context.Context) {
 	r.skillRefresh = time.Now().Add(10 * time.Minute)
 }
 
-// Invoke 执行审查：数据区（diff + 变更摘要）→ LLM → findings JSON → Result。
+// Invoke 执行审查：toolsHook 非 nil 走 ReAct（模型可经 get_file 等工具核实上下文），
+// 失败自动落回单轮 GenerateJSON；否则直接单轮。
 func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, error) {
+	if r.toolsHook != nil {
+		res, err := r.invokeReAct(ctx, task)
+		if err == nil {
+			return res, nil
+		}
+		if r.log != nil {
+			r.log.Warn("argus.builtin.react_fallback", "plugin", r.manifest.Name,
+				"error", err.Error(), "fallback", "单轮调用")
+		}
+	}
+	return r.invokeSingle(ctx, task)
+}
+
+// invokeReAct ReAct 模式：工具表（toolprior 三层约束）+ agentrun 运行样板。
+// 注意：RawModel 旁路绕过 llm 预算注入——token 成本经 obsx OnUsage 回流记账
+// （agentkit v0.7.2），预算硬截断暂不覆盖此路径（与 R3 同语义）。
+func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Result, error) {
+	tools, strategy, err := r.toolsHook(ctx, task, task.Budget)
+	if err != nil {
+		return plugin.Result{}, fmt.Errorf("工具表构造失败: %w", err)
+	}
+	if len(tools) == 0 {
+		return plugin.Result{}, fmt.Errorf("工具表为空")
+	}
+
+	r.ensureSkillText(ctx)
+	sys := r.systemPrompt()
+	if strategy != "" {
+		sys += "\n\n===【工具使用策略】===\n" + strategy
+	}
+	if r.skillText != "" {
+		sys += "\n\n===【审查方法论（skill 注入）】===\n" + r.skillText
+	}
+
+	var user strings.Builder
+	if task.Diff != nil && task.Diff.Text != "" {
+		user.WriteString(requirement.DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString("\n")
+	}
+	if s := task.Artifacts["change_summary"]; s != "" {
+		user.WriteString(requirement.DataFence("变更摘要", s))
+		user.WriteString("\n")
+	}
+	user.WriteString("\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。")
+
+	// 工具轨迹落日志（tool_result 只落长度不落内容）
+	var onEvent func(agentrun.Event)
+	if r.log != nil {
+		onEvent = func(e agentrun.Event) {
+			switch e.Type {
+			case agentrun.EventToolCall:
+				r.log.Info("argus.builtin.tool_call", "plugin", r.manifest.Name, "tool", e.Tool)
+			case agentrun.EventToolResult:
+				r.log.Info("argus.builtin.tool_result", "plugin", r.manifest.Name, "tool", e.Tool, "bytes", len(e.Text))
+			}
+		}
+	}
+
+	final, err := agentrun.RunWithEvents(ctx, agentrun.Config{
+		Name:          r.manifest.Name,
+		Description:   "代码审查专家（" + r.focus + "）",
+		Instruction:   sys,
+		Model:         r.llm.RawModel(),
+		MaxIterations: 12,
+		ToolsFactory: func() []tool.BaseTool {
+			// 每次尝试重建：WithCallLimit 限流计数按尝试重置（agentrun v0.7.0）
+			t, _, e := r.toolsHook(ctx, task, task.Budget)
+			if e != nil {
+				return nil
+			}
+			return t
+		},
+	}, user.String(), onEvent)
+	if err != nil {
+		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
+	}
+
+	var out struct {
+		Findings []plugin.Finding `json:"findings"`
+		Notes    string           `json:"notes"`
+	}
+	if e := json.Unmarshal([]byte(llm.ExtractJSON(final)), &out); e != nil {
+		return plugin.Result{}, fmt.Errorf("ReAct 输出解析失败: %w", e)
+	}
+	for i := range out.Findings {
+		out.Findings[i].By = r.manifest.Name
+	}
+	return plugin.Result{Findings: out.Findings, Notes: out.Notes}, nil
+}
+
+// invokeSingle 单轮调用（原路径；ReAct 的降级兜底）。
+func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.Result, error) {
 	r.ensureSkillText(ctx)
 
 	sys := r.systemPrompt()

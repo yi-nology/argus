@@ -87,6 +87,10 @@ type Config struct {
 	// 超限任务直接 failed（不调 LLM）。0 = 关闭（缺省）。
 	RepoMonthlyTokenBudget int
 
+	// LLMCostPromptPer1K / LLMCostCompletionPer1K 每 1000 token 单价（美元），
+	// 用于报告成本摘要与成本记账；0 = 不计价（报告不出现成本行）。
+	LLMCostPromptPer1K     float64
+	LLMCostCompletionPer1K float64
 	// LLMRateLimit 全局 LLM 请求速率限制（requests/sec）；0 = 不限速。
 	// 配合 LLMRateBurst 使用，token bucket 限速器在 LLM 调用前阻塞等待。
 	LLMRateLimit float64
@@ -165,6 +169,11 @@ func (c *Config) MaxTokensResolved() int {
 		return c.LLM.MaxTokens
 	}
 	return c.budgetBase().MaxOutputTokens()
+}
+
+// CostPer1K 每 1000 token 单价（prompt, completion），报告/记账换算用。
+func (c *Config) CostPer1K() [2]float64 {
+	return [2]float64{c.LLMCostPromptPer1K, c.LLMCostCompletionPer1K}
 }
 
 // MaxTokensParam LLM 请求参数用：显式负值原样透传（agentkit v0.7.0 语义 = 不下发
@@ -266,6 +275,8 @@ func Load() *Config {
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),
 		TaskRetentionDays:      envInt("ARGUS_TASK_RETENTION_DAYS", 0),
 		RepoMonthlyTokenBudget: envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
+		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
+		LLMCostCompletionPer1K: envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
 		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),

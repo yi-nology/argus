@@ -429,8 +429,12 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 
 	// ---- 优先级表：三层决策约束（指引/排序/限制），见 agentkit/toolprior ----
 	table := toolprior.NewTable()
+	getFileWhen := "核实 AC 证据的唯一来源：每条 implemented/partial 判定前必查"
+	if spec == nil {
+		getFileWhen = "核实 diff 看不到的实现上下文（调用方/边界条件/历史约定）时使用"
+	}
 	table.Add(toolprior.Entry{Tool: getFile, Priority: toolprior.PriorityCore,
-		When: "核实 AC 证据的唯一来源：每条 implemented/partial 判定前必查", Cost: "low"})
+		When: getFileWhen, Cost: "low"})
 	// 条件暴露：需求未引用 issue 时 get_issue 是死工具，不进表（省模型注意力）
 	if spec == nil || len(spec.IssueRefs) > 0 {
 		table.Add(toolprior.Entry{Tool: getIssue, Priority: toolprior.PriorityCore,
@@ -474,6 +478,13 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 
 	strategy := table.StrategyPrompt(ctx)
 	return table.Ordered(ctx), strategy, nil
+}
+
+// ReviewTools R4 复用：审查工具表（get_file/get_diff/知识/技能/外部 MCP；
+// spec 传 nil 自动跳过 AC 判定专属的 get_issue，When 文案切审查语境）。
+// 与 R3 共用同一套工具基础设施——diffprep 清洗、数据区围栏、限流包装全部一致。
+func (w *Workflow) ReviewTools(ctx context.Context, task plugin.Task) ([]tool.BaseTool, string, error) {
+	return w.r3Tools(ctx, task, nil)
 }
 
 // asInvokable BaseTool → InvokableTool 断言（不可调用工具跳过外部限制包装）。

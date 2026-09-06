@@ -3,8 +3,8 @@ package requirement
 import (
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // acSpec 构造 R1/R3 用例数据：每个 acStatus 生成一条 AC 与对应 check。

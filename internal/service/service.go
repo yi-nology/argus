@@ -21,18 +21,20 @@ import (
 	"github.com/yi-nology/git-platform-sdk/provider"
 	"gorm.io/gorm"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"git.example.com/enjoydream/agentkit/severity"
+	mw "git.example.com/enjoydream/ekit/middleware"
 
 	api "argus/biz/model/api"
-	"git.example.com/enjoydream/agentkit/audit"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
 	"argus/internal/workflow/requirement"
+	"git.example.com/enjoydream/agentkit/audit"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/safejson"
 )
 
 // Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).
@@ -43,19 +45,20 @@ const (
 
 // Service 门面：biz handler 只跟它说话。
 type Service struct {
-	Cfg      *config.Config
-	Audit    *audit.Logger // 审计日志（nil 安全）
-	Store    *storage.Store
-	SDK      *argusctx.SDKCtx
-	Registry *plugin.Registry
-	Log      Logger
-	Version  string
-	Bus      *progress.Bus         // 任务进度事件（v3.1 SSE 数据源；nil 安全）
-	Model    model.BaseChatModel   // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
+	Cfg       *config.Config
+	Audit     *audit.Logger // 审计日志（nil 安全）
+	Store     *storage.Store
+	SDK       *argusctx.SDKCtx
+	Registry  *plugin.Registry
+	Log       Logger
+	Version   string
+	Bus       *progress.Bus        // 任务进度事件（v3.1 SSE 数据源；nil 安全）
+	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
+	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
 
 	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
-	qaThrottleMu sync.Mutex
-	qaThrottles  map[string]time.Time // PR 级 30s 节流
+	qaThrottleMu     sync.Mutex
+	qaThrottles      map[string]time.Time // PR 级 30s 节流
 	qaSeenDeliveries map[string]time.Time // delivery ID 幂等（防平台重试）
 }
 
@@ -417,6 +420,11 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		s.log().Error("argus.api.suppress_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
+	if matched {
+		// 知识飞轮（v3.3）：误报结论回流知识库——R3 search_knowledge 命中
+		// "本仓库历史误报"即带抑制上下文，同型误报率随使用下降
+		s.recordFalsePositiveKnowledge(ctx, platform, req.Owner, req.Repo, req.Number, fp, file, comment)
+	}
 	s.log().Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
 	if s.Audit != nil {
@@ -741,6 +749,28 @@ func isDigits(s string) bool {
 
 // ---------- Q&A 评论交互（@argus ask）----------
 
+// recordFalsePositiveKnowledge 误报结论回流知识库（Milvus 模式；Local 模式跳过——
+// configmap 只读目录不可写，且跨仓库泛化本就需要向量语义）。内容经 safejson
+// 转义（半可信：包含开发者手输的反馈语境）。幂等：同 fp 重复反馈重复入库无碍
+// （检索打分摊薄），主键确定性 file#chunk_N 覆盖旧行。
+func (s *Service) recordFalsePositiveKnowledge(ctx context.Context, platform, owner, repo, number, fp, file, comment string) {
+	ms, ok := s.Knowledge.(*rag.MilvusStore)
+	if !ok {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("## 历史误报记录（开发者反馈）\n\n")
+	b.WriteString(fmt.Sprintf("- 仓库：%s/%s#%s\n- 文件：%s\n- 指纹：%s\n\n", owner, repo, number, file, fp))
+	b.WriteString("原审查意见：\n\n> " + safejson.EscapeUntrusted(comment) + "\n\n")
+	b.WriteString("开发者判定：以上意见为**误报**，同型问题在本仓库语境下不成立；检索到本条时请下调该类问题的置信度并核对历史语境。")
+	if err := ms.Index(ctx, fmt.Sprintf("feedback/%s/%s#%s/%s", owner, repo, number, fp[:8]), b.String()); err != nil {
+		s.log().Warn("argus.feedback.knowledge_failed", "fp", fp[:8], "error", err.Error())
+		return
+	}
+	s.log().Info("argus.feedback.knowledge_recorded", "fp", fp[:8], "repo", owner+"/"+repo)
+	s.Audit.Log("feedback.suppressed", "repo", owner+"/"+repo, "fp", fp[:8])
+}
+
 // qaCommentPayload 解析 issue_comment webhook 原始负载中我们关心的字段。
 // 仅用于从 RawPayload 提取评论正文与 PR 信息，不做全量反序列化。
 type qaCommentPayload struct {
@@ -748,9 +778,9 @@ type qaCommentPayload struct {
 		Body string `json:"body"`
 	} `json:"comment"`
 	Issue struct {
-		Number     int    `json:"number"`
-		Title      string `json:"title"`
-		HTMLURL    string `json:"html_url"`
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		HTMLURL     string `json:"html_url"`
 		PullRequest struct {
 			URL string `json:"url"` // 非空 = 这是 PR（不是普通 issue）
 		} `json:"pull_request"`
@@ -821,10 +851,17 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 	question := extractQuestion(payload.Comment.Body, s.Cfg.BotUsername)
 	if question == "" {
-		return // 不含 @argus ask 指令，忽略
+		return // 不含 @argus 指令，忽略
 	}
 	if payload.Issue.PullRequest.URL == "" {
 		return // 普通 issue 上的评论，不处理
+	}
+
+	// /argus suppress fp:xxxxxxxx —— 误报反馈（v3.3 知识飞轮入口）：
+	// 抑制该指纹后续轮次 + 结论回流知识库。评论轻量路径，不建任务。
+	if fp, ok := extractSuppressFP(question); ok {
+		s.handleSuppressComment(ctx, ev, payload.Issue.Number, fp, payload.Comment.Body)
+		return
 	}
 
 	prNum := fmt.Sprintf("%d", payload.Issue.Number)
@@ -894,6 +931,60 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 // extractQuestion 从评论正文提取 @argus ask 后面的问题文本。
 // 支持 "@argus ask ..." 和 "@argus ..." 两种格式；返回空串表示不匹配。
+// extractSuppressFP 解析 "suppress fp:xxxxxxxx" 指令（fp 短码 ≥6 位十六进制）。
+func extractSuppressFP(question string) (string, bool) {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), "suppress"))
+	if !strings.HasPrefix(strings.ToLower(rest), "fp:") {
+		return "", false
+	}
+	fp := strings.TrimSpace(rest[len("fp:"):])
+	if i := strings.IndexAny(fp, " \t\n"); i >= 0 {
+		fp = fp[:i]
+	}
+	if len(fp) < 6 || len(fp) > 64 {
+		return "", false
+	}
+	for _, r := range fp {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return "", false
+		}
+	}
+	return strings.ToLower(fp), true
+}
+
+// handleSuppressComment 处理 MR 评论里的误报反馈：短码解析完整指纹 → 抑制入库 →
+// 知识回流 → 回帖确认。复用 SuppressFinding 服务路径（同一套幂等与回流逻辑）。
+func (s *Service) handleSuppressComment(ctx context.Context, ev *provider.NormalizedEvent,
+	number int, fpPrefix, commentBody string) {
+	platform := string(ev.Source)
+	num := fmt.Sprintf("%d", number)
+	req := &api.SuppressFindingRequest{
+		Platform: platform, Owner: ev.Repo.Owner, Repo: ev.Repo.Name, Number: num,
+		Fingerprint: strPtr(fpPrefix),
+		Comment:     strPtr(commentBody),
+	}
+	resp, status := s.SuppressFinding(ctx, req)
+	if resp == nil {
+		s.log().Warn("argus.feedback.comment_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "status", status)
+		return
+	}
+	reply := "已收到误报反馈。"
+	if !resp.Matched {
+		reply = "未找到匹配的意见指纹，请核对报告中 `fp:` 开头的短码后重试。"
+	} else {
+		reply = "已标记为误报：后续轮次自动抑制" + s.knowledgeSuffix() + "。"
+	}
+	s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, reply)
+}
+
+// knowledgeSuffix 报告尾注（知识回流是否生效取决于后端模式）。
+func (s *Service) knowledgeSuffix() string {
+	if _, ok := s.Knowledge.(*rag.MilvusStore); ok {
+		return "，误报结论已回流知识库（同型问题检索时将带历史语境）"
+	}
+	return ""
+}
+
 func extractQuestion(body, botUsername string) string {
 	lower := strings.ToLower(strings.TrimSpace(body))
 	mention := "@" + strings.ToLower(botUsername)

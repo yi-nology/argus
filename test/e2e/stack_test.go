@@ -27,14 +27,14 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
 	"argus/internal/runner"
 	"argus/internal/service"
 	"argus/internal/storage"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/workcopy"
 	agentkitworker "git.example.com/enjoydream/agentkit/worker"
 
 	argusworker "argus/internal/worker"
@@ -326,7 +326,7 @@ type stackOpts struct {
 	r3          string
 	correctness string
 	withOCR     bool
-	withACPX    bool // acpx 插件（假 kimi CLI 进 PATH，验证 bootstrap→R4→合并全链路）
+	withACPX    bool              // acpx 插件（假 kimi CLI 进 PATH，验证 bootstrap→R4→合并全链路）
 	realLLM     bool              // true = 用环境变量 OPENAI_* 的真实模型（集成测试），不用 mock
 	debug       bool              // ARGUS_DEBUG：留存阶段产物
 	skills      map[string]string // skillRef name → content

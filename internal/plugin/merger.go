@@ -2,7 +2,9 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -28,9 +30,10 @@ type PrintState struct {
 
 // MergedFindings Merger 产出。
 type MergedFindings struct {
-	Findings   []Finding // 归一化 + 轮内去重 + 抑制剔除后，severity 降序
-	Suppressed int       // 因误报反馈被抑制的条数（报告脚注提示）
-	Degraded   []string  // 降级注明（插件失败/超时/裁剪）
+	Findings    []Finding // 归一化 + 轮内去重 + 抑制剔除后，severity 降序
+	Suppressed  int       // 因误报反馈被抑制的条数（报告脚注提示）
+	Degraded    []string  // 降级注明（插件失败/超时/裁剪）
+	CrossReview string    // 交叉审查编队注记（"claude+kimi，分歧 1 处"；空 = 无编队）
 }
 
 // Merger 合并器（design §3.3，全部确定性）：
@@ -45,6 +48,74 @@ type Merger struct {
 
 func NewMerger(store PrintStore, log logx.Logger) *Merger {
 	return &Merger{store: store, log: log}
+}
+
+// AnnotateCrossReview 交叉审查分歧标注（v3.3）：编队成员（≥2）对同一文件
+// ±5 行内各自报告了不同指纹的意见时，给"仅一方报告"的意见追加分歧标注——
+// 人审时优先看专家意见不一致的区域。幂等：重复调用不叠加标注。
+func (m *Merger) AnnotateCrossReview(mf *MergedFindings, members []string) {
+	if mf == nil || len(members) < 2 {
+		return
+	}
+	memberSet := map[string]bool{}
+	for _, n := range members {
+		memberSet[n] = true
+	}
+	m.annotateCross(mf, memberSet)
+}
+
+// annotateCross 实际标注（AnnotateCrossReview 的实现体，独立便于测试）。
+func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
+	const crossMark = "⚠️ 交叉审查分歧"
+	// 先剥离旧标注（幂等）
+	for i := range mf.Findings {
+		f := &mf.Findings[i]
+		if idx := strings.Index(f.Comment, "（"+crossMark); idx >= 0 {
+			f.Comment = strings.TrimSpace(f.Comment[:idx])
+		}
+	}
+	type rec struct {
+		idx  int
+		by   string
+		line int
+		file string
+	}
+	var recs []rec
+	for i, f := range mf.Findings {
+		if !memberSet[f.By] {
+			continue
+		}
+		recs = append(recs, rec{idx: i, by: f.By, line: f.Line, file: f.File})
+	}
+	if len(recs) < 2 {
+		return
+	}
+	disagreed := 0
+	for _, a := range recs {
+		replicated := false
+		for _, b := range recs {
+			if a.idx == b.idx || a.by == b.by || a.file != b.file {
+				continue
+			}
+			if abs(a.line-b.line) <= 5 {
+				replicated = true
+				break
+			}
+		}
+		if !replicated {
+			f := &mf.Findings[a.idx]
+			f.Comment += fmt.Sprintf("（%s：编队另一专家未复现此问题，请优先人工复核）", crossMark)
+			disagreed++
+		}
+	}
+	if disagreed > 0 {
+		var names []string
+		for n := range memberSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		mf.CrossReview = fmt.Sprintf("%s 编队交叉审查，分歧 %d 处已标注", strings.Join(names, "+"), disagreed)
+	}
 }
 
 // Merge 执行合并。pluginNameOf 提供 finding 归属（ Outcome 遍历时注入）。

@@ -58,6 +58,11 @@ type Runner struct {
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
 	LLMLimiter *rate.Limiter
 
+	// Cost 全局成本追踪器（obsx OnUsage 回流；nil = 不记账）。
+	Cost *llm.CostTracker
+	// CostPer1K 模型 → 单价换算（主/备模型外的调用按 0 计）。
+	CostPer1K func(model string) [2]float64
+
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
 	SkillRefs     []string
@@ -131,6 +136,12 @@ func (r *Runner) skillText(_ context.Context) string {
 	return r.skillCache
 }
 
+// WorkflowFor 导出每任务 Workflow 构造（ReviewTools 钩子复用 R3 的工具基础设施；
+// 构造成本可忽略——字段全部共享引用）。
+func (r *Runner) WorkflowFor(budget *plugin.TokenBudget) *requirement.Workflow {
+	return r.buildWorkflow(budget)
+}
+
 // WorkflowFactory 每任务构造 Workflow（供 requirement-compliance 插件与 runner 共用）。
 // budget 决定该任务 LLM 客户端的预算累计器；nil = 不限（协议重入路径）。
 func (r *Runner) WorkflowFactory() adapter_builtin.WorkflowFactory {
@@ -195,10 +206,18 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
-	// eino callbacks 追踪：此后 ctx 链上所有 ChatModel 调用自动产出
-	// llm.call.start/end/error 结构化日志（含 stage/耗时/真实 token usage）。
-	// PreviewLen 刻意留 0（不落消息内容）——消息可能含用户代码/凭证，勿"调观测"时误设。
-	ctx = obsx.InitLLMObservability(ctx, r.Log, obsx.Options{SlowThreshold: 60 * time.Second})
+	// 任务级成本记账（P0）：obsx OnUsage 回收全部 eino 模型调用的真实 usage——
+	// 覆盖 Generate 直连路径与 ReAct agent 的 RawModel 旁路（llm.Client.OnUsage
+	// 只覆盖前者）。PreviewLen 刻意留 0（不落消息内容），勿"调观测"时误设。
+	taskCost := llm.NewCostTracker()
+	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
+	if r.Cost != nil {
+		obsOpt.OnUsage = func(component, mdl, stage string, prompt, completion int) {
+			taskCost.Record(mdl, stage, prompt, completion, r.costRate(mdl))
+			r.Cost.Record(mdl, stage, prompt, completion, r.costRate(mdl))
+		}
+	}
+	ctx = obsx.InitLLMObservability(ctx, r.Log, obsOpt)
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
@@ -229,7 +248,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		}
 	}
 
-	err = r.run(ctx, task, wf, budget, start)
+	err = r.run(ctx, task, wf, budget, start, taskCost)
 	if err == nil {
 		return nil
 	}
@@ -249,7 +268,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 }
 
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
-	budget *plugin.TokenBudget, start time.Time) error {
+	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker) error {
 
 	pr, err := r.buildPRContext(ctx, task)
 	if err != nil {
@@ -293,7 +312,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	}
 
 	// 组装报告并回帖（staleness 门控在 poster 内）
-	rep := r.buildReport(task, pr, out)
+	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
 
@@ -399,8 +418,17 @@ func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext,
 	return argusctx.PrepareIncremental(md, lastDiff, totalLimit), nil
 }
 
-// buildReport 报告输入组装（模板渲染交给 reportview）。
-func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requirement.Output) reportview.Report {
+// costRate 模型单价（主/备模型按配置费率，其余按 0 计）。
+func (r *Runner) costRate(mdl string) [2]float64 {
+	if r.CostPer1K != nil {
+		return r.CostPer1K(mdl)
+	}
+	return [2]float64{}
+}
+
+// buildReport 报告输入组装（模板渲染交给 reportview）。taskCost 非 nil 时附成本摘要。
+func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requirement.Output,
+	taskCost *llm.CostTracker) reportview.Report {
 	rep := reportview.Report{
 		TaskID:  task.ID,
 		HeadSHA: pr.HeadSHA,
@@ -410,10 +438,18 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 		Elapsed: out.Elapsed,
 		Tokens:  out.Tokens,
 	}
+	if taskCost != nil {
+		var usd float64
+		for _, ms := range taskCost.Summary() {
+			usd += ms.TotalCostUSD
+		}
+		rep.CostUSD = usd
+	}
 	if out.Merged != nil {
 		rep.Findings = out.Merged.Findings
 		rep.Degraded = out.Merged.Degraded
 		rep.Suppressed = out.Merged.Suppressed
+		rep.CrossReview = out.Merged.CrossReview
 	}
 	if out.Spec != nil {
 		rep.ShowCompliance = true

@@ -17,16 +17,27 @@ type PluginsFile struct {
 	MCPServers []MCPServerDecl `yaml:"mcpServers"`
 	// Tools 工具白名单：哪些 server 的哪些工具暴露给 agent 工具表。
 	Tools []ToolSpecDecl `yaml:"tools"`
+	// Squads 交叉审查编队：触发条件命中时把 members 追加进本轮分派
+	//（高危变更双专家交叉，Merger 按"仅一方报告"标注分歧）。
+	Squads []SquadDecl `yaml:"squads"`
+}
+
+// SquadDecl 编队声明：paths/labels 任一命中即触发（都空 = 永不触发，配置告警）。
+type SquadDecl struct {
+	Name    string   `yaml:"name"`
+	Paths   []string `yaml:"paths"`  // glob（.gitignore 语义）
+	Labels  []string `yaml:"labels"` // PR 标签任一命中
+	Members []string // 插件名（须已注册；启用中才会追加）
 }
 
 // MCPServerDecl 单个 MCP server 连接声明。
 type MCPServerDecl struct {
 	Name    string            `yaml:"name"`
-	Command []string          `yaml:"command"`          // stdio 传输
-	Env     []string          `yaml:"env"`              // stdio 子进程环境白名单
-	URL     string            `yaml:"url"`              // streamable http 传输
-	Headers map[string]string `yaml:"headers"`          // 请求头（值支持 ${VAR} 环境引用，如 Bearer token）
-	Timeout string            `yaml:"timeout"`          // "30s" 写法
+	Command []string          `yaml:"command"` // stdio 传输
+	Env     []string          `yaml:"env"`     // stdio 子进程环境白名单
+	URL     string            `yaml:"url"`     // streamable http 传输
+	Headers map[string]string `yaml:"headers"` // 请求头（值支持 ${VAR} 环境引用，如 Bearer token）
+	Timeout string            `yaml:"timeout"` // "30s" 写法
 }
 
 // ToolSpecDecl 工具白名单条目：tools: [{server: docs, allow: [search_docs]}]。

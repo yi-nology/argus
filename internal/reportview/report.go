@@ -76,12 +76,14 @@ type Report struct {
 	Rule        string // 命中的 R5 规则（R5.1..R5.5，可空）
 
 	// 元信息行（ARGUS_REPORT_META 控制，默认开）
-	Meta       bool
-	Plugins    []string
-	Elapsed    time.Duration
-	Tokens     int
-	Degraded   []string // 降级注明（插件未参与原因）
-	Suppressed int      // 被误报抑制的 finding 数（脚注）
+	Meta        bool
+	Plugins     []string
+	Elapsed     time.Duration
+	Tokens      int
+	CostUSD     float64  // 任务级估算成本（ARGUS_LLM_COST_* 配置费率；0 = 不渲染）
+	CrossReview string   // 交叉审查编队注记（空 = 无编队参与）
+	Degraded    []string // 降级注明（插件未参与原因）
+	Suppressed  int      // 被误报抑制的 finding 数（脚注）
 }
 
 // Render 渲染整份 markdown 报告（含 HTML 注释头）。
@@ -168,8 +170,15 @@ func Render(r Report) string {
 	b.WriteString("\n")
 
 	if r.Meta {
-		fmt.Fprintf(&b, "\n> task `%s` · 插件: %s · 耗时 %ds · tokens %d\n",
+		meta := fmt.Sprintf("task `%s` · 插件: %s · 耗时 %ds · tokens %d",
 			r.TaskID, strings.Join(r.Plugins, ","), int(r.Elapsed.Seconds()), r.Tokens)
+		if r.CostUSD > 0 {
+			meta += fmt.Sprintf(" · 成本 ≈ $%.4f", r.CostUSD)
+		}
+		fmt.Fprintf(&b, "\n> %s\n", meta)
+		if r.CrossReview != "" {
+			fmt.Fprintf(&b, "> 🤝 交叉审查：%s\n", EscapeUntrusted(r.CrossReview))
+		}
 		if r.Suppressed > 0 {
 			fmt.Fprintf(&b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)
 		}

@@ -103,3 +103,11 @@ agents:
 # tools:
 #   - server: docs
 #     allow: [search_docs, get_page]
+# ---- squads：交叉审查编队（v3.3）----
+# paths/labels 任一命中即把 members 追加进本轮分派（额外专家，不受 use/disable 约束，
+# 但插件须已注册且启用）。Merger 会对"仅一方报告"的意见标注交叉审查分歧。
+# squads:
+#   - name: security-double-check
+#     paths: ["**/auth/**", "**/security/**", "**/*.sql"]
+#     labels: [security]
+#     members: [claude, kimi]   # kind: acpx 插件名

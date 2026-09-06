@@ -13,10 +13,10 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // TaskKind 词表（与 IDL TaskKind 对齐）。
@@ -60,7 +60,7 @@ type Workflow struct {
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool
-	Log        logx.Logger
+	Log       logx.Logger
 
 	// R1 需求文本截断上限（字符；<=0 用包内缺省）。截断必须留痕：
 	// 在 spec.Ambiguous 追加提示 → R5.3 → 人工确认，不允许静默丢内容。
@@ -175,6 +175,10 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 	for _, p := range pruned {
 		merged.Degraded = append(merged.Degraded, p+" 未参与（token 预算裁剪）")
+	}
+	// 交叉审查分歧标注（v3.3）：编队成员对同一区域意见不一致时标给人审
+	if members := w.Dispatcher.ActiveSquadMembers(&task.PR, changedFiles); len(members) >= 2 {
+		w.Merger.AnnotateCrossReview(merged, members)
 	}
 
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）

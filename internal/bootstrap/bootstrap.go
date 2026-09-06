@@ -14,15 +14,15 @@ import (
 
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/config"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_acpx"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/plugin/adapter_cli"
 	"argus/internal/plugin/adapter_remote"
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/workcopy"
 )
 
 // Deps 构造插件所需的共享依赖。
@@ -34,6 +34,8 @@ type Deps struct {
 	Skills skill.Provider
 	// WorkflowFactory 由 runner 提供（requirement-compliance 插件延迟注册）。
 	WorkflowFactory adapter_builtin.WorkflowFactory
+	// ReviewTools 由 runner 提供（builtin Reviewer 的 ReAct 工具表钩子；nil = 单轮模式）。
+	ReviewTools adapter_builtin.ToolsHook
 }
 
 // BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置）并注册全部插件。
@@ -102,8 +104,14 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				client := llm.NewClient(d.Model, d.Cfg.LLM.Model, nil)
 				client.ContextTokens = d.Cfg.LLM.ContextToken
 				client.MaxOutputTokens = d.Cfg.MaxTokensResolved()
+				var opts []adapter_builtin.ReviewerOption
+				opts = append(opts, adapter_builtin.WithLogger(d.Log))
+				if d.ReviewTools != nil {
+					// ReAct 模式（agentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
+					opts = append(opts, adapter_builtin.WithToolsHook(d.ReviewTools))
+				}
 				p, err = adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
-					client, decl.SkillRefs, d.Skills)
+					client, decl.SkillRefs, d.Skills, opts...)
 				if err != nil {
 					return nil, nil, err
 				}

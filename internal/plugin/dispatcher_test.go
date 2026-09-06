@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,12 +12,12 @@ import (
 
 type nopPlugin struct{ manifest AgentManifest }
 
-func (p *nopPlugin) Manifest() AgentManifest                   { return p.manifest }
+func (p *nopPlugin) Manifest() AgentManifest                          { return p.manifest }
 func (p *nopPlugin) Invoke(_ context.Context, _ Task) (Result, error) { return Result{}, nil }
 
 type failPlugin struct{ manifest AgentManifest }
 
-func (p *failPlugin) Manifest() AgentManifest                   { return p.manifest }
+func (p *failPlugin) Manifest() AgentManifest { return p.manifest }
 func (p *failPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
 	return Result{}, errors.New("boom")
 }
@@ -33,8 +34,8 @@ func reg(name string, skills []string, opts ...func(*Registration)) *Registratio
 	return r
 }
 
-func withLock(r *Registration)        { r.LockRepoConfig = true }
-func withDisabled(r *Registration)    { r.Enabled = false }
+func withLock(r *Registration)     { r.LockRepoConfig = true }
+func withDisabled(r *Registration) { r.Enabled = false }
 func withCost(c string) func(*Registration) {
 	return func(r *Registration) { r.Manifest.Cost = c }
 }
@@ -289,16 +290,16 @@ func TestRun_LockBudgetExempt(t *testing.T) {
 	budget.Add(100) // 耗尽
 
 	_ = d.reg.Register(&Registration{
-		Manifest:      AgentManifest{Name: "locked"},
-		Plugin:        &nopPlugin{manifest: AgentManifest{Name: "locked"}},
-		Enabled:       true,
+		Manifest:       AgentManifest{Name: "locked"},
+		Plugin:         &nopPlugin{manifest: AgentManifest{Name: "locked"}},
+		Enabled:        true,
 		LockRepoConfig: true,
 	})
 
 	sel := []Selection{{Reg: &Registration{
-		Manifest:      AgentManifest{Name: "locked"},
-		Plugin:        &nopPlugin{manifest: AgentManifest{Name: "locked"}},
-		Enabled:       true,
+		Manifest:       AgentManifest{Name: "locked"},
+		Plugin:         &nopPlugin{manifest: AgentManifest{Name: "locked"}},
+		Enabled:        true,
 		LockRepoConfig: true,
 	}}}
 	outcomes := d.Run(context.Background(), Task{}, sel, budget)
@@ -332,4 +333,66 @@ func (p *countingPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
 	}
 	time.Sleep(10 * time.Millisecond)
 	return Result{}, nil
+}
+
+func TestSelect_SquadAppendsMembers(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(reg("gpt", []string{"code-review"}))
+	registry.Register(reg("claude", []string{"code-review"}))
+	registry.Register(reg("kimi", []string{"code-review"}))
+	d := NewDispatcher(registry, testNopLogger{}).
+		WithSquads([]SquadDecl{{
+			Name: "sec", Paths: []string{"**/auth/**"}, Members: []string{"claude", "kimi"},
+		}})
+
+	pr := &PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}
+	sel := d.Select(pr, []string{"pkg/auth/login.go"}, []string{"code-review"}, nil)
+
+	names := map[string]string{}
+	for _, s := range sel {
+		names[s.Reg.Manifest.Name] = s.Reason
+	}
+	if names["gpt"] != "base" {
+		t.Fatalf("gpt 应 base 入选: %+v", names)
+	}
+	// claude/kimi 已有 base 原因 → 去重保留；编队追加只对未入选成员生效
+	if _, ok := names["claude"]; !ok {
+		t.Fatal("claude 应入选")
+	}
+	if m := d.ActiveSquadMembers(pr, []string{"pkg/auth/x.go"}); len(m) != 2 {
+		t.Fatalf("ActiveSquadMembers 应返回 2 成员: %v", m)
+	}
+	// 未命中触发条件：不追加
+	if m := d.ActiveSquadMembers(pr, []string{"pkg/other/x.go"}); len(m) != 0 {
+		t.Fatalf("未命中不应触发编队: %v", m)
+	}
+}
+
+func TestMergerAnnotateCrossReview(t *testing.T) {
+	m := NewMerger(nil, testNopLogger{})
+	mf := &MergedFindings{Findings: []Finding{
+		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针风险", By: "claude"},
+		{File: "a.go", Line: 12, Severity: "medium", Comment: "边界未检查", By: "kimi"},
+		{File: "b.go", Line: 30, Severity: "low", Comment: "命名", By: "claude"}, // kimi 未复现 → 标注
+		{File: "c.go", Line: 1, Severity: "low", Comment: "非编队", By: "gpt"},    // 非：编队意见不标注
+	}}
+	m.AnnotateCrossReview(mf, []string{"claude", "kimi"})
+
+	if mf.CrossReview == "" {
+		t.Fatal("应有编队注记: " + mf.CrossReview)
+	}
+	if !strings.Contains(mf.Findings[2].Comment, "交叉审查分歧") {
+		t.Fatalf("仅一方报告的意见应标注分歧: %q", mf.Findings[2].Comment)
+	}
+	if strings.Contains(mf.Findings[0].Comment, "交叉审查分歧") || strings.Contains(mf.Findings[1].Comment, "交叉审查分歧") {
+		t.Fatal("双方都覆盖的区域不应标注")
+	}
+	if strings.Contains(mf.Findings[3].Comment, "交叉审查分歧") {
+		t.Fatal("非编队来源不得标注")
+	}
+	// 幂等：重复调用不叠加
+	m.AnnotateCrossReview(mf, []string{"claude", "kimi"})
+	if strings.Count(mf.Findings[2].Comment, "交叉审查分歧") != 1 {
+		t.Fatalf("标注应幂等: %q", mf.Findings[2].Comment)
+	}
 }

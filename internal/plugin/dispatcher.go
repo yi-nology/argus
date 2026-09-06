@@ -63,6 +63,7 @@ func (o Outcome) Notes() string {
 
 // Dispatcher 确定性路由 + fan-out 执行（design §3.3）。
 type Dispatcher struct {
+	squads   []SquadDecl
 	reg      *Registry
 	breakers *breaker.Breakers
 	log      logx.Logger
@@ -91,6 +92,36 @@ func (d *Dispatcher) Breakers() *breaker.Breakers { return d.breakers }
 //   - lockRepoConfig 插件无视仓库配置，只要触发即参与（红线 3）；
 //   - 仓库 use 非空 = 白名单（锁定插件除外）；disable 黑名单；
 //   - routing 命中（paths/labels）追加其 use 引用的插件。
+//
+// WithSquads 注入交叉审查编队声明（plugins.yaml squads 段；链式）。
+func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
+	d.squads = sq
+	return d
+}
+
+// ActiveSquadMembers 命中触发条件的编队成员名（去重、保序；交叉审查分歧标注用）。
+func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []string {
+	if len(d.squads) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var members []string
+	for _, sq := range d.squads {
+		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
+			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
+		if !matched {
+			continue
+		}
+		for _, m := range sq.Members {
+			if !seen[m] {
+				seen[m] = true
+				members = append(members, m)
+			}
+		}
+	}
+	return members
+}
+
 func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
 	var out []Selection
 	seen := map[string]bool{} // O(1) 去重，替代 O(N) 线性扫描
@@ -170,7 +201,26 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 		}
 	}
 
-	// 稳定顺序：lock > base/use > routing，同类按名称字母序（Registry.Snapshot 已排序）
+	// 交叉审查编队追加（v3.3）：触发条件命中时把成员追加进本轮（skills 词表
+	// 不做限制——编队是"额外专家"，不受仓库 use/disable 白名单约束，
+	// 但插件必须在注册表且启用中；成员已在表中的不重复追加）
+	for _, sq := range d.squads {
+		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
+			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
+		if !matched {
+			continue
+		}
+		for _, n := range sq.Members {
+			reg, ok := d.reg.Get(n)
+			if !ok || !reg.Enabled || seen[n] {
+				continue
+			}
+			seen[n] = true
+			out = append(out, Selection{Reg: reg, Reason: "squad:" + sq.Name})
+		}
+	}
+
+	// 稳定顺序：lock > base/use > routing > squad，同类按名称字母序（Registry.Snapshot 已排序）
 	return out
 }
 

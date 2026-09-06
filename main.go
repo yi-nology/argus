@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -258,6 +259,14 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			}
 			return runnerRef.WorkflowFactory()(budget)
 		},
+		// R4 builtin ReAct 化：Reviewer 复用 R3 工具基础设施（get_file/get_diff/
+		// 知识/技能/MCP），失败自动落回单轮调用
+		ReviewTools: func(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+			if runnerRef == nil {
+				return nil, "", fmt.Errorf("runner 未就绪")
+			}
+			return runnerRef.WorkflowFor(budget).ReviewTools(ctx, task)
+		},
 	})
 	if err != nil {
 		panic(err)
@@ -283,6 +292,16 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		}
 	}
 
+	// ---- LLM 成本记账（obsx OnUsage 回流，覆盖直连与 ReAct RawModel 两条路径）----
+	costTracker := llm.NewCostTracker()
+	costRates := cfg.CostPer1K()
+	costPer1K := func(mdl string) [2]float64 {
+		if mdl == cfg.LLM.Model || mdl == cfg.LLM.FallbackModel {
+			return costRates // 备用模型按同一费率近似（百炼兼容端点同价）
+		}
+		return [2]float64{}
+	}
+
 	dispatcher := plugin.NewDispatcher(reg, log)
 	merger := plugin.NewMerger(store, log)
 	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
@@ -299,6 +318,8 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		Notify:     imNotify,
 		Knowledge:  knowledge,
 		LLMLimiter: llmLimiter,
+		Cost:       costTracker,
+		CostPer1K:  costPer1K,
 	}
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
@@ -346,7 +367,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	}
 
 	// ---- service + biz 接线 ----
-	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
+	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg, Knowledge: knowledge,
 		Log: log, Bus: bus, Model: chatModel,
 		Audit: audit.New(log, "argus-audit"), Version: version}
 	hapi.SetService(svc)

@@ -14,8 +14,8 @@ import (
 
 	"git.example.com/enjoydream/agentkit/textutil"
 
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。
@@ -125,4 +125,3 @@ func parseFindings(text string) (plugin.Result, error) {
 func textFromContents(texts []string) string {
 	return strings.Join(texts, "\n")
 }
-

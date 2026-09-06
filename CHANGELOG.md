@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.3.0 (2026-09-07) — 基于 agentkit v0.7.1/v0.7.2 的能力迭代
+
+### P0 成本记账
+- obsx OnUsage（agentkit v0.7.2）回收全部 eino 模型调用的真实 usage——覆盖 Generate 直连与 ReAct RawModel 两条路径
+- 任务级 + 全局 CostTracker；报告元信息行新增 `成本 ≈ $X`（ARGUS_LLM_COST_PROMPT_PER_1K / ARGUS_LLM_COST_COMPLETION_PER_1K 配置费率）
+
+### P2 builtin Reviewer ReAct 化
+- Reviewer 可选挂载工具表钩子（复用 R3 的 get_file/get_diff/search_knowledge/use_skill/MCP 工具基础设施，Workflow.ReviewTools 导出）
+- agentrun.RunWithEvents 驱动，ToolsFactory 按尝试重建工具表（toolprior 限流计数按尝试重置）；ReAct 失败自动落回单轮 GenerateJSON——审查不因工具链故障而失败
+- 工具轨迹（tool_call/tool_result）落结构化日志
+
+### P3 交叉审查编队
+- plugins.yaml 新增 `squads:` 段：paths/labels 触发 → 成员追加进本轮分派（squad: 原因可观测）
+- Merger.AnnotateCrossReview：编队成员对同一文件 ±5 行"仅一方报告"的意见标注分歧，报告头显示编队注记
+
+### P4 知识飞轮
+- SuppressFinding（HTTP + MR 评论 `/argus suppress fp:xxxxxxxx`）成功后误报结论回流知识库（Milvus 模式；内容经 safejson 转义）
+- R3 search_knowledge 检索命中历史误报即带抑制语境——同型误报率随使用下降
+
 ## v3.0.3 — 2026-08-31（ekit v0.17.3 升级 + bootstrap 生命周期接管）
 
 ekit v0.17.0 → v0.17.4（v0.17.1/2 app-lifecycle 顺序死锁修复 + v0.17.3 timedWait

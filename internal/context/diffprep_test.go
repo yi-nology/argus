@@ -318,7 +318,7 @@ func TestPrepareIncremental_RawDiffBackfill(t *testing.T) {
 	raw := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ +1 @@\n+new line\n"
 
 	md := &provider.MergeDiff{
-		Files:  []*provider.ChangedFile{{NewPath: "a.go", Additions: 1}},
+		Files:   []*provider.ChangedFile{{NewPath: "a.go", Additions: 1}},
 		RawDiff: raw,
 	}
 	dc := PrepareIncremental(md, lastDiff, 100000)
