@@ -6,8 +6,6 @@ codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 h1:s2fK+FBwvcYsmKDjNhmoe7B8
 codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-git.example.com/enjoydream/agentkit v0.2.3 h1:C8k6wniv2/YJfsLS2bSHkI6ioFmQzmXTlO8ZFyxpshU=
-git.example.com/enjoydream/agentkit v0.2.3/go.mod h1:u0JxYOYXPQ9DpMiFm10uB6BF6zTFH2Kh9/Ue8nQFv5M=
 git.example.com/enjoydream/ekit v0.20.1 h1:9CpQi9/GO4CUnNU0Q3BIjD0gkdO0RbWpYt+kpqK+Gzo=
 git.example.com/enjoydream/ekit v0.20.1/go.mod h1:YQlrAPdwMKhCe0wzgDcO/JLoTYXRJwDAPEbchceDkfM=
 gitee.com/openeuler/go-gitee v0.0.0-20251225091545-a0f78272dafc h1:6t9GlxYbB3vKZGpK86vr55FfPPqRRZE2L0SXbQNi+s8=

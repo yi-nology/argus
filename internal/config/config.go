@@ -45,6 +45,10 @@ type LLMConfig struct {
 	FallbackAPIKey       string
 	FallbackModel        string
 	FallbackContextToken int
+
+	// 降级链调优（可选）：
+	LLMResilienceRetries  int           // 每模型重试次数（默认 2）
+	LLMResilienceBaseDelay time.Duration // 重试退避基准（默认 2s）
 }
 
 // Config 服务全局配置。
@@ -272,6 +276,9 @@ func Load() *Config {
 			FallbackAPIKey:       os.Getenv("OPENAI_FALLBACK_API_KEY"),
 			FallbackModel:        os.Getenv("OPENAI_FALLBACK_MODEL"),
 			FallbackContextToken: envInt("OPENAI_FALLBACK_CONTEXT_TOKENS", 128_000),
+
+			LLMResilienceRetries:   envInt("ARGUS_LLM_RESILIENCE_RETRIES", 2),
+			LLMResilienceBaseDelay: envDuration("ARGUS_LLM_RESILIENCE_BASE_DELAY", 2*time.Second),
 		},
 	}
 	for _, p := range []string{"gitea", "github", "gitlab"} {

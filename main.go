@@ -175,9 +175,17 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			if e != nil {
 				panic(fmt.Errorf("构造降级 LLM Provider 失败: %w", e))
 			}
-			resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallback), llm.ResilientConfig{})
+			resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallback), llm.ResilientConfig{
+				RetriesPerModel: cfg.LLM.LLMResilienceRetries,
+				BaseDelay:       cfg.LLM.LLMResilienceBaseDelay,
+			})
 			if e != nil {
 				panic(fmt.Errorf("构造 Resilient 失败: %w", e))
+			}
+			// 降级事件接结构化日志（运维观测主/备切换频率）
+			resilient.OnFallback = func(from, to, stage, reason string) {
+				log.Warn("argus.llm.fallback", "from", from, "to", to,
+					"stage", stage, "reason", reason)
 			}
 			llmGen = resilient
 			log.Info("argus.boot.llm_resilient", "chain", resilient.String(),
