@@ -13,6 +13,26 @@ import (
 // PluginsFile 文件根结构（design §12）。
 type PluginsFile struct {
 	Agents []AgentDecl `yaml:"agents"`
+	// MCPServers MCP server 连接声明（design §9.2 方向 A：外部工具 → agent 的"手"）。
+	MCPServers []MCPServerDecl `yaml:"mcpServers"`
+	// Tools 工具白名单：哪些 server 的哪些工具暴露给 agent 工具表。
+	Tools []ToolSpecDecl `yaml:"tools"`
+}
+
+// MCPServerDecl 单个 MCP server 连接声明。
+type MCPServerDecl struct {
+	Name    string            `yaml:"name"`
+	Command []string          `yaml:"command"`          // stdio 传输
+	Env     []string          `yaml:"env"`              // stdio 子进程环境白名单
+	URL     string            `yaml:"url"`              // streamable http 传输
+	Headers map[string]string `yaml:"headers"`          // 请求头（值支持 ${VAR} 环境引用，如 Bearer token）
+	Timeout string            `yaml:"timeout"`          // "30s" 写法
+}
+
+// ToolSpecDecl 工具白名单条目：tools: [{server: docs, allow: [search_docs]}]。
+type ToolSpecDecl struct {
+	Server string   `yaml:"server"`
+	Allow  []string `yaml:"allow"`
 }
 
 // AgentDecl 单插件声明。timeout 支持 "120s" 等写法。

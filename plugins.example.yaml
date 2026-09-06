@@ -86,3 +86,17 @@ agents:
     cost: heavy
     timeout: 600s                       # 编码 agent 自主多轮，给足时长
     enabled: false                      # 装好 CLI 后打开
+
+# ---- mcpServers：MCP server → agent 工具表（design §9.2 方向 A，v3.2）----
+# 工具白名单 tools 段收敛暴露面：未声明的 server/工具不进 agent 工具表。
+# headers 值支持 ${VAR} 环境引用（token 不落配置文件）。
+# mcpServers:
+#   - name: docs
+#     url: "http://docs.svc/mcp"
+#     headers:
+#       Authorization: "Bearer ${DOCS_MCP_TOKEN}"
+#   - name: lint
+#     command: ["lint-mcp", "serve"]
+# tools:
+#   - server: docs
+#     allow: [search_docs, get_page]

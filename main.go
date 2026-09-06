@@ -28,15 +28,10 @@ import (
 
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
-	"git.example.com/enjoydream/agentkit/audit"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/bootstrap"
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/skill"
 	"argus/internal/notify"
 	"argus/internal/obs"
 	"argus/internal/plugin"
@@ -47,6 +42,12 @@ import (
 	"argus/internal/runner"
 	"argus/internal/service"
 	"argus/internal/storage"
+	"argus/internal/toolpool"
+	"git.example.com/enjoydream/agentkit/audit"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/workcopy"
 	agentkitworker "git.example.com/enjoydream/agentkit/worker"
 
 	argusworker "argus/internal/worker"
@@ -266,6 +267,19 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
 	}
 
+	// ---- L5 工具子系统：MCP server → eino 工具表（design §9.2 方向 A 实装）----
+	// plugins.yaml 的 mcpServers/tools 段驱动；未声明时 nil（workflow 不挂工具）。
+	var toolPool toolpool.Pool
+	var toolSpecs []toolpool.ToolSpec
+	if pf, e := plugin.LoadPluginsFile(cfg.PluginsFile); e == nil && len(pf.MCPServers) > 0 {
+		if rp := toolpool.NewRealPool(pf.MCPServers, log); rp != nil {
+			toolPool = &toolpool.RealAdapter{Pool: rp}
+			toolSpecs = toolpool.SpecsFromDecls(pf.Tools)
+			log.Info("argus.boot.mcp_ready", "servers", strings.Join(rp.Servers(), ","),
+				"tool_specs", len(toolSpecs))
+		}
+	}
+
 	dispatcher := plugin.NewDispatcher(reg, log)
 	merger := plugin.NewMerger(store, log)
 	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
@@ -273,6 +287,8 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: chatModel, ModelName: cfg.LLM.Model,
 		LLM:        llmGen,
+		ToolPool:   toolPool,
+		ToolSpecs:  toolSpecs,
 		Dispatcher: dispatcher, Merger: merger,
 		Poster: posterSvc, Log: log, Version: version,
 		SkillProvider: skills, SkillRefs: complianceSkillRefs,
