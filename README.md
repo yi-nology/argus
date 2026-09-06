@@ -272,7 +272,7 @@ SQLite 单实例约束（MySQL 模式支持实例崩溃后的心跳级任务恢�
 ```yaml
 agents:
   - name: requirement-compliance   # R1→R5 整条 workflow 包成的插件
-    kind: builtin                  # builtin | cli | remote
+    kind: builtin                  # builtin | cli | remote | acpx
     skills: [requirement-compliance]
     needs: [diff, repo-file-read, requirement-spec]
     lockRepoConfig: true           # 仓库配置不可禁用/排除
@@ -284,6 +284,8 @@ agents:
 - `kind: cli`：白名单可执行文件（供应链信任），`mode: full` 全权审查 / `delegate` 只要筛选规则（v3.1）；
   `env: [VAR...]` 声明按名透传的环境变量白名单（缺省最小环境，密钥类绝不继承——cli 在待审仓库工作树里执行）；
 - `kind: remote`：`protocol: a2a | mcp`，endpoint 只能在这里声明（v3.1 实装协议子集）；
+- `kind: acpx`（v3.2）：`agent: codex|kimi|mimo|claude|...` —— CLI 编码 agent 作为 R4 审查专家
+  （agentkit/acpx 驱动，只读沙箱 + findings JSON 契约；CLI 未安装时插件自动停用不影响启动）；
 - `triggers: {events: [cr.opened]}`：可按事件收窄（SDK 归一化词表 cr.opened/synchronize/reopened）。
 
 ---
