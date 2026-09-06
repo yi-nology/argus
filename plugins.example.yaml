@@ -97,6 +97,9 @@ agents:
 #       Authorization: "Bearer ${DOCS_MCP_TOKEN}"
 #   - name: lint
 #     command: ["lint-mcp", "serve"]
+#     # stdio 子进程环境走白名单：env 条目为变量名（按名从 Argus 进程透传值），
+#     # 绝不全量继承——防 Argus 持有的密钥泄漏给外部 MCP server
+#     env: [LINT_CONFIG]
 # tools:
 #   - server: docs
 #     allow: [search_docs, get_page]

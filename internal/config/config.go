@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/llm"
+
 	ekitconfig "git.example.com/enjoydream/ekit/config"
 )
 
@@ -25,9 +27,9 @@ type PlatformConfig struct {
 
 	// GitHub App 认证（仅 github 平台）：配置后自动用 installation token 替代 PAT。
 	// 三者全配才启用；AppID + PrivateKey 用于签发 JWT，InstallationID 用于换取 token。
-	GitHubAppID          int64  // ARGUS_GITHUB_APP_ID
-	GitHubAppPrivateKey  string // ARGUS_GITHUB_APP_PRIVATE_KEY（PEM 内容或 base64 编码）
-	GitHubAppInstallationID int64 // ARGUS_GITHUB_APP_INSTALLATION_ID
+	GitHubAppID             int64  // ARGUS_GITHUB_APP_ID
+	GitHubAppPrivateKey     string // ARGUS_GITHUB_APP_PRIVATE_KEY（PEM 内容或 base64 编码）
+	GitHubAppInstallationID int64  // ARGUS_GITHUB_APP_INSTALLATION_ID
 }
 
 // LLMConfig OpenAI 兼容端点（复用 lacus/.env）。
@@ -47,7 +49,7 @@ type LLMConfig struct {
 	FallbackContextToken int
 
 	// 降级链调优（可选）：
-	LLMResilienceRetries  int           // 每模型重试次数（默认 2）
+	LLMResilienceRetries   int           // 每模型重试次数（默认 2）
 	LLMResilienceBaseDelay time.Duration // 重试退避基准（默认 2s）
 }
 
@@ -109,7 +111,7 @@ type Config struct {
 	SkillMode string
 
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
-	MilvusAddr      string // Milvus 地址，如 "localhost:19530"
+	MilvusAddr       string // Milvus 地址，如 "localhost:19530"
 	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
 	// Embedding 配置（Milvus 向量化）。
 	EmbeddingBaseURL string // OpenAI 兼容端点
@@ -130,17 +132,20 @@ func (c *Config) contextTokens() int {
 	return 128_000
 }
 
+// budgetBase 窗口派生基准（agentkit/llm.BudgetConfig）——比例公式单一来源，
+// 防止 Argus 与 agentkit 两侧公式漂移。Argus 专属的 env 覆盖与下限仍留在本包。
+func (c *Config) budgetBase() llm.BudgetConfig {
+	return llm.BudgetConfig{ContextTokens: c.contextTokens()}
+}
+
 // MaxDiffCharsResolved 返回生效的 diff 总量上限：显式 env 优先；缺省 = 窗口 35%
-// 折算字符，min 10k。无硬顶——窗口变大 diff 上限跟着变大（500k 硬顶会让 1M 窗口空转）。
+// 折算字符，min 10k（llm.BudgetConfig 派生）。无硬顶——窗口变大 diff 上限跟着变大
+// （500k 硬顶会让 1M 窗口空转）。
 func (c *Config) MaxDiffCharsResolved() int {
 	if c.MaxDiffChars > 0 {
 		return c.MaxDiffChars
 	}
-	n := c.contextTokens() * 35 / 100 * 4
-	if n < 10_000 {
-		n = 10_000
-	}
-	return n
+	return c.budgetBase().MaxDiffChars()
 }
 
 // EffectiveTaskTokenBudget 任务 token 预算：显式 env 优先，缺省 = 窗口 60%
@@ -149,20 +154,27 @@ func (c *Config) EffectiveTaskTokenBudget() int {
 	if c.TaskTokenBudget > 0 {
 		return c.TaskTokenBudget
 	}
-	return c.contextTokens() * 60 / 100
+	return c.budgetBase().TaskTokenBudget()
 }
 
-// MaxTokensResolved 单次生成输出上限：显式 env 优先，缺省 = max(4096, 窗口 5%)
-// （R1 面对超长需求可能改写出上百条 AC，8k 固定值会截断 JSON 导致降级 COMMENT）。
+// MaxTokensResolved 生效的单次生成输出上限（恒正，供窗口运算）：
+// 显式正值优先，缺省 = max(4096, 窗口 5%)（llm.BudgetConfig 派生）。
+// （R1 面对超长需求可能改写出上百条 AC，8k 固定值会截断 JSON 导致降级 COMMENT。）
 func (c *Config) MaxTokensResolved() int {
 	if c.LLM.MaxTokens > 0 {
 		return c.LLM.MaxTokens
 	}
-	n := c.contextTokens() * 5 / 100
-	if n < 4096 {
-		n = 4096
+	return c.budgetBase().MaxOutputTokens()
+}
+
+// MaxTokensParam LLM 请求参数用：显式负值原样透传（agentkit v0.7.0 语义 = 不下发
+// max_tokens 参数，兼容要求 max_completion_tokens 的推理模型）；未显式配置时走
+// MaxTokensResolved 派生正值。
+func (c *Config) MaxTokensParam() int {
+	if c.LLM.MaxTokens != 0 {
+		return c.LLM.MaxTokens
 	}
-	return n
+	return c.MaxTokensResolved()
 }
 
 // ReqBodyMaxChars R1 的 PR 描述单条上限（字符）：窗口 6% 折算。

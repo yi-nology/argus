@@ -12,6 +12,7 @@ package adapter_acpx
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -105,9 +106,18 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		Sandbox: acpx.SandboxReadonly,
 	})
 	if err != nil {
+		// agentkit v0.7.0 sentinel：超时/取消程序化区分（dispatcher 层 ctx 常先于
+		// 插件自身超时到——此前两者在日志里无法区分）
+		kind := "error"
+		switch {
+		case errors.Is(err, acpx.ErrTimeout):
+			kind = "timeout"
+		case errors.Is(err, acpx.ErrCanceled):
+			kind = "canceled"
+		}
 		p.log.Warn("argus.acpx.run.error", "plugin", p.manifest.Name, "agent", p.agent.Name(),
-			"duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
-		return plugin.Result{}, fmt.Errorf("acpx agent %s 执行失败: %w", p.agent.Name(), err)
+			"duration_ms", time.Since(start).Milliseconds(), "kind", kind, "error", err.Error())
+		return plugin.Result{}, fmt.Errorf("acpx agent %s 执行失败（%s）: %w", p.agent.Name(), kind, err)
 	}
 
 	findings := parseFindings(res.Text)

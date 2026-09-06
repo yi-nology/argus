@@ -133,18 +133,6 @@ func TestPrepareFillFromRawDiff(t *testing.T) {
 	}
 }
 
-// 凭据脱敏：git 报错里的 clone URL 不泄漏 token。
-func TestScrubCredential(t *testing.T) {
-	msg := "fatal: unable to access 'https://oauth2:ghp_secret123@git.example.com/o/r.git/'"
-	out := scrub(msg, "ghp_secret123")
-	if strings.Contains(out, "ghp_secret123") {
-		t.Fatalf("token 未脱敏: %s", out)
-	}
-	if !strings.Contains(out, "***@git.example.com") {
-		t.Fatalf("脱敏后应保留主机信息: %s", out)
-	}
-}
-
 // --- PrepareIncremental 测试 ---
 
 func TestPrepareIncremental_NoLastDiff_FullReview(t *testing.T) {

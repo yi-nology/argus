@@ -196,7 +196,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 // 任一块提炼失败则整段回退为截断原文，并通过 notes 留痕（→ Ambiguous → R5.3）。
 func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize int) (string, []string) {
 	var notes []string
-	chunks := chunkRunes(seg.content, chunkSize)
+	chunks := textutil.SplitRunes(seg.content, chunkSize)
 	if len(chunks) > maxDigestChunks {
 		notes = append(notes, fmt.Sprintf("%s 超长（原 %d 字符），仅提炼前 %d 块（每块 %d 字符），请人工核对完整性",
 			seg.label, seg.rawChars, maxDigestChunks, chunkSize))
@@ -218,24 +218,6 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 		parts = append(parts, truncSummary(resp.Content, 4000))
 	}
 	return strings.Join(parts, "\n"), notes
-}
-
-// chunkRunes 按 rune 等分为 ≤n 字符的块（最后一块可不足）。
-func chunkRunes(s string, n int) []string {
-	if n <= 0 {
-		return []string{s}
-	}
-	r := []rune(s)
-	var out []string
-	for len(r) > 0 {
-		k := n
-		if len(r) < k {
-			k = len(r)
-		}
-		out = append(out, string(r[:k]))
-		r = r[k:]
-	}
-	return out
 }
 
 // SummarizeChange R2：变更理解 → ChangeSummary（R3/R4 复用的 diff 公共前缀，省 token）。
@@ -267,8 +249,8 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		return nil, "", nil // 无清单：R3 跳过（R5.3 由 Ambiguous/空清单兜底）
 	}
 
-	// 工具表：get_file / get_issue / get_diff（+ toolpool 扩展）
-	tools, strategy, err := w.r3Tools(ctx, task, spec)
+	// 工具策略指引（工具表本体改由工厂按尝试构造，见 runAgent）
+	_, strategy, err := w.r3Tools(ctx, task, spec)
 	if err != nil {
 		return nil, "", fmt.Errorf("R3 工具构造失败: %w", err)
 	}
@@ -299,7 +281,16 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	user.WriteString("\n请逐条判定验收清单完成度并输出 JSON。")
 
 	query := user.String()
-	final, err := w.runAgent(ctx, instruction, query, tools)
+	// 工具表经工厂按尝试重建（WithCallLimit 计数不跨重试累计）
+	toolsFactory := func() []tool.BaseTool {
+		t, _, e := w.r3Tools(ctx, task, spec)
+		if e != nil {
+			w.Log.Warn("argus.r3.tools_rebuild_failed", "error", e.Error())
+			return nil
+		}
+		return t
+	}
+	final, err := w.runAgent(ctx, instruction, query, toolsFactory)
 	if err != nil {
 		w.Log.Warn("argus.r3.agent_failed", "error", err.Error())
 	} else {
@@ -320,7 +311,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		}
 		// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）
 		retryQ := query + "\n\n你上一轮输出无法解析为合法 JSON，请重新输出且只输出合法 JSON。上一轮输出：\n" + truncSummary(final, 800)
-		if final2, e2 := w.runAgent(ctx, instruction, retryQ, tools); e2 == nil {
+		if final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory); e2 == nil {
 			var report2 plugin.ComplianceReport
 			if e := json.Unmarshal([]byte(llm.ExtractJSON(final2)), &report2); e == nil {
 				alignChecksToSpec(spec, &report2)
@@ -344,15 +335,26 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 }
 
 // runAgent 运行 R3 ReAct agent（样板已沉淀至 agentkit/agentrun）。
-func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tools []tool.BaseTool) (string, error) {
-	return agentrun.Run(ctx, agentrun.Config{
+// toolsFactory 每次调用重建工具表：agentkit v0.7.0 起 Config.ToolsFactory 生效于
+// 每次尝试——toolprior.WithCallLimit 的限流计数按尝试重置，重试不再继承首轮
+// 已耗尽的外部调用预算（此前共享实例导致重试轮外部工具一开始就被软止损）。
+func (w *Workflow) runAgent(ctx context.Context, instruction, query string, toolsFactory func() []tool.BaseTool) (string, error) {
+	return agentrun.RunWithEvents(ctx, agentrun.Config{
 		Name:          "argus-compliance",
 		Description:   "需求完成度判定专家",
 		Instruction:   instruction,
 		Model:         w.LLM.RawModel(),
 		MaxIterations: 12,
-		Tools:         tools,
-	}, query)
+		ToolsFactory:  toolsFactory,
+	}, query, func(e agentrun.Event) {
+		// 工具轨迹落审计日志（tool_result 只落长度不落内容，防敏感代码入库）
+		switch e.Type {
+		case agentrun.EventToolCall:
+			w.Log.Info("argus.r3.tool_call", "tool", e.Tool)
+		case agentrun.EventToolResult:
+			w.Log.Info("argus.r3.tool_result", "tool", e.Tool, "bytes", len(e.Text))
+		}
+	})
 }
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。

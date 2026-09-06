@@ -83,6 +83,36 @@ func (r *Runner) skillText(_ context.Context) string {
 	bgCtx := context.Background()
 	var parts []string
 	toolMode := r.Cfg.SkillMode == "tool"
+	if toolMode {
+		// 渐进披露：清单用 agentkit skill.ListPrompt 渲染——加粗主词是规范引用名
+		//（use_skill 加载依据），frontmatter 展示名降为括注；模型用展示名回填时
+		// AsSkillTool 会别名归一化（v0.7.0 起闭环）
+		lister, ok := r.SkillProvider.(skill.Lister)
+		if !ok {
+			r.Log.Warn("argus.runner.skill_list_failed", "error", "provider 不支持 ListSkills")
+			return ""
+		}
+		metas, err := lister.ListSkills(bgCtx)
+		if err != nil {
+			r.Log.Warn("argus.runner.skill_list_failed", "error", err.Error())
+			return ""
+		}
+		allowed := map[string]bool{}
+		for _, ref := range r.SkillRefs {
+			if i := strings.Index(ref, "@"); i >= 0 {
+				ref = ref[:i]
+			}
+			allowed[ref] = true
+		}
+		var filtered []skill.Meta
+		for _, m := range metas {
+			if len(allowed) == 0 || allowed[m.Name] {
+				filtered = append(filtered, m)
+			}
+		}
+		r.skillCache = skill.ListPrompt(filtered)
+		return r.skillCache
+	}
 	for _, ref := range r.SkillRefs {
 		name, ver := ref, ""
 		if i := strings.Index(ref, "@"); i >= 0 {
@@ -91,15 +121,6 @@ func (r *Runner) skillText(_ context.Context) string {
 		s, err := r.SkillProvider.Resolve(bgCtx, skill.Ref{Name: name, Version: ver, Source: "file"})
 		if err != nil {
 			r.Log.Warn("argus.runner.skill_resolve_failed", "ref", ref, "error", err.Error())
-			continue
-		}
-		if toolMode {
-			// 渐进披露：只给名称+描述（agent 决策依据），正文走 use_skill 工具
-			desc := s.Description
-			if desc == "" {
-				desc = "（无描述）"
-			}
-			parts = append(parts, fmt.Sprintf("- **%s**：%s", s.Name, desc))
 			continue
 		}
 		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
@@ -175,7 +196,8 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// eino callbacks 追踪：此后 ctx 链上所有 ChatModel 调用自动产出
-	// llm.call.start/end/error 结构化日志（含 stage/耗时/真实 token usage）
+	// llm.call.start/end/error 结构化日志（含 stage/耗时/真实 token usage）。
+	// PreviewLen 刻意留 0（不落消息内容）——消息可能含用户代码/凭证，勿"调观测"时误设。
 	ctx = obsx.InitLLMObservability(ctx, r.Log, obsx.Options{SlowThreshold: 60 * time.Second})
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {

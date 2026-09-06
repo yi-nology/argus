@@ -28,6 +28,13 @@ func Events(ctx context.Context, c *app.RequestContext) {
 	}
 	ch, cancel := Svc.Bus.Subscribe(ctx)
 	defer cancel()
+	dropped0 := Svc.Bus.Dropped()
+	defer func() {
+		// 连接期丢弃增量 > 0：该客户端曾积压（进度条停在中间态可归因）
+		if d := Svc.Bus.Dropped() - dropped0; d > 0 && Svc.Log != nil {
+			Svc.Log.Warn("argus.events.dropped", "drops", d)
+		}
+	}()
 
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Nginx 反代不缓冲（Content-Type/Cache-Control 由 sse.Writer 设置）

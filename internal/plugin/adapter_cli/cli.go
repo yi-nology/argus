@@ -1,23 +1,22 @@
 // Package adapter_cli cli 形态适配器（design §3.2）：包装外部命令行（首个实战对象是
-// alibaba/open-code-review）。子进程管理照抄 review-service 范式：
-// Setpgid 建进程组 → 超时/取消先向 -pid 发 SIGTERM → 3s grace 后 SIGKILL 杀整组防孤儿。
+// alibaba/open-code-review）。子进程托管整体委托 agentkit/acpx.RunProcess（v0.7.1 起）——
+// 进程组（Setpgid）→ 超时/取消 TERM 整组 → 3s grace 后 KILL、环境白名单、stdout 限容、
+// ErrTimeout/ErrCanceled sentinel 全部由底座提供；本包只保留 OCR JSON 容错解析。
 // 供应链信任（§8）：cmd 只能来自 Hub plugins.yaml 白名单，仓库配置无权声明（§3.4 红线 2）。
 package adapter_cli
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/agentkit/workcopy"
-	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
@@ -60,9 +59,24 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	}
 	defer p.wc.Release(prToKey(task.PR))
 
-	stdout, err := runProcessGroup(ctx, p.Cmd, dir, p.childEnv(), p.manifest.Timeout)
+	// 进程托管委托 agentkit/acpx（env 白名单按 plugins.yaml env 声明按名透传；
+	// MaxStdout 维持 1MB 上限防异常 cli 刷屏）
+	stdout, _, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+		Argv:      p.Cmd,
+		Dir:       dir,
+		Env:       p.Env,
+		Timeout:   p.manifest.Timeout,
+		MaxStdout: 1 << 20,
+	})
 	if err != nil {
-		return plugin.Result{}, err
+		// v0.7.0 sentinel：超时与取消可程序化区分（观测/告警不再靠文案猜）
+		switch {
+		case errors.Is(err, acpx.ErrTimeout):
+			return plugin.Result{}, fmt.Errorf("cli 执行超时（%s）", p.manifest.Name)
+		case errors.Is(err, acpx.ErrCanceled):
+			return plugin.Result{}, fmt.Errorf("cli 执行被取消（%s）: %w", p.manifest.Name, err)
+		}
+		return plugin.Result{}, fmt.Errorf("cli 执行失败: %w", err)
 	}
 	findings, err := ParseFindings(stdout)
 	if err != nil {
@@ -72,109 +86,6 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 		findings[i].By = p.manifest.Name
 	}
 	return plugin.Result{Findings: findings}, nil
-}
-
-// maxChildStdout 子进程 stdout 采集上限（异常 cli 刷屏防内存放大）。
-const maxChildStdout = 1 << 20 // 1MB
-
-// cappedBuffer 限容写入器：超过上限后丢弃后续写入并标记截断。
-type cappedBuffer struct {
-	buf       strings.Builder
-	truncated bool
-}
-
-func (c *cappedBuffer) Write(p []byte) (int, error) {
-	if c.buf.Len()+len(p) > maxChildStdout {
-		room := maxChildStdout - c.buf.Len()
-		if room > 0 {
-			c.buf.Write(p[:room])
-		}
-		c.truncated = true
-		return len(p), nil // 吸收写入让子进程继续跑（管道不阻塞），内容只留上限内
-	}
-	c.buf.Write(p)
-	return len(p), nil
-}
-
-func (c *cappedBuffer) String() string { return c.buf.String() }
-
-// childEnv 构造子进程最小环境：只给运行必需项 + plugins.yaml 显式声明的白名单变量。
-// 绝不全量继承——cli 在待审仓库的工作树里执行，.golangci 自定义插件等机制可执行任意代码，
-// 全量环境等于把 ARGUS_*/OPENAI_* 等凭证直接交给待审代码。
-func (p *CLIPlugin) childEnv() []string {
-	keep := map[string]bool{}
-	for _, k := range p.Env {
-		keep[k] = true
-	}
-	var env []string
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if baseEnvAllow[name] || keep[name] {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "GIT_TERMINAL_PROMPT=0")
-}
-
-// baseEnvAllow cli 子进程的缺省白名单：路径/临时目录/语言/代理/CA。
-// 代理与 CA 是 cli 审查器访问外部 LLM API 的常见必需项。
-var baseEnvAllow = map[string]bool{
-	"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "LC_ALL": true,
-	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
-	"http_proxy": true, "https_proxy": true, "no_proxy": true,
-	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
-}
-
-// runProcessGroup 进程组执行：Setpgid + ctx 取消三段式（TERM → 3s → KILL，均作用于 -pid 整组）。
-func runProcessGroup(ctx context.Context, cmdLine []string, dir string, env []string, timeout time.Duration) (string, error) {
-	if len(cmdLine) == 0 {
-		return "", fmt.Errorf("cli 命令为空")
-	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(cctx, cmdLine[0], cmdLine[1:]...)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	stdout, stderr := &cappedBuffer{}, &cappedBuffer{}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("启动 %s 失败: %w", cmdLine[0], err)
-	}
-	done := make(chan struct{})
-	async.GoSafe(func() {
-		select {
-		case <-cctx.Done(): // 超时/取消：TERM 整组 → grace 后 KILL 整组
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-				time.Sleep(3 * time.Second)
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
-		case <-done:
-		}
-	})
-	waitErr := cmd.Wait()
-	close(done)
-	if waitErr != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // 兜底清组
-		tail := stderr.String()
-		if len(tail) > 400 {
-			tail = tail[len(tail)-400:]
-		}
-		if cctx.Err() != nil {
-			return "", fmt.Errorf("cli 执行超时（%s）", cmdLine[0])
-		}
-		return "", fmt.Errorf("cli 执行失败（%s）: %v: %s", cmdLine[0], waitErr, strings.TrimSpace(tail))
-	}
-	out := stdout.String()
-	if stdout.truncated {
-		out += "\n…（cli stdout 超过 1MB 上限，已截断）"
-	}
-	return out, nil
 }
 
 // ---------- OCR JSON → Findings 容错解析 ----------

@@ -1,8 +1,14 @@
 package adapter_cli
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"git.example.com/enjoydream/agentkit/acpx"
 
 	"argus/internal/plugin"
 )
@@ -32,34 +38,29 @@ func TestParseFindingsEmptyIsLegit(t *testing.T) {
 	}
 }
 
-// childEnv 只给白名单变量，绝不继承密钥类环境。
-func TestChildEnvMinimal(t *testing.T) {
+// plugins.yaml env 声明经 RunProcess 白名单透传的语义由 agentkit/acpx 上游测试
+// 锁定（TestEnvAllowlist/TestRunProcess）；此处端到端钉一遍声明确实传到了底座。
+func TestInvokeEnvWhitelistEndToEnd(t *testing.T) {
 	t.Setenv("ARGUS_GITEA_TOKEN", "secret-token")
 	t.Setenv("OPENAI_API_KEY", "sk-secret")
-	t.Setenv("PATH", "/usr/bin")
-	p := New(pluginManifest(), []string{"/bin/true"}, "full", []string{"OPENAI_API_KEY"}, nil, nil)
-	env := p.childEnv()
-	joined := ""
-	for _, kv := range env {
-		joined += kv + "\n"
-	}
-	if !containsEnv(env, "PATH=/usr/bin") {
-		t.Fatal("PATH 应保留")
-	}
-	if !containsEnv(env, "OPENAI_API_KEY=sk-secret") {
-		t.Fatal("显式白名单变量应透传")
-	}
-	if containsEnv(env, "ARGUS_GITEA_TOKEN=secret-token") {
-		t.Fatal("未声明白名单的密钥变量不得继承")
-	}
-	_ = joined
-}
 
-func containsEnv(env []string, want string) bool {
-	for _, kv := range env {
-		if kv == want {
-			return true
-		}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-ocr")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$OPENAI_API_KEY\"; echo \"$ARGUS_GITEA_TOKEN\"\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return false
+	stdout, _, _, err := acpx.RunProcess(context.Background(), acpx.ProcessRequest{
+		Argv:    []string{script},
+		Env:     []string{"OPENAI_API_KEY"}, // plugins.yaml env 声明形态
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "sk-secret") {
+		t.Fatalf("声明白名单的变量应透传: %q", stdout)
+	}
+	if strings.Contains(stdout, "secret-token") {
+		t.Fatalf("未声明的密钥变量不得继承: %q", stdout)
+	}
 }

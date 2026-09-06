@@ -147,14 +147,17 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	var chatModel *openai.ChatModel
 	var llmGen llm.Generator
 	if cfg.LLM.BaseURL != "" && cfg.LLM.APIKey != "" && cfg.LLM.Model != "" {
-		maxTokens := cfg.MaxTokensResolved()
-		chatModel, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{
-			BaseURL:   cfg.LLM.BaseURL,
-			APIKey:    cfg.LLM.APIKey,
-			Model:     cfg.LLM.Model,
-			MaxTokens: &maxTokens,
-			Timeout:   cfg.LLM.Timeout,
-		})
+		maxTokens := cfg.MaxTokensParam()
+		chatModelCfg := &openai.ChatModelConfig{
+			BaseURL: cfg.LLM.BaseURL,
+			APIKey:  cfg.LLM.APIKey,
+			Model:   cfg.LLM.Model,
+			Timeout: cfg.LLM.Timeout,
+		}
+		if maxTokens > 0 { // 负值 = 不下发 max_tokens（agentkit 语义，推理模型兼容）
+			chatModelCfg.MaxTokens = &maxTokens
+		}
+		chatModel, err = openai.NewChatModel(ctx, chatModelCfg)
 		if err != nil {
 			panic(fmt.Errorf("构造 LLM 客户端失败: %w", err))
 		}
@@ -163,7 +166,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		if fallbackReady {
 			primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 				BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
-				ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensResolved(),
+				ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
 				Timeout: cfg.LLM.Timeout,
 			})
 			if e != nil {

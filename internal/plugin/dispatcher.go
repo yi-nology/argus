@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/breaker"
+	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
@@ -26,37 +27,11 @@ func costRank(cost string) int {
 
 // TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，
 // 不用 Prometheus 指标判定——那是聚合计数器，避免基数爆炸）。
-type TokenBudget struct {
-	limit int
-	used  int64
-	mu    sync.Mutex
-}
+// 实现委托 agentkit/llm.Budget（此前为逐方法克隆）。
+type TokenBudget = llm.Budget
 
-func NewTokenBudget(limit int) *TokenBudget { return &TokenBudget{limit: limit} }
-
-func (b *TokenBudget) Add(n int) {
-	b.mu.Lock()
-	b.used += int64(n)
-	b.mu.Unlock()
-}
-
-func (b *TokenBudget) Used() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return int(b.used)
-}
-
-func (b *TokenBudget) Limit() int { return b.limit }
-
-func (b *TokenBudget) Remaining() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	r := b.limit - int(b.used)
-	if r < 0 {
-		return 0
-	}
-	return r
-}
+// NewTokenBudget 创建任务预算累计器。
+func NewTokenBudget(limit int) *TokenBudget { return llm.NewBudget(limit) }
 
 // Selection 一条被选中的插件及其入选原因（可观测）。
 type Selection struct {
@@ -98,7 +73,9 @@ type Dispatcher struct {
 }
 
 func NewDispatcher(reg *Registry, log logx.Logger) *Dispatcher {
-	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(0, 0), log: log, Now: time.Now, MaxConcurrent: 2}
+	// 熔断参数显式取 agentkit 缺省（trip=3/cooldown=5min），行为不变但
+	// SkippedReason 文案可从同一常量派生，不再硬编码"5 分钟"
+	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(breaker.DefaultTripThreshold, breaker.DefaultCooldown), log: log, Now: time.Now, MaxConcurrent: 2}
 }
 
 // Registry 暴露注册表（workflow 加载仓库配置后做信任边界解析用）。
@@ -291,15 +268,16 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 		o.Name = reg.Manifest.Name
 		o.Manifest = reg.Manifest
 
-		// 预算门（锁定插件豁免）——必须在熔断门之前：先 Allow 再跳过会让半开探测
-		// （probing=true）等不到 Success/Failure 复位，插件被永久卡在熔断态。
+		// 预算门（锁定插件豁免）——先于熔断门：预算跳过的插件不消费 Allow。
+		// （agentkit v0.7.0 起半开探测有 DefaultProbeTimeout 超时兜底，此顺序
+		// 不再是硬正确性约束，但仍是最优顺序——避免无谓占用探测窗口。）
 		if budget != nil && budget.Remaining() <= 0 && !reg.LockRepoConfig {
 			o.SkippedReason = "任务 token 预算耗尽"
 			continue
 		}
-		// 熔断门
+		// 熔断门（Allow 后必然配对 Success/Failure——见下方 invoke 分支）
 		if !d.breakers.Allow(reg.Manifest.Name) {
-			o.SkippedReason = "熔断中（连续失败，5 分钟后探测恢复）"
+			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breaker.DefaultCooldown)
 			d.log.Warn("argus.plugin.circuit_open", "plugin", reg.Manifest.Name)
 			continue
 		}
