@@ -74,3 +74,15 @@ agents:
     skills: [visual-check]
     needs: [preview-url]
     enabled: false
+
+  # ---- acpx：CLI 编码 agent 作为审查专家（agentkit/acpx 驱动，v3.2）----
+  # agent 词表：claude / zcode / codex / opencode / minimax / kimi / gemini / qwen / mimo
+  # 前置条件：宿主机安装对应 CLI 并完成登录；未安装时插件自动停用（不影响启动）
+  - name: coding-agent-codex
+    kind: acpx
+    agent: codex                        # 用哪个 CLI agent 审查
+    skills: [code-review]
+    needs: [diff, working-copy]         # 工作副本供 agent 查上下文（只读沙箱）
+    cost: heavy
+    timeout: 600s                       # 编码 agent 自主多轮，给足时长
+    enabled: false                      # 装好 CLI 后打开

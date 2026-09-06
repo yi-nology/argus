@@ -5,6 +5,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"argus/internal/config"
 	"argus/internal/plugin"
+	"argus/internal/plugin/adapter_acpx"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/plugin/adapter_cli"
 	"argus/internal/plugin/adapter_remote"
@@ -127,6 +129,26 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				break
 			}
 			p = rp
+		case plugin.KindACPX:
+			if decl.Agent == "" {
+				enabled = false
+				p = &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 agent"}
+				break
+			}
+			ap, err := adapter_acpx.New(manifest, decl.Agent, d.WC, d.Log)
+			if err != nil {
+				// 二进制缺失（未装该 CLI）= 正常形态，停用并说明；未知名才值得留 probe
+				reason := err.Error()
+				if errors.Is(err, adapter_acpx.ErrBinaryMissing) {
+					d.Log.Warn("argus.bootstrap.acpx_binary_missing", "plugin", decl.Name, "error", reason)
+				} else {
+					d.Log.Warn("argus.bootstrap.acpx_skipped", "plugin", decl.Name, "error", reason)
+				}
+				enabled = false
+				p = &unavailablePlugin{manifest: manifest, reason: reason}
+				break
+			}
+			p = ap
 		default:
 			return nil, nil, fmt.Errorf("插件 %s kind 非法: %s", decl.Name, decl.Kind)
 		}

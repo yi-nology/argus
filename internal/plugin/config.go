@@ -44,6 +44,10 @@ type AgentDecl struct {
 	Endpoint string `yaml:"endpoint"`
 	// Tool mcp 协议要调用的工具名（缺省 review；review-service 用 create_review）。
 	Tool string `yaml:"tool"`
+
+	// kind=acpx：CLI 编码 agent 名（agentkit/acpx 注册表词表：
+	// claude/zcode/codex/opencode/minimax/kimi/gemini/qwen/mimo）。
+	Agent string `yaml:"agent"`
 }
 
 // TriggerDecl yaml 侧触发声明。
