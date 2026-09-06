@@ -312,3 +312,34 @@ func TestScenario09_WebhookFilters(t *testing.T) {
 		t.Fatalf("同 SHA 应 duplicate: %d %+v", code, resp)
 	}
 }
+
+// 场景⑩：acpx 插件（假 kimi CLI）意见合并——bootstrap LookPath → R4 fan-out →
+// findings 提取/severity 归一化 → Merger 指纹 → 报告渲染全链路。
+func TestScenario10_ACPXPluginMerge(t *testing.T) {
+	s := newStack(t, stackOpts{withACPX: true})
+	taskID := s.createTaskViaAPI(t, 0)
+	if err := s.runner.Execute(context.Background(), taskID); err != nil {
+		t.Fatal(err)
+	}
+	task := s.waitForStatus(t, taskID, "done")
+	// 假 kimi 的 high finding 触发 R5.2（R3 全 implemented，R5.1 不命中）
+	if task.Verdict != "request_changes" {
+		t.Fatalf("verdict=%s，want request_changes（acpx high）", task.Verdict)
+	}
+	// CRITICAL 已归一化为 HIGH；by 标注插件名
+	if !strings.Contains(task.Report, "e2e-acpx finding: SQL string concat") ||
+		!strings.Contains(task.Report, "by coding-agent-kimi") {
+		t.Fatalf("报告缺 acpx 意见:\n%s", task.Report)
+	}
+	created, _, reviews, _ := s.fake.snapshot()
+	if created != 1 {
+		t.Fatalf("总结评论应 1 条: %d", created)
+	}
+	// acpx finding 带 file:line → 行内评论
+	if len(reviews) != 1 || len(reviews[0].Comments) != 1 {
+		t.Fatalf("acpx 意见应产生 1 条行内评论: %+v", reviews)
+	}
+	if reviews[0].Event != "REQUEST_CHANGES" {
+		t.Fatalf("评审事件错误: %+v", reviews[0])
+	}
+}

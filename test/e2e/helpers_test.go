@@ -111,3 +111,20 @@ func makeFixtureRepo(t TestingT, dir string) string {
 	run("update-ref", "refs/pull/7/head", "HEAD")
 	return repo
 }
+
+// writeFakeKimi 生成假 kimi CLI（kimi-code 协议：stream-json 消息流），
+// content 携带 findings JSON 数组（验证 adapter_acpx 的提取/归一化/By 标注全链路）。
+func writeFakeKimi(t TestingT, dir string) {
+	path := filepath.Join(dir, "bin", "kimi")
+	mustMkdir(t, filepath.Dir(path))
+	script := `#!/bin/sh
+# mock kimi：忽略参数，输出一条 assistant 消息（content = findings JSON）
+cat <<'EOF'
+{"role":"assistant","content":"[{\"file\":\"main.go\",\"line\":7,\"severity\":\"high\",\"comment\":\"e2e-acpx finding: SQL string concat\"}]"}
+EOF
+`
+	mustWrite(t, path, script)
+	if out, err := exec.Command("chmod", "+x", path).CombinedOutput(); err != nil {
+		t.Fatalf("chmod 失败: %v %s", err, out)
+	}
+}

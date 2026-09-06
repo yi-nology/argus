@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -325,6 +326,7 @@ type stackOpts struct {
 	r3          string
 	correctness string
 	withOCR     bool
+	withACPX    bool // acpx 插件（假 kimi CLI 进 PATH，验证 bootstrap→R4→合并全链路）
 	realLLM     bool              // true = 用环境变量 OPENAI_* 的真实模型（集成测试），不用 mock
 	debug       bool              // ARGUS_DEBUG：留存阶段产物
 	skills      map[string]string // skillRef name → content
@@ -421,6 +423,18 @@ func newStack(t TestingT, opt stackOpts) *stack {
 			Mode: "full", Cost: plugin.CostHeavy, Timeout: "60s",
 		})
 	}
+	if opt.withACPX {
+		writeFakeKimi(t, tmp)
+		if tt, ok := t.(*testing.T); ok {
+			// 假 kimi 必须在 bootstrap LookPath 之前进 PATH
+			tt.Setenv("PATH", tmp+"/bin:"+os.Getenv("PATH"))
+		}
+		agents = append(agents, plugin.AgentDecl{
+			Name: "coding-agent-kimi", Kind: "acpx", Agent: "kimi",
+			Skills: []string{plugin.SkillCodeReview}, Needs: []string{"diff", "working-copy"},
+			Cost: plugin.CostHeavy, Timeout: "60s",
+		})
+	}
 	agents = append(agents, opt.extraAgents...)
 	pluginsFile := tmp + "/plugins.yaml"
 	mustWrite(t, pluginsFile, marshalAgents(agents))
@@ -449,7 +463,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 
 	// workcopy：指向本地 file:// fixture（CLI 插件场景用）
 	wc := workcopy.NewPool(cfg.WorkRoot, log)
-	if opt.withOCR {
+	if opt.withOCR || opt.withACPX {
 		fixture := makeFixtureRepo(t, tmp)
 		wc.CredentialOf = func(string) (string, string, bool) { return "file://" + fixture, "x", true }
 	} else {
