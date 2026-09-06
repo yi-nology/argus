@@ -1,8 +1,12 @@
-# 关键约束（SQLite 单写模型）：
+# 关键约束（SQLite 单写模型——当前默认部署形态）：
 #   - replicas 恒为 1，禁止多副本（storage.go 连接数=1 + 写锁保证幂等/去重事务性）
 #   - strategy 必须用 Recreate：RWO PVC + 滚动更新会卡在卷挂载
 #   - terminationGracePeriodSeconds(90) > worker 优雅停机 grace(60s)：
 #     SIGTERM 后 HTTP 停止、在途审查自然完成，超时才硬取消（保持 running 待重启重置）
+#
+# 多副本横向扩展：切 MySQL（ARGUS_DB_DSN 指向网络库）+ 去掉 DB PVC 后放开 replicas，
+# 任务抢占/心跳接管/poller 选主/工作副本隔离均已就绪——步骤与容量公式见
+# deploy/k8s/README-scaling.md（SQLite 形态下本文件约束仍然全部有效）。
 apiVersion: apps/v1
 kind: Deployment
 metadata:

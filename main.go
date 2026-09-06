@@ -104,14 +104,18 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		return err
 	}
 	app.AddResource("store", func(context.Context) error { return store.Close() })
-	// claim 归属 + 心跳（多副本滚动发布安全）。uuid 失败退化为 hostname:pid——
-	// RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被 reaper 反复重置重跑。
+	// claim 归属 + 心跳 + 选主身份（多副本滚动发布安全）。uuid 失败退化为
+	// hostname:pid——RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被
+	// reaper 反复重置重跑。
+	instanceID := store.RunnerID
 	if id, err := uuid.NewRandom(); err == nil {
-		store.RunnerID = id.String()[:16]
+		instanceID = id.String()[:16]
 	} else {
 		host, _ := os.Hostname()
-		store.RunnerID = fmt.Sprintf("%s:%d", host, os.Getpid())
+		instanceID = fmt.Sprintf("%s:%d", host, os.Getpid())
 	}
+	store.RunnerID = instanceID
+	log.Info("argus.boot.instance", "id", instanceID)
 	if n, err := store.ResetRunningToPending(ctx, agentkitworker.StaleRunningAfter); err != nil {
 		log.Error("argus.boot.reset_running_failed", "error", err.Error())
 	} else if n > 0 {
@@ -125,10 +129,13 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	if err != nil {
 		panic(err)
 	}
-	if err := os.MkdirAll(cfg.WorkRoot, 0o755); err != nil {
-		log.Warn("argus.boot.workroot_failed", "dir", cfg.WorkRoot, "error", err.Error())
+	// workcopy 按实例隔离：共享 WorkRoot 时，本实例 Sweep 的孤儿扫描会把
+	// 他实例"已跟踪"的目录误判为孤儿删除（entries 是实例内内存态）
+	wcRoot := filepath.Join(cfg.WorkRoot, "instance-"+instanceID)
+	if err := os.MkdirAll(wcRoot, 0o755); err != nil {
+		log.Warn("argus.boot.workroot_failed", "dir", wcRoot, "error", err.Error())
 	}
-	wc := workcopy.NewPool(cfg.WorkRoot, log)
+	wc := workcopy.NewPool(wcRoot, log)
 	wc.CredentialOf = func(platform string) (string, string, bool) {
 		pc, ok := cfg.Platforms[platform]
 		// GitHub App 认证时，优先用 installation token（自动刷新）
@@ -283,13 +290,17 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// plugins.yaml 的 mcpServers/tools 段驱动；未声明时 nil（workflow 不挂工具）。
 	var toolPool toolpool.Pool
 	var toolSpecs []toolpool.ToolSpec
-	if pf, e := plugin.LoadPluginsFile(cfg.PluginsFile); e == nil && len(pf.MCPServers) > 0 {
-		if rp := toolpool.NewRealPool(pf.MCPServers, log); rp != nil {
-			toolPool = &toolpool.RealAdapter{Pool: rp}
-			toolSpecs = toolpool.SpecsFromDecls(pf.Tools)
-			log.Info("argus.boot.mcp_ready", "servers", strings.Join(rp.Servers(), ","),
-				"tool_specs", len(toolSpecs))
+	var squads []plugin.SquadDecl
+	if pf, e := plugin.LoadPluginsFile(cfg.PluginsFile); e == nil {
+		if len(pf.MCPServers) > 0 {
+			if rp := toolpool.NewRealPool(pf.MCPServers, log); rp != nil {
+				toolPool = &toolpool.RealAdapter{Pool: rp}
+				toolSpecs = toolpool.SpecsFromDecls(pf.Tools)
+				log.Info("argus.boot.mcp_ready", "servers", strings.Join(rp.Servers(), ","),
+					"tool_specs", len(toolSpecs))
+			}
 		}
+		squads = pf.Squads
 	}
 
 	// ---- LLM 成本记账（obsx OnUsage 回流，覆盖直连与 ReAct RawModel 两条路径）----
@@ -302,7 +313,18 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		return [2]float64{}
 	}
 
-	dispatcher := plugin.NewDispatcher(reg, log)
+	// ---- 多副本控制面选主（agentkit/worker.LeaderElector）----
+	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
+	// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
+	pollElector := agentkitworker.NewLeaderElector(store, "argus/poller", instanceID,
+		30*time.Second, 10*time.Second, agentkitworker.WithLeaderLogger(log))
+	pollElector.Start(ctx)
+	app.AddResource("poll-leader", func(context.Context) error {
+		pollElector.Stop() // 优雅停机主动让位，缩短换主窗口
+		return nil
+	})
+
+	dispatcher := plugin.NewDispatcher(reg, log).WithSquads(squads)
 	merger := plugin.NewMerger(store, log)
 	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
 	runnerRef = &runner.Runner{
@@ -361,7 +383,8 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		}
 		if len(targets) > 0 {
 			pl := &poller.Poller{SDK: sdk, Store: store, Targets: targets,
-				Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: bus}
+				Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: bus,
+				IsLeader: pollElector.IsLeader}
 			pl.Start(ctx)
 		}
 	}

@@ -15,6 +15,12 @@
 - plugins.yaml 新增 `squads:` 段：paths/labels 触发 → 成员追加进本轮分派（squad: 原因可观测）
 - Merger.AnnotateCrossReview：编队成员对同一文件 ±5 行"仅一方报告"的意见标注分歧，报告头显示编队注记
 
+### P1 多副本横向扩展
+- agentkit v0.7.3 `worker.LeaderElector` + 存储 `leader_leases` 表租约实现（条件 UPDATE 原子"判-占-续"）
+- poller 选主门控（非 leader tick 跳过；失联 ≤ttl 自动换主，优雅停机主动让位）
+- 实例身份 `argus.boot.instance` 日志；workcopy 按实例隔离（`WorkRoot/instance-<id>/`，防跨实例 Sweep 误删）
+- deploy/k8s/README-scaling.md 多副本指南（前置 MySQL、容量公式、验证清单）；04-deployment.yaml 注明单副本档与切换路径
+
 ### P4 知识飞轮
 - SuppressFinding（HTTP + MR 评论 `/argus suppress fp:xxxxxxxx`）成功后误报结论回流知识库（Milvus 模式；内容经 safejson 转义）
 - R3 search_knowledge 检索命中历史误报即带抑制语境——同型误报率随使用下降

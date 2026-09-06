@@ -343,3 +343,44 @@ func TestPruneTasks(t *testing.T) {
 		t.Fatalf("TaskCounts 错误: pending=%d running=%d err=%v", p, r, err)
 	}
 }
+
+func TestLeaderLeaseAtomicity(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// 首次获取
+	if ok, err := s.TryAcquire(ctx, "poller", "A", time.Minute); err != nil || !ok {
+		t.Fatalf("首次获取应成功: %v %v", ok, err)
+	}
+	// 他人持有未过期 → 拒绝
+	if ok, err := s.TryAcquire(ctx, "poller", "B", time.Minute); err != nil || ok {
+		t.Fatalf("他人持有未过期应拒绝: %v %v", ok, err)
+	}
+	// 持有者自续约 → 成功
+	if ok, err := s.TryAcquire(ctx, "poller", "A", time.Minute); err != nil || !ok {
+		t.Fatalf("持有者续约应成功: %v %v", ok, err)
+	}
+	// 主动让位
+	if err := s.Release(ctx, "poller", "A"); err != nil {
+		t.Fatal(err)
+	}
+	// B 立即当选
+	if ok, err := s.TryAcquire(ctx, "poller", "B", time.Minute); err != nil || !ok {
+		t.Fatalf("让位后 B 应当选: %v %v", ok, err)
+	}
+	// 非持有者 Release 无效（B 仍持有）
+	if err := s.Release(ctx, "poller", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.TryAcquire(ctx, "poller", "A", time.Minute); err != nil || ok {
+		t.Fatalf("非持有者释放后仍应拒绝: %v %v", ok, err)
+	}
+	// 过期换主：直改 expires_at 模拟失联
+	if err := s.db.Model(&LeaderLease{}).Where("lease_key = ?", "poller").
+		Update("expires_at", time.Now().UTC().Add(-time.Second)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.TryAcquire(ctx, "poller", "A", time.Minute); err != nil || !ok {
+		t.Fatalf("过期后应换主: %v %v", ok, err)
+	}
+}

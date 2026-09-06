@@ -38,6 +38,10 @@ type Poller struct {
 	SkipDraft bool
 	Log       logx.Logger
 	Bus       *progress.Bus // task.created 事件（SSE；nil 安全）
+	// IsLeader 选主门控（多副本部署：worker.LeaderElector.IsLeader 注入；
+	// nil = 单实例语义恒为 leader）。非 leader 的 tick 直接跳过——轮询任务源
+	// 本身幂等（同 SHA 双查），双跑无害只浪费，收敛为单份省 API 配额。
+	IsLeader func() bool
 }
 
 // ParseTargets 解析 "platform:owner/repo" 列表（逗号分隔）；非法项跳过并记入错误。
@@ -78,6 +82,9 @@ func (p *Poller) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if p.IsLeader != nil && !p.IsLeader() {
+					continue // 非 leader 实例：跳过本轮（选主器日志已记录角色）
+				}
 				p.pollOnce(ctx)
 			}
 		}
