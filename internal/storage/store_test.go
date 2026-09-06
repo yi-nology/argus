@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -382,5 +383,38 @@ func TestLeaderLeaseAtomicity(t *testing.T) {
 	}
 	if ok, err := s.TryAcquire(ctx, "poller", "A", time.Minute); err != nil || !ok {
 		t.Fatalf("过期后应换主: %v %v", ok, err)
+	}
+}
+
+func TestQASessionRoundtripAndExpiry(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	key := "gitea:o/r#12"
+
+	// 不存在 → nil
+	if sess, err := s.GetQASession(ctx, key, time.Hour); err != nil || sess != nil {
+		t.Fatalf("无会话应返回 nil: %v %v", sess, err)
+	}
+	// 保存 → 读回
+	hist := []QATurn{{Question: "为什么这里没用锁?", Answer: "因为只读…", At: time.Now().UTC().Format(time.RFC3339)}}
+	hj, _ := json.Marshal(hist)
+	if err := s.SaveQASession(ctx, &QASession{SessionKey: key, HistoryJSON: string(hj)}); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.GetQASession(ctx, key, time.Hour)
+	if err != nil || sess == nil {
+		t.Fatalf("应读到会话: %v %v", sess, err)
+	}
+	var back []QATurn
+	if err := json.Unmarshal([]byte(sess.HistoryJSON), &back); err != nil || len(back) != 1 {
+		t.Fatalf("历史应往返一致: %v", err)
+	}
+	// 过期 → 视为无会话
+	if err := s.db.Model(&QASession{}).Where("session_key = ?", key).
+		Update("updated_at", time.Now().UTC().Add(-2*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if sess, err := s.GetQASession(ctx, key, time.Hour); err != nil || sess != nil {
+		t.Fatalf("过期会话应视为不存在: %v %v", sess, err)
 	}
 }

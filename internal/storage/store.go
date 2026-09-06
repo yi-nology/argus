@@ -170,7 +170,7 @@ func Open(dsn string) (*Store, error) {
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}, &LeaderLease{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if !s.sqlite {

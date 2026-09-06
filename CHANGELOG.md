@@ -15,6 +15,12 @@
 - plugins.yaml 新增 `squads:` 段：paths/labels 触发 → 成员追加进本轮分派（squad: 原因可观测）
 - Merger.AnnotateCrossReview：编队成员对同一文件 ±5 行"仅一方报告"的意见标注分歧，报告头显示编队注记
 
+### P5 Q&A 对话式审查助手
+- `@argus ask` 升级为 ReAct 模式（agentrun + 工具表：get_diff/get_file/search_knowledge，toolprior 三层约束 + 数据区围栏）——"这条 why"可引用 file:line 证据，不再只对着摘要猜
+- 多轮会话：`qa_sessions` 表（一 PR 一会话，6 轮封顶 FIFO + 24h 过期重置），追问带历史语境
+- ReAct 失败自动落回单轮直调（原路径保留为降级兜底）
+- mcpserver 新增 `ask_argus` 工具：无追问返回某 PR 最新审查结论（verdict/findings/报告摘录）；带 question 基于报告回答追问——IDE/其他 agent 可直接消费 Argus 评审能力
+
 ### P1 多副本横向扩展
 - agentkit v0.7.3 `worker.LeaderElector` + 存储 `leader_leases` 表租约实现（条件 UPDATE 原子"判-占-续"）
 - poller 选主门控（非 leader tick 跳过；失联 ≤ttl 自动换主，优雅停机主动让位）

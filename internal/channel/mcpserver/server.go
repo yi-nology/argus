@@ -33,6 +33,14 @@ type Core interface {
 	ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse
 }
 
+// ReviewQA 可选扩展（v3.3 P5）：ask_argus 的数据面。*service.Service 实现。
+type ReviewQA interface {
+	// LatestReview 某 PR 最近一次审查结论（verdict/findings/报告摘录）。
+	LatestReview(ctx context.Context, platform, owner, repo, number string) (map[string]any, bool)
+	// AnswerAboutReview 基于最近报告回答追问（无模型/无报告返回 false）。
+	AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool)
+}
+
 // New 构造 MCPServer 并注册四工具。
 func New(core Core, version string) *server.MCPServer {
 	s := server.NewMCPServer("argus", version,
@@ -77,6 +85,33 @@ func New(core Core, version string) *server.MCPServer {
 		}
 		b, _ := json.MarshalIndent(out, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
+	})
+	s.AddTool(askArgusTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		qa, ok := core.(ReviewQA)
+		if !ok {
+			return mcp.NewToolResultError("ask_argus 未启用（core 未实现 ReviewQA）"), nil
+		}
+		platform, owner, repo, number := argString(req, "platform", ""), argString(req, "owner", ""),
+			argString(req, "repo", ""), argString(req, "number", "")
+		question := argString(req, "question", "")
+		if question == "" {
+			// 无追问：返回最近一次审查结论（verdict + findings + 报告摘录）
+			lr, ok := qa.LatestReview(ctx, platform, owner, repo, number)
+			if !ok {
+				return mcp.NewToolResultText("该 PR 尚无已完成的 Argus 审查记录。"), nil
+			}
+			b, err := json.MarshalIndent(lr, "", "  ")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		}
+		// 带追问：基于最近报告回答
+		ans, ok := qa.AnswerAboutReview(ctx, platform, owner, repo, number, question)
+		if !ok {
+			return mcp.NewToolResultText("无法回答：Argus 未配置 LLM，或该 PR 尚无已完成的审查记录。"), nil
+		}
+		return mcp.NewToolResultText(ans), nil
 	})
 	return s
 }
@@ -233,6 +268,18 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 const maxWaitTimeout = 10 * time.Minute
 
 // argString 取可选字符串参数。
+func askArgusTool() mcp.Tool {
+	return mcp.NewTool("ask_argus",
+		mcp.WithDescription("查询 Argus 对某 MR/PR 的最新审查结论（verdict + findings + 报告摘录）；"+
+			"带 question 时基于该报告回答追问（如 \"为什么这条是 high\"）"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),
+		mcp.WithString("question", mcp.Description("可选追问；缺省返回完整审查结论")),
+	)
+}
+
 func argString(req mcp.CallToolRequest, key, def string) string {
 	if v, ok := req.GetArguments()[key].(string); ok && v != "" {
 		return v

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -10,6 +11,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 
 	"argus/internal/config"
+	"argus/internal/storage"
 )
 
 type testLogger struct{}
@@ -135,14 +137,32 @@ func TestExtractSuppressFP(t *testing.T) {
 	}{
 		{"suppress fp:abcd1234", "abcd1234", true},
 		{"suppress fp:ABCD1234 更正", "abcd1234", true},
-		{"suppress fp:abc", "", false},          // 短码过短
-		{"suppress fp:xyz123!", "", false},      // 非十六进制
-		{"ask 这段代码为什么这样写", "", false}, // 非 suppress 指令
+		{"suppress fp:abc", "", false},     // 短码过短
+		{"suppress fp:xyz123!", "", false}, // 非十六进制
+		{"ask 这段代码为什么这样写", "", false},      // 非 suppress 指令
 	}
 	for _, c := range cases {
 		got, ok := extractSuppressFP(c.in)
 		if ok != c.ok || got != c.want {
 			t.Errorf("extractSuppressFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestRenderHistoryCapsAndEscapes(t *testing.T) {
+	var long strings.Builder
+	for i := 0; i < 500; i++ {
+		long.WriteRune('长')
+	}
+	hist := []storage.QATurn{
+		{Question: "q1", Answer: long.String(), At: "2026-09-07T00:00:00Z"},
+	}
+	out := renderHistory(hist)
+	// 单条回答截断到 400 rune + 省略号：不应把 500 字全文带回上下文
+	if strings.Count(out, "长") > 401 {
+		t.Fatalf("历史应截断: %d", strings.Count(out, "长"))
+	}
+	if !strings.Contains(out, "q1") {
+		t.Fatalf("问题应保留: %q", out)
 	}
 }
