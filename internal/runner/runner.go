@@ -63,6 +63,12 @@ type Runner struct {
 	// CostPer1K 模型 → 单价换算（主/备模型外的调用按 0 计）。
 	CostPer1K func(model string) [2]float64
 
+	// StageLLMs 阶段模型覆盖（P6：ARGUS_MODEL_R1/R2；经 StageRouter 进 workflow，
+	// 未覆盖阶段走缺省链）。generator 为装配期原样实例，预算在包装时注入。
+	StageLLMs map[string]llm.Generator
+	// R3Model R3 ReAct 专用模型覆盖（P6：ARGUS_MODEL_R3；nil = 主模型）。
+	R3Model model.BaseChatModel
+
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
 	SkillRefs     []string
@@ -172,6 +178,18 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 				gen = bi.WithBudget(budget)
 			}
 		}
+		// P6 阶段路由：R1/R2 覆盖链各自注入任务预算后注册（精确/前缀匹配，
+		// "R1" 命中 "R1a"）；未覆盖阶段走缺省链
+		if len(r.StageLLMs) > 0 {
+			sr := llm.NewStageRouter(gen)
+			for stage, sg := range r.StageLLMs {
+				if bi, ok := sg.(llm.BudgetInjector); ok && budget != nil {
+					sg = bi.WithBudget(budget)
+				}
+				sr.Use(stage, sg)
+			}
+			gen = sr
+		}
 	} else {
 		c := llm.NewClient(r.Model, r.ModelName, budget)
 		// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
@@ -186,6 +204,7 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 	}
 	return &requirement.Workflow{
 		LLM:              gen,
+		R3ChatModel:      r.R3Model,
 		SkillTool:        skillTool,
 		SDK:              r.SDK,
 		Dispatcher:       r.Dispatcher,

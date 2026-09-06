@@ -100,3 +100,24 @@ func TestSingleFileLimit_Scales(t *testing.T) {
 		t.Fatalf("1M diff: want1400000, got %d", got)
 	}
 }
+
+func TestStageModelOverride(t *testing.T) {
+	t.Setenv("ARGUS_MODEL_R3", "fast-model")
+	t.Setenv("ARGUS_MODEL_R3_CONTEXT_TOKENS", "131072")
+	t.Setenv("ARGUS_QA_MODEL", "qa-model")
+	t.Setenv("ARGUS_REVIEWER_MODEL", "strong-model")
+
+	cfg := Load()
+	if cfg.StageModelR3 == nil || cfg.StageModelR3.Model != "fast-model" || cfg.StageModelR3.ContextTokens != 131072 {
+		t.Fatalf("R3 覆盖解析不符: %+v", cfg.StageModelR3)
+	}
+	if cfg.StageModelQA == nil || cfg.StageModelQA.Model != "qa-model" || cfg.StageModelQA.ContextTokens != 0 {
+		t.Fatalf("QA 覆盖解析不符（窗口应继承主配置）: %+v", cfg.StageModelQA)
+	}
+	if cfg.StageModelReviewer == nil || cfg.StageModelReviewer.Model != "strong-model" {
+		t.Fatalf("Reviewer 覆盖解析不符: %+v", cfg.StageModelReviewer)
+	}
+	if cfg.StageModelR1 != nil || cfg.StageModelR2 != nil {
+		t.Fatal("未配置阶段应为 nil")
+	}
+}

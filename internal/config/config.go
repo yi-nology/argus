@@ -91,6 +91,16 @@ type Config struct {
 	// 用于报告成本摘要与成本记账；0 = 不计价（报告不出现成本行）。
 	LLMCostPromptPer1K     float64
 	LLMCostCompletionPer1K float64
+
+	// 阶段模型覆盖（P6 分阶段路由）：ARGUS_MODEL_<STAGE> 配模型名，
+	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口（fitInput 按阶段窗口裁剪）。
+	// 覆盖阶段继承主 BaseURL/APIKey 与全局降级链（fallback 模型不覆盖）；
+	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, REVIEWER, QA}。
+	StageModelR1       *StageOverride
+	StageModelR2       *StageOverride
+	StageModelR3       *StageOverride
+	StageModelReviewer *StageOverride
+	StageModelQA       *StageOverride
 	// LLMRateLimit 全局 LLM 请求速率限制（requests/sec）；0 = 不限速。
 	// 配合 LLMRateBurst 使用，token bucket 限速器在 LLM 调用前阻塞等待。
 	LLMRateLimit float64
@@ -169,6 +179,22 @@ func (c *Config) MaxTokensResolved() int {
 		return c.LLM.MaxTokens
 	}
 	return c.budgetBase().MaxOutputTokens()
+}
+
+// StageOverride 单阶段模型覆盖。
+type StageOverride struct {
+	Model         string // 模型名（继承主 BaseURL/APIKey）
+	ContextTokens int    // 模型窗口（0 = 继承主窗口）
+}
+
+// stageOverride 解析 <ENV_BASE> + <ENV_BASE>_CONTEXT_TOKENS
+// （envBase 形如 "ARGUS_MODEL_R1" / "ARGUS_QA_MODEL" / "ARGUS_REVIEWER_MODEL"）。
+func stageOverride(envBase string) *StageOverride {
+	m := envStr(envBase, "")
+	if m == "" {
+		return nil
+	}
+	return &StageOverride{Model: m, ContextTokens: envInt(envBase+"_CONTEXT_TOKENS", 0)}
 }
 
 // CostPer1K 每 1000 token 单价（prompt, completion），报告/记账换算用。
@@ -277,6 +303,11 @@ func Load() *Config {
 		RepoMonthlyTokenBudget: envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
 		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
 		LLMCostCompletionPer1K: envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0),
+		StageModelR1:           stageOverride("ARGUS_MODEL_R1"),
+		StageModelR2:           stageOverride("ARGUS_MODEL_R2"),
+		StageModelR3:           stageOverride("ARGUS_MODEL_R3"),
+		StageModelReviewer:     stageOverride("ARGUS_REVIEWER_MODEL"),
+		StageModelQA:           stageOverride("ARGUS_QA_MODEL"),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
 		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),

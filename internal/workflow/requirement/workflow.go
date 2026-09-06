@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
 	"git.example.com/enjoydream/agentkit/severity"
@@ -49,14 +50,16 @@ type Output struct {
 
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
 type Workflow struct {
-	LLM        llm.Generator
-	SDK        *argusctx.SDKCtx
-	Dispatcher *plugin.Dispatcher
-	Merger     *plugin.Merger
-	Tools      toolpool.Pool // v3.0 mock 或 nil
-	ToolSpecs  []toolpool.ToolSpec
-	Knowledge  rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
-	SkillText  func(ctx context.Context) string // R3 方法论注入（runner 装配；nil = 无）
+	LLM llm.Generator
+	// R3ChatModel R3 ReAct 专用模型（P6 阶段覆盖；nil = LLM.RawModel()）。
+	R3ChatModel model.BaseChatModel
+	SDK         *argusctx.SDKCtx
+	Dispatcher  *plugin.Dispatcher
+	Merger      *plugin.Merger
+	Tools       toolpool.Pool // v3.0 mock 或 nil
+	ToolSpecs   []toolpool.ToolSpec
+	Knowledge   rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
+	SkillText   func(ctx context.Context) string // R3 方法论注入（runner 装配；nil = 无）
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool

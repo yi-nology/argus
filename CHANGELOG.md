@@ -21,6 +21,12 @@
 - ReAct 失败自动落回单轮直调（原路径保留为降级兜底）
 - mcpserver 新增 `ask_argus` 工具：无追问返回某 PR 最新审查结论（verdict/findings/报告摘录）；带 question 基于报告回答追问——IDE/其他 agent 可直接消费 Argus 评审能力
 
+### P6 分阶段模型路由
+- agentkit v0.8.1 `llm.StageRouter`：stage→Generator 多路复用（精确优先/最长前缀/缺省链，UsedTokens 聚合）
+- config 新增阶段覆盖：`ARGUS_MODEL_R1/R2/R3`、`ARGUS_REVIEWER_MODEL`、`ARGUS_QA_MODEL`（+ 各自 `_CONTEXT_TOKENS`）——继承主 BaseURL/APIKey，配置全局降级时覆盖阶段各自构建降级链
+- R1/R2 经 StageRouter 进 workflow（"R1" 命中 "R1a"，任务预算在路由包装时注入）；R3 覆盖 ReAct 专用模型（Workflow.R3ChatModel）；Reviewer/QA 走专用出口
+- 大窗口模型吃 R1 长输入、快模型跑 R2 摘要、强模型保 R3/R4 质量——按阶段分层配模型，调用点零改动
+
 ### P1 多副本横向扩展
 - agentkit v0.7.3 `worker.LeaderElector` + 存储 `leader_leases` 表租约实现（条件 UPDATE 原子"判-占-续"）
 - poller 选主门控（非 leader tick 跳过；失联 ≤ttl 自动换主，优雅停机主动让位）

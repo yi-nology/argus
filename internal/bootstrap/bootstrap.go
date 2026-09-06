@@ -36,6 +36,10 @@ type Deps struct {
 	WorkflowFactory adapter_builtin.WorkflowFactory
 	// ReviewTools 由 runner 提供（builtin Reviewer 的 ReAct 工具表钩子；nil = 单轮模式）。
 	ReviewTools adapter_builtin.ToolsHook
+	// ReviewerLLM / ReviewerName 阶段覆盖的 Reviewer 生成器（P6：ARGUS_REVIEWER_MODEL；
+	// nil = Reviewer 用全局 Model 构造）。
+	ReviewerLLM  llm.Generator
+	ReviewerName string
 }
 
 // BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置）并注册全部插件。
@@ -101,9 +105,18 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 					d.Log.Warn("argus.bootstrap.builtin_no_llm", "plugin", decl.Name,
 						"reason", "未配置 OPENAI_*，插件将不可用")
 				}
-				client := llm.NewClient(d.Model, d.Cfg.LLM.Model, nil)
-				client.ContextTokens = d.Cfg.LLM.ContextToken
-				client.MaxOutputTokens = d.Cfg.MaxTokensResolved()
+				reviewerName := d.Cfg.LLM.Model
+				if d.ReviewerName != "" { // P6 阶段覆盖：R4 Reviewer 专用模型
+					reviewerName = d.ReviewerName
+				}
+				var client llm.Generator = llm.NewClient(d.Model, reviewerName, nil)
+				if c, ok := client.(*llm.Client); ok && d.ReviewerLLM == nil {
+					c.ContextTokens = d.Cfg.LLM.ContextToken
+					c.MaxOutputTokens = d.Cfg.MaxTokensResolved()
+				}
+				if d.ReviewerLLM != nil {
+					client = d.ReviewerLLM
+				}
 				var opts []adapter_builtin.ReviewerOption
 				opts = append(opts, adapter_builtin.WithLogger(d.Log))
 				if d.ReviewTools != nil {

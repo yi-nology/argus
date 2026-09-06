@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -154,6 +155,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// 配置 OPENAI_FALLBACK_* 四项后启用 Resilient 多模型降级链。
 	var chatModel *openai.ChatModel
 	var llmGen llm.Generator
+	var fallbackProvider llm.Provider // 全局降级 Provider（P6 阶段覆盖链复用）
 	if cfg.LLM.BaseURL != "" && cfg.LLM.APIKey != "" && cfg.LLM.Model != "" {
 		maxTokens := cfg.MaxTokensParam()
 		chatModelCfg := &openai.ChatModelConfig{
@@ -172,6 +174,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 
 		fallbackReady := cfg.LLM.FallbackBaseURL != "" && cfg.LLM.FallbackAPIKey != "" && cfg.LLM.FallbackModel != ""
 		if fallbackReady {
+			// 提升作用域：阶段覆盖（P6）构建各自降级链时复用同一 fallback Provider
 			primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 				BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
 				ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
@@ -180,14 +183,15 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			if e != nil {
 				panic(fmt.Errorf("构造主 LLM Provider 失败: %w", e))
 			}
-			fallback, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+			fb, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 				BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
 				ContextTokens: cfg.LLM.FallbackContextToken,
 			})
 			if e != nil {
 				panic(fmt.Errorf("构造降级 LLM Provider 失败: %w", e))
 			}
-			resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallback), llm.ResilientConfig{
+			fallbackProvider = fb
+			resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallbackProvider), llm.ResilientConfig{
 				RetriesPerModel: cfg.LLM.LLMResilienceRetries,
 				BaseDelay:       cfg.LLM.LLMResilienceBaseDelay,
 			})
@@ -255,6 +259,105 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		log.Info("argus.boot.notify_ready", "octopus", cfg.OctopusURL, "channel", cfg.OctopusChannelID)
 	}
 
+	// ---- LLM 全局限速器（token bucket；ARGUS_LLM_RATE_LIMIT > 0 时启用）----
+	var llmLimiter *rate.Limiter
+	if cfg.LLMRateLimit > 0 {
+		llmLimiter = rate.NewLimiter(rate.Limit(cfg.LLMRateLimit), cfg.LLMRateBurst)
+		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
+	}
+
+	// ---- P6 分阶段模型路由：ARGUS_MODEL_{R1,R2,R3,REVIEWER,QA} 覆盖 ----
+	// 覆盖阶段继承主 BaseURL/APIKey；配置了全局降级时各自构建降级链（fallback 模型不覆盖）。
+	// R1/R2 经 StageRouter 进 workflow；R3/Reviewer/QA 是独立模型出口，走专用字段。
+	var (
+		stageLLMs    map[string]llm.Generator
+		r3Model      model.BaseChatModel
+		reviewerLLM  llm.Generator
+		reviewerName string
+		qaModel      model.BaseChatModel
+	)
+	buildStageModel := func(so *config.StageOverride) (model.BaseChatModel, error) {
+		ctxTok := so.ContextTokens
+		if ctxTok <= 0 {
+			ctxTok = cfg.LLM.ContextToken
+		}
+		var maxTok *int
+		if mt := cfg.MaxTokensParam(); mt > 0 {
+			t := mt
+			maxTok = &t
+		}
+		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
+			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
+			MaxTokens: maxTok, Timeout: cfg.LLM.Timeout,
+		})
+	}
+	buildStageGen := func(so *config.StageOverride) (llm.Generator, error) {
+		p, err := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
+			ContextTokens: so.ContextTokens, MaxOutputTokens: cfg.MaxTokensParam(),
+			Timeout: cfg.LLM.Timeout,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if fallbackProvider != nil {
+			return llm.NewResilient(llm.NewFallbackChain(p, fallbackProvider), llm.ResilientConfig{
+				RetriesPerModel: cfg.LLM.LLMResilienceRetries, BaseDelay: cfg.LLM.LLMResilienceBaseDelay,
+			})
+		}
+		c := llm.NewClient(p.Model(), so.Model, nil)
+		c.ContextTokens = so.ContextTokens
+		if c.ContextTokens <= 0 {
+			c.ContextTokens = cfg.LLM.ContextToken
+		}
+		c.MaxOutputTokens = cfg.MaxTokensResolved()
+		c.Limiter = llmLimiter
+		return c, nil
+	}
+	if cfg.LLM.BaseURL != "" {
+		for stage, so := range map[string]*config.StageOverride{
+			"R1": cfg.StageModelR1, "R2": cfg.StageModelR2,
+		} {
+			if so == nil {
+				continue
+			}
+			if stageLLMs == nil {
+				stageLLMs = map[string]llm.Generator{}
+			}
+			g, err := buildStageGen(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 %s 阶段模型失败: %w", stage, err))
+			}
+			stageLLMs[stage] = g
+			log.Info("argus.boot.stage_model", "stage", stage, "model", so.Model)
+		}
+		if so := cfg.StageModelR3; so != nil {
+			m, err := buildStageModel(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 R3 模型失败: %w", err))
+			}
+			r3Model = m
+			log.Info("argus.boot.stage_model", "stage", "R3(ReAct)", "model", so.Model)
+		}
+		if so := cfg.StageModelReviewer; so != nil {
+			g, err := buildStageGen(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 Reviewer 模型失败: %w", err))
+			}
+			reviewerLLM = g
+			reviewerName = so.Model
+			log.Info("argus.boot.stage_model", "stage", "reviewer", "model", so.Model)
+		}
+		if so := cfg.StageModelQA; so != nil {
+			m, err := buildStageModel(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 QA 模型失败: %w", err))
+			}
+			qaModel = m
+			log.Info("argus.boot.stage_model", "stage", "qa", "model", so.Model)
+		}
+	}
+
 	// ---- L4 插拔层 + L3 编排 + runner ----
 	// runnerRef 延迟填充：requirement-compliance 插件的 factory 在 Invoke 时才解引用。
 	var runnerRef *runner.Runner
@@ -274,16 +377,11 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			}
 			return runnerRef.WorkflowFor(budget).ReviewTools(ctx, task)
 		},
+		ReviewerLLM:  reviewerLLM,
+		ReviewerName: reviewerName,
 	})
 	if err != nil {
 		panic(err)
-	}
-
-	// ---- LLM 全局限速器（token bucket；ARGUS_LLM_RATE_LIMIT > 0 时启用）----
-	var llmLimiter *rate.Limiter
-	if cfg.LLMRateLimit > 0 {
-		llmLimiter = rate.NewLimiter(rate.Limit(cfg.LLMRateLimit), cfg.LLMRateBurst)
-		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
 	}
 
 	// ---- L5 工具子系统：MCP server → eino 工具表（design §9.2 方向 A 实装）----
@@ -342,6 +440,8 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		LLMLimiter: llmLimiter,
 		Cost:       costTracker,
 		CostPer1K:  costPer1K,
+		StageLLMs:  stageLLMs,
+		R3Model:    r3Model,
 	}
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
@@ -391,7 +491,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 
 	// ---- service + biz 接线 ----
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg, Knowledge: knowledge,
-		Log: log, Bus: bus, Model: chatModel,
+		Log: log, Bus: bus, Model: chatModel, QAModel: qaModel,
 		Audit: audit.New(log, "argus-audit"), Version: version}
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()

@@ -59,6 +59,7 @@ type Service struct {
 	Version   string
 	Bus       *progress.Bus        // 任务进度事件（v3.1 SSE 数据源；nil 安全）
 	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
+	QAModel   model.BaseChatModel  // Q&A 专用模型（P6 覆盖；nil = 用 Model）
 	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
 
 	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
@@ -931,11 +932,15 @@ func (s *Service) qaReAct(ctx context.Context, platform, owner, repo, number, qu
 		return "", err
 	}
 	historyText := renderHistory(history)
+	qaModel := s.Model
+	if s.QAModel != nil { // P6 阶段覆盖（ARGUS_QA_MODEL）
+		qaModel = s.QAModel
+	}
 	final, err := agentrun.RunWithEvents(ctx, agentrun.Config{
 		Name:          "argus-qa",
 		Description:   "PR 问答助手",
 		Instruction:   qaSystem(strategy, historyText),
-		Model:         s.Model,
+		Model:         qaModel,
 		MaxIterations: 8,
 		ToolsFactory: func() []tool.BaseTool {
 			t, _, e := s.qaTools(ctx, platform, owner, repo, number)
@@ -962,7 +967,11 @@ func (s *Service) qaSingle(ctx context.Context, platform, owner, repo, number, q
 	if err != nil {
 		return "", fmt.Errorf("加载 PR 上下文失败: %w", err)
 	}
-	client := llm.NewClient(s.Model, "", nil)
+	qaModel := s.Model
+	if s.QAModel != nil {
+		qaModel = s.QAModel
+	}
+	client := llm.NewClient(qaModel, "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage(qaSystem("", renderHistory(history))),
 		schema.UserMessage("PR 上下文:\n" + prCtx + "\n\n用户问题: " + question),
