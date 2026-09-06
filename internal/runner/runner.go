@@ -19,9 +19,6 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/notify"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
@@ -31,15 +28,19 @@ import (
 	"argus/internal/storage"
 	"argus/internal/toolpool"
 	"argus/internal/workflow/requirement"
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/obsx"
+	"git.example.com/enjoydream/agentkit/skill"
 )
 
 // Runner 单任务执行器。
 type Runner struct {
-	Cfg        *config.Config
-	Store      *storage.Store
-	SDK        *argusctx.SDKCtx
-	Model      model.BaseChatModel // eino 模型（每任务包一层 llm.Client 以隔离预算）
-	ModelName  string
+	Cfg       *config.Config
+	Store     *storage.Store
+	SDK       *argusctx.SDKCtx
+	Model     model.BaseChatModel // eino 模型（每任务包一层 llm.Client 以隔离预算）
+	ModelName string
 	// LLM 装配期构造的生成器（*llm.Client 或 *llm.Resilient）。非 nil 时优先于 Model。
 	LLM        llm.Generator
 	Dispatcher *plugin.Dispatcher
@@ -152,6 +153,9 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
+	// eino callbacks 追踪：此后 ctx 链上所有 ChatModel 调用自动产出
+	// llm.call.start/end/error 结构化日志（含 stage/耗时/真实 token usage）
+	ctx = obsx.InitLLMObservability(ctx, r.Log, obsx.Options{SlowThreshold: 60 * time.Second})
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)

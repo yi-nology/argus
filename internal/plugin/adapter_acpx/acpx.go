@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/llm"
@@ -94,6 +95,9 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	defer release()
 
 	prompt := buildPrompt(task, workDir != "")
+	p.log.Info("argus.acpx.run.start", "plugin", p.manifest.Name, "agent", p.agent.Name(),
+		"prompt_chars", len([]rune(prompt)), "workdir", workDir != "")
+	start := time.Now()
 	res, err := p.agent.Run(ctx, acpx.RunRequest{
 		Prompt:  prompt,
 		WorkDir: workDir,
@@ -101,6 +105,8 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		Sandbox: acpx.SandboxReadonly,
 	})
 	if err != nil {
+		p.log.Warn("argus.acpx.run.error", "plugin", p.manifest.Name, "agent", p.agent.Name(),
+			"duration_ms", time.Since(start).Milliseconds(), "error", err.Error())
 		return plugin.Result{}, fmt.Errorf("acpx agent %s 执行失败: %w", p.agent.Name(), err)
 	}
 
@@ -108,6 +114,11 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	for i := range findings {
 		findings[i].By = p.manifest.Name
 	}
+	p.log.Info("argus.acpx.run.end", "plugin", p.manifest.Name, "agent", p.agent.Name(),
+		"duration_ms", time.Since(start).Milliseconds(),
+		"findings", len(findings), "text_chars", len([]rune(res.Text)),
+		"prompt_tokens", res.Usage.InputTokens, "completion_tokens", res.Usage.OutputTokens,
+		"cost_usd", res.Usage.CostUSD, "session_id", res.SessionID)
 	return plugin.Result{Findings: findings, Notes: fmt.Sprintf("%s(%s) 完成", p.manifest.Name, p.agent.Name())}, nil
 }
 
