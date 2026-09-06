@@ -8,10 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
@@ -19,6 +17,7 @@ import (
 	"git.example.com/enjoydream/agentkit/toolprior"
 
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/agentrun"
 	"git.example.com/enjoydream/agentkit/llm"
 )
 
@@ -344,48 +343,16 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	return degraded, "", nil
 }
 
-// runAgent 构造并运行 ADK ReAct agent，drain 事件流取最终 assistant 文本。
+// runAgent 运行 R3 ReAct agent（样板已沉淀至 agentkit/agentrun）。
 func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tools []tool.BaseTool) (string, error) {
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+	return agentrun.Run(ctx, agentrun.Config{
 		Name:          "argus-compliance",
 		Description:   "需求完成度判定专家",
 		Instruction:   instruction,
 		Model:         w.LLM.RawModel(),
 		MaxIterations: 12,
-		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("构造 agent 失败: %w", err)
-	}
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: false})
-	iter := runner.Query(ctx, query)
-
-	var finalText string
-	for {
-		event, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if event == nil {
-			continue
-		}
-		if event.Err != nil {
-			return "", fmt.Errorf("agent 事件错误: %w", event.Err)
-		}
-		if event.Output == nil || event.Output.MessageOutput == nil {
-			continue
-		}
-		mv := event.Output.MessageOutput
-		if mv.Role == schema.Assistant && mv.Message != nil && len(mv.Message.ToolCalls) == 0 && mv.Message.Content != "" {
-			finalText = mv.Message.Content // ReAct 出口：assistant 无 tool_calls
-		}
-	}
-	if finalText == "" {
-		return "", fmt.Errorf("agent 未产出最终文本")
-	}
-	return finalText, nil
+		Tools:         tools,
+	}, query)
 }
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。
