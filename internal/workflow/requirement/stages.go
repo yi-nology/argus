@@ -16,9 +16,10 @@ import (
 	"github.com/yi-nology/git-platform-sdk/provider"
 
 	"git.example.com/enjoydream/agentkit/textutil"
+	"git.example.com/enjoydream/agentkit/toolprior"
 
-	"git.example.com/enjoydream/agentkit/llm"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // issueRefRe 从分支名/PR 描述中提取关联 issue（需求源三入口之一）。
@@ -268,12 +269,16 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	}
 
 	// 工具表：get_file / get_issue / get_diff（+ toolpool 扩展）
-	tools, err := w.r3Tools(ctx, task)
+	tools, strategy, err := w.r3Tools(ctx, task, spec)
 	if err != nil {
 		return nil, "", fmt.Errorf("R3 工具构造失败: %w", err)
 	}
 
 	instruction := r3System
+	if strategy != "" {
+		// 工具优先级决策指引（agentkit/toolprior：优先级序 + 何时用 + 成本提示）
+		instruction += "\n\n" + strategy
+	}
 	if w.SkillText != nil {
 		if s := w.SkillText(ctx); s != "" {
 			// §9.1 方法论注入：拼进系统提示词尾部（含 checksum 可排查漂移）
@@ -384,7 +389,9 @@ func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tool
 }
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。
-func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTool, error) {
+// 经 toolprior 表组织：优先级排序 + 策略提示 + 外部工具调用限制。
+func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
+	spec *plugin.RequirementSpec) ([]tool.BaseTool, string, error) {
 	pr := task.PR
 	fileMax, issueMax, diffMax := w.GetFileMaxChars, w.GetIssueMaxChars, w.GetDiffMaxChars
 	if fileMax <= 0 {
@@ -412,7 +419,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			return &getFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	getIssue, err := utils.InferTool("get_issue",
@@ -431,7 +438,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			return &getIssueOut{Body: DataFence("get_issue 标题与正文（数据）", issue.Title+"\n"+body)}, nil
 		})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	getDiff, err := utils.InferTool("get_diff",
@@ -448,42 +455,64 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task) ([]tool.BaseTo
 			return &getDiffOut{Diff: ""}, nil
 		})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	tools := []tool.BaseTool{getFile, getIssue, getDiff}
+	// ---- 优先级表：三层决策约束（指引/排序/限制），见 agentkit/toolprior ----
+	table := toolprior.NewTable()
+	table.Add(toolprior.Entry{Tool: getFile, Priority: toolprior.PriorityCore,
+		When: "核实 AC 证据的唯一来源：每条 implemented/partial 判定前必查", Cost: "low"})
+	// 条件暴露：需求未引用 issue 时 get_issue 是死工具，不进表（省模型注意力）
+	if spec == nil || len(spec.IssueRefs) > 0 {
+		table.Add(toolprior.Entry{Tool: getIssue, Priority: toolprior.PriorityCore,
+			When: "需求源引用了 issue，核对原始需求措辞时使用", Cost: "low"})
+	}
+	table.Add(toolprior.Entry{Tool: getDiff, Priority: toolprior.PriorityCore,
+		When: "变更概览，判定前先通读", Cost: "low"})
 	if w.Knowledge != nil {
 		if kt := w.Knowledge.AsTool(); kt != nil {
-			tools = append(tools, kt)
+			table.Add(toolprior.Entry{Tool: kt, Priority: toolprior.PrioritySupport,
+				When: "需引用团队编码规范/部署约定作判据时使用", Cost: "medium"})
 		}
 	}
 	if w.SkillTool != nil {
 		// 决策使用模式：提示词只带可用清单（runner.skillText 返回摘要），
 		// 全文由 agent 按相关性经 use_skill 工具按需加载
-		tools = append(tools, w.SkillTool)
+		table.Add(toolprior.Entry{Tool: w.SkillTool, Priority: toolprior.PrioritySupport,
+			When: "任务与可用清单中某条方法论相关时加载全文", Cost: "low"})
 	}
+
 	if w.Tools != nil {
 		extra, err := w.Tools.Tools(ctx, w.ToolSpecs)
 		if err != nil {
 			w.Log.Warn("argus.r3.toolpool_error", "error", err.Error())
 		} else {
-			// 去重：pool 工具名与内置工具碰撞时跳过（防 mock 覆盖真实知识检索）
-			seen := make(map[string]bool, len(tools))
-			for _, t := range tools {
-				if info, err := t.Info(ctx); err == nil {
-					seen[info.Name] = true
-				}
-			}
 			for _, t := range extra {
 				info, err := t.Info(ctx)
-				if err != nil || seen[info.Name] {
+				if err != nil {
 					continue
 				}
-				tools = append(tools, t)
+				// 外部工具：每次调用有网络/进程开销 → External 档 + 调用上限 5 次（硬止损）
+				table.Add(toolprior.Entry{
+					Tool:     toolprior.WithCallLimit(asInvokable(t), 5),
+					Priority: toolprior.PriorityExternal,
+					When:     fmt.Sprintf("外部系统工具（%s）：本地证据穷尽后再用", info.Name),
+					Cost:     "high",
+				})
 			}
 		}
 	}
-	return tools, nil
+
+	strategy := table.StrategyPrompt(ctx)
+	return table.Ordered(ctx), strategy, nil
+}
+
+// asInvokable BaseTool → InvokableTool 断言（不可调用工具跳过外部限制包装）。
+func asInvokable(t tool.BaseTool) tool.InvokableTool {
+	if it, ok := t.(tool.InvokableTool); ok {
+		return it
+	}
+	return nil
 }
 
 // ---------- 小工具 ----------
@@ -559,7 +588,6 @@ func truncSummary(s string, n int) string {
 	}
 	return s
 }
-
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
