@@ -21,7 +21,7 @@ func SuppressFinding(ctx context.Context, c *app.RequestContext) {
 	}
 	var req api.SuppressFindingRequest
 	if err := validatorh.BindAndValidate(c, &req); err != nil {
-		mw.Fail(c, err)
+		mw.Fail(ctx, c, err)
 		return
 	}
 	resp, status := Svc.SuppressFinding(ctx, &req)

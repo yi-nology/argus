@@ -33,7 +33,7 @@ func ensureSvc(c *app.RequestContext) bool {
 func CreateTask(ctx context.Context, c *app.RequestContext) {
 	var req api.CreateTaskRequest
 	if err := validatorh.BindAndValidate(c, &req); err != nil {
-		mw.Fail(c, err)
+		mw.Fail(ctx, c, err)
 		return
 	}
 	if !ensureSvc(c) {

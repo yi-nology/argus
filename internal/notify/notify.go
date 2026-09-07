@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imroc/req/v3"
+	"github.com/cloudwego/hertz/pkg/protocol"
 
 	"argus/internal/obs"
 
@@ -81,8 +81,8 @@ func (n *Notifier) clientOf() *httpx.Client {
 		opts := []httpx.Option{
 			httpx.WithBaseURL(strings.TrimRight(n.BaseURL, "/")),
 			httpx.WithTimeout(10 * time.Second),
-			httpx.WithOnBeforeRequest(func(_ *req.Client, r *req.Request) error {
-				r.Headers.Set("X-User-Id", n.machineUser())
+			httpx.WithOnBeforeRequest(func(_ context.Context, r *protocol.Request) error {
+				r.Header.Set("X-User-Id", n.machineUser())
 				return nil
 			}),
 		}
