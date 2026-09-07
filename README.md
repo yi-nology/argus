@@ -29,6 +29,13 @@
 - 支持**方法论注入**（skillRefs）：把 SKILL.md 里的评分标准注入对应阶段的 prompt；
 - **确定性路由与合并**：按 paths/labels/事件路由插件，指纹去重（不同专家发现同一问题只报一次）、
   冲突取高severity、token 预算吃紧时 heavy 插件先裁（锁定插件豁免）。路由/裁决/合并不走 LLM，可解释、可复现。
+- **编队两种协作模式（v3.4）**：默认**互盲独立**（成员并发盲审，分歧由 Merger 事后标注"另一专家
+  未复现"）；`mode: consensus` 切换为**黑板共识**（agentkit/blackboard）——成员按轮互看共享黑板、
+  只补充他人未覆盖的新问题，一整轮无人补充即共识收敛（上限 2 轮），适合"要收敛结论"而非"要分歧
+  信号"的高危变更；
+- **报告反思闸门（v3.4，可选）**：合并去重后由终审编辑（agentkit/reflection 批判→修订收敛循环）
+  按误报特征 Rubric 复核 findings——剔除幻觉引用/纯风格/无证据定位条目、修正严重级别（只删改不新增，
+  默认关闭，`ARGUS_REFLECTION_ROUNDS` 开启）。
 
 ### 3. 确定性裁决 + 双层回帖
 
@@ -79,6 +86,13 @@
 在 PR 评论中 `@argus ask <问题>`，Argus 会根据 PR 上下文用 LLM 回答。例如：
 - `@argus ask 这个改动会影响性能吗？`
 - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
+- `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
+
+**评论意图路由（v3.4，`ARGUS_COMMENT_ROUTER=1` 开启）**：`@argus` 后的自由文本先分类再分派——
+- 要求重新审查（"请重新审查"、"再审一遍"）→ 自动建全量复审任务并回执任务号，作者推完修复
+  不用再等 webhook；
+- 其余一切（含低置信/分类失败）→ Q&A 问答。短命令关键词零分类调用直达，歧义文本才走一次
+  快模型分类（`ARGUS_ROUTER_MODEL` 可覆盖）。
 
 30 秒内同一 PR 不会重复回答（防刷）。需要配置 LLM（OPENAI_*）。
 
@@ -229,6 +243,10 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
 | `ARGUS_LLM_RATE_LIMIT` | 0（禁用）| LLM 请求速率限制（token bucket，单位 req/s）|
 | `ARGUS_LLM_RATE_BURST` | =MaxConcurrentTasks | 速率限制器突发容量 |
+| `ARGUS_MODEL_{R1,R2,R3,R35,ROUTER}` / `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` | - | 分阶段模型覆盖（P6 扩展）：大窗口吃 R1 长输入、快模型跑 R2/路由、强模型保 R3/R35 质量；`_CONTEXT_TOKENS` 后缀配各阶段窗口 |
+| `ARGUS_REFLECTION_ROUNDS` | 0（关闭）| R3.5 报告反思轮数（1~3）：批判→修订收敛，剔除误报嫌疑 findings |
+| `ARGUS_COMMENT_ROUTER` | false | 评论意图路由：@argus 自由文本分类分派（review=重审任务 / ask=问答）|
+| `ARGUS_ROUTER_MIN_CONFIDENCE` | 0.6 | 意图分类置信度下限，低于则回落 ask |
 | `ARGUS_WEBHOOK_MAX_BODY` | 1048576（1MB）| Webhook 请求体最大字节数 |
 | `ARGUS_GITHUB_APP_ID` | 空 | GitHub App ID（替代 PAT 的另一种认证方式）|
 | `ARGUS_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App 私钥（PEM 格式）|

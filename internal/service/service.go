@@ -61,6 +61,9 @@ type Service struct {
 	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
 	QAModel   model.BaseChatModel  // Q&A 专用模型（P6 覆盖；nil = 用 Model）
 	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
+	// RouterModel 评论意图路由分类模型（v3.4 ARGUS_ROUTER_MODEL 覆盖；nil = QAModel → Model）。
+	// 仅 ARGUS_COMMENT_ROUTER=1 时消费。
+	RouterModel model.BaseChatModel
 
 	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
 	qaThrottleMu     sync.Mutex
@@ -1162,24 +1165,41 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 		"actor", ev.Actor.Username, "event_id", delivery)
 
 	platform := string(ev.Source)
-	answer, err := s.answerQA(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question)
-	if err != nil {
-		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
-		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "LLM 调用失败: "+err.Error())
+
+	// 意图路由（v3.4）：ARGUS_COMMENT_ROUTER=1 时先分类再分派——review 建全量
+	// 复审任务，其余一律 Q&A（Fallback 也是 Q&A）。关闭时行为与 v3.3 完全一致。
+	if !s.Cfg.CommentRouter {
+		answer, err := s.answerQA(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question)
+		if err != nil {
+			s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
+			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "LLM 调用失败: "+err.Error())
+			return
+		}
+		s.postCommentReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef,
+			"> "+question+"\n\n"+answer+"\n\n<!-- argus:qa delivery="+delivery+" -->",
+			question, len(answer))
 		return
 	}
 
-	// 回帖
-	replyBody := "> " + question + "\n\n" + answer +
-		"\n\n<!-- argus:qa delivery=" + delivery + " -->"
-	if _, err := s.SDK.CreateIssueComment(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, replyBody); err != nil {
+	reply, err := s.routeAndReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question, delivery)
+	if err != nil {
+		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
+		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "处理失败: "+err.Error())
+		return
+	}
+	s.postCommentReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, reply, question, len(reply))
+}
+
+// postCommentReply 回帖 + 留痕（Q&A 与意图路由分派的共用出口）。
+func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, prNum, prRef,
+	body, question string, answerLen int) {
+	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body); err != nil {
 		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
 		return
 	}
-
-	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", len(answer))
+	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
 	if s.Audit != nil {
-		s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", len(answer))
+		s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
 	}
 }
 

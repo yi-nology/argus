@@ -95,12 +95,24 @@ type Config struct {
 	// 阶段模型覆盖（P6 分阶段路由）：ARGUS_MODEL_<STAGE> 配模型名，
 	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口（fitInput 按阶段窗口裁剪）。
 	// 覆盖阶段继承主 BaseURL/APIKey 与全局降级链（fallback 模型不覆盖）；
-	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, REVIEWER, QA}。
+	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, R35, REVIEWER, QA, ROUTER}。
 	StageModelR1       *StageOverride
 	StageModelR2       *StageOverride
 	StageModelR3       *StageOverride
+	StageModelR35      *StageOverride // R3.5 报告反思（v3.4 reflection）；缺省沿用 R3 模型
 	StageModelReviewer *StageOverride
 	StageModelQA       *StageOverride
+	StageModelRouter   *StageOverride // 评论意图路由分类器（v3.4 router）；快模型即可
+	// ReflectRounds R3.5 报告反思的"批判→修订"轮数上限（ARGUS_REFLECTION_ROUNDS）。
+	// 0 = 关闭（缺省）；1~3 = 启用（>3 钳制为 3）。开启后每任务多 2~2N 次模型调用。
+	ReflectRounds int
+	// CommentRouter 评论意图路由（ARGUS_COMMENT_ROUTER，默认关闭）：
+	// @argus 自由文本评论先分类再分派——review（要求重新审查）建新任务，其余走 Q&A。
+	// 显式关键词（"重新审查"等短命令）零分类调用直达；歧义文本才走 LLM 分类。
+	CommentRouter bool
+	// RouterMinConfidence LLM 意图分类的置信度下限（0~1，默认 0.6）；
+	// 低于阈值一律回落 ask（Q&A），宁可多答不误触发重审。
+	RouterMinConfidence float64
 	// LLMRateLimit 全局 LLM 请求速率限制（requests/sec）；0 = 不限速。
 	// 配合 LLMRateBurst 使用，token bucket 限速器在 LLM 调用前阻塞等待。
 	LLMRateLimit float64
@@ -306,8 +318,13 @@ func Load() *Config {
 		StageModelR1:           stageOverride("ARGUS_MODEL_R1"),
 		StageModelR2:           stageOverride("ARGUS_MODEL_R2"),
 		StageModelR3:           stageOverride("ARGUS_MODEL_R3"),
+		StageModelR35:          stageOverride("ARGUS_MODEL_R35"),
 		StageModelReviewer:     stageOverride("ARGUS_REVIEWER_MODEL"),
 		StageModelQA:           stageOverride("ARGUS_QA_MODEL"),
+		StageModelRouter:       stageOverride("ARGUS_ROUTER_MODEL"),
+		ReflectRounds:          envInt("ARGUS_REFLECTION_ROUNDS", 0),
+		CommentRouter:          envBool("ARGUS_COMMENT_ROUTER", false),
+		RouterMinConfidence:    envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
 		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),

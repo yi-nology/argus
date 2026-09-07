@@ -1,5 +1,60 @@
 # Changelog
 
+## v3.4.0 (2026-09-07) — 接入 agentkit v0.8.0 架构原语（reflection / router / blackboard）
+
+P6 已完成 agentkit v0.8.1 `llm.StageRouter` 分阶段模型路由（独立提交）。本版补齐 v0.8.0
+三个架构原语的领域落地，全部特性默认关闭/保守启用，行为可预期：
+
+### R3.5 报告反思（agentkit/reflection）
+- workflow 挂点：Merger 合并去重后、分歧标注与 R5 裁决前——被剔除的意见连带分歧标注一起
+  消失，R5 真值表基于修订后 findings 求值
+- 终审编辑角色 + 误报特征 Rubric（文件越界/行号非法/纯风格/无证据定位/重复/测试代码误判），
+  生成→批判→修订收敛循环（`reflection.Refine`）
+- 防幻觉纪律：修订协议按 id 回写，只删/修不增（编造 id/重复 id 丢弃）；逐字段校验回退
+  （file 越界回原值、severity 非法回原值、line 负数回原值）；解析失败/模型故障保留原
+  findings——审查不因反思故障而失败
+- 反思是逐轮统计性质量闸门，不写 suppress（持久抑制只来自人工反馈，防自动化误杀）；
+  指纹库语义不变
+- 配置：`ARGUS_REFLECTION_ROUNDS`（0=关闭缺省，1~3 启用，>3 钳制）+ `ARGUS_MODEL_R35`
+  阶段覆盖（缺省回退 R3 模型）。报告脚注注明剔除/修正计数
+- 已知边界：反思调用经 reflection 包内部 llm.Client（stage=reflection:draft/critique），
+  不计任务 token 预算；成本经 obsx OnUsage 回流 + 费率记账可见
+
+### 评论意图路由（agentkit/router）
+- 挂点：`HandleComment` suppress 分流之后——`@argus` 自由文本先分类再分派：
+  - `review`（要求重新审查/再审一遍/重跑评审）→ `CreateTaskDirect` 建全量复审任务
+    （无同 SHA 去重——重审语义就是同 head 再来一轮，跨轮指纹/抑制照常生效）+ 回执评论带任务号
+  - 其余一切（含低置信、分类失败、词表外）→ Q&A（P5 路径原样保留）
+- 确定性优先：短命令（≤30 rune）命中重审关键词直达，零分类调用；歧义长句才走一次快模型
+  GenerateJSON 分类（router.Classify，决策 route/confidence/reason 全量落日志）
+- `MinConfidence`（`ARGUS_ROUTER_MIN_CONFIDENCE`，默认 0.6）之下的 review 视为 ask——
+  误触发重审的代价远高于多答一句；分类模型 `ARGUS_ROUTER_MODEL` 覆盖（缺省 QA → 主模型）
+- 默认关闭（`ARGUS_COMMENT_ROUTER=1` 开启）——重审是烧预算的强动作，显式 opt-in
+
+### 编队黑板共识模式（agentkit/blackboard）
+- plugins.yaml `squads:` 段新增 `mode: consensus`：编队成员不进 fan-out 盲审，改在共享
+  黑板上轮转互看（`blackboard.Convene`）——每轮只补充他人未覆盖的新问题，一整轮无人补充
+  = 共识收敛（上限 2 轮，比 agentkit 缺省 3 收紧一档）
+- 互看通道：`Task.Artifacts["squad_board"]` 逐轮重建增量视图，builtin Reviewer（ReAct+
+  单轮两路径）与 acpx 适配器提示词装配消费；指令在数据围栏外（防注入纪律不变）
+- 成员失败转黑板 note + 降级注明，不中止召集（Convene 的 Act 报错会中止整轮，Argus 侧
+  全部兜住）；预算/熔断门与 fan-out 同语义
+- 收敛发现按成员归属构造独立 Outcome 进 Merger——指纹去重/抑制过滤/跨轮合并全部复用既有
+  管线；consensus 成员不参与交叉分歧标注（互看后无盲审分歧，`ActiveSquadMembers` 排除）
+- 默认编队模式（互盲独立）行为不变；单成员 consensus 编队告警并按共识流程跑（无互看对象）
+
+### 明确不接：Plan-and-Execute
+- `agentrun.PlanAndExecute` 的适用前提是"步骤可预规划、计划本身有价值、流程在探索期"；
+  Argus 的 R1→R5 是已固化的确定性编排（agentkit README 对 Graph Workflow 的"该用"场景
+  正是这个）——在其上叠 P&E 是典型的"杀鸡用牛刀"，架构纪律优先于能力覆盖
+
+### 测试
+- reflection：修订/剔除计数、幻觉 id 拒收、file 越界回退、severity 归一化、解析失败与模型
+  故障保底（`workflow/requirement/reflection_test.go`）
+- router：关键词快路径边界（30 rune）、置信度门、词表外回落、模型故障回落（`service/comment_router_test.go`）
+- consensus：互看去重收敛、成员失败降级、预算跳过、未注册成员、重复召集不串状态、独立模式
+  回归（`plugin/squad_consensus_test.go`）；`go vet` + 全量 `go test` + race 全绿
+
 ## v3.3.0 (2026-09-07) — 基于 agentkit v0.7.1/v0.7.2 的能力迭代
 
 ### P0 成本记账

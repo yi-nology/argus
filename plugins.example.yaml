@@ -103,11 +103,19 @@ agents:
 # tools:
 #   - server: docs
 #     allow: [search_docs, get_page]
-# ---- squads：交叉审查编队（v3.3）----
-# paths/labels 任一命中即把 members 追加进本轮分派（额外专家，不受 use/disable 约束，
-# 但插件须已注册且启用）。Merger 会对"仅一方报告"的意见标注交叉审查分歧。
+# ---- squads：交叉审查编队（v3.3；v3.4 增加共识模式）----
+# paths/labels 任一命中即触发。mode 两种：
+#   默认（留空）= 互盲独立：members 追加进本轮 fan-out 盲审，Merger 对"仅一方报告"
+#     的意见标注交叉审查分歧（要分歧信号时用这个）；
+#   consensus  = 黑板共识（v3.4，agentkit/blackboard）：成员不进 fan-out，改在共享
+#     黑板上按轮互看——每轮只补充他人未覆盖的新问题，一整轮无人补充即收敛（上限 2 轮），
+#     适合高危变更"要收敛结论"而非"要分歧信号"。
 # squads:
 #   - name: security-double-check
 #     paths: ["**/auth/**", "**/security/**", "**/*.sql"]
 #     labels: [security]
 #     members: [claude, kimi]   # kind: acpx 插件名
+#   - name: core-consensus
+#     mode: consensus
+#     paths: ["internal/**"]
+#     members: [claude, codex]

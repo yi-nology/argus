@@ -19,12 +19,23 @@ type PluginsFile struct {
 	Tools []ToolSpecDecl `yaml:"tools"`
 	// Squads 交叉审查编队：触发条件命中时把 members 追加进本轮分派
 	//（高危变更双专家交叉，Merger 按"仅一方报告"标注分歧）。
+	// mode=consensus（v3.4）时成员不进 fan-out，改走黑板共识（互看轮转、收敛即止）。
 	Squads []SquadDecl `yaml:"squads"`
 }
+
+// 编队执行模式（SquadDecl.Mode）。
+const (
+	// SquadModeIndependent 默认模式：成员互盲独立审查，分歧由 Merger 事后标注。
+	SquadModeIndependent = ""
+	// SquadModeConsensus 黑板共识模式：成员按轮互看共享黑板（agentkit/blackboard），
+	// 一整轮无人补充 = 共识达成；上限 consensusMaxRounds 轮。
+	SquadModeConsensus = "consensus"
+)
 
 // SquadDecl 编队声明：paths/labels 任一命中即触发（都空 = 永不触发，配置告警）。
 type SquadDecl struct {
 	Name    string   `yaml:"name"`
+	Mode    string   `yaml:"mode"`   // ""（默认，互盲独立）| "consensus"（黑板共识）
 	Paths   []string `yaml:"paths"`  // glob（.gitignore 语义）
 	Labels  []string `yaml:"labels"` // PR 标签任一命中
 	Members []string // 插件名（须已注册；启用中才会追加）

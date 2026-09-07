@@ -5,6 +5,7 @@ package requirement
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -45,6 +46,7 @@ type Output struct {
 	Summary    string // R2 变更摘要
 	Elapsed    time.Duration
 	Tokens     int
+	Reflect    *ReflectSummary   // R3.5 反思结果（nil = 未启用）
 	Debug      map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
 }
 
@@ -74,6 +76,12 @@ type Workflow struct {
 	GetFileMaxChars  int
 	GetIssueMaxChars int
 	GetDiffMaxChars  int
+
+	// R3.5 报告反思（v3.4，agentkit/reflection）：>0 启用，值为"批判→修订"轮数上限
+	//（包内钳制 ≤ reflectMaxRounds）。ReflectModel 为反思专用模型（nil = R3ChatModel
+	// → LLM.RawModel() 逐级回退）。
+	ReflectRounds int
+	ReflectModel  model.BaseChatModel
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -169,6 +177,11 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	var pruned []string
 	sel, pruned = w.Dispatcher.PruneByBudget(sel, budget)
 	outcomes := w.Dispatcher.Run(ctx, task, sel, budget)
+	// v3.4 编队共识模式：consensus 编队不进 fan-out（Select 已排除），在
+	// fan-out 后单独召集——成员黑板互看、共识收敛，产出按成员归属进 Merger。
+	for _, sq := range w.Dispatcher.ConsensusSquads(&task.PR, changedFiles) {
+		outcomes = append(outcomes, w.Dispatcher.RunConsensus(ctx, task, sq, budget)...)
+	}
 	plugin.ReportStageDuration("R4", time.Since(stageStart))
 
 	// Merger：归一化 + 指纹去重 + 抑制过滤（store 由 Merger 持有）
@@ -179,6 +192,20 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	for _, p := range pruned {
 		merged.Degraded = append(merged.Degraded, p+" 未参与（token 预算裁剪）")
 	}
+
+	// R3.5 报告反思（v3.4）：合并去重后、分歧标注与 R5 裁决前——被剔除的意见连带
+	// 分歧标注一起消失，R5 真值表也基于修订后 findings 求值。指纹库不受影响：
+	// 反思是逐轮质量闸门（统计性判断），持久抑制只来自人工 suppress 反馈。
+	var reflectInfo *ReflectSummary
+	if w.ReflectRounds > 0 {
+		reflectInfo = w.reflectFindings(ctx, task, summary, merged)
+		if reflectInfo != nil && reflectInfo.Removed > 0 {
+			merged.Degraded = append(merged.Degraded, fmt.Sprintf(
+				"R3.5 报告反思：%d 轮（收敛=%v），剔除 %d 条误报嫌疑、修正 %d 条",
+				reflectInfo.Rounds, reflectInfo.Converged, reflectInfo.Removed, reflectInfo.Adjusted))
+		}
+	}
+
 	// 交叉审查分歧标注（v3.3）：编队成员对同一区域意见不一致时标给人审
 	if members := w.Dispatcher.ActiveSquadMembers(&task.PR, changedFiles); len(members) >= 2 {
 		w.Merger.AnnotateCrossReview(merged, members)
@@ -198,6 +225,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		PluginsRun: plugin.OutcomeNames(outcomes),
 		Summary:    summary,
 		Elapsed:    time.Since(start),
+		Reflect:    reflectInfo,
 	}
 	out.Tokens = w.LLM.UsedTokens()
 	return out, nil

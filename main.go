@@ -266,15 +266,17 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
 	}
 
-	// ---- P6 分阶段模型路由：ARGUS_MODEL_{R1,R2,R3,REVIEWER,QA} 覆盖 ----
+	// ---- P6 分阶段模型路由：ARGUS_MODEL_{R1,R2,R3,R35,REVIEWER,QA,ROUTER} 覆盖 ----
 	// 覆盖阶段继承主 BaseURL/APIKey；配置了全局降级时各自构建降级链（fallback 模型不覆盖）。
-	// R1/R2 经 StageRouter 进 workflow；R3/Reviewer/QA 是独立模型出口，走专用字段。
+	// R1/R2 经 StageRouter 进 workflow；R3/R35/Router/Reviewer/QA 是独立模型出口，走专用字段。
 	var (
 		stageLLMs    map[string]llm.Generator
 		r3Model      model.BaseChatModel
 		reviewerLLM  llm.Generator
 		reviewerName string
 		qaModel      model.BaseChatModel
+		reflectModel model.BaseChatModel // R3.5 报告反思（v3.4；nil = runner 侧回退 R3 模型）
+		routerModel  model.BaseChatModel // 评论意图路由分类器（v3.4；nil = 用 QA/主模型）
 	)
 	buildStageModel := func(so *config.StageOverride) (model.BaseChatModel, error) {
 		ctxTok := so.ContextTokens
@@ -338,6 +340,22 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			}
 			r3Model = m
 			log.Info("argus.boot.stage_model", "stage", "R3(ReAct)", "model", so.Model)
+		}
+		if so := cfg.StageModelR35; so != nil {
+			m, err := buildStageModel(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 R3.5 模型失败: %w", err))
+			}
+			reflectModel = m
+			log.Info("argus.boot.stage_model", "stage", "R35(reflection)", "model", so.Model)
+		}
+		if so := cfg.StageModelRouter; so != nil {
+			m, err := buildStageModel(so)
+			if err != nil {
+				panic(fmt.Errorf("构造 Router 模型失败: %w", err))
+			}
+			routerModel = m
+			log.Info("argus.boot.stage_model", "stage", "router", "model", so.Model)
 		}
 		if so := cfg.StageModelReviewer; so != nil {
 			g, err := buildStageGen(so)
@@ -442,6 +460,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		CostPer1K:  costPer1K,
 		StageLLMs:  stageLLMs,
 		R3Model:    r3Model,
+		// R3.5 报告反思（v3.4 reflection）：轮数 0 = 关闭；模型缺省回退 R3 专用模型
+		ReflectRounds: cfg.ReflectRounds,
+		ReflectModel:  reflectModel,
 	}
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
@@ -492,6 +513,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// ---- service + biz 接线 ----
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg, Knowledge: knowledge,
 		Log: log, Bus: bus, Model: chatModel, QAModel: qaModel,
+		RouterModel: routerModel,
 		Audit: audit.New(log, "argus-audit"), Version: version}
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()

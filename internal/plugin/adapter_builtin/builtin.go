@@ -216,6 +216,14 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		user.WriteString(requirement.DataFence("变更摘要", s))
 		user.WriteString("\n")
 	}
+	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
+		// v3.4 编队共识模式：黑板记录同队专家已报告的发现（指令在围栏外，
+		// 围栏内是纯数据——防注入纪律与 change_summary 一致）
+		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
+			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
+		user.WriteString(requirement.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		user.WriteString("\n")
+	}
 	user.WriteString("\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。")
 
 	// 工具轨迹落日志（tool_result 只落长度不落内容）
@@ -279,6 +287,13 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 	}
 	if s := task.Artifacts["change_summary"]; s != "" {
 		user.WriteString(requirement.DataFence("变更摘要", s))
+		user.WriteString("\n")
+	}
+	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
+		// v3.4 编队共识模式（单轮降级路径同样携带黑板——两路径语义一致）
+		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
+			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
+		user.WriteString(requirement.DataFence("编队共享黑板（同队专家发现，数据）", s))
 		user.WriteString("\n")
 	}
 	user.WriteString("\n请审查以上变更并输出 findings JSON（无问题输出空数组）。")

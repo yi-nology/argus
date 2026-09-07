@@ -100,6 +100,8 @@ func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
 }
 
 // ActiveSquadMembers 命中触发条件的编队成员名（去重、保序；交叉审查分歧标注用）。
+// 仅统计独立（互盲）模式编队——consensus 编队成员互看过彼此发现，不存在
+// "盲审分歧"，标注反而误导（v3.4）。
 func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []string {
 	if len(d.squads) == 0 {
 		return nil
@@ -107,6 +109,10 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 	seen := map[string]bool{}
 	var members []string
 	for _, sq := range d.squads {
+		if sq.Mode == SquadModeConsensus {
+			continue // consensus 编队成员互看过彼此发现，无盲审分歧可标
+		}
+		// 空 mode 与未知 mode 一律按独立模式处理（配置宽容，行为可预期）
 		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
 			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
 		if !matched {
@@ -203,8 +209,13 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 
 	// 交叉审查编队追加（v3.3）：触发条件命中时把成员追加进本轮（skills 词表
 	// 不做限制——编队是"额外专家"，不受仓库 use/disable 白名单约束，
-	// 但插件必须在注册表且启用中；成员已在表中的不重复追加）
+	// 但插件必须在注册表且启用中；成员已在表中的不重复追加）。
+	// v3.4：consensus 模式编队的成员不进 fan-out——他们走 RunConsensus
+	// 黑板互看（workflow 在 fan-out 后单独召集），盲审并发对它们反而是错误语义。
 	for _, sq := range d.squads {
+		if sq.Mode == SquadModeConsensus {
+			continue
+		}
 		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
 			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
 		if !matched {

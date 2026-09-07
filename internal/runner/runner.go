@@ -68,6 +68,10 @@ type Runner struct {
 	StageLLMs map[string]llm.Generator
 	// R3Model R3 ReAct 专用模型覆盖（P6：ARGUS_MODEL_R3；nil = 主模型）。
 	R3Model model.BaseChatModel
+	// ReflectRounds R3.5 报告反思轮数（v3.4：ARGUS_REFLECTION_ROUNDS；0 = 关闭）。
+	ReflectRounds int
+	// ReflectModel R3.5 反思专用模型（ARGUS_MODEL_R35；nil = 回退 R3Model → 主模型）。
+	ReflectModel model.BaseChatModel
 
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
@@ -219,6 +223,8 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		GetFileMaxChars:  r.Cfg.GetFileMaxRunes(),
 		GetIssueMaxChars: r.Cfg.GetIssueMaxRunes(),
 		GetDiffMaxChars:  r.Cfg.GetDiffMaxRunes(),
+		ReflectRounds:    r.ReflectRounds,
+		ReflectModel:     r.ReflectModel,
 	}
 }
 
