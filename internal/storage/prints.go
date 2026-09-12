@@ -24,10 +24,11 @@ func (s *Store) GetPrintState(ctx context.Context, platform, owner, repo, number
 		return nil, err
 	}
 	return &plugin.PrintState{
-		Status:    p.Status,
-		Line:      p.Line,
-		Severity:  p.Severity,
-		TimesSeen: p.TimesSeen,
+		Status:      p.Status,
+		Line:        p.Line,
+		Severity:    p.Severity,
+		TimesSeen:   p.TimesSeen,
+		RegretCount: p.RegretCount,
 	}, nil
 }
 
@@ -141,4 +142,39 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 		"platform = ? AND owner = ? AND repo = ? AND number = ?",
 		platform, owner, repo, number).Order("last_seen_at DESC").Find(&out).Error
 	return out, err
+}
+
+
+// RecordPrintRegret R3.5 反思剔除某指纹时累加 regret 计数：该指纹历史上被
+// 终审 rubric 判为误报的次数，跨轮由 Merger 读取并标注到报告（只标注，不自动
+// suppress——持久抑制仍必须来自人工反馈通道，防自动化误杀）。
+// 行不存在时创建（status=open, TimesSeen=0）。
+func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, number, fingerprint string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p FindingPrint
+		err := tx.Where(
+			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+			platform, owner, repo, number, fingerprint).First(&p).Error
+		if err != nil {
+			if err != gorm.ErrRecordNotFound {
+				return err
+			}
+			now := time.Now()
+			return tx.Create(&FindingPrint{
+				Platform: platform, Owner: owner, Repo: repo, Number: number,
+				Print:       fingerprint,
+				Comment:     "",
+				Status:      PrintOpen,
+				RegretCount: 1,
+				FirstTaskID: "reflect", LastTaskID: "reflect", TimesSeen: 0,
+				FirstSeenAt: now, LastSeenAt: now,
+			}).Error
+		}
+		return tx.Model(&p).Updates(map[string]any{
+			"regret_count": gorm.Expr("regret_count + 1"),
+			"updated_at":   time.Now(),
+		}).Error
+	})
 }

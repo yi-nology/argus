@@ -32,7 +32,10 @@ type ReflectSummary struct {
 	Converged bool // 是否通过 Rubric 收敛（false = 达轮次上限取末稿）
 	Removed   int  // 剔除的误报嫌疑条数
 	Adjusted  int  // 修正（file/line/severity/comment）的条数
-	Kept      int  // 保留条数
+	Kept      int    // 保留条数
+	// RemovedPrints 被剔除条目的指纹（File+Comment）：runner 据此做 regret 跨轮
+	// 入库——产出 vs 终审的差值即误报历史，供后续轮次标注可信度。
+	RemovedPrints []string
 }
 
 // reflectMaxRounds 轮次上限：与 agentkit reflection 缺省一致（3）。
@@ -179,6 +182,13 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 		out = append(out, f)
 	}
 	info.Removed = len(merged.Findings) - len(out)
+	if info.Removed > 0 {
+		for i, f := range merged.Findings {
+			if !seen[i] {
+				info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment))
+			}
+		}
+	}
 	merged.Findings = out
 
 	w.Log.Info("argus.r35.done", "rounds", info.Rounds, "converged", info.Converged,

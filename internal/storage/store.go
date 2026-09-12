@@ -92,6 +92,7 @@ type FindingPrint struct {
 	FirstTaskID string    `gorm:"column:first_task_id;size:40"`
 	LastTaskID  string    `gorm:"column:last_task_id;size:40"`
 	TimesSeen   int       `gorm:"column:times_seen"`
+	RegretCount int       `gorm:"column:regret_count"` // 被 R3.5 反思剔除的累计次数（误报历史）
 	FirstSeenAt time.Time `gorm:"column:first_seen_at"`
 	LastSeenAt  time.Time `gorm:"column:last_seen_at"`
 

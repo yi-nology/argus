@@ -342,6 +342,17 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		return err
 	}
 
+	// regret 跨轮入库：R3.5 反思剔除的指纹记录误报历史（产出 vs 终审的差值即
+	// regret），后续轮次由 Merger 读取标注可信度。失败只告警，不影响主流程。
+	if out.Reflect != nil && len(out.Reflect.RemovedPrints) > 0 {
+		for _, fp := range out.Reflect.RemovedPrints {
+			if err := r.Store.RecordPrintRegret(ctx,
+				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp); err != nil {
+				r.Log.Warn("argus.regret.record_failed", "error", err.Error())
+			}
+		}
+	}
+
 	// 组装报告并回帖（staleness 门控在 poster 内）
 	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))

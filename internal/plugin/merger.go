@@ -22,10 +22,11 @@ type PrintStore interface {
 
 // PrintState 既有指纹状态。
 type PrintState struct {
-	Status    string // open | suppressed
-	Line      int
-	Severity  string
-	TimesSeen int
+	Status      string // open | suppressed
+	Line        int
+	Severity    string
+	TimesSeen   int
+	RegretCount int // 历史被 R3.5 反思剔除次数（误报历史）
 }
 
 // MergedFindings Merger 产出。
@@ -173,6 +174,17 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			sort.Strings(names)
 			f.By = joinNames(names)
 		}
+		// 跨轮历史查询（GetPrintState 此前只有接口与实现、无调用方——接线于此）：
+		// 复现次数与 regret（被 R3.5 反思剔除次数）作为可信度信号。
+		var prior *PrintState
+		if m.store != nil {
+			if ps, err := m.store.GetPrintState(ctx,
+				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp); err != nil {
+				m.log.Warn("argus.merger.print_state_failed", "error", err.Error())
+			} else {
+				prior = ps
+			}
+		}
 		if m.store != nil {
 			suppressed, err := m.store.UpsertPrint(ctx,
 				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp, f, taskID, at)
@@ -181,6 +193,16 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			} else if suppressed {
 				out.Suppressed++
 				continue
+			}
+		}
+		// 展示标注（注释在入库之后改写，不污染指纹与 prints 表存储的原文）：
+		// 复现 = 同一问题跨轮再现；高 regret = 历史上多次被终审判为误报嫌疑。
+		if prior != nil {
+			if prior.TimesSeen >= 2 {
+				f.Comment = fmt.Sprintf("%s（跨轮复现 %d 次）", f.Comment, prior.TimesSeen+1)
+			}
+			if prior.RegretCount >= 2 {
+				f.Comment += fmt.Sprintf("（历史被 R3.5 反思剔除 %d 次，可信度低）", prior.RegretCount)
 			}
 		}
 		out.Findings = append(out.Findings, f)
