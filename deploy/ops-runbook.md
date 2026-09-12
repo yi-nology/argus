@@ -165,7 +165,8 @@ docker compose start argus
 ### 症状
 
 - 单实例 SQLite 无法满足并发/容量需求
-- 需要多副本部署（MySQL 支持多 writer）
+- 需要多副本部署（MySQL 支持多 writer；v3.3 起多活副本开箱可用——租约选主 + 实例隔离，
+  容量公式与验证清单见 [k8s/README-scaling.md](k8s/README-scaling.md)）
 
 ### 诊断
 

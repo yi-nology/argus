@@ -1,7 +1,11 @@
 # Argus v3.0 详细设计 —— 可插拔多 Agent 审查平台
 
 日期：2026-08-30（同日六轮评审 + 完善轮：运行时设计/报告模板/配置参考/供应链信任）
-状态：设计定稿（v3.0 范围已与需求方确认），待实现
+状态：设计定稿（v3.0 范围已与需求方确认）——**本文档为 v3.0 历史设计稿，保留原貌**。
+v3.0 范围已全量实现，并演进至 v3.4.0（remote/a2a 实装、acpx 第四类插件、MCP Server 五工具、
+成本记账、多副本选主、Q&A ReAct、R3.5 反思、评论意图路由、编队共识等）。
+当前架构与能力以 [README](README.md)、[架构深读（含 v3.1–v3.4 演进章）](docs/architecture-deep-dive.md)
+和 [CHANGELOG](CHANGELOG.md) 为准。
 前置：两轮原型迭代结论已吸收（第一版 reviewbot MVP 链路已验证后被替换为平台化方向）
 
 ## 0. v3.0 范围（已拍板）
@@ -534,3 +538,24 @@ OPENAI_BASE_URL|API_KEY|MODEL`。
   `ARGUS_TASK_RETENTION_DAYS` 保留清理。
 - §10.1 观测：新增 `argus_tasks_pending/running` gauge；预期内 not-found 日志静默。
 - 部署：`deploy/`（docker-compose + k8s kustomize），SQLite 单实例约束在清单头注释声明。
+
+## 14. 仓库级自定义审查指引（.argus/review-guidelines.md）
+
+对标 GitHub Copilot 的 custom review instructions：仓库维护者在默认分支根目录放
+`.argus/review-guidelines.md`（关注点、禁报面、团队规范）。数据流：
+
+```
+runner.runTask
+  └─ fetchReviewGuidelines(SDK.GetFileContent, ref=DefaultBranch)
+       ├─ 缺失/空白/网络错误 → 静默降级（审查照常，不失败）
+       ├─ 超 4000 runes → textutil.TruncRunes 截断
+       └─ Task.Artifacts["review_guidelines"]
+            └─ builtin Reviewer（ReAct 与单轮两路径）
+                 └─ system prompt 末尾追加【仓库自定义审查指引】段
+                      （不能覆盖角色/输出格式/纪律；与 .reviewagents.yaml 同属 §3.4 信任边界）
+```
+
+副作用：指引随任务运行时注入，不回写 ArtifactsJSON；指引变更下一任务即生效。
+
+同批的行内意见变化：poster 渲染行内评论时，SuggestedFix 非空且围栏安全（不含 ```、
+≤1200 runes）则附 ```suggestion 围栏，平台端渲染"一键应用"；否则退化为纯文本意见。

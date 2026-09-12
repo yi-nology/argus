@@ -112,7 +112,15 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (string, 
 	}
 	d, err := r.Classify(ctx, question)
 	if err != nil {
-		return "", d, err
+		if d.Route == "" {
+			return "", d, fmt.Errorf("意图分类失败: %w", err)
+		}
+		// agentkit v0.9.x 起 router.Classify 自守 MinConfidence/词表门槛：低置信
+		// 与未知意图以 error 返回，但 Decision 仍带回 route/confidence 可观测。
+		// 这里保持既有语义——低置信一律回落 ask，不把"不确定"冒充成硬故障。
+		s.log().Info("argus.comment.router.fallback", "route", d.Route,
+			"confidence", d.Confidence, "reason", d.Reason)
+		return commentIntentAsk, d, nil
 	}
 	if d.Route == commentIntentReview && d.Confidence < s.Cfg.RouterMinConfidence {
 		return commentIntentAsk, d, nil

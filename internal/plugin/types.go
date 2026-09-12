@@ -276,3 +276,7 @@ type Result struct {
 	Artifact map[string]string // 插件特有结构化产物（如 ComplianceReport JSON）
 	Notes    string
 }
+
+// ArtifactReviewGuidelines Task.Artifacts 键：仓库级自定义审查指引正文
+// （runner 从默认分支 .argus/review-guidelines.md 读出，缺失时无此键）。
+const ArtifactReviewGuidelines = "review_guidelines"

@@ -1,6 +1,7 @@
 # Argus 设计深度解析 —— 从架构到实现的完整学习指南
 
-> 日期：2026-09-01 | 版本：v3.0.5 | 基于代码实现梳理（非设计稿）
+> 日期：2026-09-01（v3.0.5 基线）｜2026-09-08 更新：修正收敛后的代码位置 + 新增第十四章
+> （v3.1–v3.4 架构演进）｜基于代码实现梳理（非设计稿）
 
 ---
 
@@ -11,7 +12,7 @@
 - [三、数据流全景](#三数据流全景)
 - [四、L4 插拔层 —— 最核心的设计](#四l4-插拔层--最核心的设计)
   - [4.1 统一契约](#41-统一契约)
-  - [4.2 三类适配器](#42-三类适配器)
+  - [4.2 四类适配器](#42-四类适配器v32-起-acpx-加入)
   - [4.3 Registry（注册表）](#43-registry注册表)
   - [4.4 Dispatcher（确定性路由 + fan-out 执行）](#44-dispatcher确定性路由--fan-out-执行)
   - [4.5 Merger（合并器）](#45-merger合并器)
@@ -36,6 +37,11 @@
 - [十一、配置派生哲学](#十一配置派生哲学)
 - [十二、安全设计](#十二安全设计)
 - [十三、关键设计决策总结](#十三关键设计决策总结)
+- [十四、v3.1–v3.4 架构演进](#十四v31v34-架构演进)
+  - [14.1 v3.1——协议面铺开](#141-v31协议面铺开)
+  - [14.2 v3.2——acpx：CLI 编码 agent 进编](#142-v32acpxcli-编码-agent-进编)
+  - [14.3 v3.3——agentkit v0.7.x 七项能力迭代](#143-v33agentkit-v07x-七项能力迭代)
+  - [14.4 v3.4——agentkit v0.8.0 三原语落地 + 一个"不接"](#144-v34agentkit-v080-三原语落地--一个不接)
 
 ---
 
@@ -237,13 +243,14 @@ type AgentManifest struct {
 }
 ```
 
-### 4.2 三类适配器
+### 4.2 四类适配器（v3.0 三类 + v3.2 acpx）
 
 | 适配器 | 包装对象 | 机制 | 代码位置 |
 |---|---|---|---|
-| `builtin` | 进程内 Eino ADK agent | requirement-compliance、security 等；支持 `skillRef` 注入 SKILL.md 进系统提示词 | `internal/plugin/adapter_builtin/` |
+| `builtin` | 进程内 Eino ADK agent | requirement-compliance、security 等；支持 `skillRef` 注入 SKILL.md 进系统提示词；v3.3 起通用 Reviewer 可选挂工具表走 ReAct（`Workflow.ReviewTools`） | `internal/plugin/adapter_builtin/` |
 | `cli` | 外部命令行（OCR） | 声明 `Needs.WorkingCopy` → 上下文服务浅克隆 → exec + JSON 解析 → Result。进程组管理：`Setpgid` 建进程组、超时先向 `-pid` 发 SIGTERM、grace 后 SIGKILL | `internal/plugin/adapter_cli/` |
-| `remote` | 远端服务 | a2a：Agent Card 发现 → task 提交 → 轮询；mcp：薄封装 mark3labs/mcp-go client | `internal/plugin/adapter_remote/` |
+| `remote` | 远端服务 | a2a：Agent Card 发现 → task 提交 → 轮询；mcp：薄封装 mark3labs/mcp-go client（v3.1 实装协议子集） | `internal/plugin/adapter_remote/` |
+| `acpx`（v3.2） | CLI 编码 agent（codex/kimi/claude…） | agentkit/acpx 驱动：只读沙箱内跑 CLI agent，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用不影响启动 | `internal/plugin/adapter_acpx/` |
 
 **cli 适配器安全设计**：
 - 只允许运行 Hub 配置声明的白名单可执行文件
@@ -563,8 +570,11 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 
 ### 6.2 LLM 客户端
 
+> 位置变更：v3.0.3 起该层收敛进共享库 **agentkit/llm**（`git.example.com/enjoydream/agentkit/llm`），
+> Argus 侧不再有 `internal/llm/`——下述机制原样保留，另新增降级链与分阶段路由（见第十四章）。
+
 ```go
-// internal/llm/llm.go
+// agentkit/llm（原 internal/llm/llm.go）
 
 type Client struct {
     Model           model.BaseChatModel
@@ -640,8 +650,10 @@ func (c *Client) fitInput(msgs []*schema.Message) {
 
 ### 6.3 知识子系统（RAG）
 
+> 位置变更：已收敛进共享库 **agentkit/knowledge/rag**；Argus 侧 `main.go` 只做模式装配。
+
 ```go
-// internal/knowledge/rag/rag.go
+// agentkit/knowledge/rag
 
 type KnowledgeService interface {
     // 模式一：预检索（确定性）—— workflow 阶段在拼 prompt 前取 topK 片段
@@ -651,17 +663,21 @@ type KnowledgeService interface {
 }
 ```
 
-**v3.0 本地实现**（`rag.NewLocal`）：
-- 目录放 markdown 文件
-- 启动时索引（分词 + TF-IDF）
-- 按关键词检索（BM25 排序）
-- 目录不存在时回退 Noop，不阻塞启动
+**两种实现，启动时按配置选择**：
+- **本地模式**（`rag.NewLocal`，缺省）：knowledge/ 目录放 markdown，启动时索引
+  （词元重叠打分，按 `# / ##` 标题分块）；目录不存在回退 Noop，不阻塞启动；
+- **Milvus 向量模式**（v3.0.4 集成，`ARGUS_MILVUS_ADDR` 非空启用）：OpenAI 兼容
+  Embedder（`ARGUS_EMBEDDING_*`）+ Milvus Store；启动时把 knowledge/ 目录索引进
+  向量库，Milvus 不可达自动回退本地模式。
+
+**知识飞轮（v3.3）**：人工 suppress 的误报结论在 Milvus 模式下向量化回流知识库——
+R3 `search_knowledge` 命中历史误报即带抑制语境，同型误报率随使用下降。
 
 ### 6.4 Skill 方法论注入
 
-```go
-// internal/knowledge/skill/skill.go
+> 位置变更：已收敛进共享库 **agentkit/skill**（`skill.NewFileProvider`）。
 
+```go
 type Provider interface {
     Resolve(ctx context.Context, ref Ref) (*Skill, error)
 }
@@ -996,7 +1012,7 @@ log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model,
 |---|---|---|
 | 编排语言 | 确定性 Go 代码 | 路由/裁决/合并不走 LLM，可审计可测试 |
 | 队列 | DB 即队列（SQLite/MySQL） | 无外部依赖，单写串行天然安全 |
-| 插件形态 | 三类适配器（builtin/cli/remote） | 进程内/命令行/远程服务全覆盖 |
+| 插件形态 | 四类适配器（builtin/cli/remote/acpx） | 进程内/命令行/远程服务/CLI 编码 agent 全覆盖 |
 | 仓库配置信任 | 只从默认分支读，只能"选"不能"增" | 防 PR 作者自审自裁 |
 | R5 裁决 | 确定性真值表 | 模型自评 verdict 不参与计算 |
 | 反注入 | 四层防线 | 数据区围栏 + 无证据不判 + 可疑 AC 进 Ambiguous + R5 只读计数 |
@@ -1010,6 +1026,67 @@ log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model,
 | 限速 | token bucket（golang.org/x/time/rate） | 防 burst rate limit 429 |
 | 指纹去重 | 规范化评论哈希 + file | 行号 ±2 容差仅作匹配辅助不入指纹 |
 | 幂等键 | 平台 delivery ID（非 SDK event ID） | SDK 的 ID 每次接收重新生成 |
+
+---
+
+## 十四、v3.1–v3.4 架构演进
+
+前十三章描述的是 v3.0.5 基线骨架——这套骨架（L1 门面 / L3 确定性编排 / L4 插拔 / L5 上下文）
+至今未变，演进全部发生在骨架之上。以下按版本梳理增量，细节以 [CHANGELOG](../CHANGELOG.md) 为准。
+
+### 14.1 v3.1——协议面铺开
+
+骨架不动，L1/L4 各加几个适配面：
+
+- **Argus as MCP Server**（`internal/channel/mcpserver`）：`/mcp` streamable http + Bearer，
+  任意 MCP 客户端可发起审查/取报告——L2 门面的又一协议适配，验证了"形态是 L1 适配器"铁律；
+- **查询面补齐**：`GET /reports/:ref`（按 head SHA 查最近成功报告，CI 门禁联动）、
+  `GET /usage/monthly`（仓库月度 token 用量）、`GET /events`（SSE 进度流）；
+- **remote 插件协议子集实装** + **cli `delegate` 模式**（OCR 只出筛选规则，审查循环由
+  builtin agent 自己跑）；
+- **GitHub App 认证**（替代 PAT）；
+- **1M 上下文窗口单一基准**：diff 上限/任务预算/输出上限全部从 `ARGUS_MODEL_CONTEXT_TOKENS`
+  派生，防"换了 1M 模型服务仍按 128k 截断"。
+
+### 14.2 v3.2——acpx：CLI 编码 agent 进编
+
+`kind: acpx` 第四类适配器：把 codex/kimi/mimo/claude 等 CLI 编码 agent 当 R4 审查专家——
+agentkit/acpx 在只读沙箱里跑 CLI，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用，
+不影响启动。这让"外部最强模型"无需服务化即可进编队。
+
+### 14.3 v3.3——agentkit v0.7.x 七项能力迭代
+
+| # | 能力 | 架构落点 |
+|---|---|---|
+| P0 | 成本记账 | obsx OnUsage 回收全部 eino 调用真实 usage（Generate 直连 + ReAct RawModel 两路径）；任务级+全局 CostTracker；报告元信息"成本 ≈ $X" |
+| P1 | 多副本横向扩展 | `leader_leases` 表租约选主（条件 UPDATE 原子"判-占-续"）门控 poller；workcopy 按实例隔离 `WorkRoot/instance-<id>/`；前置条件 MySQL |
+| P2 | Reviewer ReAct 化 | builtin Reviewer 可选挂工具表（复用 R3 工具基础设施），agentrun 驱动，失败落回单轮 GenerateJSON |
+| P3 | 交叉审查编队 | plugins.yaml `squads:` 段：paths/labels 触发成员追加进分派；Merger 对同文件 ±5 行"仅一方报告"意见标注分歧 |
+| P4 | 知识飞轮 | suppress 成功 → 误报结论回流 Milvus 知识库 → R3 检索命中带抑制语境（闭环） |
+| P5 | Q&A ReAct + ask_argus | `@argus ask` 升级 ReAct（get_diff/get_file/search_knowledge）；`qa_sessions` 表多轮会话（一 PR 一会话，6 轮 FIFO + 24h 过期）；mcpserver 第五工具 `ask_argus` |
+| P6 | 分阶段模型路由 | agentkit `llm.StageRouter`：`ARGUS_MODEL_{R1,R2,R3,R35,ROUTER}` / `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` 按阶段覆盖模型与窗口——大窗口吃 R1 长输入、快模型跑 R2、强模型保 R3 |
+
+### 14.4 v3.4——agentkit v0.8.0 三原语落地 + 一个"不接"
+
+- **R3.5 报告反思（reflection）**：Merger 合并去重后、R5 裁决前，终审编辑按误报特征 Rubric
+  （文件越界/行号非法/纯风格/无证据定位/重复/测试代码误判）走"生成→批判→修订收敛"循环；
+  只删/修不增（按 id 回写，编造 id 丢弃；逐字段校验回退），解析失败/模型故障保留原 findings
+  ——审查不因反思故障而失败。默认关闭（`ARGUS_REFLECTION_ROUNDS` 1~3）。
+- **评论意图路由（router）**：`@argus` 自由文本先分类再分派——review（要求重审）→ 建全量
+  复审任务并回执任务号；其余一切回落 Q&A。短命令关键词零分类直达，歧义长句才走一次快模型
+  分类；低置信（<0.6）视为 ask。默认关闭（`ARGUS_COMMENT_ROUTER=1`，重审烧预算需显式 opt-in）。
+- **编队黑板共识（blackboard）**：`squads.mode: consensus`——成员不进 fan-out 盲审，改在
+  共享黑板按轮互看，只补充他人未覆盖的新问题，一整轮无人补充即收敛（上限 2 轮）。收敛发现
+  按成员归属构造独立 Outcome 进 Merger，去重/抑制/跨轮合并管线全复用。默认模式（互盲独立）不变。
+- **明确不接 Plan-and-Execute**：P&E 适用前提是"步骤可预规划、计划本身有价值"；R1→R5 已是
+  固化确定性编排，在其上叠 P&E 是杀鸡用牛刀——架构纪律优先于能力覆盖。
+
+### 14.5 演进中的纪律（为什么骨架没动）
+
+四个版本的增量全部符合 v3.0 定下的两条铁律：**形态是 L1 适配器**（MCP Server、SSE、
+GitHub App 都是门面新适配面）、**agent 是 L4 插件**（acpx、编队、反思都是插件/编排层的
+新成员，不改变调度与裁决语义）；R5 真值表始终只读结构化计数值，新增能力（反思/共识/路由）
+全部默认关闭或保守启用——行为可预期、可回退。
 
 ---
 
@@ -1043,12 +1120,21 @@ log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model,
 | `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | `0` | 仓库月度 token 预算 |
 | `ARGUS_POLL_INTERVAL` | `0` | 轮询间隔（0=关闭） |
 | `ARGUS_POLL_REPOS` | - | 轮询目标（platform:owner/repo） |
-| `ARGUS_OCTOPUS_URL/CHANNEL_ID/USER/TOKEN` | - | IM 推送 |
-| `ARGUS_KNOWLEDGE_DIR` | - | RAG 知识库目录 |
+| `ARGUS_KNOWLEDGE_DIR` | `knowledge` | RAG 知识库目录（Milvus 模式下启动时索引进向量库） |
 | `ARGUS_SKILLS_DIR` | - | Skill 文件目录 |
-| `ARGUS_WORK_ROOT` | `/tmp/argus-work` | 工作副本沙箱根目录 |
+| `ARGUS_WORK_ROOT` | `/tmp/argus-work` | 工作副本沙箱根目录（多副本按 `instance-<id>/` 隔离） |
 | `ARGUS_DEBUG` | `false` | 留存阶段产物 |
+| `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - / `agentkit_knowledge` | Milvus 向量知识库（非空启用；失败回退本地） |
+| `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM` | - | Embedding 端点（OpenAI 兼容，Milvus 模式必配） |
+| `ARGUS_LLM_COST_PROMPT_PER_1K` / `_COMPLETION_PER_1K` | `0` | 成本费率（$/1k token，报告"成本 ≈ $X"） |
+| `ARGUS_MODEL_R1/R2/R3/R35/ROUTER` | - | 阶段模型覆盖（P6；`_CONTEXT_TOKENS` 后缀配各阶段窗口） |
+| `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` | - | Reviewer / Q&A 专用模型出口 |
+| `ARGUS_REFLECTION_ROUNDS` | `0`（关闭） | R3.5 报告反思轮数（1~3，>3 钳制） |
+| `ARGUS_COMMENT_ROUTER` | `false` | 评论意图路由（review=重审任务 / ask=问答） |
+| `ARGUS_ROUTER_MIN_CONFIDENCE` | `0.6` | 意图分类置信度下限，低于回落 ask |
+| `ARGUS_OCTOPUS_URL/CHANNEL_ID/USER/TOKEN` | - | octopus IM 推送 |
 
 ---
 
-> 本文档基于 Argus v3.0.5 源码梳理，覆盖从架构分层、数据流、插拔机制、编排逻辑、并发模型到配置哲学的完整设计。
+> 本文档基于 Argus v3.0.5 源码梳理（2026-09-08 修订：收敛位置修正 + 第十四章补 v3.1–v3.4
+> 演进），覆盖从架构分层、数据流、插拔机制、编排逻辑、并发模型到配置哲学的完整设计。

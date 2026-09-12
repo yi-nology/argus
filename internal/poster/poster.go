@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
@@ -97,8 +98,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	for _, f := range inlineFindings {
 		comments = append(comments, provider.ReviewComment{
 			Path: f.File, Line: f.Line,
-			Body: "**[" + strings.ToUpper(f.Severity) + "]** " + reportview.EscapeUntrusted(f.Comment) +
-				"\n\n<!-- argus:inline by=" + f.By + " -->",
+			Body: inlineCommentBody(f),
 		})
 	}
 	event := "COMMENT"
@@ -229,3 +229,24 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	}
 	return c.ID, nil
 }
+
+
+// inlineCommentBody 拼行内评论正文：严重级 + 意见 + 修复建议。
+// SuggestedFix 非空时渲染为 ```suggestion 围栏（Gitea/GitHub 渲染出"一键应用"按钮），
+// 建议内容是代码原文，不做 HTML 转义——否则 Apply 后代码被污染。围栏安全：
+// 建议含 ``` 或超长时退化为纯文本意见（完整建议仍在总结评论中展示），不让围栏断裂。
+func inlineCommentBody(f plugin.Finding) string {
+	body := "**[" + strings.ToUpper(f.Severity) + "]** " + reportview.EscapeUntrusted(f.Comment)
+	fix := strings.TrimSpace(f.SuggestedFix)
+	if fix != "" && !strings.Contains(fix, "```") {
+		if t, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {
+			body += "\n\n```suggestion\n" + fix + "\n```"
+		} else {
+			body += "\n\n（修复建议过长，已省略；见总结评论）"
+		}
+	}
+	return body + "\n\n<!-- argus:inline by=" + f.By + " -->"
+}
+
+// suggestionMaxRunes 单条 suggestion 围栏的建议长度上限（防超大评论刷屏）。
+const suggestionMaxRunes = 1200

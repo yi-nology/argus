@@ -24,8 +24,8 @@ curl http://127.0.0.1:8899/healthz
 ## 模式二 · k8s (kustomize)
 
 ```bash
-# 0) 镜像：本地构建并推 Harbor（或先在本节点 load）
-make docker && docker tag argus:v3.0.1 harbor.example.com/enjoydream/argus:v3.0.1 && docker push ...
+# 0) 镜像：本地构建并推 Harbor（或先在本节点 load；tag 以实际版本为准，如 v3.4.0）
+make docker && docker tag argus:v3.4.0 harbor.example.com/enjoydream/argus:v3.4.0 && docker push ...
 # 并把 deploy/k8s/kustomization.yaml 的 images.newTag 改为 Harbor 地址
 
 # 1) 修改凭证
@@ -47,7 +47,7 @@ curl http://<nodeIP>:<port>/healthz
 | 01-secret | APIToken/平台凭证/LLM key | ⚠️ 占位必改；勿提交真实值 |
 | 02-configmap | 非敏感运行配置 | 轮询兜底默认开启（20s），接 Ingress 后可关 |
 | 03-pvc | 5Gi RWO | SQLite + 工作副本沙箱 |
-| 04-deployment | 单副本 Deployment | **replicas=1 + Recreate**（SQLite 单写模型，见文件头注释）；90s 优雅终止 > worker 60s grace；Prometheus 注解已加 |
+| 04-deployment | 单副本 Deployment | **replicas=1 + Recreate**（SQLite 单写模型，见文件头注释）；90s 优雅终止 > worker 60s grace；Prometheus 注解已加；多副本路径见下 |
 | 05-plugins-configmap | 插件声明 | 改完 `kubectl rollout restart deployment/argus -n argus` |
 | 06-service | ClusterIP | webhook 需要时改 NodePort 30883 |
 | 07-ingress.yaml.example | nginx 形态参考 | APISIX 集群不用它，走 APISIX 路由；未加入 kustomization |
@@ -63,8 +63,10 @@ curl http://<nodeIP>:<port>/healthz
 
 ## 通用注意事项
 
-- **单实例约束**：SQLite 模式 replicas 必须为 1；多副本必须切 MySQL（`ARGUS_DB_DSN` 换 DSN 即可）
+- **副本数**：SQLite 模式 replicas 必须为 1；横向扩副本必须切 MySQL（`ARGUS_DB_DSN` 换
+  DSN 即可）——v3.3 起支持多活副本（poller 租约选主 + 工作副本按实例隔离），容量公式与
+  验证清单见 **[k8s/README-scaling.md](k8s/README-scaling.md)**
 - **bot 账号**：`ARGUS_GITEA_TOKEN` 使用独立 bot 账号（试点为 friday，非 PR 作者），
   blocking 评审才能以 official 状态落地（见 PILOT.md §7）
 - **升级**：`make docker` 重建 → 换 tag → `kubectl rollout restart`；SQLite schema 由
-  Argus 启动时 AutoMigrate 自动演进
+  Argus 启动时 AutoMigrate 自动演进（v3.3 新增 `qa_sessions` / `leader_leases` 表同机制）

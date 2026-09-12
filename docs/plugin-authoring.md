@@ -161,15 +161,17 @@ agents:
 
 ---
 
-## 4. 三种适配器形态
+## 4. 四种适配器形态（v3.2 起 acpx 加入）
 
 ### builtin（进程内 agent）
 
 **特点**：
 - Go 代码直接实现 `AgentPlugin` 接口
 - 运行在 Argus 进程内，无 IPC 开销
-- 可直接使用 `llm.Client` 调用 LLM
+- 可直接使用 LLM 客户端（agentkit/llm）调用模型
 - 适合需要 LLM 推理的审查逻辑
+- v3.3 起可选挂载工具表（`Workflow.ReviewTools`：get_file/get_diff/search_knowledge/MCP 工具）
+  走 ReAct 模式核实线索，失败自动落回单轮 GenerateJSON
 
 **典型实现**：`adapter_builtin.Reviewer`（correctness / security 审查）
 
@@ -272,6 +274,41 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 }
 ```
 
+### acpx（CLI 编码 agent，v3.2）
+
+**特点**：
+- 把 codex / kimi / mimo / claude 等 CLI 编码 agent 当作 R4 审查专家
+- agentkit/acpx 驱动：只读沙箱内执行 CLI，按 findings JSON 契约回收意见
+- CLI 未安装时插件自动停用（LookPath 探测），不影响启动
+- `agent` 字段只能来自 Hub `plugins.yaml`（供应链信任，同 cli）
+
+```yaml
+# plugins.yaml
+- name: kimi
+  kind: acpx
+  agent: kimi            # codex|kimi|mimo|claude|...
+  skills: [code-review]
+  timeout: 600s
+```
+
+**编队（squads，v3.3；v3.4 共识模式）**——acpx 插件的典型用法是多模型交叉审查：
+
+```yaml
+# plugins.yaml 顶层 squads: 段（与 agents: 平级）
+squads:
+  - name: security-double-check
+    paths: ["**/auth/**", "**/*.sql"]   # paths/labels 任一命中即触发
+    labels: [security]
+    members: [kimi, claude]             # 引用上面声明的插件名
+    # mode: consensus                   # 可选：黑板共识（v3.4）——成员按轮互看共享黑板，
+                                        # 只补充他人未覆盖的新问题，一轮无人补充即收敛
+                                        # （上限 2 轮）。默认互盲独立：成员并发盲审，
+                                        # Merger 对"仅一方报告"的意见标注交叉分歧。
+```
+
+成员失败转降级注明不中止编队；预算/熔断门与普通 fan-out 同语义；consensus 成员不参与
+交叉分歧标注（互看后无盲审分歧）。
+
 ---
 
 ## 5. 创建 builtin 插件：完整示例
@@ -291,7 +328,7 @@ import (
 
     "github.com/cloudwego/eino/schema"
 
-    "argus/internal/llm"
+    "git.example.com/enjoydream/agentkit/llm"
     "argus/internal/plugin"
 )
 
@@ -664,18 +701,20 @@ routing:
 | `internal/plugin/types.go` | `AgentPlugin`/`Task`/`Result`/`Needs`/`Trigger` 类型定义 |
 | `internal/plugin/registry.go` | 插件注册表（启动期填充，运行期只读） |
 | `internal/plugin/dispatcher.go` | 确定性路由 + fan-out 执行 + 预算裁剪 |
-| `internal/plugin/merger.go` | 合并器：归一化 + 去重 + 抑制 + 降级 |
-| `internal/plugin/breaker.go` | 熔断器：closed -> open -> half-open -> closed |
+| `internal/plugin/merger.go` | 合并器：归一化 + 去重 + 抑制 + 降级 + 交叉分歧标注 |
+| `internal/plugin/squad_consensus.go` | 编队黑板共识（v3.4，agentkit/blackboard 驱动） |
+| `internal/plugin/dispatcher.go` | 确定性路由 + fan-out 执行 + 熔断(3败/5min) + 预算裁剪 |
 | `internal/plugin/config.go` | `plugins.yaml` / `.reviewagents.yaml` 解析 |
 | `internal/plugin/severity.go` | Severity 词表归一化 |
 | `internal/plugin/hooks.go` | 观测钩子（Prometheus 指标注入点） |
-| `internal/plugin/adapter_builtin/builtin.go` | builtin 形态适配器（CompliancePlugin + Reviewer） |
+| `internal/plugin/adapter_builtin/builtin.go` | builtin 形态适配器（CompliancePlugin + Reviewer，可选 ReAct） |
 | `internal/plugin/adapter_cli/cli.go` | cli 形态适配器（子进程管理 + JSON 解析） |
+| `internal/plugin/adapter_acpx/acpx.go` | acpx 形态适配器（v3.2，CLI 编码 agent） |
 | `internal/plugin/adapter_remote/remote.go` | remote 形态适配器（MCP + A2A） |
-| `internal/bootstrap/bootstrap.go` | 启动装配：plugins.yaml -> 三类适配器 -> Registry |
-| `internal/llm/llm.go` | LLM 客户端（重试/退避/截断重试/token 记账） |
+| `internal/bootstrap/bootstrap.go` | 启动装配：plugins.yaml -> 四类适配器 -> Registry |
+| `git.example.com/enjoydream/agentkit/llm` | LLM 客户端（重试/退避/截断重试/token 记账/降级链/StageRouter） |
 | `internal/runner/runner.go` | 任务执行编排（runner.Execute） |
 | `internal/worker/worker.go` | worker 池（DB 即队列 + 心跳 + 优雅停机） |
-| `test/e2e/e2e_test.go` | E2E 测试场景（9 个核心场景） |
+| `test/e2e/` | E2E 测试（16 个编号场景 + 真实 LLM 集成测试） |
 | `test/e2e/helpers_test.go` | 测试辅助（mock CLI/fixture repo/HTTP 工具） |
-| `plugins.example.yaml` | plugins.yaml 完整示例 |
+| `plugins.example.yaml` | plugins.yaml 完整示例（含 squads） |

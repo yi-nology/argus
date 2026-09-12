@@ -31,6 +31,7 @@ import (
 	"argus/internal/workflow/requirement"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/obsx"
 	"git.example.com/enjoydream/agentkit/skill"
 )
@@ -323,6 +324,11 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		PR:        *pr,
 		Diff:      diff,
 		Artifacts: decodeArtifacts(task.ArtifactsJSON),
+	}
+	// 仓库级自定义审查指引（.argus/review-guidelines.md，对标 Copilot 的
+	// custom review instructions）：只从默认分支读，缺失/超限静默降级。
+	if g := r.fetchReviewGuidelines(ctx, pr); g != "" {
+		ptask.Artifacts[plugin.ArtifactReviewGuidelines] = g
 	}
 
 	var out *requirement.Output
@@ -625,4 +631,26 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+
+// reviewGuidelinesPath 仓库级审查指引文件（默认分支根目录）。
+const reviewGuidelinesPath = ".argus/review-guidelines.md"
+
+// reviewGuidelinesMaxRunes 指引注入 prompt 的长度上限。
+const reviewGuidelinesMaxRunes = 4000
+
+// fetchReviewGuidelines 读取仓库默认分支的审查指引。任何失败（无文件/无权限/
+// 网络错误）都视为"无指引"：审查照常进行，不因指引缺失而失败。
+func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext) string {
+	if pr == nil || pr.DefaultBranch == "" {
+		return ""
+	}
+	body, err := r.SDK.GetFileContent(ctx, pr.Platform, pr.Owner, pr.Repo,
+		reviewGuidelinesPath, pr.DefaultBranch)
+	if err != nil || strings.TrimSpace(body) == "" {
+		return ""
+	}
+	t, _ := textutil.TruncRunes(body, reviewGuidelinesMaxRunes)
+	return strings.TrimSpace(t)
 }

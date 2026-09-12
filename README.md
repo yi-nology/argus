@@ -4,7 +4,10 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.0.2**（v3.0.1 全面审查修复版），已在真实 Forgejo（git.example.com）完成完整生命周期试点验证。
+当前版本 **v3.4.0**（agentkit v0.8.2 / ekit v0.27.2 / eino v0.9.18）。真实 Forgejo（git.example.com）
+完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
+OCR 等 4 插件启用）。v3.1→v3.4 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
+[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)。
 
 ---
 
@@ -24,11 +27,17 @@
 - 插件式架构（`plugins.yaml` 声明），单插件失败/超时/熔断只做"降级注明"，不拖垮整轮审查；
 - 内置 **requirement-compliance**（上面的需求复核全流程）、**correctness**（通用代码审查）、
   **security**（安全审查，仓库配置禁不掉）三类 LLM agent；
-- 可插 **CLI 外部工具**（内置 OCR：alibaba/open-code-review，进程组托管、容错 JSON 解析）
-  和 **remote 远端 agent**（a2a/mcp 接口位已留）；
+- 可插 **CLI 外部工具**（内置 OCR：alibaba/open-code-review，进程组托管、容错 JSON 解析）、
+  **CLI 编码 agent**（`kind: acpx`，v3.2：codex/kimi/claude 等作为 R4 审查专家，只读沙箱）
+  和 **remote 远端 agent**（a2a/mcp 协议子集，v3.1 实装）；
 - 支持**方法论注入**（skillRefs）：把 SKILL.md 里的评分标准注入对应阶段的 prompt；
+- **Reviewer 也能带工具（v3.3）**：通用审查 agent 可选挂载 R3 同款工具表（读文件/读 diff/
+  查知识库）走 ReAct 模式核实线索，失败自动落回单轮审查——工具链故障不影响出结果；
 - **确定性路由与合并**：按 paths/labels/事件路由插件，指纹去重（不同专家发现同一问题只报一次）、
   冲突取高severity、token 预算吃紧时 heavy 插件先裁（锁定插件豁免）。路由/裁决/合并不走 LLM，可解释、可复现。
+- **交叉审查编队（v3.3）**：plugins.yaml `squads:` 按 paths/labels 触发，把指定成员（通常是
+  多个 acpx 编码 agent）追加进本轮分派，Merger 对"仅一方报告"的意见标注交叉分歧——高危路径
+  多模型互查；
 - **编队两种协作模式（v3.4）**：默认**互盲独立**（成员并发盲审，分歧由 Merger 事后标注"另一专家
   未复现"）；`mode: consensus` 切换为**黑板共识**（agentkit/blackboard）——成员按轮互看共享黑板、
   只补充他人未覆盖的新问题，一整轮无人补充即共识收敛（上限 2 轮），适合"要收敛结论"而非"要分歧
@@ -41,7 +50,8 @@
 
 按序短路的真值表（`R5.1`–`R5.5`，见下文）给出结论，然后：
 
-- **行内评论**：审查意见钉到具体代码行，随 CreateReview 事件附上（每轮独立）；
+- **行内评论**：审查意见钉到具体代码行，随 CreateReview 事件附上（每轮独立）；带修复建议的意见渲染为 ```suggestion 围栏（平台端"一键应用"）；
+- **仓库自定义审查指引**：仓库根放 `.argus/review-guidelines.md`（默认分支），内容注入内置审查插件的 prompt，调整审查重点（缺失时静默降级）；
 - **总结报告**：PR 下一条结构化评论，多轮审查**原地更新**不刷屏（三级降级：定位更新 → 扫描
   HTML 注释头 → 新建）。实际长这样：
 
@@ -79,7 +89,7 @@
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等四工具，可同步等待终态 |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等五工具，可同步等待终态 |
 
 ### 7. PR 评论交互
 
@@ -93,6 +103,11 @@
   不用再等 webhook；
 - 其余一切（含低置信/分类失败）→ Q&A 问答。短命令关键词零分类调用直达，歧义文本才走一次
   快模型分类（`ARGUS_ROUTER_MODEL` 可覆盖）。
+
+**Q&A 本体（v3.3）**：`ask` 不是对着摘要猜——它是一个 ReAct agent（get_diff / get_file /
+search_knowledge，toolprior 三层约束 + 数据区围栏），回答可引用 file:line 证据；同一 PR 的
+追问带历史语境（一 PR 一会话，6 轮封顶 FIFO + 24h 过期重置）。ReAct 失败自动落回单轮直调。
+IDE/其他 agent 可经 MCP `ask_argus` 工具直接提问或取某 PR 最新审查结论。
 
 30 秒内同一 PR 不会重复回答（防刷）。需要配置 LLM（OPENAI_*）。
 
@@ -111,6 +126,10 @@
 `POST /findings/suppress`（支持短码直达，或 file+原文，指纹对空白/标点不敏感），
 之后每轮报告自动剔除，脚注注明"N 条历史意见已被抑制"。
 
+**知识飞轮（v3.3，可选）**：配置 Milvus（`ARGUS_MILVUS_ADDR` + Embedding 三件套）后，
+每次人工 suppress 的误报结论会向量化回流知识库；R3 的 `search_knowledge` 检索命中历史
+误报即带抑制语境——同型误报率随使用下降。不配 Milvus 自动回退本地词元检索（knowledge/ 目录）。
+
 ### 10. 生产级健壮性（v3.0.1 加固）
 
 - **幂等与去重**：同 delivery 重发不重跑；同 PR 同 head SHA 的 in-flight 任务直接去重（事务保证）；
@@ -120,11 +139,19 @@
   running 任务带实例心跳（20s），心跳死亡 >90s 才被重置回 pending（多副本共库时滚动重启
   不误伤其他实例的在途任务）——重启不烧双倍 token；
 - **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS`（超期终态任务启动时+每日清理）；
+- **成本记账（v3.3）**：obsx 回收全部模型调用的真实 usage（Generate 直连与 ReAct RawModel
+  两条路径都覆盖），任务级 + 全局 CostTracker；报告元信息行显示"成本 ≈ $X"
+  （费率 `ARGUS_LLM_COST_*` 配置），`GET /usage/monthly` 按仓库出月度 token 用量；
+- **多副本横向扩展（v3.3）**：切 MySQL 后可多活副本——poller 走 `leader_leases` 租约选主
+  （失联 ≤ttl 自动换主、优雅停机主动让位），工作副本沙箱按实例隔离防误删；
+  SQLite 保持单写（replicas=1 + Recreate）；
 - **可观测**：`/metrics` 暴露 `argus_tasks_total/pending/running`、`argus_llm_tokens_total`、
-  插件耗时/失败、阶段耗时；`ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
+  插件耗时/失败、阶段耗时；`GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
+  `ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
 - **平台降级**：平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop；
-- 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）、单实例约束（SQLite 下
-  必须单副本，多副本切 MySQL）。
+- **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
+  分阶段模型路由（P6）可按 R1/R2/R3/R3.5/Reviewer/QA/Router 各配各的模型与窗口；
+- 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）。
 
 ---
 
@@ -155,7 +182,8 @@ PR opened/push ─┬─ webhook（签名校验、delivery 幂等）
                         │
                         ▼
   R1 需求解析 → R2 变更理解 → R3 完成度判定(ReAct+工具)
-  → R4 并发委派插件(builtin/cli/remote) → R5 真值表裁决
+  → R4 并发委派插件(builtin/cli/acpx/remote；编队可互盲或共识)
+  → [R3.5 报告反思，可选] → R5 真值表裁决
                         │
                         ▼
       行内评论(CreateReview) + 总结报告(原地更新)
@@ -210,6 +238,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `requirement_compliance` | 需求复核固定形态（等价 review_pr 默认）|
 | `list_agents` | 插件清单；三参全传附带仓库配置视图 |
 | `get_report` | 按 taskId 取状态/verdict/完整报告 |
+| `ask_argus` | Q&A：无 question 返回某 PR 最新审查结论（verdict/findings/摘录）；带 question 则基于报告+仓库上下文追问（ReAct，v3.3）|
 
 ### 4. API 一览
 
@@ -219,6 +248,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /metrics` | 无 | Prometheus 指标（argus_* 前缀）|
 | `POST /webhook/{gitea\|github\|gitlab}` | HMAC 签名 | 平台事件入口，delivery 幂等 |
 | `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
+| `GET /reports/:ref` | 🔒 Bearer | 按 head SHA 查最近一次成功报告（CI 门禁联动）|
+| `GET /usage/monthly` | 🔒 Bearer | 本月各仓库 token 用量 |
+| `GET /events` | 🔒 Bearer | SSE 任务进度流（阶段事件实时推送）|
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
@@ -241,6 +273,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
 | `ARGUS_{GITEA,GITHUB,GITLAB}_{URL,TOKEN,SECRET,SKIP_TLS}` | - | 平台凭证；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）|
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
+| `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - | Milvus 向量知识库（需配 `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM`；不配回退本地词元检索，知识飞轮随之关闭）|
+| `ARGUS_OCTOPUS_URL` / `_CHANNEL_ID` / `_USER` / `_TOKEN` | - | octopus IM 推送（审查完成通知）|
+| `ARGUS_LLM_COST_PROMPT_PER_1K` / `ARGUS_LLM_COST_COMPLETION_PER_1K` | 0 | 成本费率（$/1k token），报告元信息"成本 ≈ $X" |
 | `ARGUS_LLM_RATE_LIMIT` | 0（禁用）| LLM 请求速率限制（token bucket，单位 req/s）|
 | `ARGUS_LLM_RATE_BURST` | =MaxConcurrentTasks | 速率限制器突发容量 |
 | `ARGUS_MODEL_{R1,R2,R3,R35,ROUTER}` / `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` | - | 分阶段模型覆盖（P6 扩展）：大窗口吃 R1 长输入、快模型跑 R2/路由、强模型保 R3/R35 质量；`_CONTEXT_TOKENS` 后缀配各阶段窗口 |
@@ -280,7 +315,8 @@ make k8s-apply                                # 注意 replicas=1 + Recreate（S
 
 **生产上线自查**：`ARGUS_APITOKEN` 必配（fail-closed 503）；各平台 `SECRET` 必配（v3.0.2 起空
 secret 的 webhook 直接拒绝服务）；OCR 二进制用 `scripts/install-ocr.sh` 安装并留存 sha256；
-SQLite 单实例约束（MySQL 模式支持实例崩溃后的心跳级任务恢复，多活副本尚未支持）；
+SQLite 为单写模型（replicas=1 + Recreate），横向扩副本切 MySQL + 租约选主（v3.3 已支持，
+容量公式与验证清单见 **[deploy/k8s/README-scaling.md](deploy/k8s/README-scaling.md)**）；
 磁盘监控 `/data`（SQLite + 工作副本沙箱，后者 1h TTL 兜底回收）。
 
 ---
@@ -305,6 +341,20 @@ agents:
 - `kind: acpx`（v3.2）：`agent: codex|kimi|mimo|claude|...` —— CLI 编码 agent 作为 R4 审查专家
   （agentkit/acpx 驱动，只读沙箱 + findings JSON 契约；CLI 未安装时插件自动停用不影响启动）；
 - `triggers: {events: [cr.opened]}`：可按事件收窄（SDK 归一化词表 cr.opened/synchronize/reopened）。
+
+编队声明（v3.3，`squads:` 段；v3.4 支持共识模式）：
+
+```yaml
+squads:
+  - name: security-double-check
+    paths: ["**/auth/**", "**/*.sql"]   # paths/labels 任一命中即触发
+    labels: [security]
+    members: [claude, kimi]             # 引用上面声明的插件（通常 acpx）
+  - name: core-consensus
+    mode: consensus                     # 黑板共识：互看补充、收敛即止（默认互盲独立）
+    paths: ["internal/**"]
+    members: [claude, codex]
+```
 
 ---
 
@@ -334,6 +384,9 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - **轮询兜底**：webhook 入站不可达环境实测（抓包零包）下轮询路径零功能损失；
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
+**生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.4.0，生产升级部署待验证。
+
 ---
 
 ## 九、目录导览
@@ -342,29 +395,40 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 idl/argus.thrift               接口唯一事实来源（hz 生成路由/DTO）
 biz/                           hz 生成壳：handler 薄实现调 internal/service
 internal/
-  config/                      环境变量配置
+  config/                      环境变量配置（含分阶段模型/成本费率/Milvus）
+  bootstrap/                   装配：Registry 构建 + 依赖接线
   plugin/                      L4：契约 + severity 词表 + 指纹
     ├ registry.go              plugins.yaml → 注册表；仓库配置信任边界
     ├ dispatcher.go            确定性路由 + fan-out + 超时 + 熔断(3败/5min) + 预算裁剪
-    ├ merger.go                指纹去重 + 冲突取高 + 误报抑制
-    ├ adapter_builtin/         requirement-compliance(workflow 外壳) + 通用审查 agent
+    ├ merger.go                指纹去重 + 冲突取高 + 误报抑制 + 交叉分歧标注
+    ├ squad_consensus.go       编队黑板共识（v3.4，agentkit/blackboard 驱动）
+    ├ adapter_builtin/         requirement-compliance(workflow 外壳) + 通用审查 agent(可选 ReAct)
     ├ adapter_cli/             OCR CLI 适配器（进程组 exec；容错 JSON 解析）
-    └ adapter_remote/          a2a/mcp 接口位（v3.1 实装）
-  workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度 / R4 委派 / R5 真值表
-  context/                     diffprep(diff 清洗+RawDiff 回填) + sdkctx + workcopy(浅克隆沙箱)
-  storage/                     GORM 三表：tasks(幂等/去重/抢占/staleness) + finding_prints + review_targets
-  llm/                         重试/JSON 反馈重试/token 记账
+    ├ adapter_acpx/            CLI 编码 agent 适配器（v3.2，agentkit/acpx 只读沙箱）
+    └ adapter_remote/          a2a/mcp 远端插件（v3.1 实装协议子集）
+  workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度 / R3.5 反思(可选, v3.4)
+                               / R4 委派 / R5 真值表
+  context/                     diffprep(diff 清洗+RawDiff 回填) + sdkctx + workcopy(浅克隆沙箱, 按实例隔离)
+  storage/                     GORM：tasks(幂等/去重/心跳/staleness) + finding_prints
+                               + review_targets + qa_sessions(v3.3) + leader_leases(v3.3)
+  service/                     门面 API + 评论意图路由(v3.4) + Q&A ReAct(v3.3)
   poster/                      行内评论 + 总结评论三级降级 + staleness 门控
-  poller/                      轮询兜底任务源（webhook 不可达环境）
+  poller/                      轮询兜底任务源（租约选主门控, v3.3）
   reportview/                  报告渲染（上文示例的出处）
-  channel/mcpserver/           Argus as MCP Server（/mcp 四工具）
+  channel/mcpserver/           Argus as MCP Server（/mcp 五工具）
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
-  knowledge/ toolpool/ obs/    Skill(file 实现) / MCP 工具池 / 指标
+  toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
+  progress/                    SSE 任务进度事件流
 test/e2e/                      双打桩 E2E 16 场景 + 真实 LLM 集成测试
-deploy/                        docker-compose + k8s kustomize 双形态
+deploy/                        docker-compose + k8s kustomize 双形态（+ 多副本指南）
 scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
 skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
+knowledge/                     本地知识库（markdown，R3 search_knowledge 检索）
 ```
+
+> LLM 客户端（重试/JSON 反馈重试/token 记账/降级链/StageRouter 分阶段路由）与
+> 知识子系统（rag/skill）已收敛进共享库 **agentkit**（v3.0.3 起去重，argus 只做领域接线）；
+> Milvus 模式下 knowledge/ 目录内容会在启动时索引进向量库。
 
 **设计骨架**（详见 `design.md`）：
 
@@ -381,11 +445,25 @@ L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/
 
 ---
 
-## 十、当前边界（接口已留，v3.1 方向）
+## 十、当前边界
 
-- remote 插件协议子集（a2a/mcp）：`adapter_remote` 接口位就绪，接 review-service MCP server；
-- cli `delegate` 模式：接口留好（生产参考 review-service `internal/ocr/delegate.go`）；
-- RAG 实装、A2A Server、SSE 会话、IM 通知。
+**已落地**（v3.1–v3.4，细节见 [CHANGELOG.md](CHANGELOG.md)）：remote 插件协议子集（a2a/mcp）、
+cli delegate 模式、MCP Server 五工具（含 ask_argus）、SSE 进度流、IM 推送（octopus）、
+1M 上下文窗口单一基准、GitHub App 认证、acpx 编码 agent 插件、成本记账（任务级+月度仓库用量）、
+多副本横向扩展（租约选主+实例隔离）、Q&A ReAct + 多轮会话、分阶段模型路由（StageRouter）、
+Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共识。
+
+**有意不做**（架构纪律拍板）：
+- Plan-and-Execute：R1→R5 已是固化确定性编排，叠 P&E 是杀鸡用牛刀（v3.4 拍板）；
+- 反思写 suppress：持久抑制只来自人工反馈，防自动化误杀指纹库；
+- 路由/裁决/合并走 LLM：确定性优先的原则不变。
+
+**剩余待办/已知边界**：
+- 生产升级部署验证（生产现运行 v3.0.5，仓库 HEAD 已 v3.4.0）；
+- 总结评论扫描兜底受 SDK 分页限制（评论被顶出第一页后走新建路径）；
+- 编队共识上限 2 轮（比 agentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
+  （成本经 obsx/费率记账可见）；
+- remote 插件仅实装协议子集（a2a/mcp 的审查调用面），完整 agent 间互操作待需求驱动。
 
 ---
 
