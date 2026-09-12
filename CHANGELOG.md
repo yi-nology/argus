@@ -12,6 +12,9 @@ R3.5 反思只做单轮统计，误报历史不沉淀；`GetPrintState` 有接�
 - 标注只影响报告展示（入库后改写，不污染指纹与 prints 原文）；suppressed
   条目照旧剔除，持久抑制仍只来自人工反馈通道
 - 单测：正常标注 / suppressed 不复活（负控）/ GetPrintState 失败不阻塞
+- **`@argus restore fp:xxxxxxxx` 误抑制恢复**（同版顺带补齐）：suppress 反向操作——
+  被误杀的指纹置回 open，后续轮次重新可见；短码前缀解析、歧义不猜、不回流知识；
+  含存储往返 + 负控单测（不存在前缀/前缀歧义不 matched）
 
 ## v3.4.0 (2026-09-07) — 接入 agentkit v0.8.0 架构原语（reflection / router / blackboard）
 
