@@ -36,7 +36,7 @@ func regretTestPR() PRContext {
 // 无历史的指纹不得带任何标注。
 func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
 	fpA := Fingerprint("a.go", "空指针风险")
-	fpB := Fingerprint("b.go", "命名不佳")
+	_ = Fingerprint("b.go", "命名不佳") // 无历史指纹：负控（不得带标注）
 	store := &fakePrintStore{prior: map[string]*PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}

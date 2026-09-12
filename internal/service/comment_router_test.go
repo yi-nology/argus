@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/components/model"
@@ -41,7 +40,7 @@ func routeService(decision string, minCF float64) *Service {
 	}
 }
 
-// 关键词快路径：短命令直达 review，长句不误触发。
+// 关键词快路径：短命令直达 review，长句不误触发；否定守门不误伤。
 func TestMatchReviewKeyword(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -51,6 +50,7 @@ func TestMatchReviewKeyword(t *testing.T) {
 		{"请重新审查", true},
 		{"帮我 re-review 一下", true},
 		{"RERUN", true},
+		{"不要重新审查，先修这个 bug", false}, // 否定前置守门
 		{"这个重新审查的逻辑对吗？我想讨论一下我们目前的复审流程设计是怎么考虑的", false}, // 长句进 LLM 分类
 		{"这个函数的边界条件是什么", false},
 		{"", false},
@@ -118,18 +118,5 @@ func TestRouterChatModel_FallbackOrder(t *testing.T) {
 	svc.QAModel = nil
 	if svc.routerChatModel() != model.BaseChatModel(mm) {
 		t.Fatal("应回退 Model")
-	}
-}
-
-// containsAnyFold 大小写不敏感包含匹配。
-func TestContainsAnyFold(t *testing.T) {
-	if !containsAnyFold("Please RE-RUN the review", []string{"re-run"}) {
-		t.Fatal("大小写不敏感匹配失败")
-	}
-	if containsAnyFold("正常提问", []string{"rerun"}) {
-		t.Fatal("不应命中")
-	}
-	if !strings.Contains("x", "x") {
-		t.Fatal("sanity")
 	}
 }

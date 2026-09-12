@@ -239,7 +239,7 @@ func inlineCommentBody(f plugin.Finding) string {
 	body := "**[" + strings.ToUpper(f.Severity) + "]** " + reportview.EscapeUntrusted(f.Comment)
 	fix := strings.TrimSpace(f.SuggestedFix)
 	if fix != "" && !strings.Contains(fix, "```") {
-		if t, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {
+		if _, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {
 			body += "\n\n```suggestion\n" + fix + "\n```"
 		} else {
 			body += "\n\n（修复建议过长，已省略；见总结评论）"

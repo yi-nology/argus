@@ -3,7 +3,7 @@ module argus
 go 1.26.0
 
 require (
-	git.example.com/enjoydream/agentkit v0.9.3
+	git.example.com/enjoydream/agentkit v0.9.4
 	git.example.com/enjoydream/ekit v0.27.2
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.18
@@ -28,6 +28,7 @@ require (
 	gitee.com/openeuler/go-gitee v0.0.0-20251225091545-a0f78272dafc // indirect
 	github.com/42wim/httpsig v1.2.4 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/alibaba/sentinel-golang v1.0.4 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-pop v0.0.6 // indirect

@@ -17,6 +17,12 @@ var (
 	HookLLMTokens func(stage, model string, tokens int)
 	// HookFindings 审查产出分布（severity, plugin）。
 	HookFindings func(severity, plugin string, n int)
+	// HookReflectDrop R3.5 证据门 strict 丢弃。
+	HookReflectDrop func(reason string)
+	// HookReflectDegrade R3.5 证据门 soft 降级。
+	HookReflectDegrade func(reason string)
+	// HookLayerExec 分层执行探针：层被真正走到时 +1（活检；名义存在但零执行 = 告警）。
+	HookLayerExec func(layer string)
 )
 
 func obsTaskTotal(platform, kind, status string) {
@@ -70,3 +76,38 @@ func ReportTaskTotal(platform, kind, status string) { obsTaskTotal(platform, kin
 
 // ReportStageDuration 供 runner 记阶段耗时。
 func ReportStageDuration(stage string, d time.Duration) { obsStageDuration(stage, d) }
+
+// ReportReflectDrop R3.5 证据门 strict 丢弃（reason=missing_evidence|missing_counterexample|evidence_path_out_of_scope）。
+func ReportReflectDrop(reason string) {
+	if HookReflectDrop != nil {
+		HookReflectDrop(reason)
+	}
+}
+
+// ReportReflectDegrade R3.5 证据门 soft 降级。
+func ReportReflectDegrade(reason string) {
+	if HookReflectDegrade != nil {
+		HookReflectDegrade(reason)
+	}
+}
+
+// ReportLayerExec 分层活检：层实际执行时记一次。
+// 词表钉死：diffprep | R1 | R2 | R3 | R35 | R4 | R5 | merger | poster。
+func ReportLayerExec(layer string) {
+	if HookLayerExec != nil && layer != "" {
+		HookLayerExec(layer)
+	}
+}
+
+// Layer 词表（活检探针；与告警规则 label 对齐）。
+const (
+	LayerDiffprep = "diffprep"
+	LayerR1       = "R1"
+	LayerR2       = "R2"
+	LayerR3       = "R3"
+	LayerR35      = "R35"
+	LayerR4       = "R4"
+	LayerR5       = "R5"
+	LayerMerger   = "merger"
+	LayerPoster   = "poster"
+)

@@ -59,7 +59,7 @@ type reqSegment struct {
 // 任何截断/提炼路径都留痕 Ambiguous → R5.3 人工确认，绝不静默丢内容。
 func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plugin.RequirementSpec, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R1", time.Since(start)) }()
+	defer func() { plugin.ReportStageDuration("R1", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR1) }()
 
 	bodyMax, issueMax := w.ReqBodyMaxChars, w.ReqIssueMaxChars
 	if bodyMax <= 0 {
@@ -223,7 +223,7 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 // SummarizeChange R2：变更理解 → ChangeSummary（R3/R4 复用的 diff 公共前缀，省 token）。
 func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (string, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R2", time.Since(start)) }()
+	defer func() { plugin.ReportStageDuration("R2", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR2) }()
 
 	if task.Diff == nil || strings.TrimSpace(task.Diff.Text) == "" {
 		return "（无有效 diff 内容）", nil
@@ -243,7 +243,7 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 // JSON 解析失败重试 1 次后仍败 → 全部 AC 置 unverifiable（§10.2，结果不丢）。
 func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) (*plugin.ComplianceReport, string, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R3", time.Since(start)) }()
+	defer func() { plugin.ReportStageDuration("R3", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR3) }()
 
 	if spec == nil || len(spec.ACs) == 0 {
 		return nil, "", nil // 无清单：R3 跳过（R5.3 由 Ambiguous/空清单兜底）
@@ -339,11 +339,16 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 // 每次尝试——toolprior.WithCallLimit 的限流计数按尝试重置，重试不再继承首轮
 // 已耗尽的外部调用预算（此前共享实例导致重试轮外部工具一开始就被软止损）。
 func (w *Workflow) runAgent(ctx context.Context, instruction, query string, toolsFactory func() []tool.BaseTool) (string, error) {
+	// P6 阶段覆盖：ARGUS_MODEL_R3（已在 runner 侧 Failover 装饰）；nil 回退主链 RawModel。
+	reactModel := w.R3ChatModel
+	if reactModel == nil && w.LLM != nil {
+		reactModel = w.LLM.RawModel()
+	}
 	return agentrun.RunWithEvents(ctx, agentrun.Config{
 		Name:          "argus-compliance",
 		Description:   "需求完成度判定专家",
 		Instruction:   instruction,
-		Model:         w.LLM.RawModel(),
+		Model:         reactModel,
 		MaxIterations: 12,
 		ToolsFactory:  toolsFactory,
 	}, query, func(e agentrun.Event) {

@@ -34,6 +34,7 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/dream"
 	"argus/internal/notify"
 	"argus/internal/obs"
 	"argus/internal/plugin"
@@ -155,7 +156,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// 配置 OPENAI_FALLBACK_* 四项后启用 Resilient 多模型降级链。
 	var chatModel *openai.ChatModel
 	var llmGen llm.Generator
-	var fallbackProvider llm.Provider // 全局降级 Provider（P6 阶段覆盖链复用）
+	var fallbackProvider llm.Provider       // 全局降级 Provider（P6 阶段覆盖链复用）
+	var fallbackBM model.BaseChatModel      // 备模型 BaseChatModel（ReAct Failover 用）
+	var wrapReactFailover func(model.BaseChatModel, string) model.BaseChatModel
 	if cfg.LLM.BaseURL != "" && cfg.LLM.APIKey != "" && cfg.LLM.Model != "" {
 		maxTokens := cfg.MaxTokensParam()
 		chatModelCfg := &openai.ChatModelConfig{
@@ -204,8 +207,32 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 					"stage", stage, "reason", reason)
 			}
 			llmGen = resilient
+			// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
+			// FailoverModel 装饰补齐主备切换（agentkit v0.9.4；Resilient.RawModel 只返回主模型）
+			fbModel, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+				BaseURL: cfg.LLM.FallbackBaseURL,
+				APIKey:  cfg.LLM.FallbackAPIKey,
+				Model:   cfg.LLM.FallbackModel,
+				Timeout: cfg.LLM.Timeout,
+			})
+			if e != nil {
+				panic(fmt.Errorf("构造降级 BaseChatModel 失败: %w", e))
+			}
+			fallbackBM = fbModel
+			wrapReactFailover = func(primary model.BaseChatModel, stage string) model.BaseChatModel {
+				if primary == nil {
+					return nil
+				}
+				fm := llm.NewFailoverModel(primary, fallbackBM, cfg.LLM.Model, cfg.LLM.FallbackModel)
+				fm.OnFailover = func(from, to, reason string) {
+					log.Warn("argus.llm.failover", "from", from, "to", to,
+						"stage", stage, "reason", reason)
+				}
+				return fm
+			}
 			log.Info("argus.boot.llm_resilient", "chain", resilient.String(),
 				"primary_ctx", cfg.LLM.ContextToken, "fallback_ctx", cfg.LLM.FallbackContextToken)
+			log.Info("argus.boot.llm_failover", "react", "enabled", "fallback_model", cfg.LLM.FallbackModel)
 		} else {
 			c := llm.NewClient(chatModel, cfg.LLM.Model, nil)
 			c.ContextTokens = cfg.LLM.ContextToken
@@ -376,11 +403,48 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		}
 	}
 
+	// ReAct / 单轮直调路径统一包 FailoverModel（主模型故障切备；Generator 路径仍走 Resilient）。
+	// chatModel 类型保持 *openai.ChatModel 供 SDK/非 ReAct 场景；ReAct 用 reactChatModel。
+	var reactChatModel model.BaseChatModel
+	if chatModel != nil {
+		reactChatModel = chatModel
+	}
+	if wrapReactFailover != nil {
+		if reactChatModel != nil {
+			reactChatModel = wrapReactFailover(reactChatModel, "chat")
+		}
+		if r3Model != nil {
+			r3Model = wrapReactFailover(r3Model, "R3")
+		}
+		if qaModel != nil {
+			qaModel = wrapReactFailover(qaModel, "qa")
+		}
+		if routerModel != nil {
+			routerModel = wrapReactFailover(routerModel, "router")
+		}
+		if reflectModel != nil {
+			reflectModel = wrapReactFailover(reflectModel, "R35")
+		}
+	}
+
 	// ---- L4 插拔层 + L3 编排 + runner ----
 	// runnerRef 延迟填充：requirement-compliance 插件的 factory 在 Invoke 时才解引用。
 	var runnerRef *runner.Runner
+	// Reviewer ReAct 模型：有阶段覆盖时用 Resilient.RawModel（需 Failover 包）；
+	// 否则直接用 reactChatModel（已 Failover）。
+	reviewerReactModel := reactChatModel
+	if reviewerLLM != nil {
+		if rm, ok := reviewerLLM.(interface{ RawModel() model.BaseChatModel }); ok {
+			if raw := rm.RawModel(); raw != nil {
+				reviewerReactModel = raw
+				if wrapReactFailover != nil {
+					reviewerReactModel = wrapReactFailover(raw, "reviewer")
+				}
+			}
+		}
+	}
 	reg, complianceSkillRefs, err := bootstrap.BuildRegistry(&bootstrap.Deps{
-		Cfg: cfg, Log: log, WC: wc, Model: chatModel, Skills: skills,
+		Cfg: cfg, Log: log, WC: wc, Model: reactChatModel, Skills: skills,
 		WorkflowFactory: func(budget *plugin.TokenBudget) adapter_builtin.WorkflowRunner {
 			if runnerRef == nil {
 				return adapter_builtin.WorkflowRunner(nil) // 装配完成前不该被调用；调用方 panic=明确报错
@@ -397,6 +461,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		},
 		ReviewerLLM:  reviewerLLM,
 		ReviewerName: reviewerName,
+		ReactModel:   reviewerReactModel,
 	})
 	if err != nil {
 		panic(err)
@@ -442,10 +507,24 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 
 	dispatcher := plugin.NewDispatcher(reg, log).WithSquads(squads)
 	merger := plugin.NewMerger(store, log)
+	if cfg.RegretLearning {
+		merger.WithLearning(store, plugin.LearningConfig{
+			Enabled:     true,
+			MinSamples:  cfg.RegretMinSamples,
+			SoftFloor:   cfg.RegretSoftFloor,
+			HardFloor:   cfg.RegretHardFloor,
+			InjectFloor: cfg.RegretInjectFloor,
+			InjectTopN:  cfg.RegretInjectTopN,
+		})
+		log.Info("argus.regret_learning.enabled",
+			"min_samples", cfg.RegretMinSamples,
+			"soft_floor", cfg.RegretSoftFloor,
+			"hard_floor", cfg.RegretHardFloor)
+	}
 	posterSvc := &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
-		Model: chatModel, ModelName: cfg.LLM.Model,
+		Model: reactChatModel, ModelName: cfg.LLM.Model,
 		LLM:        llmGen,
 		ToolPool:   toolPool,
 		ToolSpecs:  toolSpecs,
@@ -460,9 +539,22 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		CostPer1K:  costPer1K,
 		StageLLMs:  stageLLMs,
 		R3Model:    r3Model,
+		// ReAct failover：R3Model 已包时用它；nil 时 runner 用 RawModel + FallbackModel 再包
+		FallbackModel: fallbackBM,
+		FallbackName:  cfg.LLM.FallbackModel,
 		// R3.5 报告反思（v3.4 reflection）：轮数 0 = 关闭；模型缺省回退 R3 专用模型
-		ReflectRounds: cfg.ReflectRounds,
-		ReflectModel:  reflectModel,
+		ReflectRounds:   cfg.ReflectRounds,
+		ReflectModel:    reflectModel,
+		ReflectEvidence: cfg.ReflectEvidence,
+		// 模式级后悔学习环（v3.5）：默认关闭
+		Learning: plugin.LearningConfig{
+			Enabled:     cfg.RegretLearning,
+			MinSamples:  cfg.RegretMinSamples,
+			SoftFloor:   cfg.RegretSoftFloor,
+			HardFloor:   cfg.RegretHardFloor,
+			InjectFloor: cfg.RegretInjectFloor,
+			InjectTopN:  cfg.RegretInjectTopN,
+		},
 	}
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
@@ -495,6 +587,32 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			obs.SetTaskQueueDepth(pending, running)
 		}
 	})
+	// ---- dream 长期记忆整合（v3.5.1）：去重 pattern_signals + 导出低置信模式到知识库 ----
+	// 仅在学习环开启且显式配置周期时启动（默认 0=关闭）。
+	if cfg.RegretLearning && cfg.DreamInterval > 0 {
+		dm := &dream.Dream{
+			Store:        store,
+			Knowledge:    knowledge,
+			KnowledgeDir: cfg.KnowledgeDir,
+			Learning: plugin.LearningConfig{
+				Enabled:     true,
+				MinSamples:  cfg.RegretMinSamples,
+				SoftFloor:   cfg.RegretSoftFloor,
+				HardFloor:   cfg.RegretHardFloor,
+				InjectFloor: cfg.RegretInjectFloor,
+				InjectTopN:  cfg.RegretInjectTopN,
+			},
+			ExportTopN: cfg.RegretInjectTopN,
+			Log:        log,
+		}
+		wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
+			_, _, err := dm.RunOnce(ctx)
+			if err != nil {
+				log.Warn("argus.dream.run_failed", "error", err.Error())
+			}
+		})
+		log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
+	}
 
 	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
 	if cfg.PollInterval > 0 && cfg.PollRepos != "" {
@@ -512,7 +630,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 
 	// ---- service + biz 接线 ----
 	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdk, Registry: reg, Knowledge: knowledge,
-		Log: log, Bus: bus, Model: chatModel, QAModel: qaModel,
+		Log: log, Bus: bus, Model: reactChatModel, QAModel: qaModel,
 		RouterModel: routerModel,
 		Audit: audit.New(log, "argus-audit"), Version: version}
 	hapi.SetService(svc)

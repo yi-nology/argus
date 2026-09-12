@@ -40,6 +40,9 @@ type Deps struct {
 	// nil = Reviewer 用全局 Model 构造）。
 	ReviewerLLM  llm.Generator
 	ReviewerName string
+	// ReactModel ReAct 专用模型（已 Failover 装饰）；nil = 用 Model / ReviewerLLM.RawModel。
+	// Resilient.RawModel 只返回主模型，ReAct 旁路靠本字段补齐主备切换。
+	ReactModel model.BaseChatModel
 }
 
 // BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置）并注册全部插件。
@@ -122,6 +125,9 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				if d.ReviewTools != nil {
 					// ReAct 模式（agentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
 					opts = append(opts, adapter_builtin.WithToolsHook(d.ReviewTools))
+				}
+				if d.ReactModel != nil {
+					opts = append(opts, adapter_builtin.WithReactModel(d.ReactModel))
 				}
 				p, err = adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
 					client, decl.SkillRefs, d.Skills, opts...)

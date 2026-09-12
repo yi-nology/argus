@@ -143,3 +143,58 @@ spec:
               Check octopus service reachability and channel credentials.
             runbook_url: "https://wiki.internal/argus/runbook#notify-failures"
             dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=12"
+
+        # ───────────────────────────────────────────────
+        # Liveness probes (v3.5 机制活检)
+        # 「名义存在但零执行」：有成功任务但某层在窗口内一次都没走到。
+        # R35 仅在 reflection 开启时才注册 series——未开反射的实例不会误报。
+        # ───────────────────────────────────────────────
+        - record: argus:layer_exec:increase30m
+          expr: sum by (layer) (increase(argus_layer_exec_total[30m]))
+          labels:
+            component: argus
+
+        - alert: ArgusLayerSilent
+          expr: |
+            sum(increase(argus_tasks_total{status="done"}[30m])) > 0
+            and
+            (
+              sum by (layer) (increase(argus_layer_exec_total[30m])) == 0
+              or
+              absent(argus_layer_exec_total)
+            )
+          for: 30m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus layer {{ $labels.layer }} silent (zero executions)"
+            description: >-
+              Tasks completed successfully in the last 30m but layer
+              `{{ $labels.layer }}` recorded zero executions. The layer may be
+              nominally present and silently skipped (config drift, early-return
+              path, or metric hook not wired). Verify against
+              argus_stage_duration_seconds / task traces.
+            runbook_url: "https://wiki.internal/argus/runbook#layer-silent"
+            dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=layer"
+
+        # 证据门开启但长期零丢弃/零降级：可能 Rubric 未生效或模型忽略 evidence 字段
+        - alert: ArgusReflectGateIdle
+          expr: |
+            sum(increase(argus_layer_exec_total{layer="R35"}[6h])) > 10
+            and
+            sum(increase(argus_reflect_dropped_total[6h])) == 0
+            and
+            sum(increase(argus_reflect_degraded_total[6h])) == 0
+          for: 1h
+          labels:
+            severity: info
+            team: argus
+          annotations:
+            summary: "Argus R3.5 evidence gate never fires"
+            description: >-
+              R35 executed >10 times in 6h but both dropped and degraded counters
+              stayed at 0. Check ARGUS_REFLECTION_EVIDENCE mode (off is expected
+              to never fire), model compliance with evidence/counterexample
+              fields, and Rubric prompt delivery.
+            runbook_url: "https://wiki.internal/argus/runbook#reflect-gate-idle"

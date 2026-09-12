@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -51,7 +52,7 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 			// 新指纹
 			p = FindingPrint{
 				Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
-				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
+				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment, Plugin: firstBy(f.By),
 				Status:      PrintOpen,
 				FirstTaskID: taskID, LastTaskID: taskID, TimesSeen: 1,
 				FirstSeenAt: at, LastSeenAt: at,
@@ -63,6 +64,9 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 		p.LastSeenAt = at
 		p.TimesSeen++
 		p.Severity = severity.Higher(p.Severity, f.Severity)
+		if p.Plugin == "" {
+			p.Plugin = firstBy(f.By)
+		}
 		if absDiff(p.Line, f.Line) <= 2 && f.Line > 0 {
 			p.Line = f.Line
 		}
@@ -122,17 +126,31 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 }
 
 // ResolvePrintFingerprint 按短码前缀解析完整指纹（取最近更新的一条）。
-// found=false 表示该前缀在此 PR 下无匹配。
+// found=false 表示该前缀在此 PR 下无匹配。同时返回产出插件名（可为空）。
 func (s *Store) ResolvePrintFingerprint(ctx context.Context, platform, owner, repo, number, prefix string) (string, bool) {
+	fp, pluginName, ok := s.ResolvePrintWithPlugin(ctx, platform, owner, repo, number, prefix)
+	_ = pluginName
+	return fp, ok
+}
+
+// ResolvePrintWithPlugin ResolvePrintFingerprint 的超集：附带插件名供学习环归属。
+func (s *Store) ResolvePrintWithPlugin(ctx context.Context, platform, owner, repo, number, prefix string) (fp, pluginName string, ok bool) {
 	var p FindingPrint
 	err := s.db.WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
 		platform, owner, repo, number, prefix+"%").
 		Order("last_seen_at DESC").First(&p).Error
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
-	return p.Print, true
+	return p.Print, p.Plugin, true
+}
+
+func firstBy(by string) string {
+	if i := strings.IndexByte(by, ','); i > 0 {
+		return by[:i]
+	}
+	return by
 }
 
 // ListFindingPrints 观测辅助：某 PR 的全部指纹记录（GET 任务结果时可用）。

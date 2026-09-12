@@ -62,15 +62,41 @@ CREATE TABLE IF NOT EXISTS `finding_prints` (
     `severity`      VARCHAR(16)     DEFAULT NULL,
     `comment`       LONGTEXT,
     `status`        VARCHAR(16)     NOT NULL DEFAULT 'open',
+    `plugin`        VARCHAR(64)     DEFAULT NULL,
     `first_task_id` VARCHAR(40)     DEFAULT NULL,
     `last_task_id`  VARCHAR(40)     DEFAULT NULL,
     `times_seen`    INT             NOT NULL DEFAULT 0,
+    `regret_count`  INT             NOT NULL DEFAULT 0,
     `first_seen_at` DATETIME(3)     DEFAULT NULL,
     `last_seen_at`  DATETIME(3)     DEFAULT NULL,
     `created_at`    DATETIME(3)     DEFAULT NULL,
     `updated_at`    DATETIME(3)     DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE INDEX `idx_print` (`platform`, `owner`, `repo`, `number`, `print`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- pattern_signals — repo-level review pattern trust history
+-- (regret learning loop; see docs/review-closed-loop-design.md)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `pattern_signals` (
+    `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `platform`      VARCHAR(16)     NOT NULL,
+    `owner`         VARCHAR(128)    NOT NULL,
+    `repo`          VARCHAR(128)    NOT NULL,
+    `plugin`        VARCHAR(64)     NOT NULL,
+    `pattern_key`   VARCHAR(32)     NOT NULL,
+    `pattern_text`  VARCHAR(255)    DEFAULT NULL,
+    `posted`        INT             NOT NULL DEFAULT 0,
+    `regret`        INT             NOT NULL DEFAULT 0,
+    `suppress`      INT             NOT NULL DEFAULT 0,
+    `restore`       INT             NOT NULL DEFAULT 0,
+    `first_seen_at` DATETIME(3)     DEFAULT NULL,
+    `last_seen_at`  DATETIME(3)     DEFAULT NULL,
+    `created_at`    DATETIME(3)     DEFAULT NULL,
+    `updated_at`    DATETIME(3)     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_pattern` (`platform`, `owner`, `repo`, `plugin`, `pattern_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

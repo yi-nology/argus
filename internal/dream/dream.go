@@ -1,0 +1,214 @@
+// dream.go —— 长期记忆定期整合（docs/review-closed-loop-design.md §8）。
+//
+// OFC 的 dream 对应到这里：
+//  1. 去重合并：同 plugin 且 pattern_text 前缀高度重合的行，计数并入样本更多的一行；
+//  2. 知识导出：周期把「低置信 + 样本充足」的模式写成结构化知识，供 R3 search_knowledge
+//     检索——语义检索（Milvus）与符号信号（pattern_signals）双轨。
+//
+// 全部确定性、无 LLM；失败只告警，不影响审查主流程。
+
+package dream
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/safejson"
+	"git.example.com/enjoydream/ekit/observability/logx"
+
+	"argus/internal/plugin"
+	"argus/internal/storage"
+)
+
+// DedupPrefixRunes 去重键：pattern_text 前 N 个 rune（normalize 后已无路径/hex 噪声）。
+const DedupPrefixRunes = 80
+
+// Store dream 需要的最小存储面。
+type Store interface {
+	ListPatternRepos(ctx context.Context) ([]storage.RepoRef, error)
+	ListRepoPatterns(ctx context.Context, platform, owner, repo string) ([]storage.PatternSignal, error)
+	MergePatternInto(ctx context.Context, platform, owner, repo string, keepID, dupID uint, at time.Time) error
+	ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
+		minSamples int, maxConfidence float64, limit int) ([]plugin.PatternState, error)
+}
+
+// Dream 周期整合器。
+type Dream struct {
+	Store   Store
+	Knowledge rag.KnowledgeService // nil/Noop = 只写本地 markdown
+	// KnowledgeDir 本地知识目录（Milvus 不可用时落盘，下次启动索引）。
+	KnowledgeDir string
+	// Learning 学习环阈值（复用 config 派生）。
+	Learning plugin.LearningConfig
+	// ExportTopN 每仓库导出条数上限。
+	ExportTopN int
+	Log        logx.Logger
+}
+
+// RunOnce 执行一轮 dream：去重 → 导出。返回便于测试/日志的计数。
+func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err error) {
+	if d == nil || d.Store == nil {
+		return 0, 0, nil
+	}
+	at := time.Now().UTC()
+	repos, err := d.Store.ListPatternRepos(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("dream: list repos: %w", err)
+	}
+	for _, r := range repos {
+		n, err := d.dedupRepo(ctx, r, at)
+		if err != nil {
+			d.warn("argus.dream.dedup_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
+			continue
+		}
+		merged += n
+		ok, err := d.exportRepo(ctx, r, at)
+		if err != nil {
+			d.warn("argus.dream.export_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
+			continue
+		}
+		if ok {
+			exportedRepos++
+		}
+	}
+	if merged > 0 || exportedRepos > 0 {
+		d.info("argus.dream.done", "merged", merged, "exported_repos", exportedRepos)
+	}
+	return merged, exportedRepos, nil
+}
+
+// dedupRepo 同 plugin + pattern_text 前缀相同 → 计数并入样本更多的一行。
+func (d *Dream) dedupRepo(ctx context.Context, r storage.RepoRef, at time.Time) (int, error) {
+	rows, err := d.Store.ListRepoPatterns(ctx, r.Platform, r.Owner, r.Repo)
+	if err != nil {
+		return 0, err
+	}
+	type groupKey struct {
+		plugin string
+		prefix string
+	}
+	groups := map[groupKey][]storage.PatternSignal{}
+	for _, row := range rows {
+		prefix := truncateRunes(row.PatternText, DedupPrefixRunes)
+		if prefix == "" {
+			prefix = row.Pattern
+		}
+		k := groupKey{plugin: row.Plugin, prefix: prefix}
+		groups[k] = append(groups[k], row)
+	}
+	merged := 0
+	for _, g := range groups {
+		if len(g) < 2 {
+			continue
+		}
+		keep := g[0]
+		for _, c := range g[1:] {
+			if betterKeep(c, keep) {
+				keep = c
+			}
+		}
+		for _, c := range g {
+			if c.ID == keep.ID {
+				continue
+			}
+			if err := d.Store.MergePatternInto(ctx, r.Platform, r.Owner, r.Repo, keep.ID, c.ID, at); err != nil {
+				return merged, err
+			}
+			merged++
+		}
+	}
+	return merged, nil
+}
+
+func betterKeep(a, b storage.PatternSignal) bool {
+	as := a.Posted + a.Regret + a.Suppress
+	bs := b.Posted + b.Regret + b.Suppress
+	if as != bs {
+		return as > bs
+	}
+	return a.ID < b.ID // 稳定：样本相同时保留更早创建的
+}
+
+// exportRepo 把低置信模式写成知识条目。无低置信样本时跳过（ok=false）。
+func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time) (bool, error) {
+	topN := d.ExportTopN
+	if topN <= 0 {
+		topN = 20
+	}
+	low, err := d.Store.ListLowConfidencePatterns(ctx, r.Platform, r.Owner, r.Repo,
+		d.Learning.MinSamples, d.Learning.SoftFloor, topN)
+	if err != nil {
+		return false, err
+	}
+	if len(low) == 0 {
+		return false, nil
+	}
+	body := renderKnowledge(r, low, at)
+
+	// Milvus 主路径（与 suppress 回流同形）；失败降级本地 markdown
+	key := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
+	if ms, ok := d.Knowledge.(*rag.MilvusStore); ok && ms != nil {
+		if err := ms.Index(ctx, key, body); err != nil {
+			d.warn("argus.dream.milvus_failed", "error", err.Error())
+		} else {
+			return true, nil
+		}
+	}
+	if d.KnowledgeDir == "" {
+		return false, nil
+	}
+	if err := writeLocalKnowledge(d.KnowledgeDir, r, body); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。
+func renderKnowledge(r storage.RepoRef, low []plugin.PatternState, at time.Time) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## %s/%s 历史高误报审查模式（dream 导出）\n\n", r.Owner, r.Repo)
+	fmt.Fprintf(&b, "生成时间：%s。以下模式在本仓库样本充足且置信度偏低；"+
+		"审查时命中类似表述请提高举证标准，无具体行与影响则不要输出。\n\n", at.Format(time.RFC3339))
+	for i, p := range low {
+		sample := p.PatternText
+		if sample == "" {
+			sample = p.Pattern
+		}
+		fmt.Fprintf(&b, "%d. **[%s]** %s\n   - 置信度 %.2f（samples=%d；regret=%d suppress=%d）\n",
+			i+1, p.Plugin, safejson.EscapeUntrusted(sample), p.Confidence, p.Samples, p.Regret, p.Suppress)
+	}
+	return b.String()
+}
+
+func writeLocalKnowledge(dir string, r storage.RepoRef, body string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("dream-%s-%s.md", r.Owner, r.Repo)
+	return os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
+func (d *Dream) info(msg string, kv ...any) {
+	if d.Log != nil {
+		d.Log.Info(msg, kv...)
+	}
+}
+
+func (d *Dream) warn(msg string, kv ...any) {
+	if d.Log != nil {
+		d.Log.Warn(msg, kv...)
+	}
+}

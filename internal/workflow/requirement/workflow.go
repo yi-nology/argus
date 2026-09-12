@@ -79,9 +79,10 @@ type Workflow struct {
 
 	// R3.5 报告反思（v3.4，agentkit/reflection）：>0 启用，值为"批判→修订"轮数上限
 	//（包内钳制 ≤ reflectMaxRounds）。ReflectModel 为反思专用模型（nil = R3ChatModel
-	// → LLM.RawModel() 逐级回退）。
-	ReflectRounds int
-	ReflectModel  model.BaseChatModel
+	// → LLM.RawModel() 逐级回退）。ReflectEvidence 证据门：off|soft|strict（默认 off）。
+	ReflectRounds   int
+	ReflectModel    model.BaseChatModel
+	ReflectEvidence string
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -183,6 +184,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		outcomes = append(outcomes, w.Dispatcher.RunConsensus(ctx, task, sq, budget)...)
 	}
 	plugin.ReportStageDuration("R4", time.Since(stageStart))
+	plugin.ReportLayerExec(plugin.LayerR4)
 
 	// Merger：归一化 + 指纹去重 + 抑制过滤（store 由 Merger 持有）
 	merged, err := w.Merger.Merge(ctx, task.PR, task.ID, outcomes, time.Now())
@@ -198,11 +200,21 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	// 反思是逐轮质量闸门（统计性判断），持久抑制只来自人工 suppress 反馈。
 	var reflectInfo *ReflectSummary
 	if w.ReflectRounds > 0 {
+		// 活检：开关开着就必须走到 R35；模型未配/无 findings 也算「尝试执行」
+		//——否则「配置了反思却从未调用」会与「正常空跑」不可分。
+		plugin.ReportLayerExec(plugin.LayerR35)
 		reflectInfo = w.reflectFindings(ctx, task, summary, merged)
-		if reflectInfo != nil && reflectInfo.Removed > 0 {
-			merged.Degraded = append(merged.Degraded, fmt.Sprintf(
+		if reflectInfo != nil && (reflectInfo.Removed > 0 || reflectInfo.DegradedNoEvidence > 0) {
+			note := fmt.Sprintf(
 				"R3.5 报告反思：%d 轮（收敛=%v），剔除 %d 条误报嫌疑、修正 %d 条",
-				reflectInfo.Rounds, reflectInfo.Converged, reflectInfo.Removed, reflectInfo.Adjusted))
+				reflectInfo.Rounds, reflectInfo.Converged, reflectInfo.Removed, reflectInfo.Adjusted)
+			if reflectInfo.DroppedNoEvidence > 0 {
+				note += fmt.Sprintf("；证据门丢弃 %d 条", reflectInfo.DroppedNoEvidence)
+			}
+			if reflectInfo.DegradedNoEvidence > 0 {
+				note += fmt.Sprintf("；证据门降级 %d 条", reflectInfo.DegradedNoEvidence)
+			}
+			merged.Degraded = append(merged.Degraded, note)
 		}
 	}
 
@@ -211,10 +223,17 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		w.Merger.AnnotateCrossReview(merged, members)
 	}
 
+	// 学习环低置信标注重放：R3.5 按 id 回写 comment 会覆盖 Merger 阶段的后缀
+	// （docs/review-closed-loop-design.md §3.5）。幂等。
+	if w.Merger != nil {
+		w.Merger.AnnotateLowConfidence(ctx, task.PR, merged)
+	}
+
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）
 	r5Start := time.Now()
 	verdict, rule := Verdict(spec, report, merged.Findings)
 	plugin.ReportStageDuration("R5", time.Since(r5Start))
+	plugin.ReportLayerExec(plugin.LayerR5)
 
 	out := &Output{
 		Verdict:    verdict,

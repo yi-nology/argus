@@ -404,18 +404,20 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	}
 
 	var (
-		fp      string
-		file    = str(req.File)
-		comment = str(req.Comment)
+		fp         string
+		file       = str(req.File)
+		comment    = str(req.Comment)
+		pluginName string
 	)
 	switch {
 	case str(req.Fingerprint) != "":
 		// 模式一：报告意见行的 fp 短码直达（前缀解析完整指纹）
-		full, found := s.Store.ResolvePrintFingerprint(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
+		full, by, found := s.Store.ResolvePrintWithPlugin(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
 		if !found {
 			return &api.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
 		}
 		fp = full
+		pluginName = by
 	case file != "" && comment != "":
 		// 模式二：file + 意见原文（与 Merger 同一指纹函数）
 		fp = severity.Fingerprint(file, comment)
@@ -424,7 +426,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	}
 
 	matched, err := s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
-		fp, plugin.Finding{File: file, Comment: comment}, time.Now())
+		fp, plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now())
 	if err != nil {
 		s.log().Error("argus.api.suppress_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
@@ -433,6 +435,13 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		// 知识飞轮（v3.3）：误报结论回流知识库——R3 search_knowledge 命中
 		// "本仓库历史误报"即带抑制上下文，同型误报率随使用下降
 		s.recordFalsePositiveKnowledge(ctx, platform, req.Owner, req.Repo, req.Number, fp, file, comment)
+	}
+	// 学习环：人工判误报 → PatternSuppress（失败只告警）
+	if s.Cfg != nil && s.Cfg.RegretLearning {
+		if err := s.Store.PatternSuppress(ctx, platform, req.Owner, req.Repo, pluginName,
+			plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now()); err != nil {
+			s.log().Warn("argus.regret.pattern_suppress_failed", "error", err.Error())
+		}
 	}
 	s.log().Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
@@ -1353,10 +1362,27 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 	number int, fpPrefix string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)
+	// 学习环：先解析插件归属，restore 后原行仍可查但状态已变
+	var pluginName, fullFP, comment string
+	if s.Cfg != nil && s.Cfg.RegretLearning {
+		if fp, by, ok := s.Store.ResolvePrintWithPlugin(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fpPrefix); ok {
+			fullFP, pluginName = fp, by
+			if st, err := s.Store.GetPrintState(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fp); err == nil && st != nil {
+				// PrintState 无 Comment 字段，用 fingerprint 短码作为可追踪样本
+				comment = "restore:" + fp[:8]
+			}
+		}
+	}
 	matched, err := s.Store.RestorePrint(ctx, platform, ev.Repo.Owner, ev.Repo.Name, number, fpPrefix)
 	if err != nil {
 		s.log().Warn("argus.feedback.restore_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "err", err)
 		return
+	}
+	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
+		if err := s.Store.PatternRestore(ctx, platform, ev.Repo.Owner, ev.Repo.Name, pluginName,
+			plugin.Finding{Comment: comment}, time.Now()); err != nil {
+			s.log().Warn("argus.regret.pattern_restore_failed", "error", err.Error())
+		}
 	}
 	reply := "已恢复：该意见后续轮次重新可见。"
 	if !matched {

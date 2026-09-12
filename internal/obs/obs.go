@@ -49,6 +49,20 @@ var (
 	notifyFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_notify_failures_total", Help: "IM 通知推送失败计数（octopus 可达性观测）",
 	}, []string{"channel"})
+
+	reflectDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_reflect_dropped_total", Help: "R3.5 证据门 strict 丢弃计数",
+	}, []string{"reason"})
+
+	reflectDegraded = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_reflect_degraded_total", Help: "R3.5 证据门 soft 降级计数",
+	}, []string{"reason"})
+
+	// layerExec 分层活检：层被真正走到的次数。increase()==0 且 tasks_total{done}>0
+	// → 该层静默失效（配置关掉的层不注册/不打点，不误报）。
+	layerExec = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_layer_exec_total", Help: "分层执行探针（活检：名义存在但零执行）",
+	}, []string{"layer"})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
@@ -57,7 +71,7 @@ func Init() {
 	ekitmetrics.Init("argus")
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
-		tasksPending, tasksRunning, notifyFailures,
+		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -76,6 +90,15 @@ func Init() {
 	}
 	plugin.HookFindings = func(severity, name string, n int) {
 		findingsTotal.WithLabelValues(severity, name).Add(float64(n))
+	}
+	plugin.HookReflectDrop = func(reason string) {
+		reflectDropped.WithLabelValues(reason).Inc()
+	}
+	plugin.HookReflectDegrade = func(reason string) {
+		reflectDegraded.WithLabelValues(reason).Inc()
+	}
+	plugin.HookLayerExec = func(layer string) {
+		layerExec.WithLabelValues(layer).Inc()
 	}
 }
 

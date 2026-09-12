@@ -234,6 +234,9 @@ type mockLLM struct {
 	R1JSON   string
 	R3JSON   string
 	Correctn string // correctness reviewer 输出
+	// R35 drafts：反思「终审编辑」轮的修订 findings（按 draft 轮次取，超出取末个）。
+	R35Drafts []string
+	r35calls  int
 }
 
 func newMockLLM(r1, r3, correctness string) *mockLLM {
@@ -283,6 +286,22 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		m.reply(w, m.Correctn)
 	case strings.Contains(text, "【Argus R2 变更理解】"):
 		m.reply(w, "本 PR 添加了账号密码登录功能。")
+	case strings.Contains(text, "苛刻但公正的评审"):
+		// R3.5 critique：首轮即通过（draft 已由测试脚本钉死）
+		m.reply(w, `{"pass":true,"issues":[]}`)
+	case strings.Contains(text, "【Argus R3.5 报告反思】"):
+		m.mu.Lock()
+		i := m.r35calls
+		m.r35calls++
+		m.mu.Unlock()
+		if len(m.R35Drafts) == 0 {
+			m.reply(w, `[]`)
+			return
+		}
+		if i >= len(m.R35Drafts) {
+			i = len(m.R35Drafts) - 1
+		}
+		m.reply(w, m.R35Drafts[i])
 	default:
 		m.reply(w, `{"findings":[],"notes":""}`)
 	}
@@ -330,6 +349,11 @@ type stackOpts struct {
 	realLLM     bool              // true = 用环境变量 OPENAI_* 的真实模型（集成测试），不用 mock
 	debug       bool              // ARGUS_DEBUG：留存阶段产物
 	skills      map[string]string // skillRef name → content
+	// v3.5 闭环
+	reflectRounds   int    // R3.5 反思轮数（0=关闭）
+	reflectEvidence string // off|soft|strict
+	regretLearning  bool   // 模式级后悔学习环
+	r35Drafts       []string
 }
 
 func defaultOpts() stackOpts {
@@ -366,6 +390,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		MaxTokens: 8192, ContextToken: 128000, Timeout: 180 * time.Second}
 	if !opt.realLLM {
 		llmMock = newMockLLM(opt.r1, opt.r3, opt.correctness)
+		llmMock.R35Drafts = opt.r35Drafts
 		t.Cleanup(llmMock.srv.Close)
 		llmCfg.BaseURL = llmMock.srv.URL
 	} else {
@@ -496,11 +521,26 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	dispatcher := plugin.NewDispatcher(reg, log)
 	merger := plugin.NewMerger(store, log)
+	if opt.regretLearning {
+		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费
+		merger.WithLearning(store, plugin.LearningConfig{
+			Enabled: true, MinSamples: 1, SoftFloor: 0.50, HardFloor: 0.30,
+			InjectFloor: 0.50, InjectTopN: 10,
+		})
+	}
 	posterSvc := &poster.Poster{SDK: sdkCtx, Store: store, Version: "v3.0.0-e2e", Log: log}
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdkCtx, Model: model, ModelName: "mock",
 		Dispatcher: dispatcher, Merger: merger, Poster: posterSvc, Log: log,
 		Version: "v3.0.0-e2e", SkillProvider: skills, SkillRefs: skillRefs,
+		ReflectRounds:   opt.reflectRounds,
+		ReflectEvidence: opt.reflectEvidence,
+	}
+	if opt.regretLearning {
+		runnerRef.Learning = plugin.LearningConfig{
+			Enabled: true, MinSamples: 1, SoftFloor: 0.50, HardFloor: 0.30,
+			InjectFloor: 0.50, InjectTopN: 10,
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

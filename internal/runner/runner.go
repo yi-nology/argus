@@ -68,11 +68,20 @@ type Runner struct {
 	// 未覆盖阶段走缺省链）。generator 为装配期原样实例，预算在包装时注入。
 	StageLLMs map[string]llm.Generator
 	// R3Model R3 ReAct 专用模型覆盖（P6：ARGUS_MODEL_R3；nil = 主模型）。
+	// 已由 main 侧 Failover 装饰时直接使用；nil 时 buildWorkflow 用 LLM.RawModel 再包。
 	R3Model model.BaseChatModel
+	// FallbackModel ReAct 主路径 failover 备模型（agentkit llm.FailoverModel；
+	// nil = 不启用）。Resilient.RawModel 只返回主模型，ReAct 旁路靠本字段补齐降级。
+	FallbackModel model.BaseChatModel
+	FallbackName  string
 	// ReflectRounds R3.5 报告反思轮数（v3.4：ARGUS_REFLECTION_ROUNDS；0 = 关闭）。
 	ReflectRounds int
 	// ReflectModel R3.5 反思专用模型（ARGUS_MODEL_R35；nil = 回退 R3Model → 主模型）。
 	ReflectModel model.BaseChatModel
+	// ReflectEvidence 证据门模式（ARGUS_REFLECTION_EVIDENCE：off|soft|strict，默认 off）。
+	ReflectEvidence string
+	// Learning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
+	Learning plugin.LearningConfig
 
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
@@ -207,9 +216,25 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		}
 		gen = c
 	}
+	// R3 ReAct 模型解析：阶段覆盖 > RawModel；配置了备模型则包 FailoverModel
+	//（ADK 直调 BaseChatModel，不走 Resilient 链）。
+	r3Chat := r.R3Model
+	if r3Chat == nil && r.LLM != nil {
+		r3Chat = r.LLM.RawModel()
+	}
+	if r3Chat != nil && r.FallbackModel != nil {
+		fm := llm.NewFailoverModel(r3Chat, r.FallbackModel, r.ModelName, r.FallbackName)
+		if r.Log != nil {
+			fm.OnFailover = func(from, to, reason string) {
+				r.Log.Warn("argus.llm.failover", "from", from, "to", to,
+					"stage", "R3(react)", "reason", reason)
+			}
+		}
+		r3Chat = fm
+	}
 	return &requirement.Workflow{
 		LLM:              gen,
-		R3ChatModel:      r.R3Model,
+		R3ChatModel:      r3Chat,
 		SkillTool:        skillTool,
 		SDK:              r.SDK,
 		Dispatcher:       r.Dispatcher,
@@ -226,6 +251,7 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		GetDiffMaxChars:  r.Cfg.GetDiffMaxRunes(),
 		ReflectRounds:    r.ReflectRounds,
 		ReflectModel:     r.ReflectModel,
+		ReflectEvidence:  r.ReflectEvidence,
 	}
 }
 
@@ -325,10 +351,17 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		Diff:      diff,
 		Artifacts: decodeArtifacts(task.ArtifactsJSON),
 	}
+	if ptask.Artifacts == nil {
+		ptask.Artifacts = map[string]string{}
+	}
 	// 仓库级自定义审查指引（.argus/review-guidelines.md，对标 Copilot 的
 	// custom review instructions）：只从默认分支读，缺失/超限静默降级。
 	if g := r.fetchReviewGuidelines(ctx, pr); g != "" {
 		ptask.Artifacts[plugin.ArtifactReviewGuidelines] = g
+	}
+	// 学习环：注入本仓库历史高误报模式提示词（无样本/关闭时无此键）。
+	if h := r.reviewHints(ctx, pr); h != "" {
+		ptask.Artifacts[plugin.ArtifactReviewHints] = h
 	}
 
 	var out *requirement.Output
@@ -352,6 +385,15 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 			}
 		}
 	}
+	// 模式级 regret：完整剔除条目按 plugin+comment 入 pattern_signals。
+	if out.Reflect != nil && len(out.Reflect.RemovedFindings) > 0 && r.Learning.Enabled {
+		for _, f := range out.Reflect.RemovedFindings {
+			if err := r.Store.PatternRegret(ctx,
+				pr.Platform, pr.Owner, pr.Repo, f.By, f, time.Now()); err != nil {
+				r.Log.Warn("argus.regret.pattern_failed", "error", err.Error())
+			}
+		}
+	}
 
 	// 组装报告并回帖（staleness 门控在 poster 内）
 	rep := r.buildReport(task, pr, out, taskCost)
@@ -359,6 +401,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	rep.Rule = out.Rule
 
 	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
+	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
+	plugin.ReportLayerExec(plugin.LayerPoster)
 	if err != nil {
 		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
 		plugin.ReportPluginFailure("poster")
@@ -426,7 +470,9 @@ func (r *Runner) buildDiff(ctx context.Context, pr *plugin.PRContext) (*plugin.D
 	if err != nil {
 		return nil, fmt.Errorf("获取 diff 失败: %w", err)
 	}
-	return argusctx.Prepare(md, r.Cfg.MaxDiffCharsResolved()), nil
+	d := argusctx.Prepare(md, r.Cfg.MaxDiffCharsResolved())
+	plugin.ReportLayerExec(plugin.LayerDiffprep)
+	return d, nil
 }
 
 // buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。
@@ -437,6 +483,8 @@ func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext,
 	if err != nil {
 		return nil, fmt.Errorf("获取 diff 失败: %w", err)
 	}
+	// 任一路径只要 Prepare 成功即视为 diffprep 执行（活检）
+	defer plugin.ReportLayerExec(plugin.LayerDiffprep)
 	totalLimit := r.Cfg.MaxDiffCharsResolved()
 
 	// 非 synchronize 事件 → 全量审查（首次审查 / reopen 等）
@@ -664,4 +712,31 @@ func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext
 	}
 	t, _ := textutil.TruncRunes(body, reviewGuidelinesMaxRunes)
 	return strings.TrimSpace(t)
+}
+
+// reviewHints 渲染本仓库历史高误报模式提示词（学习环关闭或无样本时返回空）。
+// 失败只降级为空，不阻塞审查。
+func (r *Runner) reviewHints(ctx context.Context, pr *plugin.PRContext) string {
+	if pr == nil || !r.Learning.Enabled || r.Store == nil {
+		return ""
+	}
+	list, err := r.Store.ListLowConfidencePatterns(ctx, pr.Platform, pr.Owner, pr.Repo,
+		r.Learning.MinSamples, r.Learning.InjectFloor, r.Learning.InjectTopN)
+	if err != nil || len(list) == 0 {
+		if err != nil {
+			r.Log.Warn("argus.regret.hints_failed", "error", err.Error())
+		}
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("本仓库历史上以下审查模式误报率偏高（开发者 suppress / 终审剔除）。")
+	b.WriteString("命中类似表述时：给出具体行与影响，否则不要输出。\n")
+	for _, p := range list {
+		sample := p.PatternText
+		if sample == "" {
+			sample = p.Pattern
+		}
+		fmt.Fprintf(&b, "- [%s] %s（置信度 %.2f，samples=%d）\n", p.Plugin, sample, p.Confidence, p.Samples)
+	}
+	return b.String()
 }

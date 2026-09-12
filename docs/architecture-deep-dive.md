@@ -1091,6 +1091,24 @@ GitHub App 都是门面新适配面）、**agent 是 L4 插件**（acpx、编队
 新成员，不改变调度与裁决语义）；R5 真值表始终只读结构化计数值，新增能力（反思/共识/路由）
 全部默认关闭或保守启用——行为可预期、可回退。
 
+### 14.6 v3.5——review 闭环：证据门 + 模式级后悔学习环
+
+v3.4.1 的 regret 只到**单指纹标注**，R3.5 仍是「批改」而非「无证据不得发表」。  
+完整设计见 [review-closed-loop-design.md](review-closed-loop-design.md)。
+
+- **负控自验证门**：R3.5 输出协议增加 `evidence`/`counterexample`，Go 侧确定性后验
+  （`ARGUS_REFLECTION_EVIDENCE=off|soft|strict`，默认 off 行为不变）；
+  soft 缺证据强制降 low，strict 剔除并记 regret。
+- **模式级后悔学习环**：`pattern_signals`（repo×plugin×pattern_key）累计
+  posted/regret/suppress/restore，Beta 置信度驱动 Merger 标注、**仅 low** 条目
+  HardFloor 闸门、R4 提示词注入——**不自动 suppress**，持久抑制仍只来自人工反馈。
+
+默认全关、opt-in；实现细节与测试计划见设计文档 §7/§6。
+
+**v3.5.1 补齐活检与 dream**：`argus_layer_exec_total{layer}` 钉死 9 层打点，
+告警抓「有成功任务但某层零执行」；`internal/dream` 周期去重 `pattern_signals`
+并把低置信模式导出到 Milvus / knowledge 目录（`ARGUS_DREAM_INTERVAL`）。
+
 ---
 
 ## 附录：环境变量全表
@@ -1133,6 +1151,11 @@ GitHub App 都是门面新适配面）、**agent 是 L4 插件**（acpx、编队
 | `ARGUS_MODEL_R1/R2/R3/R35/ROUTER` | - | 阶段模型覆盖（P6；`_CONTEXT_TOKENS` 后缀配各阶段窗口） |
 | `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` | - | Reviewer / Q&A 专用模型出口 |
 | `ARGUS_REFLECTION_ROUNDS` | `0`（关闭） | R3.5 报告反思轮数（1~3，>3 钳制） |
+| `ARGUS_REFLECTION_EVIDENCE` | `off` | 证据门：`off\|soft\|strict`（v3.5） |
+| `ARGUS_REGRET_LEARNING` | `0`（关闭） | 模式级后悔学习环总开关（v3.5） |
+| `ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR` | `3` / `0.35` / `0.20` | 模式置信度消费阈值 |
+| `ARGUS_REGRET_INJECT_FLOOR/TOP_N` | `0.35` / `10` | R4 历史误报提示词注入 |
+| `ARGUS_DREAM_INTERVAL` | `0`（关闭） | dream 整合周期（Go duration；需学习环开启） |
 | `ARGUS_COMMENT_ROUTER` | `false` | 评论意图路由（review=重审任务 / ask=问答） |
 | `ARGUS_ROUTER_MIN_CONFIDENCE` | `0.6` | 意图分类置信度下限，低于回落 ask |
 | `ARGUS_OCTOPUS_URL/CHANNEL_ID/USER/TOKEN` | - | octopus IM 推送 |

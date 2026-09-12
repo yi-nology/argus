@@ -4,10 +4,11 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.4.0**（agentkit v0.8.2 / ekit v0.27.2 / eino v0.9.18）。真实 Forgejo（git.example.com）
+当前版本 **v3.5.2**（agentkit v0.9.4 / ekit v0.27.2 / eino v0.9.18）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
-OCR 等 4 插件启用）。v3.1→v3.4 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
-[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)。
+OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
+[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
+[docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)。
 
 ---
 

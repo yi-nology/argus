@@ -17,6 +17,7 @@ package requirement
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"git.example.com/enjoydream/agentkit/llm"
@@ -36,6 +37,13 @@ type ReflectSummary struct {
 	// RemovedPrints 被剔除条目的指纹（File+Comment）：runner 据此做 regret 跨轮
 	// 入库——产出 vs 终审的差值即误报历史，供后续轮次标注可信度。
 	RemovedPrints []string
+	// RemovedFindings 被剔除的完整条目（含 By/File/Comment）：runner 据此做
+	// 模式级 PatternRegret（学习环）。
+	RemovedFindings []plugin.Finding
+	// DroppedNoEvidence 证据门 strict 模式下因缺 evidence/counterexample 剔除的条数。
+	DroppedNoEvidence int
+	// DegradedNoEvidence 证据门 soft 模式下因缺证据强制降为 low 的条数。
+	DegradedNoEvidence int
 }
 
 // reflectMaxRounds 轮次上限：与 agentkit reflection 缺省一致（3）。
@@ -43,6 +51,7 @@ type ReflectSummary struct {
 const reflectMaxRounds = 3
 
 // reflectFindingWire 反思协议的 findings 线格式：注入 id 字段作为回写锚点。
+// evidence/counterexample 在 EvidenceMode≠off 时为保留条目的必填负控材料。
 type reflectFindingWire struct {
 	ID           int    `json:"id"`
 	File         string `json:"file"`
@@ -50,21 +59,31 @@ type reflectFindingWire struct {
 	Severity     string `json:"severity"`
 	Comment      string `json:"comment"`
 	SuggestedFix string `json:"suggested_fix,omitempty"`
+	Evidence     string `json:"evidence,omitempty"`
+	Counter      string `json:"counterexample,omitempty"`
 }
 
 // reflectTask 终审编辑角色指令（reflection 包把它拼进执行者系统提示词）。
 // 含【Argus R3.5 报告反思】前缀——e2e mockLLM 按系统提示词前缀路由桩响应，前缀即桩协议。
-func reflectTask() string {
-	return "【Argus R3.5 报告反思】你是代码审查报告的终审编辑。" +
+// evidenceOn=true 时追加证据门纪律（docs/review-closed-loop-design.md §2）。
+func reflectTask(evidenceOn bool) string {
+	base := "【Argus R3.5 报告反思】你是代码审查报告的终审编辑。" +
 		"多位审查专家对同一 PR 给出了 findings 列表（每条带 id）。" +
 		"请严格按评审标准逐条核对，输出修订后的 findings JSON 数组：\n" +
 		"1. 真实问题保留，可修正 file/line/severity/comment 使其更准确（id 必须保持不变）；\n" +
 		"2. 命中评审标准任一条的条目直接剔除（不出现在输出中）；\n" +
-		"3. 禁止新增原列表之外的条目。\n" +
-		"只输出 JSON 数组本身，不要解释、不要 markdown 围栏。"
+		"3. 禁止新增原列表之外的条目。\n"
+	if evidenceOn {
+		base += "4. 保留任何条目时必须同时给出 evidence（引用变更文件中可核对的具体位置/符号/片段）" +
+			"与 counterexample（若本条为误报，最可能的误判原因——给出反例假设后仍确认为真问题）。" +
+			"禁止空 evidence 仍标记为保留。剔除无需写这两个字段。\n"
+	}
+	base += "只输出 JSON 数组本身，不要解释、不要 markdown 围栏。"
+	return base
 }
 
 // reflectRubric 误报特征评审标准（可判定、可执行——reflection 的全部价值在 Rubric 质量）。
+// 第 8/9 条为证据门（EvidenceMode≠off 时生效，与确定性后验互为冗余）。
 const reflectRubric = `逐条核对以下误报特征，命中任一条即剔除该条目：
 1. 引用的 file 不在【变更文件清单】中（模型幻觉或越界引用）；
 2. line <= 0 或 comment 为空或无法定位到具体问题；
@@ -72,7 +91,9 @@ const reflectRubric = `逐条核对以下误报特征，命中任一条即剔除
 4. 纯风格/格式偏好意见，且无功能影响（正确性/安全/并发/资源问题不算此类）；
 5. 描述空泛无具体证据（如"代码质量不佳""建议优化"，说不出问题是什么、在哪）；
 6. 同一问题重复条目（保留描述最完整的一条，其余剔除）；
-7. 对测试代码/表驱动数据等刻意写法的误判（如把测试用例字面量当硬编码配置）。`
+7. 对测试代码/表驱动数据等刻意写法的误判（如把测试用例字面量当硬编码配置）；
+8. 保留条目的 evidence 为空，或与 file/line 对不上（写的是无关文件）；
+9. 保留条目的 counterexample 为空——即没有过「反例假设」这一关。`
 
 // reflectFindings 对合并后的 findings 跑批判→修订收敛，原位更新 merged.Findings，
 // 返回反思摘要（调用方写进 Output；nil = 未执行）。
@@ -97,6 +118,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 			changed[f.Path] = true
 		}
 	}
+	evidenceOn := evidenceGateOn(w.ReflectEvidence)
 
 	// 组装输入：findings 线格式（id 锚点）+ 变更文件清单 + 变更摘要。
 	// 超长输入由反思包内部的 llm.Client fitInput 截断兜底（裁最长 user 消息并留痕）。
@@ -126,7 +148,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 	}
 	res, err := reflection.Refine(ctx, &reflection.Config{
 		Model: chatModel, ModelName: "argus-r35",
-		Task: reflectTask(), Input: in.String(),
+		Task: reflectTask(evidenceOn), Input: in.String(),
 		Rubric: reflectRubric, MaxIterations: maxIter,
 	})
 	if err != nil {
@@ -175,6 +197,33 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 			f.SuggestedFix = rv.SuggestedFix
 			adjusted = true
 		}
+		// 证据门后验（确定性，不走 LLM）：soft 降级 / strict 剔除。
+		if evidenceOn {
+			if reason := evidenceFailure(rv, f.File, changed); reason != "" {
+				if w.ReflectEvidence == EvidenceStrict {
+					info.DroppedNoEvidence++
+					// 计入 regret：说了但举不出证据 = 强误报信号
+					info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment))
+					info.RemovedFindings = append(info.RemovedFindings, f)
+					plugin.ReportReflectDrop(reason)
+					w.Log.Info("argus.r35.evidence_drop", "id", rv.ID, "file", f.File, "reason", reason)
+					continue
+				}
+				// soft：强制 low + 标注，不记 regret
+				if f.Severity != severity.Low {
+					f.Severity = severity.Low
+					adjusted = true
+				}
+				mark := "（证据门：未提供可核对的证据引用）"
+				if !strings.Contains(f.Comment, mark) {
+					f.Comment += mark
+					adjusted = true
+				}
+				info.DegradedNoEvidence++
+				plugin.ReportReflectDegrade(reason)
+				w.Log.Info("argus.r35.evidence_degrade", "id", rv.ID, "file", f.File, "reason", reason)
+			}
+		}
 		if adjusted {
 			info.Adjusted++
 		}
@@ -183,15 +232,93 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 	}
 	info.Removed = len(merged.Findings) - len(out)
 	if info.Removed > 0 {
+		// strict 证据门已单独记过 RemovedPrints 的条目，此处只补 Rubric/幻觉 id 剔除的
+		// 且避免与 evidence_drop 重复累加：以 map 去重
+		dup := map[string]bool{}
+		for _, fp := range info.RemovedPrints {
+			dup[fp] = true
+		}
+		seenRemoved := map[string]bool{}
+		for _, f := range info.RemovedFindings {
+			seenRemoved[plugin.Fingerprint(f.File, f.Comment)] = true
+		}
 		for i, f := range merged.Findings {
-			if !seen[i] {
-				info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment))
+			if seen[i] {
+				continue
+			}
+			fp := plugin.Fingerprint(f.File, f.Comment)
+			if !dup[fp] {
+				info.RemovedPrints = append(info.RemovedPrints, fp)
+			}
+			if !seenRemoved[fp] {
+				info.RemovedFindings = append(info.RemovedFindings, f)
 			}
 		}
 	}
 	merged.Findings = out
 
 	w.Log.Info("argus.r35.done", "rounds", info.Rounds, "converged", info.Converged,
-		"removed", info.Removed, "adjusted", info.Adjusted, "kept", info.Kept)
+		"removed", info.Removed, "adjusted", info.Adjusted, "kept", info.Kept,
+		"dropped_no_evidence", info.DroppedNoEvidence, "degraded_no_evidence", info.DegradedNoEvidence)
 	return info
+}
+
+// EvidenceMode 词表（与 config.ReflectEvidence 对齐）。
+const (
+	EvidenceOff    = "off"
+	EvidenceSoft   = "soft"
+	EvidenceStrict = "strict"
+)
+
+func evidenceGateOn(mode string) bool {
+	return mode == EvidenceSoft || mode == EvidenceStrict
+}
+
+// evidenceFailure 返回失败原因（空串 = 通过）。只对「保留」条目调用。
+// 1. evidence/counterexample 空白；
+// 2. evidence 中出现的路径既不在变更清单，也不等于本条 file（清单为空时不检查路径）。
+func evidenceFailure(rv reflectFindingWire, findingFile string, changed map[string]bool) string {
+	if strings.TrimSpace(rv.Evidence) == "" {
+		return "missing_evidence"
+	}
+	if strings.TrimSpace(rv.Counter) == "" {
+		return "missing_counterexample"
+	}
+	if len(changed) == 0 {
+		return ""
+	}
+	for _, p := range extractPathLike(rv.Evidence) {
+		if p == findingFile || changed[p] {
+			continue
+		}
+		return "evidence_path_out_of_scope:" + p
+	}
+	return ""
+}
+
+// extractPathLike 从 evidence 文本里抽出疑似路径 token（含 / 或 .go 等后缀）。
+// 宽松即可：假阳性只会触发人工复核/降级，不会误删有合法 evidence 的条目。
+func extractPathLike(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == '，' || r == ',' || r == '；' || r == ';' || r == '\n' || r == '\t'
+	})
+	var out []string
+	for _, f := range fields {
+		f = strings.Trim(f, "`\"'()[]{}<>|:：")
+		if f == "" {
+			continue
+		}
+		if strings.Contains(f, "/") || strings.HasSuffix(f, ".go") ||
+			strings.HasSuffix(f, ".ts") || strings.HasSuffix(f, ".js") ||
+			strings.HasSuffix(f, ".py") || strings.HasSuffix(f, ".java") {
+			// 剥掉行号后缀 :12
+			if i := strings.LastIndex(f, ":"); i > 0 {
+				if _, err := strconv.Atoi(f[i+1:]); err == nil {
+					f = f[:i]
+				}
+			}
+			out = append(out, f)
+		}
+	}
+	return out
 }

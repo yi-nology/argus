@@ -1,5 +1,118 @@
 # Changelog
 
+## v3.5.2 (2026-09-13) — e2e 闭环 + 标注重放修复
+
+### 修复
+- **学习环标注被 R3.5 抹掉**：Merger 阶段追加的「历史置信度低」后缀会按 id 回写时
+  被模型修订稿覆盖。R3.5 之后由 `Merger.AnnotateLowConfidence` 幂等重放
+- **nil map panic**：`decodeArtifacts` 返回 nil 时注入 `review_hints` 会 panic
+  （学习环开启且有低置信样本的第二轮才触发）
+
+### e2e（§6.4 落地）
+- `TestScenario17_RegretLearningLoop`：两轮任务——轮1 R3.5 剔除风格噪声 → regret 落库；
+  轮2 同模式重新发表并带低置信标注；真问题负控不标注
+- `TestScenario18_LearningHardFloorDropsLow`：预热高 regret 模式后，low 条目被 HardFloor 丢弃
+- `TestScenario19_EvidenceGateStrictDrops`：strict 证据门缺 evidence 直接剔除
+
+## v3.5.1 (2026-09-13) — 机制活检 + dream 长期记忆整合
+
+补齐 review 闭环的优先级 3/4（设计 §8 挂点）。
+
+### 机制活检（liveness probe）
+- 新指标 `argus_layer_exec_total{layer}`：层被真正走到时 +1
+- 打点：`diffprep` / `R1` / `R2` / `R3` / `R35` / `R4` / `R5` / `merger` / `poster`
+  - R35 仅在 `ARGUS_REFLECTION_ROUNDS>0` 时注册 series（未开反射不误报）
+  - poster 成败/stale 都算「执行过」
+- Prometheus 规则：
+  - `ArgusLayerSilent`：30m 内有 done 任务但某层 increase==0 → 静默失效
+  - `ArgusReflectGateIdle`：R35 跑了很多但证据门零动作（可能 Rubric/模型未生效）
+
+### dream 长期记忆整合
+- `internal/dream`：周期遍历 `pattern_signals`
+  1. **去重**：同 plugin + `pattern_text` 前 80 rune 相同 → 计数并入样本更多的一行
+  2. **导出**：低置信模式（samples≥MinSamples 且 confidence<SoftFloor）写成知识
+     - Milvus 主路径 `dream/{platform}/{owner}/{repo}`
+     - 失败降级 `{KnowledgeDir}/dream-{owner}-{repo}.md`（下次启动索引）
+- 配置：`ARGUS_DREAM_INTERVAL`（Go duration；0=关闭；需同时 `ARGUS_REGRET_LEARNING=1`）
+- 建议：`ARGUS_DREAM_INTERVAL=6h` 或 `24h`
+
+### 测试
+- dream：去重合并（keep=样本更多）、本地 markdown 导出、无低置信跳过
+
+## v3.5.0 (2026-09-13) — Review 闭环：证据门 + 模式级后悔学习环
+
+从 OFC 借鉴的两条机制落地（设计：`docs/review-closed-loop-design.md`），
+把「一次性 reviewer」变成「越用越准的 reviewer」。**默认全关，opt-in**。
+
+### 负控自验证门（R3.5 证据协议增强）
+- `reflectFindingWire` 新增 `evidence` / `counterexample`：保留条目必须引用可核对位置 +
+  给出反例假设；提示词与 Rubric 第 8/9 条同步
+- 确定性后验门（Go，不走 LLM）：缺 evidence/counter、evidence 路径不在变更清单
+  → 按模式处置
+- `ARGUS_REFLECTION_EVIDENCE=off|soft|strict`（默认 `off`，行为同 v3.4）
+  - `soft`：强制降为 low + 标注「证据门」，不剔除、不记 regret
+  - `strict`：剔除并记 regret（指纹级 + 模式级）
+- 指标：`argus_reflect_dropped_total{reason}` / `argus_reflect_degraded_total{reason}`
+
+### 模式级后悔学习环
+- 新表 `pattern_signals`（repo × plugin × pattern_key）：posted/regret/suppress/restore 计数
+- `plugin.PatternKey`：确定性 normalize（剥路径/hex/数字/反引号）+ sha256 前 16 hex，
+  不含 file/line，可离线复算、可单测
+- `plugin.Confidence`：Beta 先验 (2,2)，读时计算，不落列
+- 消费点（`ARGUS_REGRET_LEARNING=1` 才生效）：
+  - Merger：SoftFloor 标注「本仓库同类意见历史置信度低」；HardFloor **只丢 low**
+  - R4 前注入 `ArtifactReviewHints`（builtin Reviewer 拼进提示词）
+  - 信号写入：Merger 成功发表 → posted；R3.5/证据门剔除 → regret；
+    人工 suppress/restore → suppress/restore
+- `finding_prints` 补 `plugin` 列（反馈路径归属学习信号）
+- 阈值：`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N`
+
+### 红线不变
+- 持久 suppress 仍只来自人工反馈；学习环不自动 suppress
+- R5 裁决不走 LLM；证据门发生在 R5 之前
+- medium/high 不被统计一票否决（HardFloor 只作用于 low）
+
+### 顺带修复
+- `deploy/migrations/schema.sql` 补 GORM 已有但 schema 缺失的 `finding_prints.regret_count`
+- `prints_test.go`：首次 suppress 不存在指纹的 `matched` 语义与实现/文档对齐（应为 false）
+
+### 测试
+- pattern_key 稳定性/插件隔离；置信度方向与 HardFloor 场景
+- pattern_signals 存储往返 + 仓库隔离 + 小样本不消费
+- 证据门 off/soft/strict + 路径越界 + 完整证据通过
+- Merger 学习闸门：只丢 low、关闭旁路、MinSamples 负控、PatternPosted
+
+## v3.4.2 (2026-09-13) — ReAct Failover + 评论词表守门 + 审计脱敏（复刻 agentkit v0.9.4）
+
+从 agentkit（bianque 生产装配沉淀）复刻三块到 Argus，并顺带修掉一处既有接线缺口：
+
+### ReAct 主路径 Failover（agentkit/llm.FailoverModel）
+- 既有 `OPENAI_FALLBACK_*` → Resilient 只覆盖 Generator 直连（R1/R2、Reviewer 单轮）；
+  ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）拿到的是 `RawModel()`，主模型挂掉无备可切
+- 配置 fallback 时：R3 / QA ReAct / Reviewer ReAct / Router / R3.5 统一包 `FailoverModel`
+  （主失败且 ctx 存活才切；`OnFailover` 打 `argus.llm.failover` 日志）
+- **修：`ARGUS_MODEL_R3` 此前未接到 ReAct**——`Workflow.R3ChatModel` 只被 reflection 回退使用，
+  `runAgent` 一直用 `LLM.RawModel()`。现阶段覆盖真正生效于 R3 ReAct
+
+### 评论意图路由否定守门（agentkit/router.KeywordHit）
+- `matchReviewKeyword` 由裸子串改为 KeywordHit/KeywordHitBoundary：
+  「**不要**重新审查」不再误触发全量重审；拉丁词（rerun/re-review/recheck）加词边界
+
+### 审计日志脱敏（agentkit/logredact）
+- `audit.Logger.Log` 字段值统一 `logredact.Redact`：token=/Bearer/连接串/PEM 私钥落盘前打码
+- Argus 全部审计动作（task.create / finding.suppress / qa_reply…）自动受益
+
+### 顺带修复（主 worktree 既有破损，阻塞编译/测试）
+- `poster.inlineCommentBody` 未使用变量导致编译失败
+- `service_test.go` suppress/restore 两测函数体交叉错位
+- `storage/prints_test.go` 错误 import 路径 `git.n.xiaomi.com/...`
+- `merger_regret_test.go` 未使用变量
+
+### 测试
+- comment_router：否定守门用例（「不要重新审查，先修 bug」）
+- agentkit audit：RedactFields 凭据/PEM/普通字段分层断言
+- go build + vet + service/workflow/plugin 全量测试通过
+
 ## v3.4.1 (2026-09-13) — regret 跨轮学习环（复现/可信度标注）
 
 R3.5 反思只做单轮统计，误报历史不沉淀；`GetPrintState` 有接口有实现却无调用方。

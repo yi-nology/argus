@@ -46,8 +46,36 @@ var reviewKeywords = []string{
 }
 
 // matchReviewKeyword 短命令关键词快路径判定（纯函数）。
+// agentkit router.KeywordHit：子串 + 否定前置守门（「不要重新审查」不命中）；
+// 拉丁词走词边界（rerun 不误命中 rerunning 内部构式外的更长词）。
 func matchReviewKeyword(question string) bool {
-	return len([]rune(question)) <= reviewKeywordMaxRunes && containsAnyFold(question, reviewKeywords)
+	if len([]rune(question)) > reviewKeywordMaxRunes {
+		return false
+	}
+	lower := strings.ToLower(question)
+	for _, kw := range reviewKeywords {
+		// 中文关键词：否定守门；拉丁关键词：再加词边界
+		if isASCIIKeyword(kw) {
+			if router.KeywordHitBoundary(lower, kw) {
+				return true
+			}
+			continue
+		}
+		if router.KeywordHit(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isASCIIKeyword 词表项是否纯 ASCII（拉丁词走边界匹配）。
+func isASCIIKeyword(kw string) bool {
+	for i := 0; i < len(kw); i++ {
+		if kw[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // routeAndReply 评论意图路由 + 分派执行，返回完整回帖正文。
@@ -159,15 +187,4 @@ func (s *Service) routerChatModel() model.BaseChatModel {
 		return s.QAModel
 	}
 	return s.Model
-}
-
-// containsAnyFold 小写包含匹配（任一关键词命中即 true）。
-func containsAnyFold(s string, keywords []string) bool {
-	lower := strings.ToLower(s)
-	for _, kw := range keywords {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	return false
 }

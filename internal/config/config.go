@@ -106,6 +106,24 @@ type Config struct {
 	// ReflectRounds R3.5 报告反思的"批判→修订"轮数上限（ARGUS_REFLECTION_ROUNDS）。
 	// 0 = 关闭（缺省）；1~3 = 启用（>3 钳制为 3）。开启后每任务多 2~2N 次模型调用。
 	ReflectRounds int
+	// ReflectEvidence 证据门模式（ARGUS_REFLECTION_EVIDENCE）：
+	//   off   = 行为同 v3.4（缺省，不校验 evidence/counterexample）；
+	//   soft  = 缺证据强制降为 low + 标注，不剔除、不记 regret；
+	//   strict= 缺证据剔除并记 regret（无证据不得发表）。
+	// 仅在 ReflectRounds>0 时生效。
+	ReflectEvidence string
+	// RegretLearning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
+	// 开启后：Merger 按置信度标注/丢弃 low 条目，R4 注入历史误报模式提示词。
+	RegretLearning bool
+	// 学习环阈值（design §3.7）。
+	RegretMinSamples  int
+	RegretSoftFloor   float64
+	RegretHardFloor   float64
+	RegretInjectFloor float64
+	RegretInjectTopN  int
+	// DreamInterval 长期记忆整合周期（ARGUS_DREAM_INTERVAL，Go duration；
+	// 0=关闭；建议 6h/24h）。仅在 RegretLearning 开启时有意义。
+	DreamInterval time.Duration
 	// CommentRouter 评论意图路由（ARGUS_COMMENT_ROUTER，默认关闭）：
 	// @argus 自由文本评论先分类再分派——review（要求重新审查）建新任务，其余走 Q&A。
 	// 显式关键词（"重新审查"等短命令）零分类调用直达；歧义文本才走 LLM 分类。
@@ -323,6 +341,14 @@ func Load() *Config {
 		StageModelQA:           stageOverride("ARGUS_QA_MODEL"),
 		StageModelRouter:       stageOverride("ARGUS_ROUTER_MODEL"),
 		ReflectRounds:          envInt("ARGUS_REFLECTION_ROUNDS", 0),
+		ReflectEvidence:        normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off")),
+		RegretLearning:         envBool("ARGUS_REGRET_LEARNING", false),
+		RegretMinSamples:       envInt("ARGUS_REGRET_MIN_SAMPLES", 3),
+		RegretSoftFloor:        envFloat("ARGUS_REGRET_SOFT_FLOOR", 0.35),
+		RegretHardFloor:        envFloat("ARGUS_REGRET_HARD_FLOOR", 0.20),
+		RegretInjectFloor:      envFloat("ARGUS_REGRET_INJECT_FLOOR", 0.35),
+		RegretInjectTopN:       envInt("ARGUS_REGRET_INJECT_TOP_N", 10),
+		DreamInterval:          envDuration("ARGUS_DREAM_INTERVAL", 0),
 		CommentRouter:          envBool("ARGUS_COMMENT_ROUTER", false),
 		RouterMinConfidence:    envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
@@ -384,6 +410,19 @@ func Load() *Config {
 
 func envStr(key, def string) string {
 	return ekitconfig.GetStringWithDefault(key, def)
+}
+
+// normalizeEvidenceMode 把 ARGUS_REFLECTION_EVIDENCE 归一到 off|soft|strict。
+// 未知值视为 off（保守，不改变 v3.4 行为）并由调用方启动日志可见。
+func normalizeEvidenceMode(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "soft":
+		return "soft"
+	case "strict":
+		return "strict"
+	default:
+		return "off"
+	}
 }
 
 func envBool(key string, def bool) bool {

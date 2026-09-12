@@ -88,6 +88,8 @@ type FindingPrint struct {
 	Severity string `gorm:"column:severity;size:16"`
 	Comment  string `gorm:"column:comment;type:text"`
 	Status   string `gorm:"column:status;size:16;not null;default:open"` // open | suppressed
+	// Plugin 产出该意见的插件名（f.By；多插件合并时取首个）。学习环 suppress 信号归属用。
+	Plugin string `gorm:"column:plugin;size:64"`
 
 	FirstTaskID string    `gorm:"column:first_task_id;size:40"`
 	LastTaskID  string    `gorm:"column:last_task_id;size:40"`
@@ -171,7 +173,7 @@ func Open(dsn string) (*Store, error) {
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if !s.sqlite {
