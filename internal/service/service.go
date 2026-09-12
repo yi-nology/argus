@@ -1129,6 +1129,13 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 		return // 普通 issue 上的评论，不处理
 	}
 
+	// /argus restore fp:xxxxxxxx —— 误抑制恢复（suppress 反向，误杀可撤销）：
+	// 将 suppressed 指纹置回 open，后续轮次重新可见。评论轻量路径，不建任务。
+	if fp, ok := extractRestoreFP(question); ok {
+		s.handleRestoreComment(ctx, ev, payload.Issue.Number, fp)
+		return
+	}
+
 	// /argus suppress fp:xxxxxxxx —— 误报反馈（v3.3 知识飞轮入口）：
 	// 抑制该指纹后续轮次 + 结论回流知识库。评论轻量路径，不建任务。
 	if fp, ok := extractSuppressFP(question); ok {
@@ -1316,4 +1323,44 @@ func (s *Service) postQAError(ctx context.Context, platform, owner, repo, number
 	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, number, body); err != nil {
 		s.log().Error("argus.qa.error_reply_failed", "error", err.Error())
 	}
+}
+
+// extractRestoreFP 解析 "restore fp:xxxxxxxx" 指令（fp 短码 ≥6 位十六进制）。
+// 与 extractSuppressFP 同形但独立实现：restore 指令不得被 suppress 分支截胡。
+func extractRestoreFP(question string) (string, bool) {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), "restore"))
+	if !strings.HasPrefix(strings.ToLower(rest), "fp:") {
+		return "", false
+	}
+	fp := strings.TrimSpace(rest[len("fp:"):])
+	if i := strings.IndexAny(fp, " \t\n"); i >= 0 {
+		fp = fp[:i]
+	}
+	if len(fp) < 6 || len(fp) > 64 {
+		return "", false
+	}
+	for _, r := range fp {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return "", false
+		}
+	}
+	return strings.ToLower(fp), true
+}
+
+// handleRestoreComment 处理 MR 评论里的恢复指令：短码解析 → 置回 open → 回帖确认。
+// 与 handleSuppressComment 互为反向；不走知识回流（恢复不是误报结论）。
+func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.NormalizedEvent,
+	number int, fpPrefix string) {
+	platform := string(ev.Source)
+	num := fmt.Sprintf("%d", number)
+	matched, err := s.Store.RestorePrint(ctx, platform, ev.Repo.Owner, ev.Repo.Name, number, fpPrefix)
+	if err != nil {
+		s.log().Warn("argus.feedback.restore_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "err", err)
+		return
+	}
+	reply := "已恢复：该意见后续轮次重新可见。"
+	if !matched {
+		reply = "未找到匹配的已抑制指纹（或短码有歧义），请核对报告中 `fp:` 开头的短码后重试。"
+	}
+	s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, reply)
 }

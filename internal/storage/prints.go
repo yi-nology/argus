@@ -178,3 +178,31 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 		}).Error
 	})
 }
+
+// RestorePrint 恢复被误抑制的意见（suppress 反向操作）：fp 短码前缀解析后置回 open，
+// 下一轮审查起重新可见。只作用于 suppressed 行——已 open 的同前缀行视为已恢复
+// （matched=true 不改状态）；无匹配或前缀歧义 matched=false，由调用方回帖提示。
+// restore 不回流知识：恢复只是撤销剔除，不是新的误报/正确结论。
+func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, number int, prefix string) (bool, error) {
+	if len(prefix) < 6 {
+		return false, nil
+	}
+	matched := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []FindingPrint
+		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
+			platform, owner, repo, number, prefix+"%").Find(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) != 1 {
+			return nil // 无匹配或前缀歧义：不猜
+		}
+		matched = true
+		if rows[0].Status == PrintSuppressed {
+			rows[0].Status = PrintOpen
+			return tx.Save(&rows[0]).Error
+		}
+		return nil
+	})
+	return matched, err
+}
