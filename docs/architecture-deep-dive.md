@@ -811,7 +811,7 @@ type TaskStore interface {
 | 表 | 字段 | 解决什么 |
 |---|---|---|
 | `tasks` | id, event_id(唯一索引), platform, owner, repo, number, head_sha, status, kind, verdict, report, result_json, fail_reason, tokens_used, summary_comment_id, created_at, updated_at, heartbeat_at | 异步任务持久化 + webhook 幂等 + 同 SHA 去重 + 心跳 |
-| `finding_prints` | platform, owner, repo, number, fingerprint(联合唯一), status(open/suppressed), severity, line, times_seen, task_id | Merger 指纹跨轮次持久化 + 误报反馈 |
+| `finding_prints` | platform, owner, repo, number, fingerprint(联合唯一), status(open/suppressed), severity, line, times_seen, regret_count, task_id | Merger 指纹跨轮次持久化 + 误报反馈 + regret 误报历史（R3.5 剔除计数，Merger 跨轮标注可信度） |
 | `review_targets` | platform, owner, repo, number(联合唯一), last_summary_comment_id, last_head_sha | 总结评论更新定位 + 同 SHA 去重查询源 |
 
 **幂等键 = 平台 delivery ID**（不是 SDK 的 `NormalizedEvent.ID`，后者每次接收重新生成）：
@@ -1072,6 +1072,9 @@ agentkit/acpx 在只读沙箱里跑 CLI，按 findings JSON 契约回收意见�
   （文件越界/行号非法/纯风格/无证据定位/重复/测试代码误判）走"生成→批判→修订收敛"循环；
   只删/修不增（按 id 回写，编造 id 丢弃；逐字段校验回退），解析失败/模型故障保留原 findings
   ——审查不因反思故障而失败。默认关闭（`ARGUS_REFLECTION_ROUNDS` 1~3）。
+  剔除的指纹由 runner 入库 `finding_prints.regret_count`（误报历史）；Merger 跨轮读取，
+  对复现（`times_seen>=2`）与高 regret（`regret_count>=2`）的意见在报告 comment 上标注
+  可信度——只标注不自动 suppress，持久抑制仍只来自人工反馈通道。
 - **评论意图路由（router）**：`@argus` 自由文本先分类再分派——review（要求重审）→ 建全量
   复审任务并回执任务号；其余一切回落 Q&A。短命令关键词零分类直达，歧义长句才走一次快模型
   分类；低置信（<0.6）视为 ask。默认关闭（`ARGUS_COMMENT_ROUTER=1`，重审烧预算需显式 opt-in）。

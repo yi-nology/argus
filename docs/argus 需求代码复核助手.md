@@ -811,7 +811,7 @@ type TaskStore interface {
 | 表 | 字段 | 解决什么 |
 |---|---|---|
 | `tasks` | id, event_id(唯一索引), platform, owner, repo, number, head_sha, status, kind, verdict, report, result_json, fail_reason, tokens_used, summary_comment_id, created_at, updated_at, heartbeat_at | 异步任务持久化 + webhook 幂等 + 同 SHA 去重 + 心跳 |
-| `finding_prints` | platform, owner, repo, number, fingerprint(联合唯一), status(open/suppressed), severity, line, times_seen, task_id | Merger 指纹跨轮次持久化 + 误报反馈 |
+| `finding_prints` | platform, owner, repo, number, fingerprint(联合唯一), status(open/suppressed), severity, line, times_seen, regret_count, task_id | Merger 指纹跨轮次持久化 + 误报反馈 + regret 误报历史（R3.5 剔除计数，Merger 跨轮标注可信度） |
 | `review_targets` | platform, owner, repo, number(联合唯一), last_summary_comment_id, last_head_sha | 总结评论更新定位 + 同 SHA 去重查询源 |
 
 **幂等键 = 平台 delivery ID**（不是 SDK 的 `NormalizedEvent.ID`，后者每次接收重新生成）：

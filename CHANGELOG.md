@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.4.1 (2026-09-13) — regret 跨轮学习环（复现/可信度标注）
+
+R3.5 反思只做单轮统计，误报历史不沉淀；`GetPrintState` 有接口有实现却无调用方。
+本版把「产出 vs 终审」的差值变成跨轮信号：
+
+- R3.5 剔除的指纹经 `ReflectSummary.RemovedPrints` 由 runner 入库
+  `finding_prints.regret_count`（`Store.RecordPrintRegret`，行缺失时创建）
+- Merger 跨轮查 `GetPrintState`：`times_seen>=2` 标注「跨轮复现 N 次」，
+  `regret_count>=2` 标注「历史被 R3.5 反思剔除 N 次，可信度低」
+- 标注只影响报告展示（入库后改写，不污染指纹与 prints 原文）；suppressed
+  条目照旧剔除，持久抑制仍只来自人工反馈通道
+- 单测：正常标注 / suppressed 不复活（负控）/ GetPrintState 失败不阻塞
+
 ## v3.4.0 (2026-09-07) — 接入 agentkit v0.8.0 架构原语（reflection / router / blackboard）
 
 P6 已完成 agentkit v0.8.1 `llm.StageRouter` 分阶段模型路由（独立提交）。本版补齐 v0.8.0
