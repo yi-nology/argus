@@ -97,6 +97,7 @@ OCR 等 4 插件启用）。v3.1→v3.4 演进全记录见 [CHANGELOG.md](CHANGE
 - `@argus ask 这个改动会影响性能吗？`
 - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
 - `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
+- `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
 
 **评论意图路由（v3.4，`ARGUS_COMMENT_ROUTER=1` 开启）**：`@argus` 后的自由文本先分类再分派——
 - 要求重新审查（"请重新审查"、"再审一遍"）→ 自动建全量复审任务并回执任务号，作者推完修复
