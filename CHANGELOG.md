@@ -1,5 +1,48 @@
 # Changelog
 
+## v3.6.2 (2026-09-15) — 收尾批：两个真 bug 修复 + poster 四级降级 + 深挖清单全部清零
+
+深挖清单的最后一小批（e2e 四类场景补课中发现并顺带修掉两个真 bug）。
+`go vet` 干净，全部单测 + e2e 25 场景通过。
+
+### 真 bug 修复（e2e 补课时暴露）
+- **Select 未排除已触发 consensus 编队成员**（dispatcher.go）：v3.4 注释声称
+  "consensus 成员不进 fan-out、Select 已排除"，代码漏了——同一专家盲审一次、
+  黑板共识再跑一次（双倍 token + 结果双路径入库）。按触发条件命中排除，
+  编队未触发时成员照常参与基础选择（`TestSelect_ConsensusMembersExcludedFromFanout`）
+- **e2e 装配漏 WithSquads**（stack_test.go）：plugins.yaml 的 squads 段在 e2e
+  从未生效（生产 bootstrap.Assemble 有此步），编队链路此前零 e2e 覆盖的根因
+
+### merger 轮内去重行号相容闸门
+- 指纹不含行号，同文件两处不同位置（相差 >2 行）的同模板意见（OCR/规则型
+  插件常见）此前被轮内指纹合并吞掉第二条、指纹永不入库——行号不相容时保留
+  为独立条目（acc 逐条持有 fp；任一方无行号仍按相容合并）
+- 设计取舍：不动指纹格式（免存量迁移与跨轮计数重置），措辞漂移的"漏杀"半边
+  仍记为已知边界
+
+### poster 总结评论四级降级
+- ③ 历史缓存兜底：review_targets 新增 known_comment_ids（JSON，封顶 10、去重
+  追加、新→旧尝试直连更新）——报告评论被顶出 SDK ListIssueComments 第一页后
+  扫描兜底恒不中的恶性循环（每轮新建→顶得更远）就此打断
+- 回帖成功后缓存追加；非 404 的 ① 失败路径语义不变
+
+### e2e 补课（场景 24–27）
+- 场景 24 编队共识：correctness+security 黑板两轮收敛，共识成员恰执行 2 轮
+  （3 = 双跑回归哨兵）；r4calls 计数器入 mockLLM
+- 场景 25 remote(mcp) 插件全链路：mcp-go 进程内 stub server，发现进报告、
+  参与插件名单可见
+- 场景 26/27 评论路由 LLM 分支：分类命中 review 建复审任务；低置信（0.2<0.6）
+  回落 ask 不烧预算。stack 补 RouterMinConfidence=0.6（与生产默认对齐，此前
+  e2e 的低置信门形同虚设）与 routerMark/routerReply 分类桩
+
+### 其他
+- compose 补资源限制（mem 512m / cpus 1.0，与 k8s 对齐）；镜像 tag 同步
+- runner 单测：见 v3.6.1（并行线已补）
+
+### 遗留（有意不做/后续立项）
+- agentkit 指纹近重复（措辞漂移"漏杀"半边）：涉 finding_prints 存量迁移，需独立立项
+- 01-secret 占位凭证 CI 校验：需流水线配合
+
 ## v3.6.1 (2026-09-15) — 半开探测时限按插件超时自适应（agentkit v0.10.1）+ runner 单测补课
 
 ### 半开探测并发双探测修复（深挖 P0 最后一项工程遗留）
