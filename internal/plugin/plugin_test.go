@@ -30,10 +30,10 @@ func TestNormalizeSeverity(t *testing.T) {
 }
 
 func TestFingerprintStable(t *testing.T) {
-	a := Fingerprint("a.go", "这里 存在  SQL 注入！")
-	b := Fingerprint("a.go", "这里存在SQL注入") // 空白/标点差异 → 同指纹
-	c := Fingerprint("a.go", "完全不同的意见")
-	d := Fingerprint("b.go", "这里存在SQL注入") // 文件不同 → 指纹不同
+	a := Fingerprint("a.go", "这里 存在  SQL 注入！", 10)
+	b := Fingerprint("a.go", "这里存在SQL注入", 10) // 空白/标点差异 → 同指纹
+	c := Fingerprint("a.go", "完全不同的意见", 10)
+	d := Fingerprint("b.go", "这里存在SQL注入", 10) // 文件不同 → 指纹不同
 	if a != b {
 		t.Fatal("规范化后应同指纹")
 	}
@@ -41,7 +41,7 @@ func TestFingerprintStable(t *testing.T) {
 		t.Fatal("不同内容/文件不应同指纹")
 	}
 	// 行号不入指纹（跨轮次 ±2 容差语义）
-	if Fingerprint("a.go", "x") != Fingerprint("a.go", "x") {
+	if Fingerprint("a.go", "x", 0) != Fingerprint("a.go", "x", 0) {
 		t.Fatal("指纹不稳定")
 	}
 }
@@ -163,7 +163,7 @@ func (f *fakeStore) UpsertPrint(_ context.Context, _, _, _, _, fp string, _ Find
 
 func TestMerger(t *testing.T) {
 	fs := &fakeStore{prints: map[string]string{
-		Fingerprint("dup.go", "同一问题"): "suppressed", // 预置：历史误报
+		Fingerprint("dup.go", "同一问题", 3): "suppressed", // 预置：历史误报
 	}}
 	m := NewMerger(fs, testNopLogger{})
 	outcomes := []Outcome{
@@ -217,3 +217,21 @@ type nopLogger struct{}
 func (nopLogger) Info(string, ...any)  {}
 func (nopLogger) Warn(string, ...any)  {}
 func (nopLogger) Error(string, ...any) {}
+
+// v3.7.0：指纹 v2——行号入指纹（行不同即不同身份），规范化与稳定性不变。
+func TestFingerprintV2_LineSensitive(t *testing.T) {
+	a := Fingerprint("a.go", "这里存在SQL注入", 10)
+	b := Fingerprint("a.go", "这里存在SQL注入", 200)
+	if a == b {
+		t.Fatal("行号不同应有不同指纹")
+	}
+	if a != Fingerprint("a.go", "这里 存在 SQL 注入！", 10) {
+		t.Fatal("规范化后同评语同行应同指纹")
+	}
+	if a != Fingerprint("a.go", "这里存在SQL注入", 0) == false && a == Fingerprint("a.go", "这里存在SQL注入", 0) {
+		t.Fatal("line=0 与 line=10 应不同")
+	}
+	if len(a) != 32 {
+		t.Fatalf("指纹长度应与 v1 一致（32 hex），got %d", len(a))
+	}
+}

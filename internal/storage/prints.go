@@ -12,12 +12,12 @@ import (
 	"argus/internal/plugin"
 )
 
-// GetPrintState 实现 plugin.PrintStore。
+// GetPrintState 实现 plugin.PrintStore（别名一跳解析：新措辞指纹查到既有条目）。
 func (s *Store) GetPrintState(ctx context.Context, platform, owner, repo, number, fingerprint string) (*plugin.PrintState, error) {
 	var p FindingPrint
 	err := s.db.WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-		platform, owner, repo, number, fingerprint).First(&p).Error
+		platform, owner, repo, number, resolveAliasFP(s.db.WithContext(ctx), fingerprint)).First(&p).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -41,6 +41,7 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return suppressed, s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		fingerprint = resolveAliasFP(tx, fingerprint)
 		var p FindingPrint
 		err := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
@@ -49,15 +50,31 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 			if err != gorm.ErrRecordNotFound {
 				return err
 			}
-			// 新指纹
-			p = FindingPrint{
-				Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
-				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment, Plugin: firstBy(f.By),
-				Status:      PrintOpen,
-				FirstTaskID: taskID, LastTaskID: taskID, TimesSeen: 1,
-				FirstSeenAt: at, LastSeenAt: at,
+			// 近重复匹配层（v3.7.0）：精确未命中时，同 PR 同文件内行号相容且
+			// 评语近重复的既有条目视为同一问题——并入它（计数/抑制状态延续），
+			// 新措辞记为别名。措辞漂移不再产生"永远新问题"。
+			near, nerr := findNearPrint(tx, platform, owner, repo, number, f)
+			if nerr != nil {
+				return nerr
 			}
-			return tx.Create(&p).Error
+			if near != nil {
+				p = *near
+				if fingerprint != p.Print {
+					if aerr := tx.Create(&PrintAlias{AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
+						return aerr
+					}
+				}
+			} else {
+				// 全新指纹
+				p = FindingPrint{
+					Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
+					File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment, Plugin: firstBy(f.By),
+					Status:      PrintOpen,
+					FirstTaskID: taskID, LastTaskID: taskID, TimesSeen: 1,
+					FirstSeenAt: at, LastSeenAt: at,
+				}
+				return tx.Create(&p).Error
+			}
 		}
 		// 既有指纹：更新可见性元数据；保留 suppressed 状态（误报反馈不被新轮次冲掉）
 		p.LastTaskID = taskID
@@ -97,6 +114,7 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		fingerprint = resolveAliasFP(tx, fingerprint)
 		var p FindingPrint
 		err := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
@@ -140,10 +158,15 @@ func (s *Store) ResolvePrintWithPlugin(ctx context.Context, platform, owner, rep
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
 		platform, owner, repo, number, prefix+"%").
 		Order("last_seen_at DESC").First(&p).Error
-	if err != nil {
+	if err == nil {
+		return p.Print, p.Plugin, true
+	}
+	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射回规范指纹
+	var a PrintAlias
+	if err := s.db.WithContext(ctx).Where("alias_fp LIKE ?", prefix+"%").Order("updated_at DESC").First(&a).Error; err != nil {
 		return "", "", false
 	}
-	return p.Print, p.Plugin, true
+	return a.PrintFP, "", true
 }
 
 func firstBy(by string) string {

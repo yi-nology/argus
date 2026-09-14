@@ -35,8 +35,8 @@ func regretTestPR() PRContext {
 // 正常：既有复现（TimesSeen>=2）与 regret（RegretCount>=2）标注到 comment；
 // 无历史的指纹不得带任何标注。
 func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
-	fpA := Fingerprint("a.go", "空指针风险")
-	_ = Fingerprint("b.go", "命名不佳") // 无历史指纹：负控（不得带标注）
+	fpA := Fingerprint("a.go", "空指针风险", 1)
+	_ = Fingerprint("b.go", "命名不佳", 2) // 无历史指纹：负控（不得带标注）
 	store := &fakePrintStore{prior: map[string]*PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}
@@ -71,7 +71,7 @@ func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
 
 // 负控：suppressed 指纹依旧被剔除——标注逻辑不得复活被人工抑制的条目。
 func TestMergeSuppressedPriorStillDropped(t *testing.T) {
-	fp := Fingerprint("c.go", "误报历史")
+	fp := Fingerprint("c.go", "误报历史", 9)
 	store := &fakePrintStore{
 		prior:      map[string]*PrintState{fp: {Status: "suppressed", TimesSeen: 5}},
 		suppressed: map[string]bool{fp: true},

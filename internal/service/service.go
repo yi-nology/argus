@@ -20,7 +20,6 @@ import (
 	"github.com/yi-nology/git-platform-sdk/provider"
 	"gorm.io/gorm"
 
-	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/concurrency/async"
 	mw "git.example.com/enjoydream/ekit/middleware"
 
@@ -423,14 +422,16 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	}
 
 	var (
-		fp         string
-		file       = str(req.File)
-		comment    = str(req.Comment)
-		pluginName string
+		fp           string
+		file         = str(req.File)
+		comment      = str(req.Comment)
+		pluginName   string
+		matched      bool
+		suppressDone bool
 	)
 	switch {
 	case str(req.Fingerprint) != "":
-		// 模式一：报告意见行的 fp 短码直达（前缀解析完整指纹）
+		// 模式一：报告意见行的 fp 短码直达（前缀解析完整指纹，含别名回映射）
 		full, by, found := s.Store.ResolvePrintWithPlugin(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
 		if !found {
 			return &api.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
@@ -438,17 +439,27 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		fp = full
 		pluginName = by
 	case file != "" && comment != "":
-		// 模式二：file + 意见原文（与 Merger 同一指纹函数）
-		fp = severity.Fingerprint(file, comment)
+		// 模式二：file + 意见原文（v3.7.0）——v2 指纹含行号，原文无法直算；
+		// 走近重复检索抑制既有条目（措辞/行号漂移容忍），未命中预插 suppressed 行
+		var err2 error
+		if fp, matched, err2 = s.Store.SuppressPrintNear(ctx, platform, req.Owner, req.Repo, req.Number,
+			file, comment, time.Now()); err2 != nil {
+			s.log().Error("argus.api.suppress_near_failed", "error", err2.Error())
+			return nil, http.StatusInternalServerError
+		}
+		suppressDone = true
 	default:
 		return nil, http.StatusBadRequest // fingerprint 或 (file+comment) 二选一
 	}
 
-	matched, err := s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
-		fp, plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now())
-	if err != nil {
-		s.log().Error("argus.api.suppress_failed", "error", err.Error())
-		return nil, http.StatusInternalServerError
+	if !suppressDone {
+		var err error
+		matched, err = s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
+			fp, plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now())
+		if err != nil {
+			s.log().Error("argus.api.suppress_failed", "error", err.Error())
+			return nil, http.StatusInternalServerError
+		}
 	}
 	if matched {
 		// 知识飞轮（v3.3）：误报结论回流知识库——R3 search_knowledge 命中

@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.7.0 (2026-09-15) — 指纹 v2 + 近重复匹配层 + 存量迁移（用户拍板落地）
+
+深挖清单最后一项："措辞漂移漏杀"（LLM 每轮措辞微调 → 新指纹 → 跨轮复现计数/
+抑制/regret 学习环对 LLM 来源意见失效）。`go vet` 干净，全部单测 + e2e 通过。
+
+### 指纹 v2（plugin.Fingerprint）
+- 格式：`sha256("v2" | file | line | 规范化comment)`（长度不变，32 hex）——行号
+  入指纹，同文件不同位置的同模板意见不再共享跨轮统计
+- 行号相容（±2）的容差合并由 merger 的 byNC 通道承接（同文件+规范化评语相同+
+  行号相容 → 同一问题），v1 时代的 ±2 语义不回退
+
+### 近重复匹配层（storage/printalias.go）
+- UpsertPrint 精确未命中时：同 PR 同文件内，行号 ±2 且评语 rune 二元组重叠率
+  ≥60% 的既有条目视为同一问题 → 并入既有指纹（TimesSeen/抑制状态/regret 全
+  保留），新措辞记入 **print_aliases** 别名表；后续轮次别名精确命中零扫描
+- 抑制的措辞漂移复现同样被剔除（suppressed 行也是近重复候选）——漂移不再
+  绕开人工抑制
+- GetPrintState / SuppressPrint / ResolvePrintWithPlugin（短码解析）全链路
+  别名感知；RestorePrint 同前缀语义不变
+
+### suppress API 模式二（file+原文）
+- v2 指纹含行号，原文无法直算 → 改走 `SuppressPrintNear`：近重复检索既有
+  条目抑制其规范指纹；未命中以 line=0 预插 suppressed 行（真实意见下轮入库
+  经近重复层并回，抑制生效）
+
+### 存量迁移（storage.migratePrintFingerprintsV2，启动期幂等）
+- 逐行按存量 file/line/comment 重算 v2 指纹回写——抑制状态、TimesSeen、
+  regret_count 原地保留；重算值等于现值即跳过（幂等）；失败仅告警不阻断启动
+- 迁移后 v1 旧短码不再可解析（抑制本体已随行保留，不受影响）；带 file/line/
+  comment 的行全部可重算，无孤儿
+
+### 测试
+- plugin：v2 行号敏感性/规范化稳定性；merger byNC 容差回归
+- storage：措辞漂移并入（TimesSeen 2→3）、抑制经漂移延续、SuppressPrintNear
+  命中、迁移幂等与状态保留
+- e2e 场景 15（fp 直达抑制）等全量回归通过
+
 ## v3.6.2 (2026-09-15) — 收尾批：两个真 bug 修复 + poster 四级降级 + 深挖清单全部清零
 
 深挖清单的最后一小批（e2e 四类场景补课中发现并顺带修掉两个真 bug）。

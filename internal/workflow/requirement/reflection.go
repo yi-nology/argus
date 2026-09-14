@@ -195,7 +195,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 				if w.ReflectEvidence == EvidenceStrict {
 					info.DroppedNoEvidence++
 					// 计入 regret：说了但举不出证据 = 强误报信号
-					info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment))
+					info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment, f.Line))
 					info.RemovedFindings = append(info.RemovedFindings, f)
 					plugin.ReportReflectDrop(reason)
 					w.Log.Info("argus.r35.evidence_drop", "id", rv.ID, "file", f.File, "reason", reason)
@@ -232,13 +232,13 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 		}
 		seenRemoved := map[string]bool{}
 		for _, f := range info.RemovedFindings {
-			seenRemoved[plugin.Fingerprint(f.File, f.Comment)] = true
+			seenRemoved[plugin.Fingerprint(f.File, f.Comment, f.Line)] = true
 		}
 		for i, f := range merged.Findings {
 			if seen[i] {
 				continue
 			}
-			fp := plugin.Fingerprint(f.File, f.Comment)
+			fp := plugin.Fingerprint(f.File, f.Comment, f.Line)
 			if !dup[fp] {
 				info.RemovedPrints = append(info.RemovedPrints, fp)
 			}

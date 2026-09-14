@@ -181,7 +181,7 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 				// 指纹差分：只把新发现写上黑板（成员自述的重复报告在此拦下）
 				added := 0
 				for _, f := range res.Findings {
-					fp := Fingerprint(f.File, f.Comment)
+					fp := Fingerprint(f.File, f.Comment, f.Line)
 					if boardFP[fp] {
 						continue
 					}

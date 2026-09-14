@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
 
@@ -242,6 +243,8 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		bys     map[string]bool
 	}
 	byFP := map[string]*acc{}    // fp → 首个 acc（轮内指纹去重探测）
+	byNC := map[string]*acc{}    // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
+	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
 	byLoc := map[string]*acc{}   // "file|line" → 该位置首个 acc（跨措辞合并用）
 	var order []*acc
 
@@ -275,13 +278,19 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			f.By = o.Name
 			obsFindings(sev, o.Name, 1)
 
-			fp := Fingerprint(f.File, f.Comment)
+			fp := Fingerprint(f.File, f.Comment, f.Line)
 			if a, dup := byFP[fp]; dup && linesCompatible(a.finding.Line, f.Line) {
 				// 轮内去重：severity 冲突取高；行号 ±2 内采纳新行号（匹配辅助）；
 				// by 追加来源插件。
 				// 行号相容闸门（收尾批修复）：指纹不含行号，同文件两处不同位置的
 				// 同模板意见（OCR/规则型插件常见）此前被误并为一条、第二条永久
 				// 丢失——行号不相容时保留为独立条目。
+				mergeInto(a, f)
+				continue
+			}
+			// 同文件 + 规范化评语相同 + 行号相容 → 同一问题（v1 容差语义的承接）
+			ncKey := f.File + "|" + severity.NormalizeComment(f.Comment)
+			if a, dup := byNC[ncKey]; dup && linesCompatible(a.finding.Line, f.Line) {
 				mergeInto(a, f)
 				continue
 			}
@@ -302,6 +311,9 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			}
 			if _, seen := byFP[fp]; !seen {
 				byFP[fp] = a2
+			}
+			if _, seen := byNC[ncKey]; !seen {
+				byNC[ncKey] = a2
 			}
 			order = append(order, a2)
 		}

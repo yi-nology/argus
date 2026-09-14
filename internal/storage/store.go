@@ -182,13 +182,20 @@ func Open(dsn string) (*Store, error) {
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if !s.sqlite {
 		if err := s.upgradeMySQLLongText(); err != nil {
 			return nil, err
 		}
+	}
+	// 指纹 v2 存量迁移（v3.7.0，幂等）：v1 行按存量 file/line/comment 重算回写；
+	// 失败不阻断启动（留待下次重试），只告警。
+	if n, merr := s.migratePrintFingerprintsV2(context.Background()); merr != nil {
+		s.db.Logger.Warn(context.Background(), "指纹 v2 迁移失败（下次启动重试）: %v", merr)
+	} else if n > 0 {
+		s.db.Logger.Info(context.Background(), "指纹 v2 迁移完成: %d 行", n)
 	}
 	return s, nil
 }
