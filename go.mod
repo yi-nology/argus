@@ -1,9 +1,9 @@
 module argus
 
-go 1.26.0
+go 1.26.3
 
 require (
-	git.example.com/enjoydream/agentkit v0.9.4
+	git.example.com/enjoydream/agentkit v0.9.8
 	git.example.com/enjoydream/ekit v0.27.2
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.18
@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.58.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/yi-nology/git-platform-sdk v0.52.0
+	github.com/yi-nology/git-platform-sdk v0.61.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
@@ -25,7 +25,6 @@ require (
 	code.gitea.io/sdk/gitea v0.25.1 // indirect
 	codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
-	gitee.com/openeuler/go-gitee v0.0.0-20251225091545-a0f78272dafc // indirect
 	github.com/42wim/httpsig v1.2.4 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
@@ -52,7 +51,6 @@ require (
 	github.com/aliyun/alibabacloud-dkms-transfer-go-sdk v0.1.8 // indirect
 	github.com/aliyun/aliyun-secretsmanager-client-go v1.1.5 // indirect
 	github.com/aliyun/credentials-go v1.4.3 // indirect
-	github.com/antihax/optional v1.0.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
@@ -121,7 +119,7 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.1 // indirect
-	github.com/gorilla/websocket v1.5.1 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -163,6 +161,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.6-0.20260601044846-0e3d1d099507 // indirect
+	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20210501183033-44dafcb38ecc // indirect
@@ -238,3 +237,5 @@ require (
 replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
 
 replace git.example.com/enjoydream/agentkit => ../agentkit
+
+replace github.com/yi-nology/git-platform-sdk => ../../git-platform-sdk

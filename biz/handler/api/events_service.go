@@ -12,6 +12,8 @@ import (
 	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+
+	"argus/internal/obs"
 )
 
 const sseKeepalive = 15 * time.Second
@@ -28,6 +30,8 @@ func Events(ctx context.Context, c *app.RequestContext) {
 	}
 	ch, cancel := Svc.Bus.Subscribe(ctx)
 	defer cancel()
+	obs.AddSSEConnections(1)
+	defer obs.AddSSEConnections(-1)
 	dropped0 := Svc.Bus.Dropped()
 	defer func() {
 		// 连接期丢弃增量 > 0：该客户端曾积压（进度条停在中间态可归因）

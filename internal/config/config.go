@@ -61,6 +61,9 @@ type Config struct {
 	BotUsername        string
 	SkipDraft          bool
 	MaxConcurrentTasks int
+	// PluginMaxConcurrent 单任务内插件 fan-out 的最大并发数（ARGUS_PLUGIN_MAX_CONCURRENT，
+	// 深挖修复：原硬编码 2 不可调）。防百炼等 API burst 429。
+	PluginMaxConcurrent int
 	MaxDiffChars       int // <=0 表示按公式动态计算
 	TaskTokenBudget    int // <=0 表示按公式动态计算（EffectiveTaskTokenBudget）
 	ReportMeta         bool
@@ -140,6 +143,12 @@ type Config struct {
 	// WebhookMaxBody Webhook 请求体上限（字节）；默认 1MB。
 	// Hertz WithMaxRequestBodySize + Content-Length 双重防护。
 	WebhookMaxBody int
+
+	// SDKCallTimeout 单次 git-platform-sdk 调用的兜底超时（ARGUS_SDK_TIMEOUT）。
+	// 入参 ctx 无 deadline 时启用；0 = 默认 120s；负值 = 关闭兜底（调用随 ctx 语义）。
+	// 背景：弱网/VPN 下 TCP 连接可能停滞且不触发传输层错误，无超时的调用会永久挂起
+	// （v3.5.5 真机实测：poster 总结评论更新在停滞连接上无限等待）。
+	SDKCallTimeout time.Duration
 
 	// 任务保留天数（运维加固）：超期已终结任务（done/failed/stale）启动+每日清理。
 	// 0 = 永久保留（默认，行为与 v3.0 一致）。
@@ -319,6 +328,7 @@ func Load() *Config {
 		BotUsername:            envStr("ARGUS_BOT_USERNAME", "argus-bot"),
 		SkipDraft:              envBool("ARGUS_SKIP_DRAFT", true),
 		MaxConcurrentTasks:     envInt("ARGUS_MAX_CONCURRENT_TASKS", 2),
+		PluginMaxConcurrent:    envInt("ARGUS_PLUGIN_MAX_CONCURRENT", 2),
 		MaxDiffChars:           envInt("ARGUS_MAX_DIFF_CHARS", 0),
 		TaskTokenBudget:        envInt("ARGUS_TASK_TOKEN_BUDGET", 0),
 		ReportMeta:             envBool("ARGUS_REPORT_META", true),
@@ -329,6 +339,7 @@ func Load() *Config {
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),
+		SDKCallTimeout:         envDuration("ARGUS_SDK_TIMEOUT", 0),
 		TaskRetentionDays:      envInt("ARGUS_TASK_RETENTION_DAYS", 0),
 		RepoMonthlyTokenBudget: envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
 		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
@@ -513,6 +524,9 @@ func LoadDotEnv() {
 
 // Validate 启动期校验：无 LLM 配置时 builtin 插件不可用，仍允许启动（cli 插件可独立工作）。
 func (c *Config) Validate() error {
+	if c.PluginMaxConcurrent <= 0 {
+		c.PluginMaxConcurrent = 1
+	}
 	if c.MaxConcurrentTasks <= 0 {
 		c.MaxConcurrentTasks = 1
 	}
@@ -533,4 +547,42 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN 至少一项，或配置 GitHub App）")
 	}
 	return nil
+}
+
+// WarnLogger WarnOnly 的日志口（与 logx.Logger 解耦，测试可注入）。
+type WarnLogger interface{ Warn(msg string, kv ...any) }
+
+// WarnOnly 深挖修复：交叉校验的「部分配置」告警——静默降级会让配置漂移无从
+// 排查（与 warnBadEnv 同哲学）。不阻断启动：降级路径本身合法。
+func (c *Config) WarnOnly(log WarnLogger) {
+	// Milvus 半配：配了地址但 embedding 三件套不全 → 知识飞轮静默关闭
+	if c.MilvusAddr != "" {
+		if missing := c.embeddingMissing(); len(missing) > 0 {
+			log.Warn("argus.config.milvus_partial",
+				"missing", strings.Join(missing, ","),
+				"effect", "Milvus 知识库不启用，回退本地词元检索（知识飞轮关闭）")
+		}
+	}
+	// fallback 三缺一：只配 FallbackModel 时降级链静默不存在
+	if c.LLM.FallbackModel != "" &&
+		(c.LLM.FallbackBaseURL == "" || c.LLM.FallbackAPIKey == "") {
+		log.Warn("argus.config.fallback_partial",
+			"effect", "LLM 降级链未启用（需 FALLBACK_BASE_URL/API_KEY/MODEL 三项全配）",
+			"has_base_url", c.LLM.FallbackBaseURL != "", "has_api_key", c.LLM.FallbackAPIKey != "")
+	}
+}
+
+// embeddingMissing 返回缺失的 embedding 配置项名。
+func (c *Config) embeddingMissing() []string {
+	var missing []string
+	if c.EmbeddingBaseURL == "" {
+		missing = append(missing, "ARGUS_EMBEDDING_BASE_URL")
+	}
+	if c.EmbeddingAPIKey == "" {
+		missing = append(missing, "ARGUS_EMBEDDING_API_KEY")
+	}
+	if c.EmbeddingModel == "" {
+		missing = append(missing, "ARGUS_EMBEDDING_MODEL")
+	}
+	return missing
 }

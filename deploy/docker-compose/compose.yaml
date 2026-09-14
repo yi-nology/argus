@@ -12,7 +12,7 @@
 
 services:
   argus:
-    image: argus:v3.0.1
+    image: argus:v3.6.0
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -20,6 +20,10 @@ services:
         - default   # 私有依赖 ekit 走 SSH 直拉（需本机 ssh-agent 已加载 forgejo key）
     container_name: argus
     restart: unless-stopped
+    # 资源限制（与 k8s 04-deployment.yaml 对齐；防任务泄漏 OOM 拖垮宿主）
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
     ports:
       - "${ARGUS_HOST_PORT:-8899}:8899"   # 宿主端口冲突时在 .env 里设 ARGUS_HOST_PORT
     env_file:

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/agentkit/textutil"
@@ -168,7 +169,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		}
 	}
 
-	// ---- 总结评论：更新 → 扫描兜底 → 新建（三级降级，§7-7 / §10.2）----
+	// ---- 总结评论：更新 → 扫描兜底 → 历史缓存兜底 → 新建（四级降级）----
 	body := reportview.Render(rep)
 	commentID, err := p.postSummary(ctx, pr, body)
 	if err != nil {
@@ -180,6 +181,11 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	if err := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 		commentID, pr.HeadSHA); err != nil {
 		p.Log.Error("argus.poster.target_update_failed", "error", err.Error())
+	}
+	// 历史评论 ID 缓存追加（收尾批修复）：供"评论被顶出 SDK 分页第一页"后的
+	// 直连更新兜底，防每轮新建报告评论
+	if err := p.Store.AppendReviewTargetComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, commentID); err != nil {
+		p.Log.Warn("argus.poster.known_comment_append_failed", "error", err.Error())
 	}
 
 	return &Result{SummaryCommentID: commentID, InlinePosted: inline}, nil
@@ -195,15 +201,32 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 		if err == nil {
 			return target.LastSummaryCommentID, nil
 		}
-		p.Log.Warn("argus.poster.summary_update_failed", "comment_id", target.LastSummaryCommentID,
-			"error", err.Error(), "fallback", "scan")
+		// 评论被删（404）是持久故障：不清缓存则每轮都先撞一次失败更新再降级。
+		// 清除缓存直走 ②/③，③ 新建成功后回写自愈（深挖修复）。
+		if provider.IsNotFound(err) {
+			p.Log.Warn("argus.poster.summary_comment_gone", "comment_id", target.LastSummaryCommentID,
+				"action", "清除缓存定位，走扫描/新建")
+			if e2 := p.Store.ClearReviewTargetComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); e2 != nil {
+				p.Log.Warn("argus.poster.target_clear_failed", "error", e2.Error())
+			}
+		} else {
+			p.Log.Warn("argus.poster.summary_update_failed", "comment_id", target.LastSummaryCommentID,
+				"error", err.Error(), "fallback", "scan")
+		}
 	}
 
 	// ② 扫描既有评论的完整报告头（review_targets 记录损坏时的审计兜底，§10.1）。
 	// 严格匹配 + 作者校验：宽匹配会被含该前缀的第三方评论劫持更新目标。
 	// SDK 只返回第一页（最旧一页，≤50 条），报告评论如已被顶出第一页则扫描不中，
 	// 走 ③ 新建——SDK 分页能力补齐前的已知边界。
-	if comments, err := p.SDK.ListIssueComments(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
+	// 扫描步限时：SDK 分页缺陷曾在此无限循环卡死 worker（Forgejo 忽略 page 参数），
+	// 超时/失败一律降级 ③ 新建并 WARN 留痕——宁可重复评论也不能卡死队列。
+	scanCtx, scanCancel := context.WithTimeout(ctx, summaryScanTimeout)
+	comments, scanErr := p.SDK.ListIssueComments(scanCtx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
+	scanCancel()
+	if scanErr != nil {
+		p.Log.Warn("argus.poster.summary_scan_failed", "error", scanErr.Error(), "fallback", "create")
+	} else {
 		var found int64
 		for _, c := range comments {
 			if !reportHeaderRe.MatchString(c.Body) {
@@ -222,7 +245,28 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 		}
 	}
 
-	// ③ 新建
+	// ③ 历史缓存兜底（收尾批修复）：报告评论被顶出 SDK 分页第一页后 ② 恒不中，
+	// 每轮新建→顶得更远→恶性循环。缓存 ID 全部是本 bot 发出的报告评论（Append
+	// 于回帖成功后记录，封顶 10 条），逐个尝试直连更新，首个成功即返回。
+	if cached, cerr := p.Store.KnownReviewTargetComments(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); cerr == nil {
+		var lastTried int64
+		if t, gerr := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); gerr == nil && t != nil {
+			lastTried = t.LastSummaryCommentID
+		}
+		for _, id := range cached {
+			if id == lastTried { // ① 已试过
+				continue
+			}
+			if _, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, id, body); err == nil {
+				p.Log.Info("argus.poster.summary_cached_updated", "comment_id", id, "source", "known_comment_ids")
+				return id, nil
+			}
+		}
+	} else {
+		p.Log.Warn("argus.poster.known_comment_list_failed", "error", cerr.Error())
+	}
+
+	// ④ 新建
 	c, err := p.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body)
 	if err != nil {
 		return 0, err
@@ -250,3 +294,7 @@ func inlineCommentBody(f plugin.Finding) string {
 
 // suggestionMaxRunes 单条 suggestion 围栏的建议长度上限（防超大评论刷屏）。
 const suggestionMaxRunes = 1200
+
+// summaryScanTimeout 总结评论定位（扫描既有评论）步的时间上限：
+// 该步若卡死会阻塞整个 worker，宁可降级新建评论也不能挂起队列。
+const summaryScanTimeout = 60 * time.Second

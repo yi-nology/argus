@@ -80,8 +80,12 @@ func TestPrepareTotalTruncation(t *testing.T) {
 	if !dc.Truncated {
 		t.Fatal("超限应标记 Truncated")
 	}
-	if len(dc.Text) > 600 {
+	// 截断说明（被排除文件清单）会附加在文本尾部，放宽为"主体 500 + 说明 < 900"
+	if len(dc.Text) > 1400 {
 		t.Fatalf("总量截断未生效: %d", len(dc.Text))
+	}
+	if !strings.Contains(dc.Text, "截断说明") || !strings.Contains(dc.Text, "- b.go") {
+		t.Fatal("被预算排除的文件应在截断说明中留痕")
 	}
 }
 
@@ -348,5 +352,49 @@ func TestParseDiffByFile_Empty(t *testing.T) {
 	m := parseDiffByFile("")
 	if len(m) != 0 {
 		t.Fatalf("空输入应返回空 map，got %d", len(m))
+	}
+}
+
+// 深挖修复回归：目录噪声规则按路径段匹配，"cargo-build/"、"ui-dist/" 不再被
+// "build/"、"dist/" 的无边界子串匹配误伤。
+func TestNoiseSegmentMatch(t *testing.T) {
+	noiseCases := map[string]bool{
+		"a/build/b.go":      true,  // 目录段命中
+		"vendor/x/y.go":     true,  // 顶层 vendor
+		"cmd/a/vendor/x.go": true,  // 嵌套 vendor
+		"ui-dist/x.go":      false, // 子串误伤修复
+		"cargo-build/x.go":  false, // 子串误伤修复
+		"myvendor/x.go":     false, // 子串误伤修复
+		"go.sum":            true,  // 文件名精确匹配
+		"x.pb.go":           true,  // 后缀匹配
+		"distillary/d/a.go": false, // 目录段不等同前缀
+	}
+	for p, want := range noiseCases {
+		if got := noise(p); got != want {
+			t.Errorf("noise(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// 深挖修复回归：噪声/二进制文件不进截断说明（它们是按规则排除，不是预算截断）。
+func TestTruncationNoteExcludesNoise(t *testing.T) {
+	var big strings.Builder
+	for i := 0; i < 1000; i++ {
+		big.WriteString("+code\n")
+	}
+	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+		diffFile("a.go", big.String(), 1000),
+		diffFile("b.go", big.String(), 1000),
+		diffFile("go.sum", big.String(), 1000),
+	}}
+	dc := Prepare(md, 500)
+	if !dc.Truncated {
+		t.Fatal("应标记 Truncated")
+	}
+	if strings.Contains(dc.Text, "- go.sum") {
+		t.Fatal("噪声文件不应出现在截断说明里")
+	}
+	if !strings.Contains(dc.Text, "- b.go") {
+		t.Fatalf("预算排除的 b.go 应在截断说明中，文本尾:\n%s", dc.Text[len(dc.Text)-400:])
 	}
 }

@@ -202,10 +202,17 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 		// Convene 只在 Board/specialists 非法时报错（Act 失败已被上面转为 note），
 		// 已收集成果照常返回
 		d.log.Error("argus.squad.consensus_convene_failed", "squad", sq.Name, "error", err.Error())
-	} else {
+	} else if anyConsensusContribution(members) {
 		d.log.Info("argus.squad.consensus_done", "squad", sq.Name,
 			"rounds", cr.Rounds, "board_entries", cr.Total,
 			"findings", len(boardFP), "elapsed_ms", time.Since(start).Milliseconds())
+	} else {
+		// 深挖修复：预算耗尽/熔断/执行失败在 Act 里都折叠成 contributed=false，
+		// Convene 对「一整轮无人贡献」即报收敛——全员无法贡献与真收敛不可分，
+		// 共识被系统性高估。此处显式区分留痕。
+		d.log.Warn("argus.squad.consensus_stalled", "squad", sq.Name,
+			"rounds", cr.Rounds, "members", len(members),
+			"hint", "全员未贡献（预算/熔断/失败），非共识收敛")
 	}
 
 	// 收尾回填 Outcome：有发现 → Result；执行失败 → Err（Notes 渲染降级注明）；
@@ -216,7 +223,9 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 		switch {
 		case len(m.collected) > 0:
 			o.Result = &Result{Findings: m.collected}
-		case m.lastErr != nil && !m.ran:
+		case m.lastErr != nil:
+			// 跑过但后续轮次失败同样按失败终态回填——此前该分支静默落成
+			// 空 Result（"参与了但没新发现"），失败被吞、Degraded 无注明（深挖修复）
 			o.Err = m.lastErr
 		case !m.ran && m.skipped != "":
 			o.SkippedReason = m.skipped
@@ -225,6 +234,16 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 		}
 	}
 	return outcomes
+}
+
+// anyConsensusContribution 是否有成员真正贡献过发现（区分真收敛与全员无法贡献）。
+func anyConsensusContribution(members []*consensusMember) bool {
+	for _, m := range members {
+		if len(m.collected) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // squadSeed 黑板种子：任务素材摘要（变更摘要 + 文件清单，截断防黑板膨胀）。
@@ -241,7 +260,7 @@ func squadSeed(task Task, sq SquadDecl) string {
 		b.WriteString(strings.Join(paths, ", "))
 		b.WriteString("\n")
 	}
-	if s := task.Artifacts["change_summary"]; s != "" {
+	if s := task.Artifacts[ArtifactChangeSummary]; s != "" {
 		b.WriteString("变更摘要：\n")
 		t, _ := textutil.TruncRunes(s, seedMaxRunes)
 		b.WriteString(t)

@@ -21,8 +21,8 @@ import (
 	"git.example.com/enjoydream/agentkit/skill"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
-	"argus/internal/workflow/requirement"
 )
 
 // CompliancePlugin requirement-compliance 插件：workflow 的 L4 外壳。
@@ -32,13 +32,12 @@ type CompliancePlugin struct {
 	factory  WorkflowFactory // 每次 Invoke 构造独立 workflow 实例（LLM 预算随调用方注入）
 }
 
-// WorkflowRunner workflow 的最小接口（窄依赖：适配器只看到 Run）。
-type WorkflowRunner interface {
-	Run(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*requirement.Output, error)
-}
-
-// WorkflowFactory 每任务构造 workflow（budget 决定其 LLM 客户端的预算累计器）。
-type WorkflowFactory func(budget *plugin.TokenBudget) WorkflowRunner
+// WorkflowRunner / WorkflowFactory 边界契约自 v3.5.6 上提 plugin（runner 装配
+// factory 时不再为拿类型名 import 本适配器）；别名保 bootstrap/main/e2e 兼容。
+type (
+	WorkflowRunner  = plugin.WorkflowRunner
+	WorkflowFactory = plugin.WorkflowFactory
+)
 
 func NewCompliance(m plugin.AgentManifest, factory WorkflowFactory) (*CompliancePlugin, error) {
 	if m.Timeout <= 0 {
@@ -73,16 +72,17 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 		Findings: findings,
 		Verdict:  out.Verdict,
 		Artifact: map[string]string{
-			"compliance_report": string(reportJSON),
-			"rule":              out.Rule,
-			"change_summary":    out.Summary,
+			plugin.ArtifactComplianceReport: string(reportJSON),
+			plugin.ArtifactRule:             out.Rule,
+			plugin.ArtifactChangeSummary:    out.Summary,
 		},
 	}, nil
 }
 
 // ToolsHook R4 复用审查工具表的钩子（bootstrap 由 runner 注入；nil = 单轮调用模式）。
 // 返回 (工具表, 策略提示, 错误)；每次调用应重建工具表（toolprior 限流计数按尝试重置）。
-type ToolsHook func(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) ([]tool.BaseTool, string, error)
+// canonical 定义自 v3.5.6 上提 plugin.ToolsHook。
+type ToolsHook = plugin.ToolsHook
 
 // Reviewer 通用 LLM 审查 agent（correctness / security…同一结构不同人设）。
 type Reviewer struct {
@@ -228,11 +228,11 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 
 	var user strings.Builder
 	if task.Diff != nil && task.Diff.Text != "" {
-		user.WriteString(requirement.DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
-	if s := task.Artifacts["change_summary"]; s != "" {
-		user.WriteString(requirement.DataFence("变更摘要", s))
+	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
+		user.WriteString(plugin.DataFence("变更摘要", s))
 		user.WriteString("\n")
 	}
 	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
@@ -240,7 +240,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		// 围栏内是纯数据——防注入纪律与 change_summary 一致）
 		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
-		user.WriteString(requirement.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
 		user.WriteString("\n")
 	}
 	user.WriteString("\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。")
@@ -258,7 +258,9 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		}
 	}
 
-	final, err := agentrun.RunWithEvents(ctx, agentrun.Config{
+	// 失败回喂重试一次（副作用守卫默认生效：首轮已调变更类工具不整体重跑）；
+	// 失败后仍交由调用方走 invokeSingle 单轮降级。
+	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
 		Name:          r.manifest.Name,
 		Description:   "代码审查专家（" + r.focus + "）",
 		Instruction:   sys,
@@ -272,7 +274,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 			}
 			return t
 		},
-	}, user.String(), onEvent)
+	}, user.String(), user.String()+plugin.ReactRetryHint, onEvent)
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
 	}
@@ -281,7 +283,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		Findings []plugin.Finding `json:"findings"`
 		Notes    string           `json:"notes"`
 	}
-	if e := json.Unmarshal([]byte(llm.ExtractJSON(final)), &out); e != nil {
+	if e := llmjson.Unmarshal(final, &out); e != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 输出解析失败: %w", e)
 	}
 	for i := range out.Findings {
@@ -301,18 +303,18 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 
 	var user strings.Builder
 	if task.Diff != nil && task.Diff.Text != "" {
-		user.WriteString(requirement.DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
-	if s := task.Artifacts["change_summary"]; s != "" {
-		user.WriteString(requirement.DataFence("变更摘要", s))
+	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
+		user.WriteString(plugin.DataFence("变更摘要", s))
 		user.WriteString("\n")
 	}
 	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
 		// v3.4 编队共识模式（单轮降级路径同样携带黑板——两路径语义一致）
 		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
-		user.WriteString(requirement.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
 		user.WriteString("\n")
 	}
 	user.WriteString("\n请审查以上变更并输出 findings JSON（无问题输出空数组）。")

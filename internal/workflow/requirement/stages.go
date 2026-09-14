@@ -2,7 +2,6 @@ package requirement
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -13,12 +12,12 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
+	"git.example.com/enjoydream/agentkit/agentrun"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/toolprior"
 
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/agentrun"
-	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
 // issueRefRe 从分支名/PR 描述中提取关联 issue（需求源三入口之一）。
@@ -139,7 +138,16 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 		schema.SystemMessage(r1System),
 		schema.UserMessage(sb.String() + "\n请解析以上需求信息，输出验收清单 JSON。"),
 	}
-	if err := w.LLM.GenerateJSON(ctx, "R1", msgs, &spec); err != nil {
+	// 直调 + llmjson 宽容解析（深挖修复）：此前走 GenerateJSON 纯严格链，中文模型
+	// 高频的全角标点/尾逗号类损坏会把整条 PR 打成「解析降级」→ 全 Ambiguous →
+	// R5.3 强制 COMMENT——最贵的失败模式。R3/R3.5 已迁移，R1 补齐。
+	resp, err := w.LLM.Generate(ctx, "R1", msgs)
+	if err == nil {
+		if e := llmjson.Unmarshal(resp.Content, &spec); e != nil {
+			err = e
+		}
+	}
+	if err != nil {
 		w.Log.Warn("argus.r1.degrade", "error", err.Error())
 		// 解析降级：全部当 ambiguous → 人工确认路径（结果不丢）
 		return &plugin.RequirementSpec{
@@ -213,7 +221,11 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 		if err != nil {
 			w.Log.Warn("argus.r1.digest_failed", "segment", seg.label, "chunk", i+1, "error", err.Error())
 			notes = append(notes, fmt.Sprintf("%s 片段提炼失败（块 %d/%d），以截断原文参与解析", seg.label, i+1, len(chunks)))
-			return seg.content, notes
+			// 块级回退（深挖修复）：此前任一块失败即整段回退 seg.content——上限
+			// bodyMax×8（缺省 192k 字符），两级提炼的控量目标被单块失败击穿，
+			// 只剩 agentkit fitInput 静默截断兜底。只回退失败块并截到块长。
+			parts = append(parts, truncSummary(ch, chunkSize))
+			continue
 		}
 		parts = append(parts, truncSummary(resp.Content, 4000))
 	}
@@ -281,6 +293,14 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	user.WriteString("\n请逐条判定验收清单完成度并输出 JSON。")
 
 	query := user.String()
+	// 证据路径核对集（深挖修复）：证据门交叉校验的参照系——证据引用的路径必须
+	// 落在本次变更文件集内，编造的 file:line 才真正过不了门
+	changedPaths := map[string]bool{}
+	if task.Diff != nil {
+		for _, f := range task.Diff.Files {
+			changedPaths[f.Path] = true
+		}
+	}
 	// 工具表经工厂按尝试重建（WithCallLimit 计数不跨重试累计）
 	toolsFactory := func() []tool.BaseTool {
 		t, _, e := w.r3Tools(ctx, task, spec)
@@ -290,12 +310,12 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		}
 		return t
 	}
-	final, err := w.runAgent(ctx, instruction, query, toolsFactory)
+	final, err := w.runAgent(ctx, instruction, query, toolsFactory, reactMaxIterations(len(spec.ACs)))
 	if err != nil {
 		w.Log.Warn("argus.r3.agent_failed", "error", err.Error())
 	} else {
 		var report plugin.ComplianceReport
-		if e := json.Unmarshal([]byte(llm.ExtractJSON(final)), &report); e == nil {
+		if e := llmjson.Unmarshal(final, &report); e == nil {
 			dropped, fixed := alignChecksToSpec(spec, &report) // 双向对齐（防发明条目放大 R5.1，也防漏报缩水成 APPROVE）
 			if dropped > 0 {
 				w.Log.Warn("argus.r3.checks_dropped", "count", dropped)
@@ -303,19 +323,23 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 			if fixed > 0 {
 				w.Log.Warn("argus.r3.checks_aligned", "count", fixed)
 			}
-			down := EnforceEvidence(&report) // 防线 #2 代码级校验
+			down := EnforceEvidenceScoped(&report, changedPaths) // 防线 #2 代码级校验（含证据指向核对）
 			if down > 0 {
 				w.Log.Warn("argus.r3.evidence_downgraded", "count", down)
 			}
 			return &report, final, nil
 		}
-		// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）
+		// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）。
+		// 预算门（深挖修复）：重试携带全量 diff 整体重跑，token 直接 ×2——预算
+		// 已耗尽时不烧这笔钱，直接走降级路径（全部 AC → unverifiable → R5.3）。
 		retryQ := query + "\n\n你上一轮输出无法解析为合法 JSON，请重新输出且只输出合法 JSON。上一轮输出：\n" + truncSummary(final, 800)
-		if final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory); e2 == nil {
+		if task.Budget != nil && task.Budget.Remaining() <= 0 {
+			w.Log.Warn("argus.r3.retry_skipped_budget", "reason", "任务 token 预算耗尽，跳过重试")
+		} else if final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs))); e2 == nil {
 			var report2 plugin.ComplianceReport
-			if e := json.Unmarshal([]byte(llm.ExtractJSON(final2)), &report2); e == nil {
+			if e := llmjson.Unmarshal(final2, &report2); e == nil {
 				alignChecksToSpec(spec, &report2)
-				EnforceEvidence(&report2)
+				EnforceEvidenceScoped(&report2, changedPaths)
 				return &report2, final2, nil
 			}
 		}
@@ -334,24 +358,40 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	return degraded, "", nil
 }
 
+// reactMaxIterations ReAct 迭代上限随清单规模派生（深挖修复：硬编码 12 对大清单
+// 不够用、小任务浪费）：base 12，AC 超 10 条后每条 +1，封顶 24。
+func reactMaxIterations(acCount int) int {
+	n := 12
+	if acCount > 10 {
+		n += acCount - 10
+	}
+	if n > 24 {
+		n = 24
+	}
+	return n
+}
+
 // runAgent 运行 R3 ReAct agent（样板已沉淀至 agentkit/agentrun）。
 // toolsFactory 每次调用重建工具表：agentkit v0.7.0 起 Config.ToolsFactory 生效于
 // 每次尝试——toolprior.WithCallLimit 的限流计数按尝试重置，重试不再继承首轮
 // 已耗尽的外部调用预算（此前共享实例导致重试轮外部工具一开始就被软止损）。
-func (w *Workflow) runAgent(ctx context.Context, instruction, query string, toolsFactory func() []tool.BaseTool) (string, error) {
+func (w *Workflow) runAgent(ctx context.Context, instruction, query string, toolsFactory func() []tool.BaseTool, maxIterations int) (string, error) {
 	// P6 阶段覆盖：ARGUS_MODEL_R3（已在 runner 侧 Failover 装饰）；nil 回退主链 RawModel。
 	reactModel := w.R3ChatModel
 	if reactModel == nil && w.LLM != nil {
 		reactModel = w.LLM.RawModel()
 	}
-	return agentrun.RunWithEvents(ctx, agentrun.Config{
+	// 失败回喂重试一次（agentkit v0.9.4）：首轮失败且未调过变更类工具时带中断
+	// 提示整体重跑（副作用守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel
+	// 兜底，此处是会话级（迭代耗尽/末次模型失败）的最后一道回收。
+	return agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
 		Name:          "argus-compliance",
 		Description:   "需求完成度判定专家",
 		Instruction:   instruction,
 		Model:         reactModel,
-		MaxIterations: 12,
+		MaxIterations: maxIterations,
 		ToolsFactory:  toolsFactory,
-	}, query, func(e agentrun.Event) {
+	}, query, query+plugin.ReactRetryHint, func(e agentrun.Event) {
 		// 工具轨迹落审计日志（tool_result 只落长度不落内容，防敏感代码入库）
 		switch e.Type {
 		case agentrun.EventToolCall:
@@ -379,12 +419,15 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 	}
 
 	getFile, err := utils.InferTool("get_file",
-		"读取仓库某文件在 PR head 提交时的完整内容，用于核实 diff 中看不到的实现。参数 path 为仓库相对路径。",
+		"读取仓库某文件在 PR head 提交时的完整内容，用于核实 diff 中看不到的实现。参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。",
 		func(ctx context.Context, in *getFileIn) (*getFileOut, error) {
 			content, err := w.SDK.GetFileContent(ctx, pr.Platform, pr.Owner, pr.Repo, in.Path, pr.HeadSHA)
 			if err != nil {
 				return &getFileOut{Error: err.Error()}, nil // 工具错误回注文本，不中断 ReAct
 			}
+			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
+			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
+			content = numberLines(content)
 			if rc := len([]rune(content)); rc > fileMax {
 				content, _ = textutil.TruncRunes(content, fileMax)
 				content += "\n…（截断）"
@@ -581,4 +624,20 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// numberLines 逐行加 4 位宽行号前缀（"   1|"，深挖 P0：get_file 无行号逼模型编
+// 造 file:line 证据）。行号从 1 起，与平台侧评论定位语义一致；尾随换行不产生
+// 幽灵空行。
+func numberLines(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimSuffix(s, "\n")
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	for i, ln := range lines {
+		fmt.Fprintf(&b, "%4d|%s\n", i+1, ln)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

@@ -1,5 +1,420 @@
 # Changelog
 
+## v3.6.1 (2026-09-15) — 半开探测时限按插件超时自适应（agentkit v0.10.1）+ runner 单测补课
+
+### 半开探测并发双探测修复（深挖 P0 最后一项工程遗留）
+- agentkit v0.10.1：`breaker.NewBreakers` 增加变参 `Option` 与 `WithProbeTimeout`
+  （既有调用方零改动）——半开探测时限此前硬编码 1min，小于插件超时（600s）时，
+  探测在途 1min 后即被并发放行第二个探测，慢而健康的插件被并发双跑
+- argus `NewDispatcher` 按注册表最长插件超时 + 30s 余量设置探测时限（无注册表
+  信息时回退缺省）；`Breaker.Allow/Success/Failure` 语义不变，回归测试
+  `TestWithProbeTimeout` 覆盖时限内不放行/超时放行/零值回退/缺省时钟源就位
+- 至此深挖清单的"agentkit 侧待修"仅剩指纹算法设计一项（涉 finding_prints 存量
+  迁移，需独立决策）
+
+### runner 单测补课（深挖工程事实收尾）
+- `buildWorkflow` Client 回退装配：限速器/窗口接线断言（限速器修复的接线回归）、
+  无 R3 覆盖时 R3ChatModel 留空语义、StageLLMs → StageRouter 装配
+- `skillText` 惰性解析 + 10 分钟缓存 + checksum 头（§9.1）
+
+## v3.6.0 (2026-09-15) — 深挖还债二批：证据门语义化、失败静默面清零、存储与观测加固
+
+与 v3.5.9–v3.5.13 并行的另一实施线（两会话分头认领同一深挖清单，本条覆盖以下文件）。
+`go vet` 干净，全部单测 + e2e 21 场景通过。
+
+### 防线语义化（requirement）
+- **证据门交叉校验** `EnforceEvidenceScoped`：证据引用的路径必须落在变更文件集内，
+  编造的 `src/fabricated.go:1`（格式合法）降级 unverifiable；R3 重试路径同门
+- **R3.5 strict 证据门**要求 evidence 至少含一个路径样 token，纯文字证据不再放行；
+  修复 `extractPathLike` 对 `a.go:12`（无斜杠、带行号单 token）的漏识别
+- **R3.5 反思输入包围栏**（reflection.go）：findings 线格式/变更文件清单/变更摘要
+  三块全部过 DataFence——此前注入可经插件 comment 驱使终审编辑清空 findings
+- **注入正则审批域豁免**：命中段自身含「审批/审核/会签通过」视为业务描述放行，
+  审批类 AC 不再误伤进 Ambiguous→R5.3；真注入照常拦截
+- **AC 同 ID 去重**（alignChecksToSpec）：保留更保守状态（missing>partial>…），
+  detail 并入，防重复状态扭曲 R5.1 与报告双计
+
+### LLM 链路降级纪律（requirement）
+- **R1 提炼块级回退**：digestSegment 单块失败只回退该块（截到块长），不再整段
+  塞回 8× 预算原文击穿两级提炼的控量目标
+- **R1 接入 llmjson 宽容解析**：直调 Generate + Unmarshal（R3/R3.5 已迁移），
+  全角标点/尾逗号不再把整条 PR 打成解析降级→R5.3
+- **R2 失败降级继续**：摘要置空 + Degraded 注明，不再是全链路唯一单点失败
+- **ReAct 迭代上限随清单派生**（12+超10条每条+1，封顶 24）；重试前查任务预算，
+  预算耗尽跳过重试（防 token×2 重跑）；task.Budget 提前注入
+
+### 插件系统（plugin）
+- **熔断不记任务级取消**：teardown(err, parent) 区分 ctx 取消/终止与插件自身故障
+  （含测试）；信号量等待可取消；MaxConcurrent 接入 `ARGUS_PLUGIN_MAX_CONCURRENT`
+- **共识三态**（squad_consensus）：全员无法贡献显式记 `consensus_stalled`（非收敛）；
+  跑过后失败的成员按 Err 回填不再静默（含测试）
+- **交叉标注拆 By**：Merge 拼接的 `"a,b"` 拆开参与 replicated 判定，合并条目
+  （专家意见一致的证据）不再被误标「另一专家未复现」；多成员归属即视为已复现
+- **围栏中和留痕**：DataFence 中和发生即计数（注入攻击信号观测面）
+- **插件跳过原因指标**（circuit/budget/canceled）
+- WithSquads 静态校验：未知 mode / paths+labels 双空 / 无成员编队启动期告警
+
+### 装配与配置（bootstrap/config）
+- **plugins.yaml 解析失败 fail-fast**：区分「文件不存在」（回退默认）与「存在但
+  坏 YAML」（启动报错）；单次加载共用（沿用 v3.5.9 收敛点）
+- **cli delegate 模式启动期停用**（运行期必报错，不再注册成可用插件白烧熔断）
+- **remote protocol 白名单**（a2a|mcp），拼错启动即停用注明
+- **部分配置交叉告警** `Config.WarnOnly`：Milvus 半配（缺 embedding 三件套）、
+  fallback 三缺一——静默降级显式留痕（含测试）
+
+### 存储与运行时（storage/poster/qa/mcpserver/main）
+- **ListTasks 列裁剪**：列表接口不再拉 report/result_json/debug_json LONGTEXT
+  （保留 artifacts_json 元数据），百倍 IO 削减
+- **SQLite 连接池 1→4**（WAL 读写并发）：大查询/大 DELETE 不再队头阻塞心跳读，
+  误重置双跑窗口收窄；幂等/去重正确性来自唯一索引与事务，不依赖连接数=1
+- **ClaimNextPending**：MySQL 走 `FOR UPDATE SKIP LOCKED` 单语句取+占，败者
+  重试取下一条而非空转 500ms
+- **PruneTasks 分批删除**（每批 500，防长事务占住写连接）
+- **保留策略扩面**：qa_sessions（7d/retention）与 finding_prints（last_seen 180d/3×
+  retention）周期清理，此前单调膨胀
+- **poster ① 级 404 自愈**：缓存评论被删（IsNotFound）清定位直走扫描/新建，
+  不再每轮撞一次失败更新；新增 `ClearReviewTargetComment`（Upsert 的 >0 才写
+  语义清不掉）
+- **Q&A 乐观锁** `SaveQASessionCas`：并发评论丢轮次防护 + 冲突重读重放；
+  GetQASession 错误不再静默
+- **mcpserver ask_argus 必填校验**：漏参报参数错误而非伪装「无审查记录」
+- **extractQuestion 切片对齐**：先 TrimSpace 原文再取偏移，前导空白不再切出
+  乱码/切进多字节字符
+- **HTTP 显式超时**：ReadTimeout 30s / IdleTimeout 120s（不设写超时保护 SSE 流）
+
+### 观测（obs）
+- 新增 6 指标：`argus_verdicts_total{platform,kind,verdict,rule}`、
+  `argus_fence_neutralized_total`、`argus_plugin_skipped_total{reason}`、
+  `argus_comment_route_total{route,via}`、`argus_task_create_deduped_total{reason}`、
+  `argus_sse_connections`
+
+### 杂项修复
+- dream：Milvus 成功同样写本地 markdown 副本（降级载体不再陈旧）
+- sdkctx：CreateNote 的 noteID 解析失败留痕（ID=0 会破坏幂等更新锚点）
+- R2 提示词 300 字 → 1200 字（与 stages 截断常量对齐）
+- e2e：TriggerEventsFilter 场景重号 Scenario10→22；stack_test 注释与部署镜像
+  tag（compose/k8s v3.0.1→v3.6.0）对齐；README 补 `ARGUS_PLUGIN_MAX_CONCURRENT`
+
+### 评估后不采纳（留痕勿翻案）
+- merger 位置合并加语义相似闸门：与 v3.5.x 拍板并单测固化的「同位置不同措辞=
+  同一问题」归并语义冲突，不采用
+- dream 去重键改全量 hash：前缀聚类是有测试固化的刻意近重复设计，收紧会使其
+  变成死代码；仅修本地副本陈旧问题
+
+## v3.5.13 (2026-09-14) — 收尾：深挖清单"agentkit 侧"两项实为已修 + README 版本口径修正 + poster 单测补课
+
+### 盘点更正：熔断两项已在 argus 侧修复（清单归属标注有误）
+- 深挖清单"agentkit 侧待修"中的两项实际在 `internal/plugin/dispatcher.go` 且已带
+  注释与测试修复：任务级取消/终止（teardown）不计熔断连续失败（滚动发布不再误熔
+  断 lock 插件，`TestRun_CanceledNotCountedAsFailure`）；等待执行槽位可取消（任务
+  终止后排队 goroutine 不再傻等）。真正的 agentkit 侧遗留仅剩两项：半开探测窗口
+  （breaker.probeTimeout 硬编码 1min，未暴露 Option，< 600s 插件超时会并发双探测）
+  与指纹算法设计（不含行号 + 逐字敏感双向失灵，改动涉 finding_prints 存量迁移）——
+  均需独立立项，暂不动
+
+### README 版本口径漂移修正（深挖工程事实）
+- "当前版本 v3.5.5（agentkit v0.9.5）" → v3.5.12（agentkit v0.9.8），并注明版本
+  口径以 CHANGELOG 头为准；两处"仓库 HEAD 已 v3.4.0"过时陈述更新，补各版本段
+  一句话索引
+
+### poster 单测补课（深挖工程事实"runner/poster/bootstrap 零单测"）
+- `inlineCommentBody`：严重级大写、不可信评语中的报告头标记中和（防劫持）、
+  suggestion 围栏渲染/含 ``` 退化/超长省略
+- `reportHeaderRe` 严格匹配：字段齐全且独占一行，行中前缀/尾随文本/缺 ver 不命中
+  （总结评论更新目标的防伪边界）
+
+## v3.5.12 (2026-09-14) — 深挖 P0 修复批次：假 APPROVE 双守门 / acpx 假成功 / 评论异步化 / 双跑防线 / 证据行号（8 项）
+
+四路深挖清单（~40 条）的 P0 实锤逐项落地。对照当前代码盘点：#1（R3.5 反思输入
+DataFence）已由并行会话修复、#6（plugins.yaml 双装载吞错）已随 v3.5.9 单次加载
+修复，其余 8 项本批次完成。vet 干净，全部单测 + e2e 通过（场景 20 适配轮询断言）。
+
+### #2 零插件产出禁入 APPROVE（R5.0 守门）
+- skills 词表不匹配/插件全被禁用/全数熔断跳过时，空 findings 是"没人审"而非
+  "没问题"——此前直落 R5.5 静默 APPROVE，未审查变更放进主干
+- finish 统一守门：ran==0 → Degraded 注明"未审查状态下给出" + APPROVE 强制降级
+  COMMENT（rule=R5.0）；RunFull/RunReviewOnly 双路径覆盖
+
+### #5 大 PR 截断透出
+- diffprep 的 Truncated 标记此前全仓零消费，审查覆盖不完整无任何痕迹；
+  finish 统一在 Degraded 注明"仅覆盖保留部分"
+
+### #3 acpx 输出不可解析计熔断（不再假成功）
+- parseFindings 返回 (findings, error)：完全不可解析 = 失败上抛 → dispatcher 记
+  breaker 失败 + Outcome 降级注明；合法空数组 = 真零 findings 照常成功
+- 此前解析失败返回 nil findings 记 Success——坏 agent 永不熔断、每轮假装干净
+
+### #7 webhook event_id 落穿幻影 task
+- store 在唯一冲突时回查返回 ("event_id", 既有ID)，但 service 只判了
+  last_head_sha/in_flight 两个分支——并发窗口内的重复投递照常返回未入库的新
+  task.ID（幻影）+ 发幽灵 SSE 事件。补 event_id → duplicate 分支
+
+### #8 评论处理异步化
+- HandleComment（ReAct 可达数分钟）原同步跑在 webhook handler：平台 10s 断连
+  取消 ctx 杀掉 ReAct，平台重试又撞 30s 节流 → 用户永无回复
+- 改 async.GoSafe + context.Background（与请求生命周期解耦；delivery 幂等与
+  per-PR 节流在 HandleComment 内部，重复投递安全）；场景 20 断言改轮询式
+
+### #9 重审关键词疑问守门
+- "这个重新审查的逻辑对吗"（11 rune、无否定词）原会命中"重新审查"直接全量
+  重审烧 token；新增疑问标记守门（吗/？/?/为什么/怎么/怎样/如何/什么/难道），
+  问句交 LLM 意图分类裁决；补 3 个测试用例
+
+### #4 get_file 输出带行号
+- 证据门要求 file:line 定位，而无行号的原文等于逼模型编造行号；R3 工具表与
+  Q&A 工具表的 get_file 统一逐行加 4 位宽行号前缀（行号|内容，先于截断），
+  工具描述同步声明；附 numberLines 单测
+
+### #10 多副本同 SHA 双跑防线
+- 事务内 in-flight 检查是单实例纪律，租约过期窗口内两副本可同时读到 0 →
+  双任务双烧 token。最终防线落库：
+  - SQLite：status IN (pending,running) 部分唯一索引（不挡 TaskAPI 手工对 done
+    任务的同 SHA 重审）；历史在飞重复致建索引失败 → 告警退化，收敛后重启自愈
+  - MySQL：无 partial index，CreateTaskForWebhook 事务内对 review_targets 行
+    FOR UPDATE 串行化（首审 PR 无锚行的残余竞窗仅影响 PR 首审，可接受）
+  - 唯一冲突幂等回查：event_id → 在飞（in_flight）→ 最近历史（last_head_sha）
+- 附 TestSameSHAGuard（首建/在飞去重/索引冲突/done 豁免/幂等）
+
+## v3.5.11 (2026-09-14) — llmjson 沉淀 agentkit v0.9.8：宽容解析入口上收共享库（无行为变化）
+
+`internal/llmjson`（v3.5.3 引入的三级宽容解析入口，架构评判认定的正确抽象）按
+bianque 同款沉淀惯例上收 `agentkit/llmjson`（agentkit v0.9.8，已推 origin），argus
+改为直接消费、内部包删除。语义逐行原样：`Unmarshal` 三级尝试（ExtractJSON 快路径
+→ jsonrepair.Repair 语法修复 → ParseLenient 全链兜底），全败错误携带严格/宽容两路
+原因供回喂重试。消费点五处随迁：builtin/acpx/remote 三适配器 + requirement
+R3/R3.5/反思修订；`go vet` 干净，全部单测 + e2e 通过。
+
+## v3.5.9 (2026-09-14) — 深入修复：全局限速器覆盖主链 + 插件清单单次加载 + Artifacts 键常量化
+
+### 修复：ARGUS_LLM_RATE_LIMIT 未覆盖主模型链（限速形同虚设的缺口）
+- 历史行为：全局限速器只挂到"非降级路径的阶段覆盖 Client"上——主 Client（无降级
+  配置）与主/阶段 Resilient 降级链都没挂，配置了限速时占大头的 R1-R5 主链调用完全
+  不受限，与配置注释"LLM 调用前阻塞等待"的语义不符
+- 现在四条路径统一到达：主 Client、主 Resilient 链、阶段覆盖 Client（原有）、
+  阶段覆盖 Resilient 链（agentkit llm.Resilient/Client 均有导出 Limiter 字段，
+  WithBudget 预算注入副本自动继承）
+- 未配置 ARGUS_LLM_RATE_LIMIT 时行为零变化（limiter 为 nil）；已知边界：ReAct
+  RawModel 旁路（ADK 直调 BaseChatModel）不经 Client/Resilient，仍不受限——
+  需 agentkit 侧支持，另行立项
+- 回归测试 TestBuildModelsLimiterWiring：降级配置下主链/阶段链 Resilient 均挂
+  limiter、非降级配置主 Client 挂 limiter
+
+### 改进：plugins.yaml 单次加载
+- 原 BuildRegistry 与 Assemble 的 MCP 工具表段各调一次 LoadPluginsFile（重复解析
+  + 告警可能双发）；收敛为 bootstrap.loadPluginsFile 统一加载一次，registry 与
+  MCP/编队段共用
+- BuildRegistry 新增 Deps.Plugins 预加载入口（nil = 自行加载，独立调用方如 e2e
+  保持原语义）；缺文件回退内置默认的行为不变
+
+### 卫生：Task.Artifacts / Result.Artifact 键常量化
+- plugin 包新增 ArtifactChangeSummary / ArtifactComplianceReport / ArtifactRule /
+  ArtifactTrigger，替换 7 处 "change_summary" 字面量（workflow 写入、builtin/remote
+  适配器与编队共识读取、compliance 产物透传）及 comment_router 的 trigger 元数据键
+  ——stringly-typed 键名拼错编译器不再沉默
+
+## v3.5.8 (2026-09-14) — 装配统一：模型解析器收敛 P6 组合，main 回归纯生命周期（无行为变化）
+
+架构还债清单的最后一项（装配分裂）：原 main.go `runApp` 560 行把 LLM 主模型、
+P6 六类阶段覆盖、failover 包装、知识子系统、插件/runner 装配与进程生命周期混在
+一起，与 bootstrap 形成两处装配点。`go vet` 干净，全部单测 + test/e2e 通过。
+
+### bootstrap.BuildModels：模型栈单一解析点（models.go）
+- `Models` 结构一次解析全部角色出口：React/Generate/Fallback、R1/R2（StageLLMs）、
+  R3/Reflect/QA/Router（直调出口）、ReviewerGen/ReviewerReact——原 6 个分散的
+  模型覆盖字段（R3Model/FallbackModel/ReflectModel/ReactModel/ReviewerLLM/StageLLMs）
+  的组合逻辑收敛为一个具名抽象，P6 环境变量族有了唯一归属
+- 不变量代码化：Generator 路径走 Resilient/Client；所有 BaseChatModel 直调出口
+  统一包 FailoverModel（Resilient.RawModel 只返回主模型，ReAct 旁路靠 Failover
+  补齐主备切换）；阶段覆盖继承主 BaseURL/APIKey
+- 构造失败返回 error（原 panic 语义等价：bootstrap.Run → 进程退出）；
+  未配置 OPENAI_* 不是错误（空栈 + Ready()==false）
+- 新增单测：全角色解析 / 无 LLM 空栈 / 最小配置（无降级无覆盖，ReviewerReact
+  与 React 同源）/ 限速器注入 / ptrNonNeg
+
+### bootstrap.Assemble：装配产物 System（assemble.go）
+- SDK/工作副本（按实例隔离）/技能 → 模型栈 → 知识子系统（Milvus > 本地 RAG >
+  Noop 三级装配，fallbackLocalRAG/indexKnowledgeDir 自 main 迁入）→ 总线/推送 →
+  插件注册（runner 延迟解引用环收在装配内部）→ MCP 工具表 → 成本记账 →
+  dispatcher/merger/poster/runner
+- `System` 是纯共享引用集合，不做任何启停；生命周期（资源注册、选主、worker
+  排水、ticker、poller、HTTP）仍归 main
+- bootstrap.Deps 的 WorkflowFactory/ReviewTools 字段类型切到 plugin 契约
+  （v3.5.7 别名的落地使用）
+
+### main.go：777 → 307 行
+- 只剩：配置校验 → ekit bootstrap（信号/停机）→ 存储开关与 instanceID →
+  Assemble → 资源注册（store/poll-leader/worker/http 逆序关闭）→ worker/ticker/
+  poller 启停 → service+HTTP 接线 → readyz/metrics/MCP 路由
+- 装配期日志 key 全部原样保留（argus.boot.llm_* / stage_model / milvus_* 等），
+  运维观测不受影响；已知历史行为原样保留（限速器仅作用于非降级路径的阶段覆盖
+  Client，与主 Client 不一致——待后续单独立项修）
+
+## v3.5.7 (2026-09-14) — 架构维护：契约上提消依赖倒刺 + Q&A 拆包 + 工程卫生（无行为变化）
+
+架构评审（分层/依赖方向/门面职责）落地为结构维护，纯移动/等价重构：`go vet` 干净，
+全部单测 + test/e2e 通过（发布版与本地 SDK 双配置各验一轮）。
+
+### 契约上提（消三处依赖方向倒刺）
+- 任务 kind 词表 canonical 定义自 `workflow/requirement` 上提 `plugin.TaskKind*`
+  （taskkind.go）——service/poller 不再为拿常量反向依赖 L3 编排层；requirement 保留
+  `Kind*` 别名兼容包内引用
+- `WorkflowOutput`（原 requirement.Output）、`WorkflowRunner`/`WorkflowFactory`/
+  `ToolsHook`/`ReflectSummary` 上提 `plugin`（contracts.go）——runner 装配 factory 时
+  不再 import 具体适配器 adapter_builtin；新旧两处均保留类型别名，既有调用方零改动
+- `DataFence` 上提 `plugin.DataFence`（fence.go）——提示词注入防线的统一实现由
+  workflow / builtin 插件 / Q&A 三方共用，canonical 归属插件契约层；
+  adapter_builtin 随之不再依赖 workflow/requirement
+
+### Q&A 拆包（service 回归薄门面）
+- PR 评论问答引擎（ReAct + 单轮降级 + 多轮会话 + 报告追问，约 300 行）自 service
+  拆出 `internal/qa`——门面层不再持有 LLM 编排逻辑，eino schema/toolutils 与
+  agentrun/llm/toolprior 等导入随之离开门面层
+- Service 保留 `LatestReview`/`AnswerAboutReview` 委托方法（mcpserver 接口兼容）；
+  节流与 delivery 幂等仍留在 HandleComment；`renderHistory` 截断测试随迁 internal/qa
+
+### 工程卫生
+- bootstrap 默认插件配置不再硬编码个人机器路径（`/Users/demo-user/bin/ocr` → 按 PATH
+  解析 `ocr`；LookPath 失败 → 插件停用且 `/agents` 可观测，与原缺失语义一致）
+- .gitignore 补 `/argus` 本地二进制与 `*.db.bak-*` 数据库备份
+- go.mod 的 `replace => ../agentkit`、`../../git-platform-sdk` 刻意保留：试点依赖
+  本地 SDK 补丁（见 v3.5.6），移除会使无本地检出的环境构建到未打补丁的发布版；
+  待补丁上游化后再切 go.work
+
+## v3.5.6 (2026-09-14) — git.example.com (Forgejo) 真机复验：gitea 后端四缺陷修复 + 合并器同位置归并 + TaskAPI 幂等
+
+真实试点复验中发现并当场修复验证（PR#11/#13/#14 全链路：轮询 → 审查 → 官方 REQUEST_CHANGES → 报告原地更新）。
+SDK 侧修复在 `git-platform-sdk` 分支 `fix/gitea-pilot-findings`（argus go.mod replace 指向本地检出）。
+
+### 修复：git-platform-sdk gitea 后端（五个，均有实机证据）
+- `ListCRs` state 过滤值 `"opened"` 不被 Forgejo 认可（未知值返回**全部**状态）→
+  已关闭 PR 被轮询器重新审查；新增 `mapListState` 归一为 open/closed
+- `convertPR` 丢弃 `pr.Draft` → `ChangeRequest.Draft` 恒 false，draft 跳过在轮询与
+  webhook 两条路径全部失效（实测 draft PR 被完整审查）；补映射
+- `AllPages` 无上限 × Forgejo issue-comments 列表忽略 `page` 参数（page=1/2 返回同一
+  内容，curl 实证）→ poster 定位旧报告时**无限分页循环、worker 永久卡死**。注意
+  v3.5.5 的 `bound()` 兜底对此无效：循环内每个请求都成功返回，ctx 取消传递不进
+  gitea SDK；50 页上限是唯一有效兜底
+- `clientRoundTripper` 直连 `Transport.RoundTrip` 绕过 `http.Client.Timeout`（30s
+  默认值在该路径为死代码，gitea SDK 方法签名不带 ctx）→ 服务器停摆时永久阻塞
+  （SIGQUIT 栈实证 13-16 分钟悬空）；请求 ctx 超时封顶 + ResponseHeaderTimeout
+- `GetFileContent` 404 无法被 `provider.IsNotFound` 识别（gitea SDK 把 API 错误压平
+  成纯 message 字符串，状态码只留在随错误返回的 *Response 上）→ 可选文件缺失时
+  观测面出现虚假失败告警；从 *Response.StatusCode 分类修复（实机验证：
+  `.reviewagents.yaml` 缺失时 `loaded=false` 且零告警）
+
+### 改进：argus 侧防线
+- poller：非 `opened` 状态的 CR 不建任务（平台 state 过滤失灵的兜底）
+- poster：报告定位扫描步 60s 超时 + 失败 WARN 留痕，降级新建评论而非卡死队列
+- TaskAPI 幂等创建（`CreateTaskDirectIfIdle`）：同 PR 已有 pending/running 任务时
+  返回既有任务（`argus.api.task_create_deduped`），杜绝手工触发与轮询竞态双审；
+  done 后可重触发，强制重审语义保留
+- Merger 同位置归并：不同专家对同一 `file:line` 的不同措辞发现归并为一条（severity
+  取高、by 并列、意见拼接去重）——实机 PR#11 correctness/security 各报一条相同的
+  切片越界，旧逻辑按 file+comment 精确指纹拦不住（单测覆盖，实机待下轮复验）
+
+### 真机实测结论（Forgejo，修复后）
+- 轮询首扫：draft 跳过、closed 零重建，仅 open PR 建任务
+- PR#13 需求复核：正确关联 issue #12，AC-1 implemented/AC-2,3 missing 均带 file:line
+  证据；推送夹带文件后重审，scope creep 段准确列出 `utils/misc.go`（此前漏检系测试
+  素材 `git commit -am` 未暂存新文件，非程序缺陷）
+- 官方 blocking 评审 `official:true` ×2；push 新提交 20s 建任务、92s 完成审查，
+  总结评论**原地更新**（同 comment id，head 换新、发现并入、零重复评论）
+
+## v3.5.5 (2026-09-14) — GitHub 真机实测：SDK 调用兜底超时 + issue_comment Actor/Repo 补齐
+
+两个缺陷均在 GitHub 真机实测中发现并当场修复验证（私有仓库 argus-smoke-gh 全链路：
+TaskAPI 审查 → 评论区 @ 触发重审 → Q&A → 节流 → 原地更新，全部实测通过）。
+
+### 修复：SDK 调用无兜底超时（poster/worker 可永久挂起）
+- 弱网/VPN 下 TCP 连接可能停滞且不触发传输层错误——上一轮 git.example.com 实测中
+  poster 的总结评论更新因此在无超时的 HTTP 调用上无限等待（LLM 长推理同理）
+- `SDKCtx` 全部 11 个平台委托方法统一经 `bound()` 兜底：入参 ctx 无 deadline 时限时
+  `ARGUS_SDK_TIMEOUT`（默认 120s；负值关闭；已有 deadline 的 ctx 原样透传）
+- 单测 `TestSDKCtxBoundTimeout`：挂死 provider 50ms 内超时返回 / 外部 deadline 优先 /
+  负值关闭三语义
+
+### 修复：GitHub issue_comment 缺 Actor/Repo（评论链路静默早退）
+- SDK 的 GitHub 后端对 issue_comment 走 `default` 分支只置 Type，**不填 Actor/Repo**；
+  HandleComment 在 `ev.Repo == nil` 处静默返回——GitHub 评论路径此前对真实 webhook
+  从未生效（e2e fake provider 自填 Repo 掩盖了缺口；Forgejo 侧因 `pull_request.url`
+  缺失同样不可用，见 v3.5.4）
+- 新增 `normalizeCommentEvent`：以原始负载为准补齐（repository.full_name/owner+name →
+  Repo；sender.login/user.username/login → Actor；已有值不覆盖），评论处理与 SDK
+  归一化程度解耦
+- 单测 `TestNormalizeCommentEvent`：full_name 切分 / 显式字段优先 / 不覆盖已有值 /
+  user.username 兜底 / 空负载不 panic
+
+### 真机实测结论（GitHub，gh CLI + 私有仓库）
+- TaskAPI 全量审查：140s 完成，R1 拆出 4 条 AC 带 file:line 证据、AC-4 missing →
+  R5.1 一票否决；GitHub 拒绝 PR 作者提 blocking review → poster 自动降级 COMMENT
+  并注明原判定（与 Forgejo 一致）
+- 评论触发（本地中继按真实 issue_comment 形状 HMAC 签名投递）：重审关键词 → 建任务 +
+  回执；歧义长句 → LLM 意图分类 route=ask (0.95)；30s per-PR 节流生效；bot 回帖
+  凭 argus 标记 + @ 前缀匹配双保险无循环
+- 总结评论多轮**原地更新**（3 轮审查始终 1 条报告评论，body 随最新任务刷新）
+
+## v3.5.4 (2026-09-14) — GitLab note 评论触发打通 + git-platform-sdk v0.61.0
+
+### GitLab note 评论触发（生产 GitLab 上 @argus 链路打通）
+- **缺口**：SDK 把 GitLab note 事件归一化为 `cr.note`，而 `isCommentEvent` 只认
+  GitHub `issue_comment` 与 Gitea/Forgejo 空-Type 兜底探测——`cr.note` 落入事件
+  白名单检查后不在表内被静默丢弃。生产内网 GitLab（4 仓库）上 @argus 一直无响应
+- `isCommentEvent` 接受 `cr.note`；新增 `parseCommentMeta` 把两种评论负载形状折叠为
+  同一 `commentMeta`（GitLab：`object_attributes.note` / `merge_request.iid`；
+  GitHub/Gitea：`comment.body` / `issue.number`），HandleComment 单入口不再感知平台差异
+- **非用户意图的注释静默忽略**：GitLab 系统注释（`system: true`，改指派/标签等自动
+  生成）与非 MR 评论（`merge_request.iid` 为 0，commit/snippet/issue 评论）不进处理链；
+  bot 防循环 / delivery 幂等 / 30s per-PR 节流沿共用路径照常生效
+- **修复 Gitea/Forgejo PR 评论误判（实测确认的真 bug）**：Gitea v1.22（试点实例兼容基线）
+  的 `PullRequestMeta` 只有 `merged/merged_at/draft/html_url`——**没有 `url` 字段**；
+  旧代码以 `PullRequest.URL == ""` 判定"是否 PR"，在 Forgejo 上恒判为普通 issue 而
+  静默丢弃。即评论路径（Q&A/suppress/restore/重审）此前在试点实例上从未真正生效，
+  仅 GitHub 形状可用。现改 `json.RawMessage` 只判 `pull_request` 字段存在性
+- `scripts/setup-webhook.sh` 事件清单加 `issue_comment`——此前只注册
+  `pull_request_only`，Forgejo/Gitea 根本不投递 PR 评论事件
+- ⚠️ **GitLab 侧运维要求**：仓库 webhook 需勾选 Note events（SDK `CreateWebhook`
+  未设 NotesEvents，现有手工注册的 webhook 请在 UI/API 上确认补勾）
+
+### 依赖
+- git-platform-sdk v0.52.0 → v0.61.0（forgejo 独立后端、评论列表分页补全、
+  UpdateIssueComment 等；逐后端核对了评论事件归一化行为，Gitea/GitHub 语义无变化）
+- gorilla/websocket v1.5.1 → v1.5.3（govulncheck GO-2026-6278，make check 恢复绿）
+
+### 测试
+- service 单测：`isCommentEvent` 三平台事件判定七例；`parseCommentMeta` 七形状
+  （GitLab MR/系统注释/commit note、GitHub issue_comment、Gitea 无-url 元数据、
+  普通 issue、坏负载）
+- e2e 场景 20 `TestScenario20_GitLabNoteComment`：MR note 重审关键词快路径
+  （建任务 platform=gitlab + 回执任务号）→ 30s 节流负控 → bot 自评负控 →
+  系统注释负控，四连断言；stack 支持 commentRouter 装配（gitlab fake provider +
+  Service 接 Model）
+
+## v3.5.3 (2026-09-14) — agentkit v0.9.5 对齐：宽容解析 + ReAct 重试守卫 + 错误脱敏
+
+依赖基线 agentkit v0.9.4 → v0.9.5（`replace => ../agentkit` 本地开发不变），把新版
+能力落到 review 主链路。
+
+### LLM 输出宽容解析（agentkit jsonrepair）
+- 新增 `internal/llmjson`：`llm.ExtractJSON` 快路径 + `jsonrepair.Repair`/
+  `ParseLenient` 兜底——全角结构标点（，：）、非法转义、尾逗号、未闭合/截断
+  （中文模型输出高频损坏形态）
+- 接入全部 6 处解析点：R3 合规判定（含解析失败回喂重试轮）、R3.5 反思、
+  builtin/remote/acpx findings。此前这类半损坏输出整轮判死（R3 全部 AC 降级
+  unverifiable / R3.5 丢弃修订稿 / acpx findings 清空）
+- 单测：快路径不回归、七类损坏形态逐一回收、顶层数组、非 JSON 仍拒绝
+
+### ReAct 失败回喂重试（agentkit agentrun v0.9.4）
+- R3 / builtin Reviewer / Q&A 三处 `RunWithEvents` → `RunWithEventsAndRetry`：
+  首轮失败带中断提示整体重跑一次
+- 副作用守卫默认生效：首轮已调用变更类工具则不整体重跑（重复副作用风险），
+  错误如实上抛交既有降级链（R3 → 全 AC 人工确认；builtin → invokeSingle 单轮）
+- 既有 `ToolsFactory` 按尝试重建工具表，与重试天然搭配（限流计数按尝试重置）
+
+### 任务失败信息脱敏（agentkit logredact）
+- `task_failed` 错误链落日志 / 入库（`FinishTask`）/ IM 推送（`announceTerminal`）
+  三路消费前统一 `logredact.Redact`——工作副本与平台 SDK 错误可能携带
+  `https://user:token@host` 形态的带凭据 URL，此前原样入库并推送
+
 ## v3.5.2 (2026-09-13) — e2e 闭环 + 标注重放修复
 
 ### 修复

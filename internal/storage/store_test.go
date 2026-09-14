@@ -418,3 +418,90 @@ func TestQASessionRoundtripAndExpiry(t *testing.T) {
 		t.Fatalf("过期会话应视为不存在: %v %v", sess, err)
 	}
 }
+
+// 幂等直建：同 PR 已有 pending/running 任务时不再新建，返回既有任务；
+// 无在飞任务时正常创建。TaskAPI 手工触发路径的防重复审查防线。
+func TestCreateTaskDirectIfIdle(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	first := &Task{
+		ID: NewTaskID(), Kind: "requirement_compliance", Platform: "gitea",
+		Owner: "o", Repo: "r", Number: "1", Status: StatusPending, CreatedAt: time.Now(),
+	}
+	existing, created, err := s.CreateTaskDirectIfIdle(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || existing != nil {
+		t.Fatalf("first create: created=%v existing=%v, want true/nil", created, existing)
+	}
+
+	// pending 在飞 → 幂等命中
+	second := &Task{
+		ID: NewTaskID(), Kind: "requirement_compliance", Platform: "gitea",
+		Owner: "o", Repo: "r", Number: "1", Status: StatusPending, CreatedAt: time.Now(),
+	}
+	existing, created, err = s.CreateTaskDirectIfIdle(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created || existing == nil || existing.ID != first.ID {
+		t.Fatalf("in-flight dedup: created=%v existing=%v, want false/%s", created, existing, first.ID)
+	}
+
+	// 不同 PR 不受影响
+	other := &Task{
+		ID: NewTaskID(), Kind: "requirement_compliance", Platform: "gitea",
+		Owner: "o", Repo: "r", Number: "2", Status: StatusPending, CreatedAt: time.Now(),
+	}
+	if _, created, err = s.CreateTaskDirectIfIdle(ctx, other); err != nil || !created {
+		t.Fatalf("other PR should create: created=%v err=%v", created, err)
+	}
+
+	// 在飞任务完成后允许再次直建（手工强制重审是合法用途）
+	if err := s.FinishTask(ctx, first.ID, StatusDone, "comment", "report", "{}", "", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishTask(ctx, other.ID, StatusDone, "comment", "report", "{}", "", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	again := &Task{
+		ID: NewTaskID(), Kind: "requirement_compliance", Platform: "gitea",
+		Owner: "o", Repo: "r", Number: "1", Status: StatusPending, CreatedAt: time.Now(),
+	}
+	if _, created, err = s.CreateTaskDirectIfIdle(ctx, again); err != nil || !created {
+		t.Fatalf("re-create after done: created=%v err=%v", created, err)
+	}
+}
+
+// 收尾批修复回归：历史报告评论 ID 缓存——去重追加、封顶淘汰、新→旧读出。
+func TestReviewTargetKnownCommentsRoundtrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for _, id := range []int64{101, 102, 103} {
+		if err := s.AppendReviewTargetComment(ctx, "gitea", "acme", "app", "7", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 重复追加去重
+	if err := s.AppendReviewTargetComment(ctx, "gitea", "acme", "app", "7", 102); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.KnownReviewTargetComments(ctx, "gitea", "acme", "app", "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 3 || ids[0] != 103 || ids[2] != 101 {
+		t.Fatalf("应 3 条且新→旧，got %v", ids)
+	}
+	// 无缓存仓库返回 nil 而非错误
+	if ids, err := s.KnownReviewTargetComments(ctx, "gitea", "acme", "app", "8"); err != nil || ids != nil {
+		t.Fatalf("无缓存应返回 nil/nil，got %v %v", ids, err)
+	}
+	// 非法 id 忽略
+	if err := s.AppendReviewTargetComment(ctx, "gitea", "acme", "app", "7", 0); err != nil {
+		t.Fatalf("id<=0 应静默忽略: %v", err)
+	}
+}

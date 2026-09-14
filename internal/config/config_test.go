@@ -121,3 +121,37 @@ func TestStageModelOverride(t *testing.T) {
 		t.Fatal("未配置阶段应为 nil")
 	}
 }
+
+// 深挖修复回归：部分配置交叉校验告警（Milvus 半配 / fallback 三缺一）。
+func TestWarnOnlyPartialConfig(t *testing.T) {
+	var warns []string
+	stub := &stubWarner{fn: func(msg string, _ ...any) { warns = append(warns, msg) }}
+
+	// Milvus 半配：只给地址，embedding 缺失 → 告警
+	c := &Config{MilvusAddr: "localhost:19530"}
+	c.WarnOnly(stub)
+	if len(warns) != 1 || warns[0] != "argus.config.milvus_partial" {
+		t.Fatalf("Milvus 半配应告警，got %v", warns)
+	}
+
+	// 配齐 → 不告警
+	warns = nil
+	c2 := &Config{MilvusAddr: "localhost:19530", EmbeddingBaseURL: "http://e", EmbeddingAPIKey: "k", EmbeddingModel: "m"}
+	c2.WarnOnly(stub)
+	if len(warns) != 0 {
+		t.Fatalf("配齐不应告警，got %v", warns)
+	}
+
+	// fallback 三缺一 → 告警
+	warns = nil
+	c3 := &Config{}
+	c3.LLM.FallbackModel = "gpt-4o-mini"
+	c3.WarnOnly(stub)
+	if len(warns) != 1 || warns[0] != "argus.config.fallback_partial" {
+		t.Fatalf("fallback 三缺一应告警，got %v", warns)
+	}
+}
+
+type stubWarner struct{ fn func(msg string, kv ...any) }
+
+func (s *stubWarner) Warn(msg string, kv ...any) { s.fn(msg, kv...) }

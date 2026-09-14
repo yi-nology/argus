@@ -39,7 +39,7 @@ type Store interface {
 
 // Dream 周期整合器。
 type Dream struct {
-	Store   Store
+	Store     Store
 	Knowledge rag.KnowledgeService // nil/Noop = 只写本地 markdown
 	// KnowledgeDir 本地知识目录（Milvus 不可用时落盘，下次启动索引）。
 	KnowledgeDir string
@@ -150,13 +150,13 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 	}
 	body := renderKnowledge(r, low, at)
 
-	// Milvus 主路径（与 suppress 回流同形）；失败降级本地 markdown
+	// Milvus 主路径（与 suppress 回流同形）；失败降级本地 markdown。
+	// 成功时同样写本地副本（深挖修复）：本地 markdown 是 Milvus 不可用时的降级
+	// 载体，长期不写会陈旧误导（幂等覆盖，成本一次文件写）。
 	key := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
 	if ms, ok := d.Knowledge.(*rag.MilvusStore); ok && ms != nil {
 		if err := ms.Index(ctx, key, body); err != nil {
 			d.warn("argus.dream.milvus_failed", "error", err.Error())
-		} else {
-			return true, nil
 		}
 	}
 	if d.KnowledgeDir == "" {

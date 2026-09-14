@@ -11,7 +11,6 @@ package adapter_acpx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -19,11 +18,11 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
 )
 
@@ -120,7 +119,15 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		return plugin.Result{}, fmt.Errorf("acpx agent %s 执行失败（%s）: %w", p.agent.Name(), kind, err)
 	}
 
-	findings := parseFindings(res.Text)
+	findings, perr := parseFindings(res.Text)
+	if perr != nil {
+		// 输出完全不可解析 ≠ "零 findings"：按失败上抛——dispatcher 记 breaker
+		// 失败 + Outcome 降级注明。此前返回 nil findings 记 Success，坏 agent
+		// 永不熔断、每轮假装干净（深挖 P0）。
+		p.log.Warn("argus.acpx.parse_failed", "plugin", p.manifest.Name, "agent", p.agent.Name(),
+			"text_chars", len([]rune(res.Text)), "error", perr.Error())
+		return plugin.Result{}, fmt.Errorf("acpx agent %s 输出不可解析: %w", p.agent.Name(), perr)
+	}
 	for i := range findings {
 		findings[i].By = p.manifest.Name
 	}
@@ -189,16 +196,14 @@ type rawFinding struct {
 	Comment  string `json:"comment"`
 }
 
-// parseFindings 从 agent 自由文本中容错提取 findings（ExtractJSON 兼容围栏/前后缀噪声；
-// severity 经词表归一化，越界归 low）。
-func parseFindings(text string) []plugin.Finding {
-	raw := llm.ExtractJSON(text)
-	if raw == "" {
-		return nil
-	}
+// parseFindings 从 agent 自由文本中容错提取 findings（llmjson 兼容围栏/前后缀噪声，
+// 并以 jsonrepair 修复全角标点/尾逗号/截断；severity 经词表归一化，越界归 low）。
+// 区分两种空：(nil, err) = 输出完全不可解析（模型产出垃圾，调用方按失败上抛进
+// 熔断）；(空切片, nil) = 合法解析出的空数组 = 真零 findings。
+func parseFindings(text string) ([]plugin.Finding, error) {
 	var items []rawFinding
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return nil
+	if err := llmjson.Unmarshal(text, &items); err != nil {
+		return nil, err
 	}
 	out := make([]plugin.Finding, 0, len(items))
 	for _, it := range items {
@@ -210,5 +215,5 @@ func parseFindings(text string) []plugin.Finding {
 			File: it.File, Line: it.Line, Severity: sev, Comment: it.Comment,
 		})
 	}
-	return out
+	return out, nil
 }

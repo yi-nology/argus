@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -76,7 +77,21 @@ type Dispatcher struct {
 func NewDispatcher(reg *Registry, log logx.Logger) *Dispatcher {
 	// 熔断参数显式取 agentkit 缺省（trip=3/cooldown=5min），行为不变但
 	// SkippedReason 文案可从同一常量派生，不再硬编码"5 分钟"
-	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(breaker.DefaultTripThreshold, breaker.DefaultCooldown), log: log, Now: time.Now, MaxConcurrent: 2}
+	// 半开探测时限 ≥ 最长插件超时 + 30s 余量（深挖 P0 遗留修复，agentkit
+	// v0.10.1 WithProbeTimeout）：探测时限小于插件超时时，慢而健康的插件
+	//（如 600s compliance）在探测在途期间会被并发双探测双跑。
+	// 注册表为空（测试/极早调用）回退 agentkit 缺省。
+	probe := time.Duration(0)
+	for _, r := range reg.Snapshot() {
+		if r.Manifest.Timeout > probe {
+			probe = r.Manifest.Timeout
+		}
+	}
+	var opts []breaker.Option
+	if probe > breaker.DefaultProbeTimeout {
+		opts = append(opts, breaker.WithProbeTimeout(probe+30*time.Second))
+	}
+	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(breaker.DefaultTripThreshold, breaker.DefaultCooldown, opts...), log: log, Now: time.Now, MaxConcurrent: 2}
 }
 
 // Registry 暴露注册表（workflow 加载仓库配置后做信任边界解析用）。
@@ -94,7 +109,25 @@ func (d *Dispatcher) Breakers() *breaker.Breakers { return d.breakers }
 //   - routing 命中（paths/labels）追加其 use 引用的插件。
 //
 // WithSquads 注入交叉审查编队声明（plugins.yaml squads 段；链式）。
+// 启动期静态校验（深挖修复）：未知 mode 静默按互盲跑（与用户预期的共识语义
+// 完全不同）、paths+labels 双空的编队永不触发——此前都是无声死配置。
 func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
+	for i := range sq {
+		s := &sq[i]
+		if s.Mode != "" && s.Mode != SquadModeConsensus {
+			d.log.Warn("argus.squad.unknown_mode", "squad", s.Name,
+				"mode", string(s.Mode), "effect", "按独立（互盲）模式处理")
+			s.Mode = ""
+		}
+		if len(s.Paths) == 0 && len(s.Labels) == 0 {
+			d.log.Warn("argus.squad.no_trigger", "squad", s.Name,
+				"effect", "paths 与 labels 均为空，该编队永远不会触发")
+		}
+		if len(s.Members) == 0 {
+			d.log.Warn("argus.squad.no_members", "squad", s.Name,
+				"effect", "未声明成员，该编队永远不会触发")
+		}
+	}
 	d.squads = sq
 	return d
 }
@@ -131,8 +164,26 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
 	var out []Selection
 	seen := map[string]bool{} // O(1) 去重，替代 O(N) 线性扫描
+	// consensus 编队成员不进 fan-out（v3.4 语义）：此前注释声称 Select 已排除、
+	// 代码却漏了——同一专家会被盲审一次、黑板共识再跑一次（双倍 token + 结果
+	// 双路径入库）。触发条件命中才排除：编队未触发时成员照常走基础选择。
+	consensus := map[string]bool{}
+	for _, sq := range d.squads {
+		if sq.Mode != SquadModeConsensus {
+			continue
+		}
+		if (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
+			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels)) {
+			for _, m := range sq.Members {
+				consensus[m] = true
+			}
+		}
+	}
 	add := func(reg *Registration, reason string) {
 		if !reg.Enabled {
+			return
+		}
+		if consensus[reg.Manifest.Name] {
 			return
 		}
 		if !skillsIntersect(reg.Manifest.Skills, skills) {
@@ -334,11 +385,13 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 		// 不再是硬正确性约束，但仍是最优顺序——避免无谓占用探测窗口。）
 		if budget != nil && budget.Remaining() <= 0 && !reg.LockRepoConfig {
 			o.SkippedReason = "任务 token 预算耗尽"
+			ReportPluginSkipped("budget")
 			continue
 		}
 		// 熔断门（Allow 后必然配对 Success/Failure——见下方 invoke 分支）
 		if !d.breakers.Allow(reg.Manifest.Name) {
 			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breaker.DefaultCooldown)
+			ReportPluginSkipped("circuit")
 			d.log.Warn("argus.plugin.circuit_open", "plugin", reg.Manifest.Name)
 			continue
 		}
@@ -346,10 +399,17 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 		wg.Add(1)
 		async.GoSafe(func() {
 			defer wg.Done()
-			// 获取信号量（限制并发）
+			// 获取信号量（限制并发）。等待必须可取消：任务级 ctx 终止后，
+			// 排队 goroutine 不能继续傻等前序插件跑完（深挖修复）。
 			if sem != nil {
-				sem <- struct{}{}
-				defer func() { <-sem }()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					o.SkippedReason = "任务已取消（等待执行槽位）"
+					ReportPluginSkipped("canceled")
+					return
+				}
 			}
 			timeout := reg.Manifest.Timeout
 			if timeout <= 0 {
@@ -362,10 +422,17 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			res, err := safeInvoke(cctx, reg.Plugin, task)
 			o.Duration = d.Now().Sub(start)
 			o.Err = err
-			if err == nil {
+			switch {
+			case err == nil:
 				o.Result = &res
 				d.breakers.Success(reg.Manifest.Name)
-			} else {
+			case teardown(err, ctx):
+				// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
+				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）
+				o.SkippedReason = "任务已取消"
+				d.log.Warn("argus.plugin.canceled", "plugin", reg.Manifest.Name,
+					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
+			default:
 				d.breakers.Failure(reg.Manifest.Name)
 				obsPluginFailure(reg.Manifest.Name)
 				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
@@ -387,6 +454,22 @@ func safeInvoke(ctx context.Context, p AgentPlugin, task Task) (res Result, err 
 		}
 	}()
 	return p.Invoke(ctx, task)
+}
+
+// teardown 判定失败是否源于任务级终止（优雅停机/任务中止）而非插件自身故障：
+//   - 错误链含 context.Canceled —— 调用方主动取消；
+//   - 父 ctx 已带错误（取消或整体超时）时的 DeadlineExceeded —— 插件级超时
+//     与任务级终止叠加，无法归因插件，保守不计数。
+//
+// 插件自身超时（父 ctx 健康、插件 cctx 到期）不算 teardown，照常计入熔断。
+func teardown(err error, parent context.Context) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	return parent.Err() != nil && errors.Is(err, context.DeadlineExceeded)
 }
 
 // OutcomeNames 结果里的插件名列表（报告元信息）。

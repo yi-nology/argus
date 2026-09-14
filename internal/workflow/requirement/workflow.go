@@ -21,11 +21,12 @@ import (
 	"git.example.com/enjoydream/agentkit/llm"
 )
 
-// TaskKind 词表（与 IDL TaskKind 对齐）。
+// TaskKind 词表（与 IDL TaskKind 对齐）。canonical 定义自 v3.5.6 上提
+// plugin.TaskKind*（service/poller 不必为拿常量依赖编排层）；别名保包内兼容。
 const (
-	KindRequirementCompliance = "requirement_compliance"
-	KindCodeReview            = "code_review"
-	KindVisualCheck           = "visual_check"
+	KindRequirementCompliance = plugin.TaskKindRequirementCompliance
+	KindCodeReview            = plugin.TaskKindCodeReview
+	KindVisualCheck           = plugin.TaskKindVisualCheck
 )
 
 // Verdict 词表。
@@ -35,20 +36,9 @@ const (
 	VerdictRequestChanges = "request_changes"
 )
 
-// Output workflow 产出。
-type Output struct {
-	Verdict    string // approve | comment | request_changes
-	Rule       string // R5.1..R5.5
-	Spec       *plugin.RequirementSpec
-	Report     *plugin.ComplianceReport
-	Merged     *plugin.MergedFindings
-	PluginsRun []string
-	Summary    string // R2 变更摘要
-	Elapsed    time.Duration
-	Tokens     int
-	Reflect    *ReflectSummary   // R3.5 反思结果（nil = 未启用）
-	Debug      map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
-}
+// Output workflow 产出。canonical 定义自 v3.5.6 上提 plugin.WorkflowOutput
+// （compliance 插件外壳与 runner 的边界契约）；别名保包内与既有调用方兼容。
+type Output = plugin.WorkflowOutput
 
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
 type Workflow struct {
@@ -98,6 +88,7 @@ func skillsForKind(kind string) []string {
 // Run 完整链路 R1→R5（requirement_compliance 任务）。
 func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
 	start := time.Now()
+	task.Budget = budget // R3 重试的预算门读取（深挖修复：R1-R3 此前完全不受预算约束）
 	rc := w.loadRepoConfig(ctx, task)
 
 	debug := map[string]string{}
@@ -109,17 +100,20 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	if b, e := json.Marshal(spec); e == nil {
 		debug["r1_spec"] = string(b)
 	}
-	// R2 变更理解
+	// R2 变更理解。失败降级继续（深挖修复）：R2 只产摘要且 R3/R4 携带原始 diff
+	// 不依赖它——此前是全链路唯一"一个摘要模型瞬断就 error 掉整个任务"的单点，
+	// 与 R1/R3/R4 的失败降级纪律不一致。
 	summary, err := w.SummarizeChange(ctx, task)
 	if err != nil {
-		return nil, err
+		w.Log.Warn("argus.r2.degrade", "error", err.Error())
+		summary = ""
 	}
 	debug["r2_summary"] = summary
 	// 注入 R2 产物到 Artifacts，R4 插件可复用（公共前缀省 token）
 	if task.Artifacts == nil {
 		task.Artifacts = map[string]string{}
 	}
-	task.Artifacts["change_summary"] = summary
+	task.Artifacts[plugin.ArtifactChangeSummary] = summary
 	task.Requirement = spec
 
 	// R3 完成度判定
@@ -147,16 +141,18 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 // RunReviewOnly 仅 R4+R5（code_review / visual_check 任务：无需求清单，R5.1/R5.3 需求条件跳过）。
 func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
 	start := time.Now()
+	task.Budget = budget
 	rc := w.loadRepoConfig(ctx, task)
-	// R2 摘要供 R4 插件复用
+	// R2 摘要供 R4 插件复用（失败降级，同 Run）
 	summary, err := w.SummarizeChange(ctx, task)
 	if err != nil {
-		return nil, err
+		w.Log.Warn("argus.r2.degrade", "error", err.Error())
+		summary = ""
 	}
 	if task.Artifacts == nil {
 		task.Artifacts = map[string]string{}
 	}
-	task.Artifacts["change_summary"] = summary
+	task.Artifacts[plugin.ArtifactChangeSummary] = summary
 	out, err := w.finish(ctx, task, budget, rc, start, nil, nil, summary)
 	if out != nil {
 		out.Debug = map[string]string{"r2_summary": summary}
@@ -190,6 +186,10 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	merged, err := w.Merger.Merge(ctx, task.PR, task.ID, outcomes, time.Now())
 	if err != nil {
 		return nil, err
+	}
+	if summary == "" {
+		merged.Degraded = append(merged.Degraded,
+			"R2 变更理解失败，变更摘要缺失（R3/R4 直接基于原始 diff 审查，报告不含变更动机摘要）")
 	}
 	for _, p := range pruned {
 		merged.Degraded = append(merged.Degraded, p+" 未参与（token 预算裁剪）")
@@ -234,6 +234,30 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	verdict, rule := Verdict(spec, report, merged.Findings)
 	plugin.ReportStageDuration("R5", time.Since(r5Start))
 	plugin.ReportLayerExec(plugin.LayerR5)
+
+	// R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。skills 词表不匹配/
+	// 插件全被禁用/全数熔断/跳过时，空 findings 是"没人审"而不是"没问题"——
+	// 静默 APPROVE 会把未审查的变更放进主干。降级为 COMMENT + Degraded 注明。
+	ran := 0
+	for _, o := range outcomes {
+		if o.SkippedReason == "" && o.Err == nil {
+			ran++
+		}
+	}
+	if ran == 0 {
+		merged.Degraded = append(merged.Degraded,
+			"无任何审查插件实际产出（全被禁用/熔断/跳过，原因见上方 Degraded）——本结论在未审查状态下给出，仅作参考")
+		if verdict == VerdictApprove {
+			verdict, rule = VerdictComment, "R5.0"
+		}
+	}
+	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
+	// 大 PR 截断透出（深挖 P0）：diffprep 截断后 Truncated 标记此前全仓零消费，
+	// 审查覆盖不完整却无任何痕迹。此处统一注明（RunFull/RunReviewOnly 都经 finish）。
+	if task.Diff != nil && task.Diff.Truncated {
+		merged.Degraded = append(merged.Degraded,
+			"diff 超过上限被截断，本次审查仅覆盖保留部分——建议拆分 PR 或分段审查")
+	}
 
 	out := &Output{
 		Verdict:    verdict,

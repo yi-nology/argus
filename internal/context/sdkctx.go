@@ -21,10 +21,37 @@ import (
 // SDKCtx L5 上下文服务：git-platform-sdk 的薄封装（diff/issue/文件/webhook 解析）。
 // design §10.2：SDK 侧 RetryConfig 重试 1 次，仍败上抛（不吞错）。
 type SDKCtx struct {
-	provsMu   sync.RWMutex
-	provs     map[string]provider.Provider
-	log       logx.Logger
-	appTokens *appTokenManager // GitHub App token 管理（nil = 未启用）
+	provsMu        sync.RWMutex
+	provs          map[string]provider.Provider
+	log            logx.Logger
+	appTokens      *appTokenManager // GitHub App token 管理（nil = 未启用）
+	sdkCallTimeout time.Duration    // 单次 SDK 调用兜底超时（<=0 = 默认 120s；<0 = 关闭）
+}
+
+// defaultSDKCallTimeout ARGUS_SDK_TIMEOUT 未配置时的兜底值。
+// 弱网/VPN 下 TCP 连接可能停滞且不报错，无超时的调用会永久挂起（worker/poster 卡死）。
+const defaultSDKCallTimeout = 120 * time.Second
+
+// bound 为 SDK 调用兜底超时：入参 ctx 已有 deadline 则原样透传（尊重调用方语义），
+// 否则按 sdkCallTimeout（<=0 取默认）限时。取消时 SDK 内部请求随 ctx 中止。
+func (s *SDKCtx) bound(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	t := s.sdkCallTimeout
+	if t == 0 {
+		t = defaultSDKCallTimeout
+	}
+	if t < 0 {
+		return ctx, func() {} // 显式关闭兜底
+	}
+	return context.WithTimeout(ctx, t)
+}
+
+// WithSDKCallTimeout 覆盖兜底超时（测试/运维调优用）。
+func (s *SDKCtx) WithSDKCallTimeout(d time.Duration) *SDKCtx {
+	s.sdkCallTimeout = d
+	return s
 }
 
 // appTokenManager 管理 GitHub App installation token 的生命周期。
@@ -52,7 +79,7 @@ func (m *appTokenManager) set(token string) {
 //   - PAT（ARGUS_GITHUB_TOKEN）：静态 token，无需刷新
 //   - GitHub App（ARGUS_GITHUB_APP_ID + PRIVATE_KEY + INSTALLATION_ID）：installation token，50min 自动刷新
 func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
-	s := &SDKCtx{provs: map[string]provider.Provider{}, log: log}
+	s := &SDKCtx{provs: map[string]provider.Provider{}, log: log, sdkCallTimeout: cfg.SDKCallTimeout}
 	retry := &provider.RetryConfig{
 		MaxRetries: 1, BaseDelay: 500 * time.Millisecond, MaxDelay: 5 * time.Second,
 	}
@@ -235,6 +262,8 @@ func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	return p.GetCR(ctx, owner, repo, number)
 }
 
@@ -244,6 +273,8 @@ func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number st
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	return p.GetCRDiff(ctx, owner, repo, number)
 }
 
@@ -253,6 +284,8 @@ func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.Lis
 	if err != nil {
 		return nil, 0, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	return p.ListCRs(ctx, opts)
 }
 
@@ -262,6 +295,8 @@ func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*pr
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	return p.GetRepo(ctx, owner, repo)
 }
 
@@ -276,6 +311,8 @@ func (s *SDKCtx) GetFileContent(ctx context.Context, platform, owner, repo, path
 	if err != nil {
 		return "", err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	fm, ok := p.(provider.FileManager)
 	if !ok {
 		return "", unsupportedErr(platform, "FileManager")
@@ -289,6 +326,8 @@ func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number str
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	im, ok := p.(provider.IssueManager)
 	if !ok {
 		return nil, unsupportedErr(platform, "IssueManager")
@@ -302,6 +341,8 @@ func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, n
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	im, ok := p.(provider.IssueManager)
 	if !ok {
 		return nil, unsupportedErr(platform, "IssueManager")
@@ -318,11 +359,18 @@ func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, 
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	// 优先走 DiffManager.CreateNote（MR Notes API），兼容所有 CR 场景。
 	if dm, ok := p.(provider.DiffManager); ok {
 		noteID, err := dm.CreateNote(ctx, owner, repo, number, body)
 		if err == nil {
-			id, _ := strconv.ParseInt(noteID, 10, 64)
+			// 解析失败留痕（深挖修复）：Comment.ID=0 会破坏按评论 ID 幂等更新的锚点
+			id, perr := strconv.ParseInt(noteID, 10, 64)
+			if perr != nil {
+				s.log.Warn("argus.sdkctx.note_id_unparsable", "platform", platform,
+					"note_id", noteID, "error", perr.Error())
+			}
 			return &provider.IssueComment{ID: id, Body: body}, nil
 		}
 		s.log.Warn("argus.sdkctx.create_note_fallback", "platform", platform, "error", err.Error())
@@ -342,6 +390,8 @@ func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, 
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	im, ok := p.(provider.IssueManager)
 	if !ok {
 		return nil, fmt.Errorf("sdkctx: 平台 %s 不支持 IssueManager", platform)
@@ -355,6 +405,8 @@ func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	rm, ok := p.(provider.ReviewManager)
 	if !ok {
 		return nil, unsupportedErr(platform, "ReviewManager")
@@ -368,6 +420,8 @@ func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number 
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.bound(ctx)
+	defer cancel()
 	rm, ok := p.(provider.ReviewManager)
 	if !ok {
 		return nil, unsupportedErr(platform, "ReviewManager")

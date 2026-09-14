@@ -15,9 +15,9 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
-	"argus/internal/workflow/requirement"
 )
 
 // Target 一个被 watch 的仓库。
@@ -120,6 +120,11 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 		}
 		for _, cr := range prs {
+			// 防线：平台 state 过滤失灵时（实测 Forgejo 曾因 state=opened 被忽略而
+			// 返回全部 PR）非 open 的 CR 一律不建任务，避免已关闭 PR 被重新审查。
+			if cr.State != provider.CRStateOpened {
+				continue
+			}
 			if cr.Draft && p.SkipDraft { // 与 webhook 路径的 §5.1 规则 3 同源配置
 				continue
 			}
@@ -128,7 +133,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 			task := &storage.Task{
 				ID:        storage.NewTaskID(),
-				Kind:      requirement.KindRequirementCompliance,
+				Kind:      plugin.TaskKindRequirementCompliance,
 				Platform:  t.Platform,
 				Owner:     t.Owner,
 				Repo:      t.Repo,

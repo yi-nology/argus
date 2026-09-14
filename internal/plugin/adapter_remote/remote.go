@@ -14,8 +14,8 @@ import (
 
 	"git.example.com/enjoydream/agentkit/textutil"
 
+	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。
@@ -92,7 +92,7 @@ func buildPayload(task plugin.Task) (*remotePayload, string, error) {
 		HeadSHA:       task.PR.HeadSHA,
 		BaseBranch:    task.PR.BaseBranch,
 		HeadBranch:    task.PR.HeadBranch,
-		ChangeSummary: task.Artifacts["change_summary"],
+		ChangeSummary: task.Artifacts[plugin.ArtifactChangeSummary],
 	}
 	if t, truncated := textutil.TruncRunes(p.Body, payloadBodyMaxChars); truncated {
 		p.Body = t + "…（截断）"
@@ -110,7 +110,7 @@ func parseFindings(text string) (plugin.Result, error) {
 		Findings []plugin.Finding `json:"findings"`
 		Notes    string           `json:"notes"`
 	}
-	if err := json.Unmarshal([]byte(llm.ExtractJSON(text)), &out); err != nil {
+	if err := llmjson.Unmarshal(text, &out); err != nil {
 		return plugin.Result{}, fmt.Errorf("remote 响应解析失败: %w（原文 %.200s）", err, text)
 	}
 	for i := range out.Findings {

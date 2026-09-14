@@ -9,7 +9,7 @@ import (
 
 // v3.0.1 修复回归：Triggers.Events 此前整体失效（Match 对纯 Events 触发器恒 false +
 // dispatcher 传空事件类型）。修复后：events 白名单外的 webhook 任务不执行该插件。
-func TestScenario10_TriggerEventsFilter(t *testing.T) {
+func TestScenario22_TriggerEventsFilter(t *testing.T) {
 	s := newStack(t, stackOpts{workers: 0})
 
 	// 注册一个只在 cr.opened 参与的 fake 插件（code-review 技能，无超时直通）

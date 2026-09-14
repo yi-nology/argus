@@ -91,8 +91,29 @@ func New(core Core, version string) *server.MCPServer {
 		if !ok {
 			return mcp.NewToolResultError("ask_argus 未启用（core 未实现 ReviewQA）"), nil
 		}
-		platform, owner, repo, number := argString(req, "platform", ""), argString(req, "owner", ""),
-			argString(req, "repo", ""), argString(req, "number", "")
+		// 必填校验（深挖修复）：schema 标了 Required 但此前漏传静默回空串，
+		// 空参查询被伪装成"该 PR 尚无审查记录"，客户端装配错误无从排查。
+		platform, err := req.RequireString("platform")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		owner, err := req.RequireString("owner")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		repo, err := req.RequireString("repo")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		number, err := req.RequireString("number")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		for _, r := range number { // PR 序号必须纯数字（与 service.isDigits 同口径）
+			if r < '0' || r > '9' {
+				return mcp.NewToolResultError("number 必须为纯数字 PR 序号"), nil
+			}
+		}
 		question := argString(req, "question", "")
 		if question == "" {
 			// 无追问：返回最近一次审查结论（verdict + findings + 报告摘录）

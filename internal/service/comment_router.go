@@ -27,7 +27,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/router"
 
-	"argus/internal/workflow/requirement"
+	"argus/internal/plugin"
 )
 
 // 评论意图词表（router.Route.Name；词表保持最小——两类处理链，第三类就是过度设计）。
@@ -45,14 +45,26 @@ var reviewKeywords = []string{
 	"重新审查", "重新评审", "再审", "重审", "重跑评审", "rerun", "re-review", "recheck",
 }
 
+// questionMarkers 疑问标记（小写包含匹配）：出现即不走关键词快路径。
+// "这个重新审查的逻辑对吗"（11 rune）不含否定词、长度也在阈值内，原本会命中
+// "重新审查"直接触发全量重审（深挖 P0）——它是问题不是指令，交 LLM 意图分类
+// 裁决（MinConfidence 之下回落 ask，不烧重审预算）。
+var questionMarkers = []string{"吗", "？", "?", "为什么", "怎么", "怎样", "如何", "什么", "难道"}
+
 // matchReviewKeyword 短命令关键词快路径判定（纯函数）。
 // agentkit router.KeywordHit：子串 + 否定前置守门（「不要重新审查」不命中）；
-// 拉丁词走词边界（rerun 不误命中 rerunning 内部构式外的更长词）。
+// 拉丁词走词边界（rerun 不误命中 rerunning 内部构式外的更长词）；
+// 疑问标记守门（问句交 LLM 分类）。
 func matchReviewKeyword(question string) bool {
 	if len([]rune(question)) > reviewKeywordMaxRunes {
 		return false
 	}
 	lower := strings.ToLower(question)
+	for _, m := range questionMarkers {
+		if strings.Contains(lower, m) {
+			return false
+		}
+	}
 	for _, kw := range reviewKeywords {
 		// 中文关键词：否定守门；拉丁关键词：再加词边界
 		if isASCIIKeyword(kw) {
@@ -84,7 +96,7 @@ func (s *Service) routeAndReply(ctx context.Context, platform, owner, repo, prNu
 	question, delivery string) (string, error) {
 
 	askHandle := func(input string) (string, error) {
-		ans, err := s.answerQA(ctx, platform, owner, repo, prNum, prRef, input)
+		ans, err := s.qa().Answer(ctx, platform, owner, repo, prNum, prRef, input)
 		if err != nil {
 			return "", err
 		}
@@ -99,6 +111,7 @@ func (s *Service) routeAndReply(ctx context.Context, platform, owner, repo, prNu
 	if matchReviewKeyword(question) {
 		s.log().Info("argus.comment.route", "pr", prRef, "route", commentIntentReview,
 			"via", "keyword", "confidence", 1)
+		plugin.ReportCommentRoute(commentIntentReview, "keyword")
 		return reviewHandle(question)
 	}
 
@@ -111,6 +124,7 @@ func (s *Service) routeAndReply(ctx context.Context, platform, owner, repo, prNu
 	}
 	s.log().Info("argus.comment.route", "pr", prRef, "route", intent,
 		"confidence", d.Confidence, "reason", d.Reason)
+	plugin.ReportCommentRoute(intent, "llm")
 	if intent == commentIntentReview {
 		return reviewHandle(question)
 	}
@@ -164,8 +178,8 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (string, 
 // 跨轮指纹/抑制照常生效）。失败返回 error，由调用方走错误回帖路径。
 func (s *Service) rerunReviewReply(ctx context.Context, platform, owner, repo, prNum, prRef,
 	question, delivery string) (string, error) {
-	resp, status := s.CreateTaskDirect(ctx, requirement.KindRequirementCompliance,
-		platform, owner, repo, prNum, map[string]string{"trigger": "comment"})
+	resp, status := s.CreateTaskDirect(ctx, plugin.TaskKindRequirementCompliance,
+		platform, owner, repo, prNum, map[string]string{plugin.ArtifactTrigger: "comment"})
 	if status != http.StatusOK || resp == nil {
 		return "", fmt.Errorf("建审查任务失败（HTTP %d）", status)
 	}

@@ -23,6 +23,16 @@ var (
 	HookReflectDegrade func(reason string)
 	// HookLayerExec 分层执行探针：层被真正走到时 +1（活检；名义存在但零执行 = 告警）。
 	HookLayerExec func(layer string)
+	// HookVerdict 裁决分布（platform, kind, verdict, rule）——R5 真值表命中分布。
+	HookVerdict func(platform, kind, verdict, rule string)
+	// HookFenceNeutralized 数据区围栏中和次数（= 检测到注入特征文本的信号量）。
+	HookFenceNeutralized func(n int)
+	// HookPluginSkipped 插件跳过原因分布（circuit/budget/canceled）。
+	HookPluginSkipped func(reason string)
+	// HookCommentRoute 评论意图路由分布（route: review|ask, via: keyword|llm|fallback）。
+	HookCommentRoute func(route, via string)
+	// HookTaskDeduped 任务创建去重计数（reason: event_id|last_head_sha|in_flight）。
+	HookTaskDeduped func(reason string)
 )
 
 func obsTaskTotal(platform, kind, status string) {
@@ -96,6 +106,41 @@ func ReportReflectDegrade(reason string) {
 func ReportLayerExec(layer string) {
 	if HookLayerExec != nil && layer != "" {
 		HookLayerExec(layer)
+	}
+}
+
+// ReportVerdict R5 裁决分布（argus_verdicts_total）。
+func ReportVerdict(platform, kind, verdict, rule string) {
+	if HookVerdict != nil {
+		HookVerdict(platform, kind, verdict, rule)
+	}
+}
+
+// ReportFenceNeutralized 围栏中和计数（注入特征信号，argus_fence_neutralized_total）。
+func ReportFenceNeutralized(n int) {
+	if HookFenceNeutralized != nil && n > 0 {
+		HookFenceNeutralized(n)
+	}
+}
+
+// ReportPluginSkipped 插件跳过原因（reason 词表：circuit | budget | canceled）。
+func ReportPluginSkipped(reason string) {
+	if HookPluginSkipped != nil && reason != "" {
+		HookPluginSkipped(reason)
+	}
+}
+
+// ReportCommentRoute 评论意图路由分布。
+func ReportCommentRoute(route, via string) {
+	if HookCommentRoute != nil {
+		HookCommentRoute(route, via)
+	}
+}
+
+// ReportTaskDeduped 任务创建去重（reason 词表：event_id | last_head_sha | in_flight）。
+func ReportTaskDeduped(reason string) {
+	if HookTaskDeduped != nil && reason != "" {
+		HookTaskDeduped(reason)
 	}
 }
 

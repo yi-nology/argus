@@ -70,6 +70,16 @@ func marshalAgents(agents []plugin.AgentDecl) string {
 	return string(data)
 }
 
+// marshalPluginsFile agents + squads 全量声明（编队场景用）。
+func marshalPluginsFile(agents []plugin.AgentDecl, squads []plugin.SquadDecl) string {
+	pf := struct {
+		Agents []plugin.AgentDecl `yaml:"agents"`
+		Squads []plugin.SquadDecl `yaml:"squads"`
+	}{Agents: agents, Squads: squads}
+	data, _ := yaml.Marshal(pf)
+	return string(data)
+}
+
 // writeOCRScript 生成假 OCR CLI：打印固定 JSON findings（容错解析器契约见 adapter_cli）。
 func writeOCRScript(t TestingT, dir string) string {
 	path := filepath.Join(dir, "bin", "mock-ocr.sh")

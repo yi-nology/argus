@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -32,10 +33,14 @@ type Deps struct {
 	WC     *workcopy.Pool
 	Model  model.BaseChatModel // 可 nil（无 LLM 配置时仅 cli 插件可用）
 	Skills skill.Provider
+	// Plugins 预加载的插件清单（Assemble 统一加载一次后传入，MCP 工具表/编队段共用）；
+	// nil = BuildRegistry 自行加载，缺文件回退内置默认（独立调用方保持原语义）。
+	Plugins *plugin.PluginsFile
 	// WorkflowFactory 由 runner 提供（requirement-compliance 插件延迟注册）。
-	WorkflowFactory adapter_builtin.WorkflowFactory
+	// 契约类型在 plugin（v3.5.7 上提；adapter_builtin.WorkflowFactory 是其别名）。
+	WorkflowFactory plugin.WorkflowFactory
 	// ReviewTools 由 runner 提供（builtin Reviewer 的 ReAct 工具表钩子；nil = 单轮模式）。
-	ReviewTools adapter_builtin.ToolsHook
+	ReviewTools plugin.ToolsHook
 	// ReviewerLLM / ReviewerName 阶段覆盖的 Reviewer 生成器（P6：ARGUS_REVIEWER_MODEL；
 	// nil = Reviewer 用全局 Model 构造）。
 	ReviewerLLM  llm.Generator
@@ -45,16 +50,16 @@ type Deps struct {
 	ReactModel model.BaseChatModel
 }
 
-// BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置）并注册全部插件。
+// BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置；Deps.Plugins 非空时
+// 直接使用预加载清单）并注册全部插件。
 // 返回 registry 与 requirement-compliance 的 skillRefs（要传给 runner 做 R3 注入）。
 func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
-	pf, err := plugin.LoadPluginsFile(d.Cfg.PluginsFile)
-	if err != nil {
-		d.Log.Warn("argus.bootstrap.plugins_file_missing", "file", d.Cfg.PluginsFile,
-			"error", err.Error(), "fallback", "使用内置默认插件配置")
-		pf = defaultPluginsFile()
-	} else if len(pf.Agents) == 0 {
-		d.Log.Warn("argus.bootstrap.plugins_empty", "file", d.Cfg.PluginsFile)
+	pf := d.Plugins
+	if pf == nil {
+		var err error
+		if pf, err = loadPluginsFile(d.Cfg, d.Log); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	reg := plugin.NewRegistry()
@@ -139,6 +144,11 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 			if len(decl.Cmd) == 0 {
 				enabled = false
 				p = &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 cmd"}
+			} else if strings.EqualFold(decl.Mode, "delegate") {
+				// delegate 模式仍未实装（运行期必报错）——启动期即停用并注明，
+				// 不再注册成"可用"插件每个 PR 撞一次错、白烧熔断额度（深挖修复）
+				enabled = false
+				p = &unavailablePlugin{manifest: manifest, reason: "cli delegate 模式未实装（留接口）"}
 			} else if _, err := exec.LookPath(decl.Cmd[0]); err != nil {
 				// 供应链信任（§8）：白名单可执行文件不存在 → 不启用（绝不尝试其他解析路径）
 				d.Log.Warn("argus.bootstrap.cli_binary_missing", "plugin", decl.Name, "cmd", decl.Cmd[0])
@@ -148,6 +158,15 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				p = adapter_cli.New(manifest, decl.Cmd, decl.Mode, decl.Env, d.WC, d.Log)
 			}
 		case plugin.KindRemote:
+			// protocol 白名单（深挖修复）：拼错的 protocol 此前启动照常注册，
+			// 运行期每次 Invoke 走 default 分支报错 → 3 个 PR 后熔断
+			if manifest.Protocol != plugin.ProtocolA2A && manifest.Protocol != plugin.ProtocolMCP {
+				d.Log.Warn("argus.bootstrap.remote_bad_protocol", "plugin", decl.Name,
+					"protocol", string(manifest.Protocol), "allowed", "a2a|mcp")
+				enabled = false
+				p = &unavailablePlugin{manifest: manifest, reason: "protocol 非法: " + string(manifest.Protocol)}
+				break
+			}
 			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool)
 			if err != nil {
 				d.Log.Warn("argus.bootstrap.remote_skipped", "plugin", decl.Name, "error", err.Error())
@@ -214,6 +233,27 @@ func containsSkill(skills []string, want string) bool {
 	return false
 }
 
+// loadPluginsFile 插件清单统一加载（缺文件回退内置默认，告警一次）。
+// v3.5.9：原 BuildRegistry 与 Assemble 的 MCP 段各加载一次，收敛为单次解析共用。
+// 深挖修复：区分「文件不存在」（合理兜底）与「存在但解析失败」（fail-fast）——
+// 一个 YAML 缩进错误让全部自定义 agents/squads 静默替换为内置默认，生产上
+// 表现为"插件神秘消失"，必须启动期报错而不是降级硬扛。
+func loadPluginsFile(cfg *config.Config, log logx.Logger) (*plugin.PluginsFile, error) {
+	pf, err := plugin.LoadPluginsFile(cfg.PluginsFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			log.Warn("argus.bootstrap.plugins_file_missing", "file", cfg.PluginsFile,
+				"error", err.Error(), "fallback", "使用内置默认插件配置")
+			return defaultPluginsFile(), nil
+		}
+		return nil, fmt.Errorf("插件清单解析失败 %s: %w", cfg.PluginsFile, err)
+	}
+	if len(pf.Agents) == 0 {
+		log.Warn("argus.bootstrap.plugins_empty", "file", cfg.PluginsFile)
+	}
+	return pf, nil
+}
+
 // unavailablePlugin 已声明但不可用的插件（可观测：/agents 能看到它以及为何没启用）。
 type unavailablePlugin struct {
 	manifest plugin.AgentManifest
@@ -254,8 +294,9 @@ func defaultPluginsFile() *plugin.PluginsFile {
 			Name: "ocr", Kind: "cli",
 			Skills: []string{plugin.SkillCodeReview},
 			Needs:  []string{"working-copy"},
-			Cmd:    []string{"/Users/demo-user/bin/ocr", "review", "--format", "json"},
-			Mode:   "full", Cost: plugin.CostHeavy, Timeout: "300s", Enabled: &yes,
+			// 按 PATH 解析（LookPath 失败 → 插件停用且可观测），不硬编码个人机器路径
+			Cmd:  []string{"ocr", "review", "--format", "json"},
+			Mode: "full", Cost: plugin.CostHeavy, Timeout: "300s", Enabled: &yes,
 		},
 		{
 			Name: "review-service", Kind: "remote", Protocol: "mcp",

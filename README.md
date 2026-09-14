@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.5.2**（agentkit v0.9.4 / ekit v0.27.2 / eino v0.9.18）。真实 Forgejo（git.example.com）
+当前版本 **v3.5.12**（agentkit v0.9.8 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
@@ -94,11 +94,15 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 
 ### 7. PR 评论交互
 
-在 PR 评论中 `@argus ask <问题>`，Argus 会根据 PR 上下文用 LLM 回答。例如：
+在 PR 评论中 `@argus ask <问题>`（评论需以 `@机器人用户名` 开头），Argus 会根据 PR 上下文用 LLM 回答。例如：
 - `@argus ask 这个改动会影响性能吗？`
 - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
 - `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
 - `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
+
+三平台评论事件均接入（v3.5.4 补齐 GitLab）：GitHub `issue_comment`、GitLab `note`
+（仓库 webhook 需勾选 Note events）、Gitea/Forgejo 评论兜底；`setup-webhook.sh` 已含
+`issue_comment` 事件。GitLab 系统注释（改指派等自动生成）与非 MR 评论自动忽略。
 
 **评论意图路由（v3.4，`ARGUS_COMMENT_ROUTER=1` 开启）**：`@argus` 后的自由文本先分类再分派——
 - 要求重新审查（"请重新审查"、"再审一遍"）→ 自动建全量复审任务并回执任务号，作者推完修复
@@ -266,6 +270,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_APITOKEN` | 空 | 🔒 路由 Bearer；空则 fail-closed 503 |
 | `ARGUS_BOT_USERNAME` | - | bot 账号名（自审保护；生产建议独立账号）|
 | `ARGUS_MAX_CONCURRENT_TASKS` | 2 | worker 数，按 LLM 配额调 |
+| `ARGUS_PLUGIN_MAX_CONCURRENT` | 2 | 单任务内插件 fan-out 并发上限（防 API burst 429） |
 | `ARGUS_TASK_TOKEN_BUDGET` | 200k | 单任务 token 预算，heavy 插件先裁 |
 | `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文预算 |
 | `ARGUS_SKIP_DRAFT` | true | 跳过 Draft PR |
@@ -280,6 +285,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_LLM_COST_PROMPT_PER_1K` / `ARGUS_LLM_COST_COMPLETION_PER_1K` | 0 | 成本费率（$/1k token），报告元信息"成本 ≈ $X" |
 | `ARGUS_LLM_RATE_LIMIT` | 0（禁用）| LLM 请求速率限制（token bucket，单位 req/s）|
 | `ARGUS_LLM_RATE_BURST` | =MaxConcurrentTasks | 速率限制器突发容量 |
+| `ARGUS_SDK_TIMEOUT` | 120s | 单次平台 SDK 调用兜底超时（入参 ctx 无 deadline 时生效；负值关闭）——弱网/VPN 下防连接停滞挂死 |
 | `ARGUS_MODEL_{R1,R2,R3,R35,ROUTER}` / `ARGUS_REVIEWER_MODEL` / `ARGUS_QA_MODEL` | - | 分阶段模型覆盖（P6 扩展）：大窗口吃 R1 长输入、快模型跑 R2/路由、强模型保 R3/R35 质量；`_CONTEXT_TOKENS` 后缀配各阶段窗口 |
 | `ARGUS_REFLECTION_ROUNDS` | 0（关闭）| R3.5 报告反思轮数（1~3）：批判→修订收敛，剔除误报嫌疑 findings |
 | `ARGUS_COMMENT_ROUTER` | false | 评论意图路由：@argus 自由文本分类分派（review=重审任务 / ask=问答）|
@@ -364,7 +370,7 @@ squads:
 
 ```bash
 make test    # 单元测试（真值表/反注入/指纹/渲染/diffprep/存储，不联网）
-make e2e     # E2E 双打桩 16 场景（mock OpenAI + fake Gitea + mock OCR，不联网）
+make e2e    # E2E 双打桩 21 场景（mock OpenAI + fake Gitea/GitLab + mock OCR，不联网）
 make it      # 真实 LLM 集成测试（ARGUS_IT=1，走 OPENAI_*，约 1-3 分钟）
 make check   # vet + gofmt
 ```
@@ -387,7 +393,7 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
 **生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
-接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.4.0，生产升级部署待验证。
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.5.12（v3.5.4–v3.5.5 三平台评论触发真机修复、v3.5.6 Forgejo 复验、v3.5.7–v3.5.9 架构还债、v3.5.12 深挖 P0 修复），生产升级部署待验证。
 
 ---
 
@@ -421,7 +427,7 @@ internal/
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
-test/e2e/                      双打桩 E2E 16 场景 + 真实 LLM 集成测试
+test/e2e/                      双打桩 E2E 21 场景 + 真实 LLM 集成测试
 deploy/                        docker-compose + k8s kustomize 双形态（+ 多副本指南）
 scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
 skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
@@ -461,7 +467,7 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 - 路由/裁决/合并走 LLM：确定性优先的原则不变。
 
 **剩余待办/已知边界**：
-- 生产升级部署验证（生产现运行 v3.0.5，仓库 HEAD 已 v3.4.0）；
+- 生产升级部署验证（生产现运行 v3.0.5，仓库 HEAD 已 v3.5.12）；
 - 总结评论扫描兜底受 SDK 分页限制（评论被顶出第一页后走新建路径）；
 - 编队共识上限 2 轮（比 agentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
   （成本经 obsx/费率记账可见）；

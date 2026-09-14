@@ -40,7 +40,15 @@ dumped_hertz_remote_config.json
 *.db-shm
 *.db-wal
 argus.db
+*.db.bak-*
+
+# 本地构建产物
+/argus
 
 # 可再生产物：go mod vendor 重新生成（make docker 自动执行）
 vendor/
 bin/
+
+# go work 本地工作区（replace 刻意保留在 go.mod，见 CHANGELOG v3.5.13）
+go.work
+go.work.sum

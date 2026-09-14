@@ -2,16 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
+	"github.com/yi-nology/git-platform-sdk/provider"
 
 	"argus/internal/config"
-	"argus/internal/storage"
 )
 
 type testLogger struct{}
@@ -139,7 +139,7 @@ func TestExtractSuppressFP(t *testing.T) {
 		{"suppress fp:ABCD1234 更正", "abcd1234", true},
 		{"suppress fp:abc", "", false},     // 短码过短
 		{"suppress fp:xyz123!", "", false}, // 非十六进制
-		{"ask 这段代码为什么这样写", "", false}, // 非 suppress 指令
+		{"ask 这段代码为什么这样写", "", false},      // 非 suppress 指令
 	}
 	for _, c := range cases {
 		got, ok := extractSuppressFP(c.in)
@@ -157,10 +157,10 @@ func TestExtractRestoreFP(t *testing.T) {
 	}{
 		{"restore fp:abcd1234", "abcd1234", true},
 		{"restore fp:ABCD1234 更正", "abcd1234", true},
-		{"restore fp:abc", "", false},     // 短码过短
-		{"restore fp:xyz123!", "", false}, // 非十六进制
+		{"restore fp:abc", "", false},       // 短码过短
+		{"restore fp:xyz123!", "", false},   // 非十六进制
 		{"suppress fp:abcd1234", "", false}, // 反向指令不得命中 restore
-		{"ask 这段代码为什么这样写", "", false},     // 非 restore 指令
+		{"ask 这段代码为什么这样写", "", false},       // 非 restore 指令
 	}
 	for _, c := range cases {
 		got, ok := extractRestoreFP(c.in)
@@ -170,20 +170,121 @@ func TestExtractRestoreFP(t *testing.T) {
 	}
 }
 
-func TestRenderHistoryCapsAndEscapes(t *testing.T) {
-	var long strings.Builder
-	for i := 0; i < 500; i++ {
-		long.WriteRune('长')
+// v3.5.3 回归：三种平台的评论事件判定——GitHub issue_comment、GitLab cr.note
+// （SDK 归一化产物，此前不认导致生产 GitLab @argus 无响应）、Gitea/Forgejo 兜底探测。
+func TestIsCommentEvent(t *testing.T) {
+	cases := []struct {
+		name string
+		ev   provider.NormalizedEvent
+		want bool
+	}{
+		{"github issue_comment", provider.NormalizedEvent{Type: "issue_comment"}, true},
+		{"gitlab cr.note", provider.NormalizedEvent{Type: "cr.note"}, true},
+		{"gitlab cr.open", provider.NormalizedEvent{Type: "cr.open"}, false},
+		{"白名单外已知事件", provider.NormalizedEvent{Type: "cr.comment"}, false},
+		{"gitea 未识别+comment 负载", provider.NormalizedEvent{RawPayload: json.RawMessage(`{"comment":{"body":"hi"}}`)}, true},
+		{"gitea push（无 comment 负载）", provider.NormalizedEvent{RawPayload: json.RawMessage(`{"ref":"refs/heads/main"}`)}, false},
+		{"空事件", provider.NormalizedEvent{}, false},
 	}
-	hist := []storage.QATurn{
-		{Question: "q1", Answer: long.String(), At: "2026-09-07T00:00:00Z"},
+	for _, c := range cases {
+		if got := isCommentEvent(&c.ev); got != c.want {
+			t.Errorf("%s: isCommentEvent = %v, want %v", c.name, got, c.want)
+		}
 	}
-	out := renderHistory(hist)
-	// 单条回答截断到 400 rune + 省略号：不应把 500 字全文带回上下文
-	if strings.Count(out, "长") > 401 {
-		t.Fatalf("历史应截断: %d", strings.Count(out, "长"))
+}
+
+// v3.5.3 回归：评论负载归一化——GitLab note 形状（object_attributes/merge_request）
+// 与 GitHub/Gitea issue 形状折叠为同一 commentMeta；系统注释/非 MR/普通 issue 静默忽略。
+func TestParseCommentMeta(t *testing.T) {
+	ev := func(typ string, raw string) *provider.NormalizedEvent {
+		return &provider.NormalizedEvent{Type: typ, RawPayload: json.RawMessage(raw)}
 	}
-	if !strings.Contains(out, "q1") {
-		t.Fatalf("问题应保留: %q", out)
+	cases := []struct {
+		name     string
+		ev       *provider.NormalizedEvent
+		wantOK   bool
+		wantBody string
+		wantNum  int
+	}{
+		{
+			"gitlab MR note", ev("cr.note", `{"object_attributes":{"note":"@argus 请重新审查","system":false},"merge_request":{"iid":7}}`),
+			true, "@argus 请重新审查", 7,
+		},
+		{
+			"gitlab 系统注释", ev("cr.note", `{"object_attributes":{"note":"assigned to @bob","system":true},"merge_request":{"iid":7}}`),
+			false, "", 0,
+		},
+		{
+			"gitlab commit note（非 MR）", ev("cr.note", `{"object_attributes":{"note":"lgtm"},"merge_request":{}}`),
+			false, "", 0,
+		},
+		{
+			"github issue_comment", ev("issue_comment", `{"comment":{"body":"@argus ask 为什么"},"issue":{"number":12,"pull_request":{"url":"https://api.github.com/x/pr/12"}}}`),
+			true, "@argus ask 为什么", 12,
+		},
+		{
+			// Gitea 的 pull_request 元数据无 url 字段（diff_url/html_url 形状），只判存在性
+			"gitea PR 评论", ev("", `{"comment":{"body":"@argus hi"},"issue":{"number":7,"pull_request":{"diff_url":"x","html_url":"y"}}}`),
+			true, "@argus hi", 7,
+		},
+		{
+			"普通 issue 评论（无 pull_request）", ev("issue_comment", `{"comment":{"body":"hi"},"issue":{"number":3}}`),
+			false, "", 0,
+		},
+		{
+			"负载非法", ev("issue_comment", `{not-json`),
+			false, "", 0,
+		},
+	}
+	for _, c := range cases {
+		meta, ok := parseCommentMeta(c.ev)
+		if ok != c.wantOK || meta.Body != c.wantBody || meta.PRNumber != c.wantNum {
+			t.Errorf("%s: parseCommentMeta = (%+v,%v), want body=%q num=%d ok=%v",
+				c.name, meta, ok, c.wantBody, c.wantNum, c.wantOK)
+		}
+	}
+}
+
+// v3.5.5 回归：GitHub SDK 对 issue_comment 不填 Actor/Repo（default 分支只置 Type），
+// normalizeCommentEvent 必须从原始负载补齐，否则评论链路在 Repo nil 处静默早退。
+func TestNormalizeCommentEvent(t *testing.T) {
+	ev := &provider.NormalizedEvent{
+		Type: "issue_comment",
+		RawPayload: json.RawMessage(`{
+			"sender": {"login": "alice"},
+			"repository": {"id": 7, "full_name": "acme/app"},
+			"comment": {"body": "@argus hi"}
+		}`),
+	}
+	normalizeCommentEvent(ev)
+	if ev.Repo == nil || ev.Repo.Owner != "acme" || ev.Repo.Name != "app" {
+		t.Fatalf("Repo 应从 repository.full_name 补齐: %+v", ev.Repo)
+	}
+	if ev.Actor == nil || ev.Actor.Username != "alice" {
+		t.Fatalf("Actor 应从 sender.login 补齐: %+v", ev.Actor)
+	}
+
+	// 已有值不覆盖；Actor 缺 sender 时用 user.username 兜底（GitLab 形状）
+	ev2 := &provider.NormalizedEvent{
+		Type: "issue_comment",
+		Repo: &provider.EventRepo{Owner: "keep", Name: "me"},
+		RawPayload: json.RawMessage(`{
+			"repository": {"name": "n", "owner": {"login": "o"}},
+			"user": {"username": "gl-user"}
+		}`),
+	}
+	normalizeCommentEvent(ev2)
+	if ev2.Repo.Owner != "keep" || ev2.Repo.Name != "me" {
+		t.Fatalf("已有 Repo 不应被覆盖: %+v", ev2.Repo)
+	}
+	if ev2.Actor == nil || ev2.Actor.Username != "gl-user" {
+		t.Fatalf("Actor 应从 user.username 兜底: %+v", ev2.Actor)
+	}
+
+	// 空负载：保持 nil，不 panic
+	ev3 := &provider.NormalizedEvent{Type: "cr.note"}
+	normalizeCommentEvent(ev3)
+	if ev3.Repo != nil || ev3.Actor != nil {
+		t.Fatalf("空负载不应产生补齐: %+v %+v", ev3.Repo, ev3.Actor)
 	}
 }

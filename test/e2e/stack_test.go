@@ -1,5 +1,5 @@
 // Package e2e 双打桩端到端（design §7-9）：mock OpenAI + mock Gitea（fake provider）+
-// mock OCR CLI + fake AgentPlugin，验证八场景。
+// mock OCR CLI + fake AgentPlugin，双打桩 E2E（21 场景）。
 package e2e
 
 import (
@@ -74,6 +74,7 @@ func newFakeProvider() *fakeProvider {
 		cr: &provider.ChangeRequest{
 			Number: "7", Title: "添加登录功能",
 			Description:  "实现账号密码登录，见 issue #12",
+			State:        provider.CRStateOpened, // SDK 契约：非 draft 开启 PR 恒为 opened（poller 防线依赖此值）
 			SourceBranch: "feat/login-#12", TargetBranch: "main",
 			HeadSHA: "sha-1", Author: &provider.CRUser{Username: "alice"},
 		},
@@ -234,15 +235,27 @@ type mockLLM struct {
 	R1JSON   string
 	R3JSON   string
 	Correctn string // correctness reviewer 输出
+	r4calls  int    // correctness 人设调用次数（共识场景断言单次执行）
 	// R35 drafts：反思「终审编辑」轮的修订 findings（按 draft 轮次取，超出取末个）。
 	R35Drafts []string
 	r35calls  int
+	// RouterReply 评论意图分类桩响应（stackOpts.routerReply 注入）。
+	// 分类请求的 user 消息携带评论原文——routerHit 按测试设定标记句匹配。
+	RouterReply string
+	routerMark  string
 }
 
 func newMockLLM(r1, r3, correctness string) *mockLLM {
 	m := &mockLLM{R1JSON: r1, R3JSON: r3, Correctn: correctness}
 	m.srv = httptest.NewServer(http.HandlerFunc(m.handle))
 	return m
+}
+
+// routerHit 分类请求识别：消息含测试标记句（评论原文进分类 prompt）。
+func (m *mockLLM) routerHit(text string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.routerMark != "" && strings.Contains(text, m.routerMark)
 }
 
 func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +296,9 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(text, "【Argus R3 完成度判定】"):
 		m.reply(w, m.R3JSON)
 	case strings.Contains(text, "【Argus correctness】"):
+		m.mu.Lock()
+		m.r4calls++
+		m.mu.Unlock()
 		m.reply(w, m.Correctn)
 	case strings.Contains(text, "【Argus R2 变更理解】"):
 		m.reply(w, "本 PR 添加了账号密码登录功能。")
@@ -302,6 +318,16 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 			i = len(m.R35Drafts) - 1
 		}
 		m.reply(w, m.R35Drafts[i])
+	case m.routerHit(text):
+		// 评论意图分类（router GenerateJSON 的 user 消息携带评论原文，按测试
+		// 预设的标记句识别）：按测试桩指定路由回
+		m.mu.Lock()
+		r := m.RouterReply
+		m.mu.Unlock()
+		if r == "" {
+			r = `{"route":"ask","confidence":0.9,"reason":"default"}`
+		}
+		m.reply(w, r)
 	default:
 		m.reply(w, `{"findings":[],"notes":""}`)
 	}
@@ -354,6 +380,10 @@ type stackOpts struct {
 	reflectEvidence string // off|soft|strict
 	regretLearning  bool   // 模式级后悔学习环
 	r35Drafts       []string
+	commentRouter   bool // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
+	squads          []plugin.SquadDecl // 编队声明（共识/互盲场景）
+	routerReply     string // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
+	routerMark      string // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
 }
 
 func defaultOpts() stackOpts {
@@ -391,6 +421,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	if !opt.realLLM {
 		llmMock = newMockLLM(opt.r1, opt.r3, opt.correctness)
 		llmMock.R35Drafts = opt.r35Drafts
+		llmMock.RouterReply = opt.routerReply
+		llmMock.routerMark = opt.routerMark
 		t.Cleanup(llmMock.srv.Close)
 		llmCfg.BaseURL = llmMock.srv.URL
 	} else {
@@ -462,12 +494,17 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	agents = append(agents, opt.extraAgents...)
 	pluginsFile := tmp + "/plugins.yaml"
-	mustWrite(t, pluginsFile, marshalAgents(agents))
+	if len(opt.squads) > 0 {
+		mustWrite(t, pluginsFile, marshalPluginsFile(agents, opt.squads))
+	} else {
+		mustWrite(t, pluginsFile, marshalAgents(agents))
+	}
 
 	// 配置
 	cfg := &config.Config{
 		Addr: "127.0.0.1:0", DBDSN: tmp + "/argus.db", APIToken: "e2e-token",
 		BotUsername: "argus-bot", SkipDraft: true, MaxConcurrentTasks: 2,
+		RouterMinConfidence: 0.6, // 与生产默认对齐（分类低置信门），路由场景依赖
 		TaskTokenBudget: 200000, ReportMeta: true, PluginsFile: pluginsFile,
 		Debug:     opt.debug,
 		SkillsDir: skillsDir, WorkRoot: tmp + "/work",
@@ -484,7 +521,15 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	fake := newFakeProvider()
-	sdkCtx := argusctx.NewSDKCtxStubbed(log, map[string]provider.Provider{"gitea": fake})
+	provs := map[string]provider.Provider{"gitea": fake}
+	cfg.CommentRouter = opt.commentRouter
+	if opt.commentRouter {
+		// GitLab note 评论场景：webhook 路由需要 cfg.Platforms 有 secret 的 gitlab 条目
+		provs["gitlab"] = fake
+		cfg.Platforms["gitlab"] = config.PlatformConfig{
+			BaseURL: "http://gitlab.test", Token: "tok", Secret: "e2e-sign-secret"}
+	}
+	sdkCtx := argusctx.NewSDKCtxStubbed(log, provs)
 
 	// workcopy：指向本地 file:// fixture（CLI 插件场景用）
 	wc := workcopy.NewPool(cfg.WorkRoot, log)
@@ -520,6 +565,11 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		t.Fatal(err)
 	}
 	dispatcher := plugin.NewDispatcher(reg, log)
+	// 编队声明（收尾批修复）：e2e 装配此前漏了 WithSquads——plugins.yaml squads
+	// 段在 e2e 从未生效（生产 bootstrap.Assemble 有此步）
+	if pf, perr := plugin.LoadPluginsFile(cfg.PluginsFile); perr == nil && len(pf.Squads) > 0 {
+		dispatcher.WithSquads(pf.Squads)
+	}
 	merger := plugin.NewMerger(store, log)
 	if opt.regretLearning {
 		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费
@@ -549,8 +599,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		wp.Start(ctx)
 	}
 
-	// HTTP
-	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdkCtx, Registry: reg, Log: log, Version: "e2e"}
+	// HTTP（Model 接入：HandleComment 的 LLM 门需要非 nil；评论重审关键词路径不实际调用 LLM）
+	svc := &service.Service{Cfg: cfg, Store: store, SDK: sdkCtx, Registry: reg, Log: log, Version: "e2e", Model: model}
 	bizapi.SetService(svc)
 	routerapi.SetAuth = svc.BearerMiddleware()
 	hostPort := freeTCPPort()
@@ -619,17 +669,27 @@ func (s *stack) setEvent(action, headSHA string) {
 	}
 }
 
-// postWebhook 通过 hertz engine 发 webhook。
+// postWebhook 通过 hertz engine 发 webhook（默认 gitea 平台）。
 func (s *stack) postWebhook(t TestingT, delivery string) (int, webhookResp) {
+	return s.postWebhookOn(t, "gitea", delivery)
+}
+
+// postWebhookOn 指定平台发 webhook：路径与 delivery 头按平台区分（与生产一致：
+// gitea → X-Gitea-Delivery，gitlab → X-Gitlab-Event-UUID）。
+func (s *stack) postWebhookOn(t TestingT, platform, delivery string) (int, webhookResp) {
 	body := `{"action":"x"}`
 	headers := []utHeader{
 		{Key: "Content-Type", Value: "application/json"},
 		{Key: "X-Test-Signature", Value: "e2e-sign-secret"},
 	}
 	if delivery != "" {
-		headers = append(headers, utHeader{Key: "X-Gitea-Delivery", Value: delivery})
+		h := "X-" + platform + "-Delivery"
+		if platform == "gitlab" {
+			h = "X-Gitlab-Event-UUID"
+		}
+		headers = append(headers, utHeader{Key: h, Value: delivery})
 	}
-	rec := performRequest(s.engine, "POST", "/webhook/gitea", body, headers)
+	rec := performRequest(s.engine, "POST", "/webhook/"+platform, body, headers)
 	var env struct {
 		Code int             `json:"code"`
 		Data webhookRespData `json:"data"`

@@ -19,6 +19,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"git.example.com/enjoydream/ekit/data/gormx"
@@ -120,7 +121,11 @@ type ReviewTarget struct {
 	Number   string `gorm:"column:number;size:16;not null;uniqueIndex:idx_target,priority:4"`
 
 	LastSummaryCommentID int64  `gorm:"column:last_summary_comment_id"`
-	LastHeadSHA          string `gorm:"column:last_head_sha;size:64"`
+	// KnownCommentIDs 本 bot 历史报告评论 ID 缓存（JSON [id...]，新追加旧淘汰，
+	// 封顶 10）：报告评论被顶出 ListIssueComments 第一页后扫描兜底不中，缓存可
+	// 直连更新（收尾批修复，绕开 SDK 分页限制）。
+	KnownCommentIDs string `gorm:"column:known_comment_ids;size:256"`
+	LastHeadSHA     string `gorm:"column:last_head_sha;size:64"`
 
 	CreatedAt time.Time `gorm:"column:created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
@@ -168,8 +173,12 @@ func Open(dsn string) (*Store, error) {
 			return nil, fmt.Errorf("storage: 打开 sqlite 失败: %w", err)
 		}
 		sqlDB, _ := db.DB()
-		sqlDB.SetMaxOpenConns(1) // 单写串行：webhook 并发幂等/去重的正确性基础
-		sqlDB.SetMaxIdleConns(1) // idle=max-open 避免连接反复开关的 WAL 开销
+		// WAL 下读写可并发（单写多读），连接数 1 会让大查询/大 DELETE 队头阻塞
+		// 心跳读，错过 stale 判定窗口触发误重置双跑（深挖修复）。写-写竞争由
+		// 进程内 writeMu + busy_timeout(10s) 兜底；幂等/去重正确性来自唯一索引
+		// 与事务，不依赖连接数=1。
+		sqlDB.SetMaxOpenConns(4)
+		sqlDB.SetMaxIdleConns(4) // idle=max-open 避免连接反复开关的 WAL 开销
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
@@ -297,10 +306,17 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	txErr := gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
-		// 规则 4a：review_targets.last_head_sha == 本次 head
+		// 规则 4a：review_targets.last_head_sha == 本次 head。
+		// MySQL 下对 target 行 FOR UPDATE：同 PR 的并发建任务事务在此串行化，
+		// 封多副本租约过期窗口的 TOCTOU（深挖 P0；SQLite 单写串行无需锁）。
+		// 首审 PR 的 target 行尚不存在、无锚可锁——残余竞窗仅影响 PR 首审，可接受。
 		var target ReviewTarget
-		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-			t.Platform, t.Owner, t.Repo, t.Number).First(&target).Error
+		targetQ := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
+			t.Platform, t.Owner, t.Repo, t.Number)
+		if !s.sqlite {
+			targetQ = targetQ.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		err := targetQ.First(&target).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err // 瞬时 DB 错误不能静默跳过去重检查
 		}
@@ -337,9 +353,61 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 				return "event_id", exist.ID, nil
 			}
 		}
+		// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
+		// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
+		if isDuplicateKeyErr(txErr) {
+			var existing Task
+			if e := s.quietDB().WithContext(ctx).Where(
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
+				[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
+				return "in_flight", existing.ID, nil
+			}
+			if e := s.quietDB().WithContext(ctx).Where(
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA).Order("created_at DESC").First(&existing).Error; e == nil {
+				return "last_head_sha", existing.ID, nil
+			}
+		}
 		return "", "", txErr
 	}
 	return dupReason, existingID, nil
+}
+
+// CreateTaskDirectIfIdle TaskAPI 直接触发路径的幂等建任务：同 platform/owner/repo/number
+// 已存在 pending/running 任务时不新建，返回既有任务（created=false）。
+// 与 CreateTaskForWebhook 的 in_flight 去重语义对齐，防手工触发与轮询/webhook 竞态双审。
+// done 任务不拦——手工强制重审是 TaskAPI 的合法用途。
+func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *Task, created bool, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	txErr := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var cnt int64
+		if err := tx.Model(&Task{}).
+			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+			Count(&cnt).Error; err != nil {
+			return err
+		}
+		if cnt > 0 {
+			existing = &Task{}
+			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+				Order("created_at DESC, id DESC").First(existing).Error; err != nil {
+				return err
+			}
+			return nil
+		}
+		if err := tx.Create(t).Error; err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if txErr != nil {
+		return nil, false, txErr
+	}
+	return existing, created, nil
 }
 
 // quietDB 预期内"查无记录"的路径专用：GORM 默认把 ErrRecordNotFound 打成红色错误日志，
@@ -350,32 +418,43 @@ func (s *Store) quietDB() *gorm.DB {
 
 // ClaimNextPending worker 原子抢占一个 pending 任务（pending→running）。
 // 返回 ok=false 表示当前无任务。
+// MySQL 走 FOR UPDATE SKIP LOCKED 单语句取+占（多副本无空转）；SQLite 保持
+// 两步条件更新（单写模型下无竞争）。抢锁失败少量重试而非直接报"无任务"——
+// 此前败者直接 ok=false，worker 睡 500ms，队列有任务也空转（深挖修复）。
 func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	const maxAttempts = 3
 	var claimed *Task
 	err := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var t Task
-		err := tx.Where("status = ?", StatusPending).Order("created_at ASC, id ASC").First(&t).Error
-		if err != nil {
-			return err // gorm.ErrRecordNotFound → 无任务
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			var t Task
+			q := tx.Where("status = ?", StatusPending).Order("created_at ASC, id ASC")
+			if !s.sqlite {
+				q = q.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
+			}
+			err := q.First(&t).Error
+			if err != nil {
+				return err // gorm.ErrRecordNotFound → 无任务
+			}
+			now := time.Now()
+			res := tx.Model(&Task{}).Where("id = ? AND status = ?", t.ID, StatusPending).
+				Updates(map[string]any{"status": StatusRunning, "started_at": &now,
+					"runner_id": s.RunnerID, "heartbeat_at": now})
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				continue // 被并发抢走：重试取下一条（SKIP LOCKED 下基本不发生）
+			}
+			t.Status = StatusRunning
+			t.StartedAt = &now
+			t.RunnerID = s.RunnerID
+			t.HeartbeatAt = &now
+			claimed = &t
+			return nil
 		}
-		now := time.Now()
-		res := tx.Model(&Task{}).Where("id = ? AND status = ?", t.ID, StatusPending).
-			Updates(map[string]any{"status": StatusRunning, "started_at": &now,
-				"runner_id": s.RunnerID, "heartbeat_at": now})
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound // 被并发抢走（理论上不会：连接数=1）
-		}
-		t.Status = StatusRunning
-		t.StartedAt = &now
-		t.RunnerID = s.RunnerID
-		t.HeartbeatAt = &now
-		claimed = &t
-		return nil
+		return gorm.ErrRecordNotFound
 	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -447,14 +526,32 @@ func (s *Store) HasNewerNonFailedTask(ctx context.Context, platform, owner, repo
 }
 
 // PruneTasks 保留策略：删除 created_at 早于 cutoff 的已终结任务
-// （done/failed/stale；pending/running 不动）。返回删除行数。
+// （done/failed/stale；pending/running 不动）。分批删除（每批 500）——
+// 单条大 DELETE 会长事务占住 SQLite 单写连接，队头阻塞心跳（深挖修复）。
+// 返回删除行数。
 func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res := s.db.WithContext(ctx).Where(
-		"status IN ? AND created_at < ?",
-		[]string{StatusDone, StatusFailed, StatusStale}, cutoff).Delete(&Task{})
-	return res.RowsAffected, res.Error
+	var total int64
+	for {
+		var batch []string
+		if err := s.db.WithContext(ctx).Model(&Task{}).
+			Where("status IN ? AND created_at < ?", []string{StatusDone, StatusFailed, StatusStale}, cutoff).
+			Limit(500).Pluck("id", &batch).Error; err != nil {
+			return total, err
+		}
+		if len(batch) == 0 {
+			return total, nil
+		}
+		res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&Task{})
+		total += res.RowsAffected
+		if res.Error != nil {
+			return total, res.Error
+		}
+		if len(batch) < 500 {
+			return total, nil
+		}
+	}
 }
 
 // TaskCounts 队列深度（pending/running），供指标暴露。
@@ -470,6 +567,9 @@ func (s *Store) TaskCounts(ctx context.Context) (pending, running int64, err err
 }
 
 // ListTasks 任务列表（GET /tasks）：status 过滤（空=全部），created_at 倒序，limit 收口。
+// Select 摘要列（深挖修复）：此前 Find 全列——report/result_json/debug_json 均为
+// LONGTEXT，单行可达 MB 级，列表 100 条白拉几百 MB IO，还放大 SQLite 单写连接的
+// 队头阻塞。报告/调试产物只为详情接口服务。
 func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task, error) {
 	if limit <= 0 {
 		limit = 20
@@ -477,13 +577,37 @@ func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task
 	if limit > 100 {
 		limit = 100
 	}
-	q := s.quietDB().WithContext(ctx).Order("created_at DESC, id DESC").Limit(limit)
+	q := s.quietDB().WithContext(ctx).
+		Select("id", "kind", "platform", "owner", "repo", "number", "head_sha", "event_type",
+			"status", "verdict", "runner_id", "summary_comment_id", "tokens_used", "artifacts_json",
+			"created_at", "started_at", "finished_at", "heartbeat_at", "updated_at").
+		Order("created_at DESC, id DESC").Limit(limit)
 	if status != "" {
 		q = q.Where("status = ?", status)
 	}
 	var out []Task
 	err := q.Find(&out).Error
 	return out, err
+}
+
+// PruneQASessions 会话保留策略：updated_at 早于 cutoff 的问答会话清理（深挖修复：
+// qa_sessions 此前永不清理，history_json 持续追加单调膨胀）。返回删除行数。
+func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res := s.db.WithContext(ctx).Where("updated_at < ?", cutoff).Delete(&QASession{})
+	return res.RowsAffected, res.Error
+}
+
+// PruneStalePrints 指纹保留策略：LastSeenAt 早于 cutoff 的指纹清理（深挖修复：
+// finding_prints 含 LONGTEXT comment 永不清理）。语义安全：长期未复现的指纹
+// 遗忘后最坏效果是"同型意见重新从头计数"，不会复活已抑制意见（suppressed
+// 状态随行删除，同型意见若真复发会以 open 新行参与——保留期给足即可）。
+func (s *Store) PruneStalePrints(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res := s.db.WithContext(ctx).Where("last_seen_at < ?", cutoff).Delete(&FindingPrint{})
+	return res.RowsAffected, res.Error
 }
 
 // RepoTokenUsage 仓库维度 token 用量聚合（月度预算/用量报表，§5 v3.1）。

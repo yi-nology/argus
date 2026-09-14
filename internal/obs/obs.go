@@ -63,6 +63,37 @@ var (
 	layerExec = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_layer_exec_total", Help: "分层执行探针（活检：名义存在但零执行）",
 	}, []string{"layer"})
+
+	// verdicts R5 真值表命中分布（深挖补充：此前裁决分布只能查库）。
+	verdicts = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_verdicts_total", Help: "裁决分布（rule=R5.0..R5.5）",
+	}, []string{"platform", "kind", "verdict", "rule"})
+
+	// fenceNeutralized 围栏中和计数：注入特征文本出现信号（防线 #1 观测面，
+	// 此前为纯字符串函数零留痕）。
+	fenceNeutralized = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_fence_neutralized_total", Help: "DataFence 中和的围栏标记序列数（注入攻击信号）",
+	})
+
+	// pluginSkipped 插件跳过原因分布（circuit/budget/canceled）。
+	pluginSkipped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_plugin_skipped_total", Help: "插件未参与原因分布",
+	}, []string{"reason"})
+
+	// commentRoutes 评论意图路由分布。
+	commentRoutes = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_comment_route_total", Help: "@argus 评论意图路由分布",
+	}, []string{"route", "via"})
+
+	// taskDeduped 任务创建去重分布。
+	taskDeduped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_task_create_deduped_total", Help: "webhook 任务去重分布（幂等观测）",
+	}, []string{"reason"})
+
+	// sseConnections 当前 SSE 订阅连接数。
+	sseConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "argus_sse_connections", Help: "当前 /events SSE 订阅连接数",
+	})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
@@ -72,6 +103,7 @@ func Init() {
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
+		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -100,6 +132,26 @@ func Init() {
 	plugin.HookLayerExec = func(layer string) {
 		layerExec.WithLabelValues(layer).Inc()
 	}
+	plugin.HookVerdict = func(platform, kind, verdict, rule string) {
+		verdicts.WithLabelValues(platform, kind, verdict, rule).Inc()
+	}
+	plugin.HookFenceNeutralized = func(n int) {
+		fenceNeutralized.Add(float64(n))
+	}
+	plugin.HookPluginSkipped = func(reason string) {
+		pluginSkipped.WithLabelValues(reason).Inc()
+	}
+	plugin.HookCommentRoute = func(route, via string) {
+		commentRoutes.WithLabelValues(route, via).Inc()
+	}
+	plugin.HookTaskDeduped = func(reason string) {
+		taskDeduped.WithLabelValues(reason).Inc()
+	}
+}
+
+// AddSSEConnections SSE 订阅连接数增减（biz events handler 调用）。
+func AddSSEConnections(delta int) {
+	sseConnections.Add(float64(delta))
 }
 
 // SetTaskQueueDepth 队列深度 gauge（main 的周期采样器调用）。

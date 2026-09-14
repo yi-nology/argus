@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"golang.org/x/time/rate"
 
+	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
@@ -22,7 +23,6 @@ import (
 	argusctx "argus/internal/context"
 	"argus/internal/notify"
 	"argus/internal/plugin"
-	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/reportview"
@@ -164,8 +164,9 @@ func (r *Runner) WorkflowFor(budget *plugin.TokenBudget) *requirement.Workflow {
 
 // WorkflowFactory 每任务构造 Workflow（供 requirement-compliance 插件与 runner 共用）。
 // budget 决定该任务 LLM 客户端的预算累计器；nil = 不限（协议重入路径）。
-func (r *Runner) WorkflowFactory() adapter_builtin.WorkflowFactory {
-	return func(budget *plugin.TokenBudget) adapter_builtin.WorkflowRunner {
+// 契约类型用 plugin.WorkflowFactory（v3.5.6 上提）——编排层不再 import 具体适配器。
+func (r *Runner) WorkflowFactory() plugin.WorkflowFactory {
+	return func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
 		return r.buildWorkflow(budget)
 	}
 }
@@ -312,9 +313,12 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		return nil
 	}
 	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志，不在 PR 评论
-	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", err.Error())
-	_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", err.Error(), budget.Used(), 0)
-	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, err.Error())
+	// 错误链可能携带平台 SDK/工作副本侧的带凭据 URL（https://user:token@host/...），
+	// 日志、入库、IM 推送三路消费统一先脱敏（agentkit logredact）。
+	errMsg := logredact.Redact(err.Error())
+	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", errMsg)
+	_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, budget.Used(), 0)
+	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
 }
@@ -366,7 +370,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	var out *requirement.Output
 	switch task.Kind {
-	case requirement.KindRequirementCompliance:
+	case plugin.TaskKindRequirementCompliance:
 		out, err = wf.Run(ctx, ptask, budget)
 	default: // code_review / visual_check：R4+R5 only
 		out, err = wf.RunReviewOnly(ctx, ptask, budget)

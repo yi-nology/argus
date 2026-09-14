@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,23 @@ func (p *scriptedPlugin) Invoke(_ context.Context, t Task) (Result, error) {
 	p.calls++
 	if i < len(p.script) {
 		return Result{Findings: p.script[i]}, nil
+	}
+	return Result{}, nil
+}
+
+// failOnCallPlugin 第 N 次 Invoke 起失败（模拟首轮成功、后续轮次故障）。
+type failOnCallPlugin struct {
+	manifest AgentManifest
+	failAt   int
+	calls    int
+}
+
+func (p *failOnCallPlugin) Manifest() AgentManifest { return p.manifest }
+func (p *failOnCallPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
+	i := p.calls
+	p.calls++
+	if i >= p.failAt {
+		return Result{}, errors.New("simulated later-round failure")
 	}
 	return Result{}, nil
 }
@@ -238,5 +256,37 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 		if total != 2 {
 			t.Fatalf("第 %d 次召集应产出 2 条，got %d", i+1, total)
 		}
+	}
+}
+
+// 深挖修复回归：第 1 轮成功（无发现）、第 2 轮失败的成员此前静默落成空 Result
+// （"参与了但没新发现"），lastErr 被吞、Degraded 无注明。现在按失败终态回填。
+func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
+	lateFail := &failOnCallPlugin{
+		manifest: AgentManifest{Name: "expert-a", Skills: []string{"code-review"},
+			Triggers: Trigger{Paths: []string{"excluded/*"}}},
+		failAt: 1, // 第 2 次 Invoke（第 2 轮）起失败
+	}
+	pb := newScriptedMember("expert-b",
+		[]Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)},
+		[]Finding{},
+	)
+
+	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	_ = d.reg.Register(regWith(lateFail))
+	_ = d.reg.Register(regWith(pb))
+
+	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
+	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	outcomes := d.RunConsensus(context.Background(), task, sq, nil)
+
+	var aFailed bool
+	for _, o := range outcomes {
+		if o.Name == "expert-a" {
+			aFailed = o.Err != nil && o.Result == nil
+		}
+	}
+	if !aFailed {
+		t.Fatalf("后续轮次失败的成员应回填 Err，got %+v", outcomes)
 	}
 }

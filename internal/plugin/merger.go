@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +121,15 @@ func (m *Merger) AnnotateCrossReview(mf *MergedFindings, members []string) {
 	m.annotateCross(mf, memberSet)
 }
 
+// linesCompatible 指纹同但位置不相容（同文件两处不同行、且相差 >2）时，
+// 轮内按指纹合并会把第二处问题吞掉——视为不同条目。任一方无行号（0）按相容处理。
+func linesCompatible(a, b int) bool {
+	if a <= 0 || b <= 0 {
+		return true
+	}
+	return abs(a-b) <= 2
+}
+
 // annotateCross 实际标注（AnnotateCrossReview 的实现体，独立便于测试）。
 func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 	const crossMark = "⚠️ 交叉审查分歧"
@@ -131,26 +141,50 @@ func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 		}
 	}
 	type rec struct {
-		idx  int
-		by   string
-		line int
-		file string
+		idx    int
+		bys    []string
+		line   int
+		file   string
+	}
+	// byMembers 拆分 By：Merge 阶段多插件命中同题会把 By 拼成 "a,b"——不拆开
+	// 的话合并条目（恰是专家们意见一致的证据）整体不进 recs，反而被误标
+	// 「编队另一专家未复现」（深挖修复：标注方向此前反了）。
+	byMembers := func(by string) []string {
+		var out []string
+		for _, n := range strings.Split(by, ",") {
+			if n = strings.TrimSpace(n); memberSet[n] {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	sharesAny := func(a, b []string) bool {
+		for _, x := range a {
+			for _, y := range b {
+				if x == y {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	var recs []rec
 	for i, f := range mf.Findings {
-		if !memberSet[f.By] {
+		bys := byMembers(f.By)
+		if len(bys) == 0 {
 			continue
 		}
-		recs = append(recs, rec{idx: i, by: f.By, line: f.Line, file: f.File})
+		recs = append(recs, rec{idx: i, bys: bys, line: f.Line, file: f.File})
 	}
 	if len(recs) < 2 {
 		return
 	}
 	disagreed := 0
 	for _, a := range recs {
-		replicated := false
+		// 条目自身已聚合多专家（Merge 合并，bys≥2）= 意见一致，无分歧可言
+		replicated := len(a.bys) >= 2
 		for _, b := range recs {
-			if a.idx == b.idx || a.by == b.by || a.file != b.file {
+			if a.idx == b.idx || sharesAny(a.bys, b.bys) || a.file != b.file {
 				continue
 			}
 			if abs(a.line-b.line) <= 5 {
@@ -204,10 +238,25 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 	out := &MergedFindings{}
 	type acc struct {
 		finding Finding
+		fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
 		bys     map[string]bool
 	}
-	byFP := map[string]*acc{}
-	var order []string
+	byFP := map[string]*acc{}    // fp → 首个 acc（轮内指纹去重探测）
+	byLoc := map[string]*acc{}   // "file|line" → 该位置首个 acc（跨措辞合并用）
+	var order []*acc
+
+	// mergeInto 把后到的同类发现并入既有条目：severity 冲突取高、行号 ±2 内采纳新行号、
+	// by 追加来源插件；意见文本不同且非互相包含时拼接（不同专家措辞各保留）。
+	mergeInto := func(a *acc, f Finding) {
+		a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
+		if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
+			a.finding.Line = f.Line
+		}
+		a.bys[f.By] = true
+		if !strings.Contains(a.finding.Comment, f.Comment) && !strings.Contains(f.Comment, a.finding.Comment) {
+			a.finding.Comment += "\n\n（" + f.By + " 同位置补充）" + f.Comment
+		}
+	}
 
 	for _, o := range outcomes {
 		if note := o.Notes(); note != "" {
@@ -227,18 +276,34 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			obsFindings(sev, o.Name, 1)
 
 			fp := Fingerprint(f.File, f.Comment)
-			if a, dup := byFP[fp]; dup {
+			if a, dup := byFP[fp]; dup && linesCompatible(a.finding.Line, f.Line) {
 				// 轮内去重：severity 冲突取高；行号 ±2 内采纳新行号（匹配辅助）；
 				// by 追加来源插件。
-				a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
-				if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
-					a.finding.Line = f.Line
-				}
-				a.bys[f.By] = true
+				// 行号相容闸门（收尾批修复）：指纹不含行号，同文件两处不同位置的
+				// 同模板意见（OCR/规则型插件常见）此前被误并为一条、第二条永久
+				// 丢失——行号不相容时保留为独立条目。
+				mergeInto(a, f)
 				continue
 			}
-			byFP[fp] = &acc{finding: f, bys: map[string]bool{f.By: true}}
-			order = append(order, fp)
+			a2 := &acc{finding: f, fp: fp, bys: map[string]bool{f.By: true}}
+			// 位置合并兜底：不同专家对同一 file:line 用不同措辞描述时（指纹必不同），
+			// 按位置归并为一条——「不同专家发现同一问题只报一次」的确定性兜底；
+			// 不同行号不并（保守，两个真正不同的问题常落在相邻行）。
+			// 注：曾评估加"语义相似才并"的闸门，与 v3.5.x 拍板的归并语义
+			//（merger_locmerge_test 固化：同位置不同措辞视为同一问题）冲突，不采用。
+			// 措辞各保留在合并文本里，人工可见双方视角。
+			if f.Line > 0 {
+				loc := f.File + "|" + strconv.Itoa(f.Line)
+				if a, seen := byLoc[loc]; seen {
+					mergeInto(a, f)
+					continue
+				}
+				byLoc[loc] = a2
+			}
+			if _, seen := byFP[fp]; !seen {
+				byFP[fp] = a2
+			}
+			order = append(order, a2)
 		}
 	}
 
@@ -254,8 +319,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			lowPatterns = ps
 		}
 	}
-	for _, fp := range order {
-		a := byFP[fp]
+	for _, a := range order {
 		f := a.finding
 		if len(a.bys) > 1 { // 多插件报了同一问题：by 合并展示
 			var names []string
@@ -270,7 +334,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		var prior *PrintState
 		if m.store != nil {
 			if ps, err := m.store.GetPrintState(ctx,
-				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp); err != nil {
+				pr.Platform, pr.Owner, pr.Repo, pr.Number, a.fp); err != nil {
 				m.log.Warn("argus.merger.print_state_failed", "error", err.Error())
 			} else {
 				prior = ps
@@ -278,7 +342,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		}
 		if m.store != nil {
 			suppressed, err := m.store.UpsertPrint(ctx,
-				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp, f, taskID, at)
+				pr.Platform, pr.Owner, pr.Repo, pr.Number, a.fp, f, taskID, at)
 			if err != nil {
 				m.log.Error("argus.merger.print_upsert_failed", "error", err.Error())
 			} else if suppressed {

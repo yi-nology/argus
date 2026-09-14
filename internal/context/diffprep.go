@@ -38,14 +38,20 @@ func singleFileLimit(totalLimit int) int {
 }
 
 // noise 判定路径是否为噪声。
+// 目录模式按路径段精确匹配（深挖修复）：旧实现 strings.Contains 无边界，
+// "cargo-build/"、"ui-dist/"、"myvendor/" 下的合法源码会被 "build/"、"dist/"、
+// "vendor/" 误伤静默剔除出审查文本。
 func noise(path string) bool {
 	p := strings.ToLower(filepath.ToSlash(path))
 	base := filepath.Base(p)
 	for _, pat := range noisePatterns {
 		switch {
 		case strings.HasSuffix(pat, "/"):
-			if strings.Contains(p, pat) {
-				return true
+			dir := strings.TrimSuffix(pat, "/")
+			for _, seg := range strings.Split(p, "/") {
+				if seg == dir {
+					return true
+				}
 			}
 		case strings.HasPrefix(pat, ".") || strings.HasSuffix(pat, ".go") || strings.HasSuffix(pat, ".py"):
 			if strings.HasSuffix(base, pat) {
@@ -58,6 +64,39 @@ func noise(path string) bool {
 		}
 	}
 	return false
+}
+
+// truncationNoteMaxPaths 截断清单最多列出的文件数（超出只给计数，防清单本身吃预算）。
+const truncationNoteMaxPaths = 30
+
+// appendTruncationNote 截断透出（深挖修复）：Truncated 置位此前全仓零消费，
+// 被预算排除的文件对 R2/R3 完全不可见——审查覆盖不完整却表现为完整。
+// 在 diff 文本尾部以数据区形式列出被排除文件清单（路径源自 git，包 DataFence
+// 与防线 #1 一致；文件名理论上可伪造围栏标记，中和交给 DataFence）。
+func appendTruncationNote(dc *plugin.DiffContext) {
+	if dc == nil || !dc.Truncated {
+		return
+	}
+	var excluded []string
+	for _, f := range dc.Files {
+		// 噪声/二进制文件本就不进文本（按规则排除），不算"因预算被排除"
+		if !f.Included && !f.AlreadyReviewed && !f.IsBinary && !noise(f.Path) {
+			excluded = append(excluded, f.Path)
+		}
+	}
+	if len(excluded) == 0 {
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "以下 %d 个变更文件因长度预算未纳入本次审查（模型不可见，仅列清单），审查结论不覆盖它们：\n", len(excluded))
+	for i, p := range excluded {
+		if i >= truncationNoteMaxPaths {
+			fmt.Fprintf(&b, "…（其余 %d 个略）\n", len(excluded)-truncationNoteMaxPaths)
+			break
+		}
+		b.WriteString("- " + p + "\n")
+	}
+	dc.Text += "\n" + plugin.DataFence("截断说明（未纳入审查的文件清单）", strings.TrimRight(b.String(), "\n"))
 }
 
 // Prepare 从 SDK 的 MergeDiff 构建 plugin.DiffContext：
@@ -123,6 +162,7 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 		dc.Files = append(dc.Files, entry)
 	}
 	dc.Text = b.String()
+	appendTruncationNote(dc)
 	return dc
 }
 
@@ -219,6 +259,7 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 	}
 
 	dc.Text = b.String()
+	appendTruncationNote(dc)
 
 	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
 	if hasChanges && len([]rune(dc.Text)) < minIncrementalChars {

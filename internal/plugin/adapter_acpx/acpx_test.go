@@ -103,14 +103,11 @@ func TestInvokeAgentError(t *testing.T) {
 }
 
 func TestInvokeMalformedJSON(t *testing.T) {
-	// agent 输出非 JSON 文本 → 零 findings 不报错（降级注明由上层处理）
+	// agent 输出完全不可解析 ≠ 零 findings：按失败上抛（dispatcher 记 breaker
+	// 失败 + Outcome 降级注明）；合法空数组 = 真零 findings 由 TestInvokeEmptyFindings 覆盖
 	p := newTestPlugin(&stubAgent{name: "stub", text: "我觉得代码写得很好"})
-	res, err := p.Invoke(context.Background(), reviewTask())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Findings) != 0 {
-		t.Fatalf("非 JSON 输出应解析为 0 条，得到 %d", len(res.Findings))
+	if _, err := p.Invoke(context.Background(), reviewTask()); err == nil {
+		t.Fatal("输出不可解析应上抛，不得假装零 findings")
 	}
 }
 

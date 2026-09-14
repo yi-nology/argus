@@ -44,7 +44,7 @@ print(json.dumps({
     "type": "gitea",
     "active": True,
     "branch_filter": "*",
-    "events": ["pull_request_only"],
+    "events": ["pull_request_only", "issue_comment"],  # issue_comment: PR 评论 @argus 触发问答/重审
     "config": {"url": url, "content_type": "json", "secret": secret, "method": "POST"},
 }))
 PY
@@ -62,3 +62,4 @@ echo "==> 完成。验证方式："
 echo "    1) Argus 日志出现 argus.webhook.accepted / skipped(+原因)"
 echo "    2) Forgejo 仓库 → Webhook 设置页 → 测试投递 应显示绿色"
 echo "    3) 在该仓库开/同步一个 PR，观察 PR 页出现的 Argus 报告评论"
+echo "    4) PR 里评论 \"@argus-bot 你好\"（ARGUS_BOT_USERNAME），应收到 Q&A 回帖"
