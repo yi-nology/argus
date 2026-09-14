@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.7.1 (2026-09-15) — agentkit 对齐 v0.10.1 + 能力盘点消费（textutil 去手搓）
+
+升级评估结论：agentkit 本地 main 即最新（v0.10.1，领先 origin 一个待推提交），
+argus 依赖经 replace 直用本地——本轮把 require 口径对齐，并消费已沉淀而未用
+的原语；其余新能力评估后给出采纳/不采纳结论（见下）。
+
+### 消费
+- **textutil.BigramSet**（v0.10.0 沉淀）：printalias 近重复匹配的 bigram 集合
+  构造改为复用库原语，删除手搓实现。度量刻意保留「短侧重叠率 ≥0.6」而不用
+  textutil.Jaccard（并集分母更严，会漏掉已校准的措辞漂移匹配——测试钉死）
+- go.mod require v0.9.8 → v0.10.1（replace 直用本地 main，口径对齐）
+
+### 评估结论（不落地，留档勿重评）
+- **stats.WilsonCI**：不采纳——学习环 Confidence 已是 Beta(2,2) 先验后验均值
+  （加权伪计数），小样本诚实性已内建；Wilson 是二项比例原语，套在加权伪计数
+  上统计口径错误
+- **langfuse**：待基础设施决策（需自托管实例），obsx 写侧已覆盖成本/用量观测
+- **websearch**：待需求（QA/R3 公网检索需 SearXNG 实例 + 显式 opt-in）
+- **clarify**：词表澄清域（heimdallr 需求面），argus 暂无对应场景
+- **hotplug**：维持静态装配（plugins.yaml + 仓库配置已覆盖启停语义）
+- **lineage/pack/dispatch**：平台资产域，argus 不适用；jsonrepair 已被 llmjson
+  消费；worker/pglease 仅 PG，不适用
+- ⚠️ **logredact**：runner 已消费其 Redact，但 agentkit 侧 mask.go 仍未提交
+  上游——待并行线落库，否则换机构建会缺文件
+
 ## v3.7.0 (2026-09-15) — 指纹 v2 + 近重复匹配层 + 存量迁移（用户拍板落地）
 
 深挖清单最后一项："措辞漂移漏杀"（LLM 每轮措辞微调 → 新指纹 → 跨轮复现计数/

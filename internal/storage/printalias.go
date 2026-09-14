@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	akseverity "git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
 )
@@ -35,6 +36,9 @@ func (PrintAlias) TableName() string { return "print_aliases" }
 const nearSimilarityThreshold = 0.6
 
 // commentNear 归一化后互含或二元组重叠率达标。
+// 集合构造复用 agentkit v0.10.0 沉淀的 textutil.BigramSet；度量刻意不用
+// textutil.Jaccard（并集分母，更严）——本层阈值 0.6 按短侧重叠率校准，
+// 换 Jaccard 会漏掉合法的措辞漂移匹配（测试钉死该行为）。
 func commentNear(a, b string) bool {
 	na, nb := akseverity.NormalizeComment(a), akseverity.NormalizeComment(b)
 	if na == "" || nb == "" {
@@ -43,7 +47,7 @@ func commentNear(a, b string) bool {
 	if strings.Contains(na, nb) || strings.Contains(nb, na) {
 		return true
 	}
-	sa, sb := bigrams(na), bigrams(nb)
+	sa, sb := textutil.BigramSet(na), textutil.BigramSet(nb)
 	if len(sa) == 0 || len(sb) == 0 {
 		return false
 	}
@@ -53,20 +57,11 @@ func commentNear(a, b string) bool {
 	}
 	hit := 0
 	for g := range small {
-		if _, ok := large[g]; ok {
+		if large[g] {
 			hit++
 		}
 	}
 	return float64(hit) >= float64(len(small))*nearSimilarityThreshold
-}
-
-func bigrams(s string) map[string]struct{} {
-	r := []rune(s)
-	out := make(map[string]struct{}, len(r))
-	for i := 0; i+1 < len(r); i++ {
-		out[string(r[i:i+2])] = struct{}{}
-	}
-	return out
 }
 
 // resolveAliasFP 别名一跳解析（alias → 规范指纹；无映射原样返回）。
