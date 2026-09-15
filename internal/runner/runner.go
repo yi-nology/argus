@@ -31,9 +31,9 @@ import (
 	"argus/internal/workflow/requirement"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/obsx"
 	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/textutil"
 )
 
 // Runner 单任务执行器。
@@ -468,17 +468,6 @@ func (r *Runner) buildPRContext(ctx context.Context, task *storage.Task) (*plugi
 	}, nil
 }
 
-// buildDiff 拉取并清洗 diff（R2/R4 共用的 diffprep 层）。
-func (r *Runner) buildDiff(ctx context.Context, pr *plugin.PRContext) (*plugin.DiffContext, error) {
-	md, err := r.SDK.GetCRDiff(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
-	if err != nil {
-		return nil, fmt.Errorf("获取 diff 失败: %w", err)
-	}
-	d := argusctx.Prepare(md, r.Cfg.MaxDiffCharsResolved())
-	plugin.ReportLayerExec(plugin.LayerDiffprep)
-	return d, nil
-}
-
 // buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。
 // 仅在 synchronize 事件（PR 更新）且存在前置审查记录时激活增量路径；
 // 其余场景退化为全量 Prepare。
@@ -695,7 +684,6 @@ func firstNonEmpty(vals ...string) string {
 	}
 	return ""
 }
-
 
 // reviewGuidelinesPath 仓库级审查指引文件（默认分支根目录）。
 const reviewGuidelinesPath = ".argus/review-guidelines.md"

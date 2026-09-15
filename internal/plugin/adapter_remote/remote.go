@@ -14,8 +14,8 @@ import (
 
 	"git.example.com/enjoydream/agentkit/textutil"
 
-	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。

@@ -650,9 +650,7 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 			Paths: rule.Paths, Labels: rule.Labels, Use: rule.Use,
 		})
 	}
-	for _, w := range warnings {
-		view.Warnings = append(view.Warnings, w)
-	}
+	view.Warnings = append(view.Warnings, warnings...)
 	for _, st := range statuses {
 		item := &api.RepoAgentStatus{
 			Name:       st.Name,

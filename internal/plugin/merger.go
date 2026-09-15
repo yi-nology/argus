@@ -47,12 +47,12 @@ type PatternStore interface {
 
 // LearningConfig 后悔学习环消费阈值（config 派生；零值 = 全关）。
 type LearningConfig struct {
-	Enabled    bool
-	MinSamples int
-	SoftFloor  float64 // 低于此打「置信度低」标注
-	HardFloor  float64 // 低于此 + low severity → 丢弃
+	Enabled     bool
+	MinSamples  int
+	SoftFloor   float64 // 低于此打「置信度低」标注
+	HardFloor   float64 // 低于此 + low severity → 丢弃
 	InjectFloor float64
-	InjectTopN int
+	InjectTopN  int
 }
 
 // DefaultLearningConfig 缺省阈值（与 design §3.7 一致）。
@@ -142,10 +142,10 @@ func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 		}
 	}
 	type rec struct {
-		idx    int
-		bys    []string
-		line   int
-		file   string
+		idx  int
+		bys  []string
+		line int
+		file string
 	}
 	// byMembers 拆分 By：Merge 阶段多插件命中同题会把 By 拼成 "a,b"——不拆开
 	// 的话合并条目（恰是专家们意见一致的证据）整体不进 recs，反而被误标
@@ -242,10 +242,10 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
 		bys     map[string]bool
 	}
-	byFP := map[string]*acc{}    // fp → 首个 acc（轮内指纹去重探测）
-	byNC := map[string]*acc{}    // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
+	byFP := map[string]*acc{} // fp → 首个 acc（轮内指纹去重探测）
+	byNC := map[string]*acc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
 	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
-	byLoc := map[string]*acc{}   // "file|line" → 该位置首个 acc（跨措辞合并用）
+	byLoc := map[string]*acc{} // "file|line" → 该位置首个 acc（跨措辞合并用）
 	var order []*acc
 
 	// mergeInto 把后到的同类发现并入既有条目：severity 冲突取高、行号 ±2 内采纳新行号、

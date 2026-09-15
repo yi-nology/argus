@@ -22,8 +22,8 @@ import (
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
 // ErrBinaryMissing agent 可执行文件不存在（插件停用而非报错启动）。

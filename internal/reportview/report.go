@@ -4,12 +4,10 @@ package reportview
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"git.example.com/enjoydream/agentkit/safejson"
-	"git.example.com/enjoydream/agentkit/severity"
 
 	"argus/internal/plugin"
 )
@@ -211,11 +209,4 @@ func VerdictText(rule string, missingPartial int) string {
 	default:
 		return "✅ 通过"
 	}
-}
-
-// SortFindings 渲染前排序（severity 降序——Merger 已排，此处兜底防外部调用方绕过）。
-func SortFindings(fs []plugin.Finding) {
-	sort.SliceStable(fs, func(i, j int) bool {
-		return severity.Rank(fs[i].Severity) > severity.Rank(fs[j].Severity)
-	})
 }

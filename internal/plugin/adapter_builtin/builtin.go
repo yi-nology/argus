@@ -21,8 +21,8 @@ import (
 	"git.example.com/enjoydream/agentkit/skill"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"git.example.com/enjoydream/agentkit/llmjson"
 	"argus/internal/plugin"
+	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
 // CompliancePlugin requirement-compliance 插件：workflow 的 L4 外壳。
@@ -344,10 +344,9 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 	return plugin.Result{Findings: out.Findings, Notes: out.Notes}, nil
 }
 
-
 // guidelinesPrompt 仓库级自定义审查指引（runner 从默认分支读出后放在
 // Task.Artifacts[ArtifactReviewGuidelines]）。指引是仓库维护者写的审查偏好
-//（关注点、禁报面、团队规范），与 .reviewagents.yaml 同属 §3.4 仓库配置信任
+// （关注点、禁报面、团队规范），与 .reviewagents.yaml 同属 §3.4 仓库配置信任
 // 边界；为空时返回空串，不改变原有 prompt。
 // 同时拼接学习环历史误报提示（ArtifactReviewHints，可空）。
 func guidelinesPrompt(task plugin.Task) string {

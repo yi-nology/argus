@@ -23,7 +23,7 @@ import (
 //   - 阶段覆盖继承主 BaseURL/APIKey；fallback 模型自身不做二级覆盖。
 //
 // 字段 nil 语义：Ready()==false 时全部为 nil（仅 cli 插件可用）；其余覆盖类字段
-//（R3/Reflect/QA/Router/ReviewerGen/StageLLMs）nil = 未覆盖，消费方按各自回退链
+// （R3/Reflect/QA/Router/ReviewerGen/StageLLMs）nil = 未覆盖，消费方按各自回退链
 // 取缺省（见 runner.buildWorkflow / service.routerChatModel）。
 type Models struct {
 	// React 主模型 BaseChatModel 出口（已包 Failover；无降级配置时即原始 chatModel）。

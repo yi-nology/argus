@@ -29,7 +29,7 @@ func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
 	}
 	// 幂等：IF NOT EXISTS 对已存在的同名索引（含非唯一形态）不重建
 	err = s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndex +
-		" ON tasks(platform, owner, repo, number, head_sha) "+
+		" ON tasks(platform, owner, repo, number, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
 	if err != nil {
 		// 历史在飞重复会让索引创建失败：不阻断启动（与"探测失败必须暴露"的分寸

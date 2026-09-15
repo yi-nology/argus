@@ -267,10 +267,10 @@ func evidenceGateOn(mode string) bool {
 }
 
 // evidenceFailure 返回失败原因（空串 = 通过）。只对「保留」条目调用。
-// 1. evidence/counterexample 空白；
-// 2. evidence 中出现的路径既不在变更清单，也不等于本条 file（清单为空时不检查路径）；
-// 3. strict 模式下 evidence 不含任何路径样 token（"问题确实存在"这类空口白话
-//    无法核对——修复：此前直接放行，证据门对纯文字证据形同虚设）。
+//  1. evidence/counterexample 空白；
+//  2. evidence 中出现的路径既不在变更清单，也不等于本条 file（清单为空时不检查路径）；
+//  3. strict 模式下 evidence 不含任何路径样 token（"问题确实存在"这类空口白话
+//     无法核对——修复：此前直接放行，证据门对纯文字证据形同虚设）。
 func evidenceFailure(rv reflectFindingWire, findingFile string, changed map[string]bool, strict bool) string {
 	if strings.TrimSpace(rv.Evidence) == "" {
 		return "missing_evidence"

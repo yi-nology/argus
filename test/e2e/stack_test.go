@@ -49,21 +49,20 @@ type fakeProvider struct {
 	provider.IssueManager // 能力接口断言需要完整方法集（嵌入补齐）
 	provider.ReviewManager
 
-	mu          sync.Mutex
-	cr          *provider.ChangeRequest
-	repo        *provider.PlatformRepo
-	diff        *provider.MergeDiff
-	issues      map[string]*provider.Issue
-	files       map[string]string
-	comments    []*provider.IssueComment
-	nextID      int64
-	markerN     int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
-	secret      string
-	ev          *provider.NormalizedEvent
-	webhookMode string // "ok" | "badsig"
-	createdN    int
-	updatedN    int
-	reviews     []provider.CreateReviewOptions
+	mu       sync.Mutex
+	cr       *provider.ChangeRequest
+	repo     *provider.PlatformRepo
+	diff     *provider.MergeDiff
+	issues   map[string]*provider.Issue
+	files    map[string]string
+	comments []*provider.IssueComment
+	nextID   int64
+	markerN  int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
+	secret   string
+	ev       *provider.NormalizedEvent
+	createdN int
+	updatedN int
+	reviews  []provider.CreateReviewOptions
 }
 
 func newFakeProvider() *fakeProvider {
@@ -362,8 +361,6 @@ type stack struct {
 	cancel  context.CancelFunc
 }
 
-type stackOpt func(*stackOpts)
-
 type stackOpts struct {
 	extraAgents []plugin.AgentDecl
 	workers     int // 0 = 不启动 worker（场景⑧手动控制执行序）
@@ -380,10 +377,10 @@ type stackOpts struct {
 	reflectEvidence string // off|soft|strict
 	regretLearning  bool   // 模式级后悔学习环
 	r35Drafts       []string
-	commentRouter   bool // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
+	commentRouter   bool               // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
 	squads          []plugin.SquadDecl // 编队声明（共识/互盲场景）
-	routerReply     string // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
-	routerMark      string // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
+	routerReply     string             // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
+	routerMark      string             // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
 }
 
 func defaultOpts() stackOpts {
@@ -505,7 +502,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		Addr: "127.0.0.1:0", DBDSN: tmp + "/argus.db", APIToken: "e2e-token",
 		BotUsername: "argus-bot", SkipDraft: true, MaxConcurrentTasks: 2,
 		RouterMinConfidence: 0.6, // 与生产默认对齐（分类低置信门），路由场景依赖
-		TaskTokenBudget: 200000, ReportMeta: true, PluginsFile: pluginsFile,
+		TaskTokenBudget:     200000, ReportMeta: true, PluginsFile: pluginsFile,
 		Debug:     opt.debug,
 		SkillsDir: skillsDir, WorkRoot: tmp + "/work",
 		Platforms: map[string]config.PlatformConfig{

@@ -322,11 +322,10 @@ func matchAnyLabel(want, have []string) bool {
 // PruneByBudget 预算吃紧时按 Cost 降序裁剪非锁定插件（heavy 先裁，§10.3）。
 // 返回保留的 Selection 与被裁名单（供降级注明）。
 func (d *Dispatcher) PruneByBudget(sel []Selection, budget *TokenBudget) (keep []Selection, pruned []string) {
-	const reserveRatio = 0.1 // 预留 10% 给锁定插件之外的收尾阶段
 	if budget == nil {
 		return sel, nil
 	}
-	reserve := budget.Limit() * 10 / 100
+	reserve := budget.Limit() * 10 / 100 // 预留 10% 给锁定插件之外的收尾阶段
 	keep = append([]Selection(nil), sel...)
 	for budget.Remaining() < reserve {
 		// 找 keep 中 cost 最高且非 lock 的下标

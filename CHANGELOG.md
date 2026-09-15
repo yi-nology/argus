@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.7.2 (2026-09-15) — 代码卫生批：build/vet 复活 + staticcheck 清零 + 死代码清理
+
+全量卫生扫描收口：`go build/vet` 从失败恢复、非生成代码 staticcheck 告警清零、
+deadcode(-test) 清零、27 文件 gofmt 归位。`make lint` 新增固化门禁。
+
+### 修复
+- **go.sum 缺条目**（build/vet 失败根因）：本地 replace 的 git-platform-sdk
+  v0.61.0 backend 换大版本依赖（gitea.dev/sdk、go-github/v91、gitlab
+  client-go/v3）后未重新 tidy——单包测试不触发，`go build ./...` 必挂。
+  `go mod tidy` 补齐
+- **gofmt**：27 个非生成文件格式归位（多为 struct tag 对齐漂移）
+- **git 误跟踪 thrift 临时文件**：`biz/handler/api/.!{pid}!*.go` 4 个 hertz
+  generator 原子写残留（半截 import 头）删除，`.gitignore` 加 `.!!*` 防复发
+
+### staticcheck（非生成代码 13 处清零；biz/model 生成代码 required tag 噪音豁免）
+- main.go：instanceID 死初始化（if/else 必然覆盖）改 `var` 声明
+- plugin_test.go：恒真断言 `f(x)!=f(x)` 拆双变量（语义"两次独立调用一致"），
+  过时注释"行号不入指纹"修正（v3.7.0 已行号入指纹）
+- dispatcher.go：未用常量 reserveRatio 删除（10/100 整数运算保留，行为不变）
+- patterns.go / service.go：S1016 类型转换、S1011 批量 append 简化
+- 死测试基建：nopLogger、pluginManifest、fakeProvider.webhookMode、stackOpt 删除
+
+### 死代码（deadcode -test 清零）
+- toolpool.MockPool 整块（v3.0 历史 mock，e2e 实际用 test/e2e 自带假实现，零引用）
+- severity.SeverityValid（零引用转发）、reportview.SortFindings（"兜底"从未被调用）
+- runner.buildDiff（被 buildDiffIncremental 取代）、dispatcher_test 半成品
+  Run_SemaphoreLimit（漏 Test 前缀从未执行过，连同仅其使用的 countingPlugin 删除）
+
+### 门禁
+- Makefile 新增 `make lint`：staticcheck 排除 biz/model 生成代码（与 fmt 同口径），
+  缺工具自动安装
+
 ## v3.7.1 (2026-09-15) — agentkit 对齐 v0.10.1 + 能力盘点消费（textutil 去手搓）
 
 升级评估结论：agentkit 本地 main 即最新（v0.10.1，领先 origin 一个待推提交），

@@ -98,7 +98,7 @@ func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginNa
 		}
 		row.LastSeenAt = at
 		return tx.Model(&row).Updates(map[string]any{
-			column:      gorm.Expr(column+" + 1"),
+			column:       gorm.Expr(column + " + 1"),
 			"updated_at": at,
 			"pattern_text": func() string {
 				if row.PatternText != "" {
@@ -214,7 +214,7 @@ func (s *Store) ListPatternRepos(ctx context.Context) ([]RepoRef, error) {
 	}
 	out := make([]RepoRef, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, RepoRef{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})
+		out = append(out, RepoRef(r))
 	}
 	return out, nil
 }

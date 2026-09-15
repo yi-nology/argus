@@ -7,7 +7,6 @@ import (
 	"argus/internal/plugin"
 )
 
-
 // 深挖修复回归：证据门交叉校验——格式合法但路径不在变更集内的虚构引用要降级。
 func TestEnforceEvidenceScoped_FabricatedPathDowngraded(t *testing.T) {
 	changed := map[string]bool{"api/list.go": true, "main.go": true}

@@ -51,7 +51,7 @@ func (s *Store) SaveQASession(ctx context.Context, sess *QASession) error {
 
 // SaveQASessionCas 条件保存（乐观锁，深挖修复）：check=true 时仅当库中 updated_at
 // 等于 expect 才写入——Q&A 的「读历史→追加→覆盖写」在并发评论下会互相丢轮次
-//（多副本的内存节流各持一份，挡不住跨副本并发）。返回 written=false = 有并发写入。
+// （多副本的内存节流各持一份，挡不住跨副本并发）。返回 written=false = 有并发写入。
 func (s *Store) SaveQASessionCas(ctx context.Context, sess *QASession, expect time.Time, check bool) (bool, error) {
 	sess.UpdatedAt = time.Now().UTC()
 	tx := s.db.WithContext(ctx).Model(&QASession{}).

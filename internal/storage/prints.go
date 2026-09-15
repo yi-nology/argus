@@ -185,7 +185,6 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 	return out, err
 }
 
-
 // RecordPrintRegret R3.5 反思剔除某指纹时累加 regret 计数：该指纹历史上被
 // 终审 rubric 判为误报的次数，跨轮由 Merger 读取并标注到报告（只标注，不自动
 // suppress——持久抑制仍必须来自人工反馈通道，防自动化误杀）。

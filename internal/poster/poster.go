@@ -274,7 +274,6 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	return c.ID, nil
 }
 
-
 // inlineCommentBody 拼行内评论正文：严重级 + 意见 + 修复建议。
 // SuggestedFix 非空时渲染为 ```suggestion 围栏（Gitea/GitHub 渲染出"一键应用"按钮），
 // 建议内容是代码原文，不做 HTML 转义——否则 Apply 后代码被污染。围栏安全：

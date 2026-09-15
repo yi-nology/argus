@@ -31,8 +31,8 @@ type PrintAlias struct {
 func (PrintAlias) TableName() string { return "print_aliases" }
 
 // nearSimilarityThreshold 近重复判定阈值：归一化评语的 rune 二元组重叠率
-//（按较短侧）≥ 0.6 视为同一问题的不同措辞。0.6 下 SQL 注入 vs err 未检查
-//（同位置不同问题）远达不到，同一问题的措辞微调稳过。
+// （按较短侧）≥ 0.6 视为同一问题的不同措辞。0.6 下 SQL 注入 vs err 未检查
+// （同位置不同问题）远达不到，同一问题的措辞微调稳过。
 const nearSimilarityThreshold = 0.6
 
 // commentNear 归一化后互含或二元组重叠率达标。

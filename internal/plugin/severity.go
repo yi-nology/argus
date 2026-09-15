@@ -28,12 +28,9 @@ func SeverityRank(s string) int { return akseverity.Rank(s) }
 // HigherSeverity 返回两者中更严重的级别。
 func HigherSeverity(a, b string) string { return akseverity.Higher(a, b) }
 
-// SeverityValid 是否在词表内。
-func SeverityValid(s string) bool { return akseverity.Valid(s) }
-
 // Fingerprint 意见指纹 v2（file + line + 规范化 comment 的 SHA256 前 16 位）。
 // v3.7.0 起行号入指纹：同文件两处不同位置的同模板意见不再共享跨轮统计
-//（轮内误并已由 merger 行号相容闸门拦截）。措辞漂移的跨轮匹配由 storage 的
+// （轮内误并已由 merger 行号相容闸门拦截）。措辞漂移的跨轮匹配由 storage 的
 // 近重复匹配层 + 别名表负责（fingerprint v2 消费方必须容忍"精确未命中→近重
 // 复并入"语义，勿自行绕过 UpsertPrint）。
 // 注意：与 agentkit severity.Fingerprint（v1，无行号）不同格式——存量行由

@@ -40,8 +40,10 @@ func TestFingerprintStable(t *testing.T) {
 	if a == c || a == d {
 		t.Fatal("不同内容/文件不应同指纹")
 	}
-	// 行号不入指纹（跨轮次 ±2 容差语义）
-	if Fingerprint("a.go", "x", 0) != Fingerprint("a.go", "x", 0) {
+	// 指纹确定性：同参数两次独立调用结果一致（防止混入随机/时间成分）
+	fa := Fingerprint("a.go", "x", 0)
+	fb := Fingerprint("a.go", "x", 0)
+	if fa != fb {
 		t.Fatal("指纹不稳定")
 	}
 }
@@ -211,12 +213,6 @@ func TestMerger(t *testing.T) {
 		t.Fatalf("降级注明缺失: %+v", merged.Degraded)
 	}
 }
-
-type nopLogger struct{}
-
-func (nopLogger) Info(string, ...any)  {}
-func (nopLogger) Warn(string, ...any)  {}
-func (nopLogger) Error(string, ...any) {}
 
 // v3.7.0：指纹 v2——行号入指纹（行不同即不同身份），规范化与稳定性不变。
 func TestFingerprintV2_LineSensitive(t *testing.T) {

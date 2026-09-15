@@ -52,3 +52,10 @@ bin/
 # go work 本地工作区（replace 刻意保留在 go.mod，见 CHANGELOG v3.5.13）
 go.work
 go.work.sum
+
+# hertz/thrift 代码生成器原子写残留（.!pid!name），勿提交
+.!!*
+
+# 本地工具目录
+.mimosa/
+.v2c/

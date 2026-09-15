@@ -208,31 +208,6 @@ func TestPruneByBudget_LockExempt(t *testing.T) {
 
 // ---- Run tests ----
 
-func Run_SemaphoreLimit(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
-	d.MaxConcurrent = 1
-
-	var maxConcurrent, current int32
-	countPlugin := &countingPlugin{
-		manifest: AgentManifest{Name: "counter"},
-		onInvoke: func() {
-			// 简单计数：Run 内 MaxConcurrent=1 时不会真正并发
-		},
-	}
-	_ = d.reg.Register(&Registration{
-		Manifest: AgentManifest{Name: "counter"},
-		Plugin:   countPlugin,
-		Enabled:  true,
-	})
-	_ = maxConcurrent
-	_ = current
-
-	sel := d.Select(&PRContext{}, nil, []string{}, nil)
-	if len(sel) == 0 {
-		t.Skip("no plugins selected")
-	}
-}
-
 func TestRun_CircuitBreakerSkips(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), testNopLogger{})
 	_ = d.reg.Register(&Registration{
@@ -321,20 +296,6 @@ func selNames(sel []Selection) []string {
 		names[i] = s.Reg.Manifest.Name
 	}
 	return names
-}
-
-type countingPlugin struct {
-	manifest AgentManifest
-	onInvoke func()
-}
-
-func (p *countingPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *countingPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
-	if p.onInvoke != nil {
-		p.onInvoke()
-	}
-	time.Sleep(10 * time.Millisecond)
-	return Result{}, nil
 }
 
 func TestSelect_SquadAppendsMembers(t *testing.T) {

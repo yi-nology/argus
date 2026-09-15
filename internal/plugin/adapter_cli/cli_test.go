@@ -9,13 +9,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/acpx"
-
-	"argus/internal/plugin"
 )
-
-func pluginManifest() plugin.AgentManifest {
-	return plugin.AgentManifest{Name: "ocr", Kind: plugin.KindCLI, Timeout: 5 * time.Second}
-}
 
 // 干净 PR 的合法"零意见"输出（[] 或 {"comments":[]}）不再是错误——
 // 此前连续 3 个干净 PR 会把 cli 插件熔断摘除 5 分钟。

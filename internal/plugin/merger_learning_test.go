@@ -32,13 +32,13 @@ func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 		{
 			Plugin: "style", Pattern: PatternKey("style", commentLow),
 			PatternText: PatternSample(commentLow),
-			Posted: 0, Regret: 2, Suppress: 1,
+			Posted:      0, Regret: 2, Suppress: 1,
 			Confidence: Confidence(0, 2, 1, 0), Samples: PatternSamples(0, 2, 1),
 		},
 		{
 			Plugin: "security", Pattern: PatternKey("security", commentMid),
 			PatternText: PatternSample(commentMid),
-			Posted: 0, Regret: 2, Suppress: 1,
+			Posted:      0, Regret: 2, Suppress: 1,
 			Confidence: Confidence(0, 2, 1, 0), Samples: PatternSamples(0, 2, 1),
 		},
 	}}

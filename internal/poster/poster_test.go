@@ -65,7 +65,7 @@ func TestReportHeaderStrictMatch(t *testing.T) {
 	invalid := []string{
 		"看这个 <!-- argus:report task_id=t-1 head= ver=v1 --> 不是行首", // 行中前缀不劫持
 		"<!-- argus:report task_id=t-1 head= ver=v1 --> 尾随文本",     // 行尾有内容
-		"<!-- argus:report task_id=t-1 head=abc -->",                // 缺 ver
+		"<!-- argus:report task_id=t-1 head=abc -->",              // 缺 ver
 		"",
 	}
 	for _, h := range invalid {

@@ -1,7 +1,8 @@
 // final_gaps_test.go —— 深挖收尾批补课的三个 e2e 场景：
-//   场景 24 编队共识（黑板互看收敛；回归 Select 漏排除 consensus 成员的双跑 bug）
-//   场景 25 remote(mcp) 插件经 dispatcher 全链路（mcp-go 进程内 stub server）
-//   场景 26/27 评论路由 LLM 分支（review 命中 / 低置信回落 ask）
+//
+//	场景 24 编队共识（黑板互看收敛；回归 Select 漏排除 consensus 成员的双跑 bug）
+//	场景 25 remote(mcp) 插件经 dispatcher 全链路（mcp-go 进程内 stub server）
+//	场景 26/27 评论路由 LLM 分支（review 命中 / 低置信回落 ask）
 package e2e
 
 import (
@@ -41,7 +42,7 @@ func waitCond(t *testing.T, msg string, cond func() bool) {
 func TestScenario24_SquadConsensusConverges(t *testing.T) {
 	const comment = "登录逻辑缺少登录失败次数限制"
 	s := newStack(t, stackOpts{
-		workers:     0,
+		workers: 0,
 		correctness: fmt.Sprintf(
 			`{"findings":[{"file":"a.go","line":7,"severity":"medium","comment":%q}],"notes":""}`, comment),
 		squads: []plugin.SquadDecl{{
@@ -89,7 +90,7 @@ func TestScenario25_RemoteMCPPluginReview(t *testing.T) {
 		workers: 0,
 		extraAgents: []plugin.AgentDecl{{
 			Name: "remote-reviewer", Kind: "remote", Protocol: "mcp",
-			Skills:  []string{plugin.SkillCodeReview},
+			Skills:   []string{plugin.SkillCodeReview},
 			Endpoint: srv.URL + "/mcp", Tool: "review",
 			Cost: plugin.CostStandard, Timeout: "30s",
 		}},

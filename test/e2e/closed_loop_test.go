@@ -13,19 +13,22 @@ import (
 // v3.5 review 闭环 e2e：两轮任务验证 regret 学习环 + 证据门。
 //
 // 轮1：correctness 报 2 条；R3.5 保留「真问题」（带 evidence）、剔除「风格噪声」
-//      → 风格模式记 PatternRegret
+//
+//	→ 风格模式记 PatternRegret
+//
 // 轮2：correctness 再报同样 2 条；R3.5 两条都保留（带 evidence）
-//      → 风格条因历史置信度低被 Merger 标注
+//
+//	→ 风格条因历史置信度低被 Merger 标注
 //
 // 负控：真问题在两轮都不应被标注/丢弃。
 func TestScenario17_RegretLearningLoop(t *testing.T) {
 	// 真问题：保留并带 evidence
 	// 风格噪声：轮1被 R3.5 剔除（不在 draft 输出），轮2保留并带 evidence
 	const (
-		noiseComment  = "建议提取魔法数字为常量"
-		realComment   = "存在空指针解引用风险"
-		noiseFile     = "b.go"
-		realFile      = "a.go"
+		noiseComment = "建议提取魔法数字为常量"
+		realComment  = "存在空指针解引用风险"
+		noiseFile    = "b.go"
+		realFile     = "a.go"
 	)
 	correctness := fmt.Sprintf(`{"findings":[
 		{"file":%q,"line":10,"severity":"high","comment":%q},

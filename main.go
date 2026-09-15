@@ -96,7 +96,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// claim 归属 + 心跳 + 选主身份（多副本滚动发布安全）。uuid 失败退化为
 	// hostname:pid——RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被
 	// reaper 反复重置重跑。
-	instanceID := store.RunnerID
+	var instanceID string
 	if id, err := uuid.NewRandom(); err == nil {
 		instanceID = id.String()[:16]
 	} else {
@@ -244,7 +244,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
 		Model: sys.Models.React, QAModel: sys.Models.QA,
 		RouterModel: sys.Models.Router,
-		Audit: audit.New(log, "argus-audit"), Version: version}
+		Audit:       audit.New(log, "argus-audit"), Version: version}
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()
 

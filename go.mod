@@ -22,9 +22,9 @@ require (
 )
 
 require (
-	code.gitea.io/sdk/gitea v0.25.1 // indirect
 	codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
+	gitea.dev/sdk v1.2.0 // indirect
 	github.com/42wim/httpsig v1.2.4 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
@@ -53,7 +53,7 @@ require (
 	github.com/aliyun/credentials-go v1.4.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
@@ -111,7 +111,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/go-github/v72 v72.0.0 // indirect
+	github.com/google/go-github/v91 v91.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
@@ -194,7 +194,7 @@ require (
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yi-nology/go-gitcode v0.7.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	gitlab.com/gitlab-org/api/client-go/v2 v2.60.0 // indirect
+	gitlab.com/gitlab-org/api/client-go/v3 v3.9.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.62.0 // indirect
 	go.opentelemetry.io/contrib/propagators/b3 v1.28.0 // indirect

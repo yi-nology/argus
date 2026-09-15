@@ -64,16 +64,16 @@ type Config struct {
 	// PluginMaxConcurrent 单任务内插件 fan-out 的最大并发数（ARGUS_PLUGIN_MAX_CONCURRENT，
 	// 深挖修复：原硬编码 2 不可调）。防百炼等 API burst 429。
 	PluginMaxConcurrent int
-	MaxDiffChars       int // <=0 表示按公式动态计算
-	TaskTokenBudget    int // <=0 表示按公式动态计算（EffectiveTaskTokenBudget）
-	ReportMeta         bool
-	PluginsFile        string
-	SkillsDir          string
-	WorkRoot           string
-	KnowledgeDir       string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
-	Platforms          map[string]PlatformConfig
-	LLM                LLMConfig
-	Version            string
+	MaxDiffChars        int // <=0 表示按公式动态计算
+	TaskTokenBudget     int // <=0 表示按公式动态计算（EffectiveTaskTokenBudget）
+	ReportMeta          bool
+	PluginsFile         string
+	SkillsDir           string
+	WorkRoot            string
+	KnowledgeDir        string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
+	Platforms           map[string]PlatformConfig
+	LLM                 LLMConfig
+	Version             string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭

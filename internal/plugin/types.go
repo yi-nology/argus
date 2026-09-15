@@ -287,7 +287,7 @@ type Result struct {
 const ArtifactReviewGuidelines = "review_guidelines"
 
 // ArtifactReviewHints Task.Artifacts 键：仓库级历史高误报模式提示
-//（runner 从 pattern_signals 拉低置信度模式渲染，学习环关闭或无样本时无此键）。
+// （runner 从 pattern_signals 拉低置信度模式渲染，学习环关闭或无样本时无此键）。
 const ArtifactReviewHints = "review_hints"
 
 // ArtifactChangeSummary Task.Artifacts 键：R2 变更摘要。workflow 写入，R4 各插件

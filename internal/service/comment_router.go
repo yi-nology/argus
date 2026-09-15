@@ -132,7 +132,7 @@ func (s *Service) routeAndReply(ctx context.Context, platform, owner, repo, prNu
 }
 
 // classifyIntent LLM 意图分类（不执行处理链）：router.Classify 产出可观测决策
-//（route/confidence/reason），MinConfidence 之下的 review 与未知意图一律视为 ask。
+// （route/confidence/reason），MinConfidence 之下的 review 与未知意图一律视为 ask。
 // Handle 为 router.New 校验所需占位——分派在 routeAndReply 显式进行，因为回帖
 // 格式携带 delivery 幂等标记，必须由持有该上下文的调用方组装。
 func (s *Service) classifyIntent(ctx context.Context, question string) (string, router.Decision, error) {
