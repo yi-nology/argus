@@ -147,7 +147,7 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
 - **优雅停机与心跳恢复**：SIGTERM 后停领新任务，在途审查给 60s 自然完成，超时才硬取消；
   running 任务带实例心跳（20s），心跳死亡 >90s 才被重置回 pending（多副本共库时滚动重启
   不误伤其他实例的在途任务）——重启不烧双倍 token；
-- **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS`（超期终态任务启动时+每日清理）；
+- **任务保留策略**：`ARGUS_TASK_RETENTION_DAYS`（v3.9.2 起默认 30；超期终态任务启动时+每日清理，显式设 0 关闭并告警）；
 - **成本记账（v3.3）**：obsx 回收全部模型调用的真实 usage（Generate 直连与 ReAct RawModel
   两条路径都覆盖），任务级 + 全局 CostTracker；报告元信息行显示"成本 ≈ $X"
   （费率 `ARGUS_LLM_COST_*` 配置），`GET /usage/monthly` 按仓库出月度 token 用量；
@@ -281,7 +281,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_TASK_TOKEN_BUDGET` | 200k | 单任务 token 预算，heavy 插件先裁 |
 | `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文预算 |
 | `ARGUS_SKIP_DRAFT` | true | 跳过 Draft PR |
-| `ARGUS_TASK_RETENTION_DAYS` | 0(永久) | 终态任务保留天数 |
+| `ARGUS_TASK_RETENTION_DAYS` | 30 | 终态任务保留天数（0=永久；tasks 产物每任务 MB 级，长期运行建议保留默认） |
 | `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|
 | `ARGUS_PLUGINS` | plugins.yaml | 插件声明文件 |
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |

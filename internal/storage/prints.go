@@ -18,7 +18,7 @@ func (s *Store) GetPrintState(ctx context.Context, platform, owner, repo, number
 	var p FindingPrint
 	err := s.db.WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-		platform, owner, repo, number, resolveAliasFP(s.db.WithContext(ctx), fingerprint)).First(&p).Error
+		platform, owner, repo, number, resolveAliasFP(s.db.WithContext(ctx), platform, owner, repo, number, fingerprint)).First(&p).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -43,7 +43,7 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return suppressed, s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		fingerprint = resolveAliasFP(tx, fingerprint)
+		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint
 		exact := false // 本轮是否经"完全同评语"通道并入（行号跟随用）
 		pQ := tx.Where(
@@ -72,14 +72,11 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 				p = *near
 				exact = xexact
 				if fingerprint != p.Print {
-					// 幂等写入（v3.9.1）：alias_fp 是全局唯一主键而指纹按 PR 归属
-					// ——两个 PR 出现同款措辞漂移（同一新指纹）时，第二个 PR 重复
-					// 创建别名会撞主键、整个 UpsertPrint 事务回滚，该意见此后每轮
-					// print_upsert_failed（抑制/计数/复现全部失效）。冲突保留既有
-					// 映射（DoNothing）：同映射幂等无害；异映射（跨 PR 指向不同
-					// 规范行）属已知设计张力，近重复层每轮仍能在本 PR 内兜底合并。
+					// 幂等写入：别名 PR 域化（v3.9.2）后同 (PR, alias_fp) 重复创建
+					// 仍可能发生（同 PR 内措辞漂移回摆），冲突保留既有映射。
 					if aerr := tx.Clauses(clause.OnConflict{DoNothing: true}).
-						Create(&PrintAlias{AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
+						Create(&PrintAlias{Platform: platform, Owner: owner, Repo: repo, Number: number,
+							AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
 						return aerr
 					}
 				}
@@ -135,7 +132,7 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		fingerprint = resolveAliasFP(tx, fingerprint)
+		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint
 		err := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
@@ -224,14 +221,12 @@ func (s *Store) ResolvePrintRecord(ctx context.Context, platform, owner, repo, n
 		return FindingPrint{}, false // 前缀歧义：不猜
 	}
 	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射
-	// 回规范行。候选别名经子查询限定到本 PR 已有的规范行。
+	// 回规范行。别名表已 PR 域化（v3.9.2），直接按本 PR 过滤。
 	var a PrintAlias
-	err := s.db.WithContext(ctx).Where(
-		"alias_fp LIKE ? AND print_fp IN (?)", prefix+"%",
-		s.db.Model(&FindingPrint{}).Select("print").
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number),
-	).Order("updated_at DESC").First(&a).Error
-	if err != nil {
+	if err := s.db.WithContext(ctx).Where(
+		"platform = ? AND owner = ? AND repo = ? AND number = ? AND alias_fp LIKE ?",
+		platform, owner, repo, number, prefix+"%").
+		Order("updated_at DESC").First(&a).Error; err != nil {
 		return FindingPrint{}, false
 	}
 	var p FindingPrint
@@ -269,7 +264,7 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		fingerprint = resolveAliasFP(tx, fingerprint)
+		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint
 		err := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
@@ -315,9 +310,11 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 			return err
 		}
 		if len(rows) == 0 {
-			// 别名前缀兜底：alias_fp 为全指纹，前缀命中歧义时同样不猜
+			// 别名前缀兜底：alias_fp 为全指纹，前缀命中歧义时同样不猜。
+			// 别名表已 PR 域化（v3.9.2），直接按本 PR 过滤。
 			var aliases []PrintAlias
-			if err := tx.Where("alias_fp LIKE ?", prefix+"%").Find(&aliases).Error; err != nil {
+			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND alias_fp LIKE ?",
+				platform, owner, repo, number, prefix+"%").Find(&aliases).Error; err != nil {
 				return err
 			}
 			if len(aliases) != 1 {

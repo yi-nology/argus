@@ -271,5 +271,34 @@ func earlierTime(a, b time.Time) time.Time {
 	return a
 }
 
+// PruneStalePatterns 模式信号保留策略（v3.9.2：pattern_signals 此前只增不删，
+// 每个新 pattern_key（repo×plugin×规范化评语）永久一行，随时间慢速无界）。
+// 删除 LastSeenAt 早于 cutoff 的行——语义与 PruneStalePrints 同源：长期未复现
+// 的模式遗忘后最坏效果是"同型意见重新从头计数"，不会误杀（MinSamples 门槛
+// 保护小样本消费）。分批删除（每批 500，长事务占住 SQLite 单写连接）。
+func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var total int64
+	for {
+		var batch []uint
+		if err := s.db.WithContext(ctx).Model(&PatternSignal{}).
+			Where("last_seen_at < ?", cutoff).Limit(500).Pluck("id", &batch).Error; err != nil {
+			return total, err
+		}
+		if len(batch) == 0 {
+			return total, nil
+		}
+		res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&PatternSignal{})
+		total += res.RowsAffected
+		if res.Error != nil {
+			return total, res.Error
+		}
+		if len(batch) < 500 {
+			return total, nil
+		}
+	}
+}
+
 // 编译期：*Store 实现 plugin.PatternStore。
 var _ plugin.PatternStore = (*Store)(nil)

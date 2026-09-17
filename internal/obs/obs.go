@@ -116,6 +116,33 @@ var (
 	qaFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_qa_failures_total", Help: "评论链路处理失败分布（llm/reject/…）",
 	}, []string{"reason"})
+
+	// pollerFailures 轮询兜底链路失败计数（v3.9.2：轮询是 webhook 不可达环境的
+	// 主力任务源，此前失败仅 Warn 日志，API 故障率/截断率无法聚合告警）。
+	pollerFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_poller_failures_total", Help: "轮询兜底失败分布（list_failed/page_truncated/task_create_failed）",
+	}, []string{"reason"})
+
+	// commentBusy 评论链路并发闸满载拒绝（评论风暴 / 容量不足信号）。
+	commentBusy = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_comment_busy_total", Help: "评论链路并发闸满载拒绝次数（调用方收到 busy）",
+	})
+
+	// commentPostFailures 评论回帖失败计数（问了没人回的可观测面）。
+	commentPostFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_comment_post_failures_total", Help: "评论回帖失败分布（reply/…）",
+	}, []string{"kind"})
+
+	// httpRequests/httpDuration 请求级指标（v3.9.2：此前 5xx 率与时延只能靠日志
+	// 聚合；path 用路由模板避免高基数）。
+	httpRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_http_requests_total", Help: "HTTP 请求计数（method/path 模板/status）",
+	}, []string{"method", "path", "status"})
+	httpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "argus_http_request_duration_seconds",
+		Help:    "HTTP 请求时延分布",
+		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+	}, []string{"method", "path", "status"})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
@@ -127,6 +154,7 @@ func Init() {
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures,
+		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -206,4 +234,19 @@ func IncrLLMFailover(stage string) {
 // IncrQAFailure 评论链路处理失败计数（service 层调用）。
 func IncrQAFailure(reason string) {
 	qaFailures.WithLabelValues(reason).Inc()
+}
+
+// IncrPollerFailure 轮询兜底失败计数（poller 包调用）。
+func IncrPollerFailure(reason string) {
+	pollerFailures.WithLabelValues(reason).Inc()
+}
+
+// IncrCommentBusy 评论并发闸满载拒绝计数（service 层调用）。
+func IncrCommentBusy() {
+	commentBusy.Inc()
+}
+
+// IncrCommentPostFailure 评论回帖失败计数（service 层调用）。
+func IncrCommentPostFailure(kind string) {
+	commentPostFailures.WithLabelValues(kind).Inc()
 }

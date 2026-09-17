@@ -410,6 +410,32 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 	}
 }
 
+// v3.9.2 回归：半开探测在途时任务取消——teardown 路径必须经 Abandon 释放
+// 探测位（agentkit v0.10.4 配对契约），下一次 Allow 立即放行新探测。此前
+// 探测位滞留至 probeTimeout，健康插件被"熔断中"误跳过最长约 10 分钟。
+func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
+	reg1 := &Registration{Manifest: AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
+		Plugin: &canceledPlugin{manifest: AgentManifest{Name: "canceled-agent"}}, Enabled: true}
+	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	_ = d.reg.Register(reg1)
+	sel := []Selection{{Reg: reg1, Reason: "base"}}
+
+	bs := d.Breakers()
+	now := time.Now()
+	bs.Now = func() time.Time { return now }
+	for i := 0; i < breaker.DefaultTripThreshold; i++ {
+		bs.Failure("canceled-agent")
+	}
+	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
+
+	// Run 内 Allow 放行半开探测 → 插件返回 Canceled → teardown → Abandon
+	_ = d.Run(context.Background(), Task{}, sel, nil)
+
+	if !bs.Allow("canceled-agent") {
+		t.Fatal("teardown 应经 Abandon 释放半开探测位，下一次 Allow 立即放行新探测")
+	}
+}
+
 func TestTeardown_Classification(t *testing.T) {
 	parentCanceled, cancel := context.WithCancel(context.Background())
 	cancel()

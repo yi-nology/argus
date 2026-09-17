@@ -148,6 +148,12 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		wp.Stop(cfg.WorkerGrace)
 		return nil
 	})
+	// GitHub App token refresher 停机收编（v3.9.2）：此前 Stop 全仓无调用方，
+	// 优雅排水期间仍可能触发 provider 重建（未启用 GitHub App 时为 no-op）。
+	app.AddResource("github-app-refresher", func(context.Context) error {
+		sys.SDK.Stop()
+		return nil
+	})
 
 	// ---- 运维加固：任务保留清理 + 队列深度采样（WorkerManager 管理生命周期）----
 	// ctx 取消时所有 ticker 自动退出（cancel 先于 close），无需显式 Close
@@ -166,7 +172,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		wm.AddTicker("task-prune", 24*time.Hour, pruneOnce)
 	} else {
 		log.Warn("argus.boot.retention_disabled", "hint",
-			"ARGUS_TASK_RETENTION_DAYS 未设置（默认 0=永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长，生产建议设置保留天数（推荐 30，见 deploy/ops-runbook.md 场景 3）")
+			"ARGUS_TASK_RETENTION_DAYS=0（永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长；默认 30 天，显式关闭请确认磁盘监控到位（deploy/ops-runbook.md 场景 3）")
 	}
 	// 会话与指纹的保留清理（深挖修复：qa_sessions/finding_prints 此前永不清理，
 	// history_json/comment 单调膨胀拖慢全表扫描与备份）。
@@ -200,6 +206,12 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			log.Warn("argus.boot.delivery_prune_failed", "error", err.Error())
 		} else if n > 0 {
 			log.Info("argus.boot.delivery_pruned", "removed", n)
+		}
+		// 模式信号（v3.9.2）：与指纹同保留期（长期未复现即遗忘，重新从头计数）
+		if n, err := store.PruneStalePatterns(ctx, time.Now().Add(-printCutoff)); err != nil {
+			log.Warn("argus.boot.pattern_prune_failed", "error", err.Error())
+		} else if n > 0 {
+			log.Info("argus.boot.pattern_pruned", "removed", n)
 		}
 	}
 	pruneAuxOnce(ctx)
@@ -294,6 +306,8 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// ekit traceid：生成/透传 X-Trace-Id + 注入 RequestContext 与标准 context；
 	// mw 响应壳与 logx.Ctx* 日志的 trace_id 皆源于此
 	h.Use(hmw.Middleware()...)
+	// 请求级指标（v3.9.2）：状态码/路由模板计数 + 时延分布（5xx 率可告警）
+	h.Use(obs.HTTPMiddleware())
 	registerCustom(h, store, sys.SDK, cfg, svc)
 	// h.Run() 进 bootstrap 后台（关闭阶段先 h.Shutdown 排水，h.Run 退出由 wait 阶段收割）
 	ekithertz.RunServer(app, "http", h)

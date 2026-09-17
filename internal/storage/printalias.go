@@ -22,8 +22,16 @@ import (
 
 // PrintAlias 别名映射：alias_fp（某轮出现的新措辞指纹）→ print_fp（既有条目的
 // 规范指纹）。一行多别名是常态（同一问题跨多轮的不同措辞）。
+// v3.9.2 起 PR 四列并入主键：指纹按 PR 归属（idx_print 唯一索引含 number），
+// 旧形态 alias_fp 全局唯一主键下，两个 PR 出现同款措辞漂移（同一新指纹）时
+// 第二个 PR 建别名撞主键、UpsertPrint 整体回滚。存量由 print_alias_pr_scope
+// 迁移按 print_fp 反查 PR 回填（命中多 PR 逐 PR 复制，孤儿丢弃）。
 type PrintAlias struct {
-	AliasFP   string    `gorm:"column:alias_fp;primaryKey;size:64"`
+	Platform  string    `gorm:"column:platform;primaryKey;size:16;not null"`
+	Owner     string    `gorm:"column:owner;primaryKey;size:128;not null"`
+	Repo      string    `gorm:"column:repo;primaryKey;size:128;not null"`
+	Number    string    `gorm:"column:number;primaryKey;size:16;not null"`
+	AliasFP   string    `gorm:"column:alias_fp;primaryKey;size:64;not null"`
 	PrintFP   string    `gorm:"column:print_fp;size:64;index"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
@@ -65,9 +73,11 @@ func commentNear(a, b string) bool {
 }
 
 // resolveAliasFP 别名一跳解析（alias → 规范指纹；无映射原样返回）。
-func resolveAliasFP(tx *gorm.DB, fingerprint string) string {
+// PR 域限定（v3.9.2）：别名按 PR 归属，同 alias_fp 在不同 PR 可指向各自规范行。
+func resolveAliasFP(tx *gorm.DB, platform, owner, repo, number, fingerprint string) string {
 	var a PrintAlias
-	if err := tx.Where("alias_fp = ?", fingerprint).First(&a).Error; err != nil {
+	if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND alias_fp = ?",
+		platform, owner, repo, number, fingerprint).First(&a).Error; err != nil {
 		return fingerprint
 	}
 	return a.PrintFP
@@ -253,4 +263,45 @@ func (s *Store) migratePrintFingerprintsV2(ctx context.Context) (migrated int, e
 		migrated += int(res.RowsAffected)
 	}
 	return migrated, nil
+}
+
+// migratePrintAliasPRScope print_aliases 表重建（v3.9.2，SchemaMigration 哨兵
+// 门控）：PR 四列并入主键。旧形态 alias_fp 全局唯一主键与"指纹按 PR 归属"矛盾
+// ——两个 PR 同款措辞漂移时第二个 PR 建别名撞主键、UpsertPrint 整体回滚。
+// 回填规则：旧行按 print_fp 关联 finding_prints 反查 PR——命中多个 PR 逐 PR
+// 复制（"alias_fp ↔ 该 PR 的规范行"在各 PR 内均成立），零命中（规范行已被
+// 清理的孤儿别名）丢弃。新库 AutoMigrate 即新形态，重建空表无害（幂等）。
+// 语句全部为内联字面量，无运行期插值——迁移 DDL 不含任何用户输入。
+func (s *Store) migratePrintAliasPRScope(ctx context.Context) (int, error) {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if s.sqlite {
+			if err := tx.Exec(`CREATE TABLE "print_aliases_new" ("platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" datetime, PRIMARY KEY ("platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
+				return err
+			}
+		} else {
+			// MySQL 反引号表名与引号列名在 Go 源码里无需转义
+			if err := tx.Exec("CREATE TABLE `print_aliases_new` (`platform` varchar(16) NOT NULL, `owner` varchar(128) NOT NULL, `repo` varchar(128) NOT NULL, `number` varchar(16) NOT NULL, `alias_fp` varchar(64) NOT NULL, `print_fp` varchar(64) DEFAULT NULL, `updated_at` datetime(3) DEFAULT NULL, PRIMARY KEY (`platform`, `owner`, `repo`, `number`, `alias_fp`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4").Error; err != nil {
+				return err
+			}
+		}
+		// 回填按 print_fp 反查 PR：多 PR 命中经 JOIN 逐 PR 复制，同 (PR, alias_fp)
+		// 天然去重；updated_at 取 MAX（旧行 alias_fp 全局唯一，无并列）。
+		if err := tx.Exec(`INSERT INTO print_aliases_new (platform, owner, repo, number, alias_fp, print_fp, updated_at) SELECT p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp, MAX(a.updated_at) FROM print_aliases a JOIN finding_prints p ON p.print = a.print_fp GROUP BY p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp`).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`DROP TABLE print_aliases`).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`ALTER TABLE print_aliases_new RENAME TO print_aliases`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`CREATE INDEX idx_print_aliases_print_fp ON print_aliases (print_fp)`).Error
+	}); err != nil {
+		return 0, err
+	}
+	var n int64
+	if err := s.db.WithContext(ctx).Table("print_aliases").Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }

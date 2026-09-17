@@ -1,5 +1,51 @@
 # Changelog
 
+## v3.9.2 (2026-09-18) — 深挖欠账清零：熔断配对契约 + 别名 PR 域改造 + 指标面补全
+
+二轮深挖遗留项的全部收口（配合 agentkit v0.10.4）。
+
+### 熔断配对契约（agentkit v0.10.2 → v0.10.4）
+
+- **breaker 新增 `Abandon`**：Allow 的配对契约扩为「Success / Failure / Abandon
+  三者恰好其一」。调用方在取得结果前终止（任务级取消/优雅停机）时放弃在途
+  半开探测——结果未知，既不计成功也不计失败；探测位立即恢复可放行，不再
+  滞留至 probeTimeout（argus 侧=最大插件超时+30s，compliance 类插件即 ~10
+  分钟"熔断中"误跳过窗口）。
+- **argus 三处接线**：Dispatcher 排队取消（等待槽位被取消）与 teardown 路径、
+  consensus 成员 teardown 路径——此前消费 Allow 后不配对。带回归测试（半开
+  探测在途时取消，下一次 Allow 必须立即放行新探测）。
+
+### print_aliases PR 域改造（v3.7.0 以来的设计张力收口）
+
+- alias_fp 全局唯一主键 → `(platform, owner, repo, number, alias_fp)` 复合主键：
+  指纹按 PR 归属（idx_print 唯一索引含 number）而别名全局共享的矛盾，此前使
+  两个 PR 出现同款措辞漂移（同一新指纹）时第二个 PR 建别名撞主键、
+  UpsertPrint 整体回滚（该意见此后每轮 print_upsert_failed，抑制/计数失效）。
+- 存量迁移 `print_alias_pr_scope`（SchemaMigration 哨兵门控）：按 print_fp
+  反查 PR 回填，多 PR 命中逐 PR 复制，孤儿别名（规范行已清理）丢弃；失败
+  下次启动重试，带回填回归测试。
+- suppress/restore 短码的别名兜底简化为直接 PR 过滤（v3.9.1 的子查询方案被
+  表结构取代）；resolveAliasFP 全调用面 PR 域限定。
+
+### 保留策略与指标
+
+- **tasks 保留默认 30 天**（原 0=永久）：tasks 报告/调试产物每任务 MB 级单调
+  增长，默认收敛；显式设 0 仍可永久保留（启动日志 `argus.boot.retention_disabled`
+  告警提醒磁盘监控）。
+- **pattern_signals 保留策略**：last_seen_at 超 180 天（与指纹同期）清理——
+  此前每个新 pattern_key 永久一行慢速无界；长期未复现的模式遗忘后重新从头
+  计数（MinSamples 门槛保护不误杀）。
+- **指标面补全**：`argus_poller_failures_total`（list_failed/page_truncated/
+  task_create_failed，轮询是 webhook 不可达环境的主力任务源）、
+  `argus_comment_busy_total`（并发闸满载）、`argus_comment_post_failures_total`
+  （回帖失败）、`argus_http_requests_total` + `argus_http_request_duration_seconds`
+  （路由模板级中间件，5xx 率与时延可告警）。
+- **GitHub App token refresher 收编停机序列**（main AddResource）：此前 Stop
+  全仓无调用方、裸 goroutine 启动——优雅排水期间仍可能触发 provider 重建；
+  改 async.GoSafe 防 panic 拖垮进程。
+- 测试补课：QA 会话乐观锁（SaveQASessionCas）冲突拒绝/重读重放路径（此前
+  零覆盖）。
+
 ## v3.9.1 (2026-09-17) — 学习环记账口径修正 + P2/P3 快修 + 发布/文档批
 
 v3.9.0 提交后（main 192d6fa/77ae563）的四路深挖修复批。重点：学习环

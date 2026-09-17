@@ -154,7 +154,8 @@ docker compose start argus
 
 ### 预防
 
-- 生产环境必须设置 `ARGUS_TASK_RETENTION_DAYS`（推荐 30）
+- 任务保留默认 30 天（v3.9.2 起）；显式设 `ARGUS_TASK_RETENTION_DAYS=0` 关闭时，
+  磁盘监控必须到位（启动日志有 `argus.boot.retention_disabled` 告警）
 - `ARGUS_DEBUG=false`（默认）避免留存大量调试产物
 - 定期监控磁盘使用率
 - OCR 留档目录 `/data/ocr-history`（v3.9.0 起 delegate/ocrshim 双通道原始产物）只增不删，
@@ -665,7 +666,7 @@ grep "argus.ocrdeleg" /var/log/argus.log | tail -5
 | `ARGUS_MAX_CONCURRENT_TASKS` | `2` | 最大并发任务数 |
 | `ARGUS_LLM_RATE_LIMIT` | `0` | LLM 请求速率限制（req/s，0=不限） |
 | `ARGUS_LLM_RATE_BURST` | 等于并发数 | 限速器突发容量 |
-| `ARGUS_TASK_RETENTION_DAYS` | `0` | 任务保留天数（0=永久） |
+| `ARGUS_TASK_RETENTION_DAYS` | `30` | 任务保留天数（0=永久，关闭时启动告警） |
 | `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | `0` | 仓库月度 token 预算（0=不限） |
 | `ARGUS_COMMENT_TIMEOUT` | `10m` | 评论链路整体超时（总结/标注回帖，超时任务按 failed 落库） |
 | `ARGUS_COMMENT_CONCURRENCY` | `2` | 评论回帖并发数 |

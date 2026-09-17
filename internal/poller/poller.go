@@ -15,6 +15,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
@@ -110,6 +111,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 				Page: page, PerPage: 30,
 			})
 			if err != nil {
+				obs.IncrPollerFailure("list_failed")
 				p.Log.Warn("argus.poller.list_failed",
 					"repo", t.Owner+"/"+t.Repo, "error", err.Error())
 				prs = nil
@@ -125,6 +127,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 		}
 		if pagingTruncated {
+			obs.IncrPollerFailure("page_truncated")
 			p.Log.Warn("argus.poller.paging_truncated", "repo", t.Owner+"/"+t.Repo,
 				"limit", 90, "hint", "open PR 超过轮询分页上限，超出部分不被发现；如需覆盖请调大分页上限")
 		}
@@ -154,6 +157,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 			dupReason, _, err := p.Store.CreateTaskForWebhook(ctx, task)
 			if err != nil {
+				obs.IncrPollerFailure("task_create_failed")
 				p.Log.Warn("argus.poller.task_create_failed", "error", err.Error())
 				continue
 			}

@@ -139,7 +139,7 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 					b.Write(name, boardKindNote, "预算耗尽，本轮跳过")
 					return false, nil
 				}
-				// 熔断门（Allow 后必然配对一次 Success/Failure）
+				// 熔断门（Allow 后必然配对一次 Success/Failure/Abandon）
 				if !d.breakers.Allow(name) {
 					st.skipped = "熔断中"
 					b.Write(name, boardKindNote, "熔断中，本轮跳过")
@@ -170,9 +170,12 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 				if err != nil {
 					st.lastErr = err
 					if teardown(err, ctx) {
-						// 任务级取消/终止不是插件故障：不计熔断（与 Dispatcher.Run
-						// 同语义）——否则优雅停机打断共识时每个成员各记一次
-						// Failure，连续 3 次滚动发布即误熔断 security 类成员（v3.9.1）。
+						// 任务级取消/终止不是插件故障：不计熔断连续失败（与
+						// Dispatcher.Run 同语义）——否则优雅停机打断共识时每个
+						// 成员各记一次 Failure，连续 3 次滚动发布即误熔断
+						// security 类成员（v3.9.1）。结果未知也不计成功——
+						// Abandon 释放半开探测位（v0.10.4 配对契约）。
+						d.breakers.Abandon(name)
 						d.log.Warn("argus.squad.consensus_member_canceled", "squad", sq.Name,
 							"member", name, "error", err.Error())
 					} else {

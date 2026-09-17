@@ -339,5 +339,50 @@ func TestUpsertPrint_SameDriftAcrossPRsNoAliasConflict(t *testing.T) {
 		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, baseFP); err != nil || st == nil || st.TimesSeen != 2 {
 			t.Fatalf("PR %s 既有条目计数应延续（TimesSeen=2），got %+v err=%v", number, st, err)
 		}
+		// v3.9.2：别名 PR 域化后，两个 PR 各自的漂移指纹都应解析到本 PR 的规范行
+		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, driftFP); err != nil || st == nil || st.TimesSeen != 2 {
+			t.Fatalf("PR %s 漂移指纹应经本 PR 别名解析到规范行，got %+v err=%v", number, st, err)
+		}
+	}
+}
+
+// v3.9.2 迁移回填：旧形态（alias_fp 单列主键、无 PR 列）→ PR 域复合主键。
+// 旧行按 print_fp 反查 PR——多 PR 命中逐 PR 复制，孤儿（规范行已清理）丢弃。
+func TestMigratePrintAliasPRScope(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Open() 已按新形态建表并跑过迁移（空表、marker 已写）；重建为旧形态造存量
+	if err := s.db.Exec(`DROP TABLE print_aliases`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.Exec(`CREATE TABLE print_aliases (alias_fp varchar(64) PRIMARY KEY, print_fp varchar(64), updated_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 规范行：同指纹 Fx 在 PR 7 与 PR 8 各一条；孤儿别名指向的 Gx 不存在
+	fx, gx, a1, a2 := "fx0000000001", "gx0000000001", "a10000000001", "a20000000002"
+	for _, number := range []string{"7", "8"} {
+		if err := s.db.Create(&FindingPrint{Platform: "gitea", Owner: "acme", Repo: "app",
+			Number: number, Print: fx, File: "a.go", Line: 1, Severity: "high",
+			Comment: "注入风险", Status: PrintOpen}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.db.Exec(`INSERT INTO print_aliases (alias_fp, print_fp, updated_at) VALUES ('` + a1 + `', '` + fx + `', CURRENT_TIMESTAMP), ('` + a2 + `', '` + gx + `', CURRENT_TIMESTAMP)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.migratePrintAliasPRScope(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("迁移后应剩 2 行（A1 复制到两 PR、孤儿 A2 丢弃），got %d", n)
+	}
+	// 各 PR 的 A1 都解析到本 PR 规范行（PrintState 不含指纹字段，以行内容佐证）
+	for _, number := range []string{"7", "8"} {
+		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, a1); err != nil || st == nil || st.Comment != "注入风险" {
+			t.Fatalf("PR %s 应经别名解析到 Fx 行，got %+v err=%v", number, st, err)
+		}
 	}
 }

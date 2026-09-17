@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	// 各平台 backend 在 init() 里注册到 provider 工厂
 	_ "github.com/yi-nology/git-platform-sdk/backends/all"
@@ -52,6 +53,17 @@ func (s *SDKCtx) bound(ctx context.Context) (context.Context, context.CancelFunc
 func (s *SDKCtx) WithSDKCallTimeout(d time.Duration) *SDKCtx {
 	s.sdkCallTimeout = d
 	return s
+}
+
+// Stop 停止后台组件（GitHub App token refresher，v3.9.2 收编进停机序列）：
+// 此前 refresher 以裸 goroutine 启动且 Stop 全仓无调用方——90s 优雅排水期间
+// 仍可能触发 provider 重建。重复调用安全（仅停机序列单点调用）。
+func (s *SDKCtx) Stop() {
+	s.provsMu.RLock()
+	defer s.provsMu.RUnlock()
+	if s.appTokens != nil && s.appTokens.refresh != nil {
+		s.appTokens.refresh.Stop()
+	}
 }
 
 // appTokenManager 管理 GitHub App installation token 的生命周期。
@@ -131,12 +143,13 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 			tokenMgr.refresh = refresher
 			s.appTokens = tokenMgr
 
-			// 启动后台刷新循环（非阻塞）
-			go func() {
+			// 启动后台刷新循环（非阻塞；GoSafe 防 Start 期 panic 拖垮进程——
+			// v3.9.2 收编，Stop 经 main 的 AddResource 停机序列调用）
+			async.GoSafe(func() {
 				if err := refresher.Start(); err != nil {
 					log.Error("argus.githubapp.refresher_start_failed", "error", err.Error())
 				}
-			}()
+			})
 
 			log.Info("argus.sdkctx.platform_ready", "platform", name,
 				"auth", "github_app", "app_id", pc.GitHubAppID,

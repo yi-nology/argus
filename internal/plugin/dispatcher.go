@@ -389,7 +389,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			ReportPluginSkipped("budget")
 			continue
 		}
-		// 熔断门（Allow 后必然配对 Success/Failure——见下方 invoke 分支）
+		// 熔断门（Allow 后必然配对 Success/Failure/Abandon——见下方 invoke 分支）
 		if !d.breakers.Allow(reg.Manifest.Name) {
 			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breaker.DefaultCooldown)
 			ReportPluginSkipped("circuit")
@@ -407,6 +407,10 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
 				case <-ctx.Done():
+					// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
+					// 探测位（不计失败；配对契约=Success/Failure/Abandon
+					// 恰好其一，v0.10.4）
+					d.breakers.Abandon(reg.Manifest.Name)
 					o.SkippedReason = "任务已取消（等待执行槽位）"
 					ReportPluginSkipped("canceled")
 					return
@@ -429,7 +433,9 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 				d.breakers.Success(reg.Manifest.Name)
 			case teardown(err, ctx):
 				// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
-				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）
+				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）。
+				// 结果未知也不计成功——Abandon 释放半开探测位（v0.10.4 配对契约）。
+				d.breakers.Abandon(reg.Manifest.Name)
 				o.SkippedReason = "任务已取消"
 				d.log.Warn("argus.plugin.canceled", "plugin", reg.Manifest.Name,
 					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())

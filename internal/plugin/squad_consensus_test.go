@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.example.com/enjoydream/agentkit/breaker"
 )
 
 // ---------- 编队黑板共识模式测试（blackboard 架构原语，v3.4） ----------
@@ -327,5 +329,30 @@ func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
 	// 取消不算失败：blocker 的熔断器必须仍在闭合态（Allow 放行）。
 	if !d.breakers.Allow("blocker") {
 		t.Fatal("任务级取消不得计入熔断连续失败")
+	}
+}
+
+// v3.9.2 回归：半开探测在途时共识成员被取消——teardown 路径经 Abandon 释放
+// 探测位，下一轮成员不得因探测滞留被"熔断中"误跳过。
+func TestRunConsensus_TeardownAbandonsHalfOpenProbe(t *testing.T) {
+	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	_ = d.reg.Register(regWith(&canceledPlugin{manifest: AgentManifest{
+		Name: "blocker", Skills: []string{"code-review"},
+		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))
+	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []Finding{}, []Finding{})))
+	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
+
+	bs := d.Breakers()
+	now := time.Now()
+	bs.Now = func() time.Time { return now }
+	for i := 0; i < breaker.DefaultTripThreshold; i++ {
+		bs.Failure("blocker")
+	}
+	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
+
+	_ = d.RunConsensus(context.Background(), Task{}, sq, nil)
+
+	if !bs.Allow("blocker") {
+		t.Fatal("共识成员取消后应经 Abandon 立即放行新探测")
 	}
 }

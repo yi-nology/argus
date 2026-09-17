@@ -113,6 +113,7 @@ func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.Normali
 	select {
 	case s.commentSlots <- struct{}{}:
 	default:
+		obs.IncrCommentBusy()
 		return false
 	}
 	timeout := s.Cfg.CommentTimeout
@@ -1178,6 +1179,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, prNum, prRef,
 	body, question string, answerLen int) {
 	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body); err != nil {
+		obs.IncrCommentPostFailure("reply")
 		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
 		return
 	}

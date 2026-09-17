@@ -4,6 +4,8 @@ codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 h1:s2fK+FBwvcYsmKDjNhmoe7B8
 codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+git.example.com/enjoydream/agentkit v0.10.4 h1:7WEcZDsWAc952O1HBOAHVyULnd8aVYyQTnTe1DTI9Xc=
+git.example.com/enjoydream/agentkit v0.10.4/go.mod h1:TRWFS7WPEE41vP2OppoCWaczj3tZ1dwQ7ZNsTO9H7M4=
 git.example.com/enjoydream/ekit v0.27.2 h1:3El7fXKpxcZix+MWqK9fwK5k6IRUz0+VA3LyuoSQxyU=
 git.example.com/enjoydream/ekit v0.27.2/go.mod h1:3sJ9PdzLZejRd9zig/H7PMq0K6elxiACu5ZMPtUNcMA=
 gitea.dev/sdk v1.2.0 h1:avRtJl/nKCGispgSalo9czoZM9Rto1awnE0caNAoXGo=

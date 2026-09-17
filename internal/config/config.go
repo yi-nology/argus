@@ -390,7 +390,7 @@ func Load() *Config {
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),
 		SDKCallTimeout:         envDuration("ARGUS_SDK_TIMEOUT", 0),
-		TaskRetentionDays:      envInt("ARGUS_TASK_RETENTION_DAYS", 0),
+		TaskRetentionDays:      envInt("ARGUS_TASK_RETENTION_DAYS", 30),
 		RepoMonthlyTokenBudget: envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
 		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
 		LLMCostCompletionPer1K: envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0),

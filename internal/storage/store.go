@@ -208,6 +208,13 @@ func Open(dsn string) (*Store, error) {
 	} else if n > 0 {
 		s.db.Logger.Info(context.Background(), "指纹 v2 迁移完成: %d 行", n)
 	}
+	// print_aliases PR 域迁移（v3.9.2）：alias_fp 全局主键 → (PR, alias_fp) 复合
+	// 主键——两个 PR 同款措辞漂移不再撞主键回滚；存量按 print_fp 反查 PR 回填。
+	if n, merr := s.ensureMigrationApplied(context.Background(), "print_alias_pr_scope", s.migratePrintAliasPRScope); merr != nil {
+		s.db.Logger.Warn(context.Background(), "print_aliases PR 域迁移失败（下次启动重试）: %v", merr)
+	} else if n > 0 {
+		s.db.Logger.Info(context.Background(), "print_aliases PR 域迁移完成: %d 行", n)
+	}
 	return s, nil
 }
 
