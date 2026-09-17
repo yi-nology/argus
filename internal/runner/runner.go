@@ -381,6 +381,23 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if ptask.Artifacts == nil {
 		ptask.Artifacts = map[string]string{}
 	}
+	// G2 断点续审（v3.12.0）：同任务重试时回流已持久化的 R1/R2 阶段产物，
+	// 跳过已成功阶段的重复 LLM 调用（跨任务不生效——新任务无 checkpoint 键）。
+	if task.StageArtifacts != "" {
+		if m := decodeArtifacts(task.StageArtifacts); len(m) > 0 {
+			for k, v := range m {
+				ptask.Artifacts[k] = v
+			}
+			r.Log.Info("argus.runner.checkpoint_reuse", "task", task.ID, "stages", len(m))
+		}
+	}
+	// 阶段产物落库钩子：R1/R2 每完成一步即持久化（失败只告警——checkpoint 缺失
+	// 只影响重试成本，不影响正确性）
+	wf.CheckpointSink = func(arts map[string]string) {
+		if err := r.Store.MergeTaskStageArtifacts(ctx, task.ID, arts); err != nil {
+			r.Log.Warn("argus.runner.checkpoint_save_failed", "task", task.ID, "error", err.Error())
+		}
+	}
 	// 仓库级自定义审查指引（.argus/review-guidelines.md，对标 Copilot 的
 	// custom review instructions）：只从默认分支读，缺失/超限静默降级。
 	if g := r.fetchReviewGuidelines(ctx, pr); g != "" {

@@ -317,6 +317,14 @@ const (
 // 给报告渲染。
 const ArtifactChangeSummary = "change_summary"
 
+// 任务级阶段产物 checkpoint 键（v3.12.0 G2 断点续审）：workflow 成功完成 R1/R2
+// 后经 CheckpointSink 持久化到 tasks.stage_artifacts，同任务重试时复用——省掉
+// 已成功阶段的重复 LLM 调用。只在任务内有效，新任务永远全量重跑。
+const (
+	ArtifactCkptR1Spec    = "checkpoint_r1_spec"    // RequirementSpec JSON
+	ArtifactCkptR2Summary = "checkpoint_r2_summary" // R2 变更摘要文本
+)
+
 // Result.Artifact 键：R3 完成度报告 JSON 与 R5 裁决规则（compliance 插件产出）。
 const (
 	ArtifactComplianceReport = "compliance_report"

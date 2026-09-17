@@ -591,3 +591,36 @@ func TestFailedRetryBackoff(t *testing.T) {
 		t.Fatalf("超限不得重置: n=%d err=%v", n, err)
 	}
 }
+
+// v3.12.0 G2 断点续审：阶段产物 checkpoint 合并写入/回流。
+func TestMergeTaskStageArtifacts(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	task := &Task{ID: "t-ckpt", Kind: "requirement_compliance",
+		Platform: "gitea", Owner: "acme", Repo: "app", Number: "7"}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	id := task.ID
+	if err := s.MergeTaskStageArtifacts(ctx, id, map[string]string{"checkpoint_r1_spec": `{"source":"x"}`}); err != nil {
+		t.Fatal(err)
+	}
+	// 第二次合并：保留既有键 + 覆盖/新增
+	if err := s.MergeTaskStageArtifacts(ctx, id, map[string]string{
+		"checkpoint_r1_spec":    `{"source":"y"}`,
+		"checkpoint_r2_summary": "新增了登录",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(task.StageArtifacts), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["checkpoint_r1_spec"] != `{"source":"y"}` || got["checkpoint_r2_summary"] != "新增了登录" {
+		t.Fatalf("合并结果不符: %+v", got)
+	}
+}

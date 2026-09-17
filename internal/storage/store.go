@@ -51,6 +51,11 @@ type Task struct {
 	ArtifactsJSON    string `gorm:"column:artifacts_json;type:text"`
 	// DebugJSON 调试产物（ARGUS_DEBUG=1 时留存 R1 spec/R2 摘要/R3 原始输出）
 	DebugJSON string `gorm:"column:debug_json;type:text"`
+	// StageArtifacts 阶段产物 checkpoint（v3.12.0 G2 任务级断点续审）：R1 spec/
+	// R2 摘要在成功完成后即时持久化（JSON map）；同任务重试（failed 退避/心跳
+	// 过期重置）复用，省掉已成功阶段的重复 LLM 调用。只在任务内有效——新任务
+	// 永远全量重跑，跨任务复用会踩需求文本/diff 已变化的 staleness。
+	StageArtifacts string `gorm:"column:stage_artifacts;type:text"`
 
 	// RunnerID 领取本任务的实例 ID（心跳归属；多副本共库时滚动发布不误伤他实例在途任务）
 	RunnerID string `gorm:"column:runner_id;size:64;index"`
@@ -618,6 +623,34 @@ func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
 	defer s.writeMu.Unlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("debug_json", debugJSON).Error
+}
+
+// MergeTaskStageArtifacts 合并写入任务阶段产物 checkpoint（v3.12.0 G2 断点续审）。
+// patch 键覆盖同名字段；同任务由单一 runner 认领执行，read-modify-write 在
+// writeMu 下无并发竞争。坏 JSON 当空处理——checkpoint 可丢（重试退化为全量
+// 重跑），不可阻塞主流程。
+func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch map[string]string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var row Task
+	if err := s.db.WithContext(ctx).Select("stage_artifacts").Where("id = ?", id).First(&row).Error; err != nil {
+		return err
+	}
+	cur := map[string]string{}
+	if row.StageArtifacts != "" {
+		if err := json.Unmarshal([]byte(row.StageArtifacts), &cur); err != nil {
+			cur = map[string]string{}
+		}
+	}
+	for k, v := range patch {
+		cur[k] = v
+	}
+	b, err := json.Marshal(cur)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+		Update("stage_artifacts", string(b)).Error
 }
 
 // HasNewerNonFailedTask staleness 单条件判定（§10.2 五轮评审修正）：

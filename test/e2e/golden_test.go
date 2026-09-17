@@ -15,6 +15,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -55,14 +56,14 @@ type goldenFile struct {
 }
 
 type goldenStub struct {
-	R1       string `yaml:"r1"`        // R1 需求解析响应（RequirementSpec JSON）
-	R3       string `yaml:"r3"`        // R3 完成度判定响应（ComplianceReport JSON）
-	Reviewer string `yaml:"reviewer"`  // correctness reviewer 响应（findings JSON）
+	R1       string `yaml:"r1"`       // R1 需求解析响应（RequirementSpec JSON）
+	R3       string `yaml:"r3"`       // R3 完成度判定响应（ComplianceReport JSON）
+	Reviewer string `yaml:"reviewer"` // correctness reviewer 响应（findings JSON）
 }
 
 type goldenExpect struct {
-	Verdict     string   `yaml:"verdict"`     // approve | comment | request_changes
-	MustFind    []string `yaml:"must_find"`   // task.Report 必含子串
+	Verdict     string   `yaml:"verdict"`       // approve | comment | request_changes
+	MustFind    []string `yaml:"must_find"`     // task.Report 必含子串
 	MustNotFind []string `yaml:"must_not_find"` // task.Report 必不含子串
 }
 
@@ -78,10 +79,10 @@ type goldenCase struct {
 	ExtraAgents   []plugin.AgentDecl  `yaml:"extra_agents"`
 	PersonaSeq    map[string][]string `yaml:"persona_seq"` // 额外 reviewer 的逐采样响应
 	// G4 完备性裁判（空 = annotate 默认）
-	CompletenessPolicy string `yaml:"completeness_policy"`
-	CompletenessRetry  bool   `yaml:"completeness_retry"`
-	Stub               goldenStub          `yaml:"stub"`
-	Expect             goldenExpect        `yaml:"expect"`
+	CompletenessPolicy string       `yaml:"completeness_policy"`
+	CompletenessRetry  bool         `yaml:"completeness_retry"`
+	Stub               goldenStub   `yaml:"stub"`
+	Expect             goldenExpect `yaml:"expect"`
 }
 
 func loadGoldenCases(t TestingT) []goldenCase {
@@ -257,5 +258,30 @@ func writeGoldenResults(t *testing.T, results []goldenCaseResult, passed int) {
 		t.Logf("结果写入失败: %v", err)
 		return
 	}
+	// G6 回归看板（轻量版）：同步渲染人读 markdown 表——JSON 供工具比对，
+	// md 供归档/评审；跨期趋势由 eval/EXPERIMENTS.md 登记表承接
+	_ = os.WriteFile(filepath.Join(goldenResultsDir, "latest.md"), []byte(renderResultsMarkdown(out)), 0o644)
 	t.Logf("评测结果已写入 %s", path)
+}
+
+func renderResultsMarkdown(out map[string]any) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Golden 评测结果（%s）\n\n", out["generated_at"])
+	fmt.Fprintf(&b, "- 模型：%s　阶段覆盖：%s\n", out["model"], out["stage_models"])
+	if pr, ok := out["pass_rate"].(float64); ok {
+		fmt.Fprintf(&b, "- 命中率：%.0f%%（%v/%v）\n\n", pr*100, out["passed"], out["total"])
+	} else {
+		b.WriteString("- 状态：运行中（增量快照）\n\n")
+	}
+	b.WriteString("| 用例 | 场景 | 期望 | 实际 | 结果 |\n|---|---|---|---|---|\n")
+	cases, _ := out["cases"].([]goldenCaseResult)
+	for _, c := range cases {
+		mark := "✅"
+		if !c.Pass {
+			mark = "❌"
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
+			c.Name, strings.Join(c.Scenario, ","), c.Expected, c.Actual, mark)
+	}
+	return b.String()
 }

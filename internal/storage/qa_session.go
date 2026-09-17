@@ -13,9 +13,12 @@ import (
 // QASession 单个 PR 的问答历史。
 type QASession struct {
 	// SessionKey 形如 "gitea:owner/repo#12"（一 PR 一会话）。
-	SessionKey  string    `gorm:"column:session_key;primaryKey;size:160"`
-	HistoryJSON string    `gorm:"column:history_json;type:text"` // []QATurn 序列化
-	UpdatedAt   time.Time `gorm:"column:updated_at;index"`
+	SessionKey  string `gorm:"column:session_key;primaryKey;size:160"`
+	HistoryJSON string `gorm:"column:history_json;type:text"` // []QATurn 序列化
+	// Summary 滚动摘要（v3.12.0，G2）：verbatim 注入只保留最近 maxTurns 轮，
+	// 被淘汰轮次的要点由 QA 模型增量压缩进本字段（失败则不更新——退化为纯 FIFO）。
+	Summary   string    `gorm:"column:summary;type:text"`
+	UpdatedAt time.Time `gorm:"column:updated_at;index"`
 }
 
 func (QASession) TableName() string { return "qa_sessions" }
@@ -61,6 +64,7 @@ func (s *Store) SaveQASessionCas(ctx context.Context, sess *QASession, expect ti
 	}
 	res := tx.Updates(map[string]any{
 		"history_json": sess.HistoryJSON,
+		"summary":      sess.Summary,
 		"updated_at":   sess.UpdatedAt,
 	})
 	if res.Error != nil {

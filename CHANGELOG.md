@@ -1,5 +1,40 @@
 # Changelog
 
+## v3.12.0 (2026-09-18) — G2 长时程上下文（Q&A 滚动摘要 + 任务断点续审）+ G6 看板（MiMo 差距批次 3）
+
+对应 REPORT.md §5.3 G2/G6 缺口收尾（unshallow deepen 改造已由 v3.9.3 落地）。
+边界纪律：**不引入 MiMo 式常驻逻辑会话**——多租 webhook 服务的任务级生命周期
+是正确边界，长时程能力在任务/会话各自的窗口内做分层。
+
+### G2a · Q&A 会话滚动摘要
+
+- verbatim 注入窗口保持 6 轮（`maxTurns`，发布口径不变）；原始轮次存储上限放宽到
+  24（`rawTurnsCap`）——第 7 轮起的早期轮次不再被 FIFO 永久丢弃。
+- 跌出 verbatim 窗口的轮次经 **QA 模型增量压缩**进 `qa_sessions.summary` 新列
+  （AutoMigrate 自动加列）：已有摘要 + 新增轮次 → ≤300 字要点（保留已确认结论/
+  关键 file:line/未决事项），注入 prompt 头部「更早对话摘要」段（整体仍在
+  DataFence 内——摘要由历史答案派生，半可信）。
+- 摘要失败（模型不可用/空响应）**保旧摘要不更新**——退化为纯 FIFO，不阻塞回答
+  主流程；CAS 重放路径不重算摘要（冲突罕见，允许滞后一轮）。
+- 单测：淘汰窗口计算/注入拼装/nil 模型降级（qa 包）。
+
+### G2b · 任务级审查 checkpoint（断点续审）
+
+- tasks 表新增 `stage_artifacts`（JSON map）：R1 spec / R2 摘要**成功完成即持久化**
+  （`Workflow.CheckpointSink` → `Store.MergeTaskStageArtifacts`，合并写、writeMu 串行）。
+- 同任务重试（failed 退避/心跳过期重置）经 `task.Artifacts` 回流 checkpoint 键，
+  **跳过已成功阶段的重复 LLM 调用**；复用命中在 Debug 记 `r1/r2_checkpoint=reused`。
+- 有效性边界：checkpoint 只在任务内生效——新任务恒全量重跑（跨任务复用会踩
+  需求文本/diff 已变化的 staleness）；坏 JSON 容错为无 checkpoint（可丢不可阻塞，
+  退化为全量重跑，正确性不受影响）。
+
+### G6 · 回归看板（轻量版）
+
+- `make eval-real` 结果同步渲染 `eval/results/latest.md` 人读表格（命中率/逐用例
+  对照），与 latest.json 并存——JSON 供工具比对，md 供归档评审；跨期趋势登记在
+  eval/EXPERIMENTS.md（首轮真实基线 mimo-v2.5-pro 12/26 已在案，含归因）。
+- CI 定时跑 eval-real 是看板持续更新的集成点（部署侧动作，非本仓代码）。
+
 ## v3.11.0 (2026-09-18) — G4 完备性裁判 + G5 审查健康报告（MiMo 差距批次 2）
 
 对应 `research/mimo-vs-argus/REPORT.md` §5.3 的 G4/G5 缺口；规划见同目录

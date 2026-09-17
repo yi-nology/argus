@@ -80,6 +80,11 @@ type Workflow struct {
 	// 受限补审（失败插件在剩余预算内重试一次，结果替换不叠加）。
 	CompletenessPolicy string
 	CompletenessRetry  bool
+
+	// CheckpointSink 阶段产物落库钩子（v3.12.0 G2 断点续审；nil = 不落）：
+	// R1/R2 成功完成后即时回调，runner 持久化到 tasks.stage_artifacts；
+	// 同任务重试时经 task.Artifacts 的 checkpoint_* 键回流，跳过已成功阶段。
+	CheckpointSink func(artifacts map[string]string)
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -99,10 +104,20 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	rc := w.loadRepoConfig(ctx, task)
 
 	debug := map[string]string{}
-	// R1 需求解析
-	spec, err := w.ParseRequirement(ctx, task)
-	if err != nil {
-		return nil, err
+	var err error
+	// R1 需求解析（v3.12.0 G2：同任务重试优先复用已持久化阶段产物——checkpoint
+	// 只在任务内有效，新任务 task.Artifacts 无 checkpoint 键，恒走全量解析）
+	spec := w.checkpointSpec(task)
+	if spec != nil {
+		debug["r1_checkpoint"] = "reused"
+	} else {
+		spec, err = w.ParseRequirement(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		if b, e := json.Marshal(spec); e == nil {
+			w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR1Spec: string(b)})
+		}
 	}
 	if b, e := json.Marshal(spec); e == nil {
 		debug["r1_spec"] = string(b)
@@ -110,10 +125,17 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	// R2 变更理解。失败降级继续（深挖修复）：R2 只产摘要且 R3/R4 携带原始 diff
 	// 不依赖它——此前是全链路唯一"一个摘要模型瞬断就 error 掉整个任务"的单点，
 	// 与 R1/R3/R4 的失败降级纪律不一致。
-	summary, err := w.SummarizeChange(ctx, task)
-	if err != nil {
-		w.Log.Warn("argus.r2.degrade", "error", err.Error())
-		summary = ""
+	summary, reused := w.checkpointSummary(task)
+	if !reused {
+		summary, err = w.SummarizeChange(ctx, task)
+		if err != nil {
+			w.Log.Warn("argus.r2.degrade", "error", err.Error())
+			summary = ""
+		} else {
+			w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR2Summary: summary})
+		}
+	} else {
+		debug["r2_checkpoint"] = "reused"
 	}
 	debug["r2_summary"] = summary
 	// 注入 R2 产物到 Artifacts，R4 插件可复用（公共前缀省 token）
@@ -143,6 +165,37 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 		out.Debug = debug
 	}
 	return out, err
+}
+
+// checkpointSpec 任务级 checkpoint 复用：R1 spec（坏 JSON 视为无 checkpoint）。
+func (w *Workflow) checkpointSpec(task plugin.Task) *plugin.RequirementSpec {
+	raw := task.Artifacts[plugin.ArtifactCkptR1Spec]
+	if raw == "" {
+		return nil
+	}
+	var spec plugin.RequirementSpec
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		w.Log.Warn("argus.checkpoint.r1_corrupt", "error", err.Error(), "effect", "全量重跑 R1")
+		return nil
+	}
+	return &spec
+}
+
+// checkpointSummary 任务级 checkpoint 复用：R2 摘要（reused=false = 无 checkpoint）。
+func (w *Workflow) checkpointSummary(task plugin.Task) (summary string, reused bool) {
+	if s := task.Artifacts[plugin.ArtifactCkptR2Summary]; s != "" {
+		return s, true
+	}
+	return "", false
+}
+
+// checkpointSave 阶段产物落库（CheckpointSink nil = 不落；失败由 sink 实现方告警，
+// 不影响主流程——checkpoint 缺失只影响重试成本）。
+func (w *Workflow) checkpointSave(task plugin.Task, patch map[string]string) {
+	if w.CheckpointSink == nil {
+		return
+	}
+	w.CheckpointSink(patch)
 }
 
 // RunReviewOnly 仅 R4+R5（code_review / visual_check 任务：无需求清单，R5.1/R5.3 需求条件跳过）。

@@ -650,8 +650,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		Cfg: cfg, Store: store, SDK: sdkCtx, Model: model, ModelName: "mock",
 		Dispatcher: dispatcher, Merger: merger, Poster: posterSvc, Log: log,
 		Version: "v3.0.0-e2e", SkillProvider: skills, SkillRefs: skillRefs,
-		ReflectRounds:   opt.reflectRounds,
-		ReflectEvidence: opt.reflectEvidence,
+		ReflectRounds:      opt.reflectRounds,
+		ReflectEvidence:    opt.reflectEvidence,
 		CompletenessPolicy: opt.completenessPolicy,
 		CompletenessRetry:  opt.completenessRetry,
 	}

@@ -62,8 +62,16 @@ func (e *Engine) log() Logger {
 // sessionTTL 会话时效：超过视为新话题（历史清零）。
 const sessionTTL = 24 * time.Hour
 
-// maxTurns 单会话保留的最大轮次（上下文预算控制）。
+// maxTurns 注入 prompt 的 verbatim 轮次上限（发布口径不变，v3.5.6 语义）。
 const maxTurns = 6
+
+// rawTurnsCap 存储原始轮次上限（v3.12.0 G2）：超出 verbatim 窗口的轮次不再立即
+// 丢弃——要点滚动压缩进 QASession.Summary 后原始行才允许 FIFO 淘汰，长会话第
+// 8+ 轮仍能引用早期结论。
+const rawTurnsCap = 24
+
+// summaryMaxRunes 滚动摘要长度上限（rune；防摘要自身膨胀吃上下文预算）。
+const summaryMaxRunes = 600
 
 // chatModel 问答用模型（P6 覆盖优先）。
 func (e *Engine) chatModel() model.BaseChatModel {
@@ -83,18 +91,28 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 		sess = nil
 	}
 	var history []storage.QATurn
+	summary := ""
 	if sess != nil {
 		// v3.8.0：坏 JSON 此前静默当无历史——与"读失败留痕"的自我要求不一致
 		if err := json.Unmarshal([]byte(sess.HistoryJSON), &history); err != nil {
 			e.log().Warn("argus.qa.history_corrupt", "pr", prRef, "error", err.Error())
 			history = nil
 		}
+		summary = sess.Summary
 	}
 
-	answer, err := e.react(ctx, platform, owner, repo, number, question, history)
+	// verbatim 注入窗口：只带最近 maxTurns 轮原文；更早内容由滚动摘要承接
+	//（v3.12.0 G2：此前第 7 轮起早期轮次被 FIFO 永久丢弃，追问跨不了轮）。
+	recent := history
+	if len(recent) > maxTurns {
+		recent = recent[len(recent)-maxTurns:]
+	}
+	historyText := combineHistoryText(summary, recent)
+
+	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText)
 	if err != nil {
 		e.log().Warn("argus.qa.react_fallback", "pr", prRef, "error", err.Error(), "fallback", "单轮直调")
-		answer, err = e.single(ctx, platform, owner, repo, number, question, history)
+		answer, err = e.single(ctx, platform, owner, repo, number, question, historyText)
 		if err != nil {
 			return "", err
 		}
@@ -102,22 +120,23 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 
 	// 乐观锁保存（深挖修复）：读→追加→覆盖写在并发评论下互相丢轮次；
 	// 冲突时重读最新历史把本轮追加其后重放一次（至少不丢本轮）。
+	// 轮次追加封顶 rawTurnsCap（超出部分已由摘要承接，允许 FIFO 淘汰）。
 	appendTurn := func(h []storage.QATurn) []storage.QATurn {
 		h = append(h, storage.QATurn{Question: question, Answer: answer, At: time.Now().UTC().Format(time.RFC3339)})
-		if len(h) > maxTurns {
-			h = h[len(h)-maxTurns:]
+		if len(h) > rawTurnsCap {
+			h = h[len(h)-rawTurnsCap:]
 		}
 		return h
 	}
-	var save func(h []storage.QATurn, expect time.Time, check bool)
-	save = func(h []storage.QATurn, expect time.Time, check bool) {
+	var save func(h []storage.QATurn, sum string, expect time.Time, check bool)
+	save = func(h []storage.QATurn, sum string, expect time.Time, check bool) {
 		hj, err := json.Marshal(h)
 		if err != nil {
 			e.log().Warn("argus.qa.session_marshal_failed", "pr", prRef, "error", err.Error())
 			return
 		}
 		written, err := e.Store.SaveQASessionCas(ctx, &storage.QASession{
-			SessionKey: sessionKey, HistoryJSON: string(hj),
+			SessionKey: sessionKey, HistoryJSON: string(hj), Summary: sum,
 		}, expect, check)
 		if err != nil {
 			e.log().Warn("argus.qa.session_save_failed", "pr", prRef, "error", err.Error())
@@ -125,18 +144,79 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 			if fresh, ferr := e.Store.GetQASession(ctx, sessionKey, sessionTTL); ferr == nil && fresh != nil {
 				var fh []storage.QATurn
 				_ = json.Unmarshal([]byte(fresh.HistoryJSON), &fh)
-				save(appendTurn(fh), time.Time{}, false)
+				// 重放路径不重算摘要（CAS 冲突罕见，摘要允许滞后一轮）
+				save(appendTurn(fh), sum, time.Time{}, false)
 				return
 			}
 			e.log().Warn("argus.qa.session_conflict", "pr", prRef, "action", "重读失败，放弃本轮落库")
 		}
 	}
+	// 滚动摘要：append 后跌出 verbatim 窗口的轮次要并入摘要（失败保旧=纯 FIFO 退化）
+	newTurns := appendTurn(history)
+	sum := summary
+	if evicted := evictedTurns(newTurns); len(evicted) > 0 {
+		sum = e.rollSummary(ctx, prRef, summary, evicted)
+	}
 	var expect time.Time
 	if sess != nil {
 		expect = sess.UpdatedAt
 	}
-	save(appendTurn(history), expect, sess != nil)
+	save(newTurns, sum, expect, sess != nil)
 	return answer, nil
+}
+
+// evictedTurns 追加后跌出 verbatim 注入窗口的轮次（即除最近 maxTurns 轮外的部分）。
+func evictedTurns(turns []storage.QATurn) []storage.QATurn {
+	if len(turns) <= maxTurns {
+		return nil
+	}
+	return turns[:len(turns)-maxTurns]
+}
+
+// combineHistoryText 滚动摘要 + verbatim 轮次 → 注入文本（整体仍经 systemPrompt 的
+// DataFence 围栏——摘要由历史答案派生，半可信）。
+func combineHistoryText(summary string, recent []storage.QATurn) string {
+	var parts []string
+	if s := strings.TrimSpace(summary); s != "" {
+		parts = append(parts, "更早对话摘要：\n"+s)
+	}
+	if h := renderHistory(recent); h != "" {
+		parts = append(parts, h)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// rollSummary 增量压缩被淘汰轮次进摘要（QA 模型）。失败返回旧摘要——退化为纯 FIFO
+// （v3.12.0 G2 规划口径：摘要生成走 QA 模型，失败不阻塞回答主流程）。
+func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []storage.QATurn) string {
+	cm := e.chatModel()
+	if cm == nil {
+		e.log().Warn("argus.qa.summary_no_model", "pr", prRef, "effect", "摘要不更新（纯 FIFO）")
+		return old
+	}
+	client := llm.NewClient(cm, "", nil)
+	msgs := []*schema.Message{
+		schema.SystemMessage("你在维护同一个 PR 问答会话的滚动摘要。任务：把【新增轮次】的要点并入【已有摘要】" +
+			"（已有摘要为空则直接总结新增轮次）。保留：已确认的问题/结论、涉及的关键文件与行号、未决事项。" +
+			"中文、不超过 300 字、只输出摘要正文。"),
+		schema.UserMessage(plugin.DataFence("已有摘要（数据）", old) + "\n\n" +
+			plugin.DataFence("新增轮次（数据）", renderHistory(evicted))),
+	}
+	resp, err := client.Generate(ctx, "qa:summary", msgs)
+	if err != nil {
+		e.log().Warn("argus.qa.summary_failed", "pr", prRef, "error", err.Error(), "effect", "摘要不更新（纯 FIFO）")
+		return old
+	}
+	s := strings.TrimSpace(resp.Content)
+	if s == "" {
+		return old
+	}
+	if rc := len([]rune(s)); rc > summaryMaxRunes {
+		var trunc string
+		trunc, _ = textutil.TruncRunes(s, summaryMaxRunes)
+		s = trunc + "…"
+	}
+	return s
 }
 
 // qa 工具入出参（具名类型——InferTool 泛型推断需要）。
@@ -251,15 +331,13 @@ func truncateLine(s string, n int) string {
 	return s
 }
 
-// react ReAct 路径。
-func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question string,
-	history []storage.QATurn) (string, error) {
+// react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本）。
+func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText string) (string, error) {
 	// 预建一次：工具表构造失败提前暴露（运行时由 ToolsFactory 按尝试重建）
 	_, strategy, err := e.tools(ctx, platform, owner, repo, number)
 	if err != nil {
 		return "", err
 	}
-	historyText := renderHistory(history)
 	// 失败回喂重试一次（副作用守卫默认生效）；QA 产出是自然语言回答，
 	// 重试提示不要求 JSON。
 	qaRetryHint := "\n\n上一次执行因错误中断，请重新完整执行本任务并给出最终回答。"
@@ -288,15 +366,14 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 }
 
 // single 单轮直调（ReAct 的降级兜底；带历史上下文与 PR 摘要）。
-func (e *Engine) single(ctx context.Context, platform, owner, repo, number, question string,
-	history []storage.QATurn) (string, error) {
+func (e *Engine) single(ctx context.Context, platform, owner, repo, number, question, historyText string) (string, error) {
 	prCtx, err := e.loadContext(ctx, platform, owner, repo, number)
 	if err != nil {
 		return "", fmt.Errorf("加载 PR 上下文失败: %w", err)
 	}
 	client := llm.NewClient(e.chatModel(), "", nil)
 	msgs := []*schema.Message{
-		schema.SystemMessage(systemPrompt("", renderHistory(history))),
+		schema.SystemMessage(systemPrompt("", historyText)),
 		// v3.8.0：PR 标题/描述/作者（敌对输入）此前裸拼进 user message——
 		// ReAct 失败时自动落回此路径，注入防线与故障率正相关倒挂。补围栏。
 		schema.UserMessage(plugin.DataFence("PR 上下文", prCtx) + "\n\n用户问题: " + question),
