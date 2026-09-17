@@ -134,6 +134,10 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				if d.ReactModel != nil {
 					opts = append(opts, adapter_builtin.WithReactModel(d.ReactModel))
 				}
+				// ReAct 迭代上限（ARGUS_REACT_MAX_ITERATIONS；<=0 = builtin 内缺省 12）
+				if d.Cfg.ReactMaxIterations > 0 {
+					opts = append(opts, adapter_builtin.WithReactMaxIterations(d.Cfg.ReactMaxIterations))
+				}
 				p, err = adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
 					client, decl.SkillRefs, d.Skills, opts...)
 				if err != nil {

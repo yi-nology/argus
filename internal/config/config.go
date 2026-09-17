@@ -119,6 +119,11 @@ type Config struct {
 	//   strict= 缺证据剔除并记 regret（无证据不得发表）。
 	// 仅在 ReflectRounds>0 时生效。
 	ReflectEvidence string
+	// ReactMaxIterations builtin 插件（correctness/security 等）ReAct 循环迭代上限
+	// （ARGUS_REACT_MAX_ITERATIONS）。缺省 12（历史行为）；推理型模型在大 MR 上
+	// 12 轮可能不够，超限后两次 ReAct 尝试都空转到上限再降级单轮，白白多花数分钟。
+	// <2 视为未配置回退默认。仅 toolsHook 非 nil（ReAct 模式）时生效。
+	ReactMaxIterations int
 	// RegretLearning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
 	// 开启后：Merger 按置信度标注/丢弃 low 条目，R4 注入历史误报模式提示词。
 	RegretLearning bool
@@ -397,6 +402,7 @@ func Load() *Config {
 		StageModelQA:           stageOverride("ARGUS_QA_MODEL"),
 		StageModelRouter:       stageOverride("ARGUS_ROUTER_MODEL"),
 		ReflectRounds:          envInt("ARGUS_REFLECTION_ROUNDS", 0),
+		ReactMaxIterations:     envInt("ARGUS_REACT_MAX_ITERATIONS", 12),
 		ReflectEvidence:        normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off")),
 		RegretLearning:         envBool("ARGUS_REGRET_LEARNING", false),
 		RegretMinSamples:       envInt("ARGUS_REGRET_MIN_SAMPLES", 3),

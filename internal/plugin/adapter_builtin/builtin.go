@@ -96,7 +96,10 @@ type Reviewer struct {
 	toolsHook ToolsHook
 	// reactModel ReAct 专用模型（已 Failover 装饰）；nil = llm.RawModel()。
 	reactModel model.BaseChatModel
-	log        logx.Logger
+	// reactMaxIterations ReAct 迭代上限（WithReactMaxIterations 注入）；
+	// <=0 = 缺省 12（历史行为）。
+	reactMaxIterations int
+	log                logx.Logger
 	// skillText 惰性解析缓存（含 checksum 头），10 分钟周期刷新。
 	// 改 skill 文件后无需重启，下一个任务自动加载新内容。
 	skillMu      sync.Mutex
@@ -140,6 +143,13 @@ func WithLogger(log logx.Logger) ReviewerOption { return func(r *Reviewer) { r.l
 // WithReactModel 注入 ReAct 专用模型（已 Failover 装饰；覆盖 llm.RawModel）。
 func WithReactModel(m model.BaseChatModel) ReviewerOption {
 	return func(r *Reviewer) { r.reactModel = m }
+}
+
+// WithReactMaxIterations 注入 ReAct 迭代上限（ARGUS_REACT_MAX_ITERATIONS；
+// <=0 = 缺省 12）。推理型模型在大 MR 上 12 轮可能不够，超限两次尝试都空转到
+// 上限再降级单轮，白白多花数分钟。
+func WithReactMaxIterations(n int) ReviewerOption {
+	return func(r *Reviewer) { r.reactMaxIterations = n }
 }
 
 func (r *Reviewer) Manifest() plugin.AgentManifest { return r.manifest }
@@ -268,12 +278,16 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 
 	// 失败回喂重试一次（副作用守卫默认生效：首轮已调变更类工具不整体重跑）；
 	// 失败后仍交由调用方走 invokeSingle 单轮降级。
+	maxIter := r.reactMaxIterations
+	if maxIter <= 0 {
+		maxIter = 12 // 兼容未注入（直构/旧装配）：保持历史默认
+	}
 	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
 		Name:          r.manifest.Name,
 		Description:   "代码审查专家（" + r.focus + "）",
 		Instruction:   sys,
 		Model:         r.reviewerReactModel(),
-		MaxIterations: 12,
+		MaxIterations: maxIter,
 		ToolsFactory: func() []tool.BaseTool {
 			// 每次尝试重建：WithCallLimit 限流计数按尝试重置（agentrun v0.7.0）
 			t, _, e := r.toolsHook(ctx, task, task.Budget)

@@ -59,3 +59,6 @@ go.work.sum
 # 本地工具目录
 .mimosa/
 .v2c/
+
+# 本机构建产物（host 交叉编译 + runtime 镜像上下文）
+build-deploy/
