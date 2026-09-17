@@ -3,7 +3,7 @@ module argus
 go 1.26.3
 
 require (
-	git.example.com/enjoydream/agentkit v0.10.4
+	git.example.com/enjoydream/agentkit v0.10.5
 	git.example.com/enjoydream/ekit v0.27.2
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.18
@@ -150,6 +150,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/larksuite/oapi-sdk-go/v3 v3.11.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

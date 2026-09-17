@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"git.example.com/enjoydream/agentkit/agentrun"
+	"git.example.com/enjoydream/agentkit/conversation"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/textutil"
@@ -73,6 +74,16 @@ const rawTurnsCap = 24
 // summaryMaxRunes 滚动摘要长度上限（rune；防摘要自身膨胀吃上下文预算）。
 const summaryMaxRunes = 600
 
+// toConversationTurns storage.QATurn → agentkit conversation.Turn
+// （字段形态同构；转换保显式，防两端 JSON 演化后静默错位）。
+func toConversationTurns(h []storage.QATurn) []conversation.Turn {
+	out := make([]conversation.Turn, 0, len(h))
+	for _, t := range h {
+		out = append(out, conversation.Turn{Question: t.Question, Answer: t.Answer, At: t.At})
+	}
+	return out
+}
+
 // chatModel 问答用模型（P6 覆盖优先）。
 func (e *Engine) chatModel() model.BaseChatModel {
 	if e.QAModel != nil {
@@ -103,11 +114,9 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 
 	// verbatim 注入窗口：只带最近 maxTurns 轮原文；更早内容由滚动摘要承接
 	//（v3.12.0 G2：此前第 7 轮起早期轮次被 FIFO 永久丢弃，追问跨不了轮）。
-	recent := history
-	if len(recent) > maxTurns {
-		recent = recent[len(recent)-maxTurns:]
-	}
-	historyText := combineHistoryText(summary, recent)
+	// v3.13.0：窗口切分/渲染/拼装下沉 agentkit conversation 包。
+	recent, _ := conversation.Split(toConversationTurns(history), maxTurns)
+	historyText := conversation.Combine(summary, recent)
 
 	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText)
 	if err != nil {
@@ -154,7 +163,7 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	// 滚动摘要：append 后跌出 verbatim 窗口的轮次要并入摘要（失败保旧=纯 FIFO 退化）
 	newTurns := appendTurn(history)
 	sum := summary
-	if evicted := evictedTurns(newTurns); len(evicted) > 0 {
+	if _, evicted := conversation.Split(toConversationTurns(newTurns), maxTurns); len(evicted) > 0 {
 		sum = e.rollSummary(ctx, prRef, summary, evicted)
 	}
 	var expect time.Time
@@ -165,30 +174,10 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	return answer, nil
 }
 
-// evictedTurns 追加后跌出 verbatim 注入窗口的轮次（即除最近 maxTurns 轮外的部分）。
-func evictedTurns(turns []storage.QATurn) []storage.QATurn {
-	if len(turns) <= maxTurns {
-		return nil
-	}
-	return turns[:len(turns)-maxTurns]
-}
-
-// combineHistoryText 滚动摘要 + verbatim 轮次 → 注入文本（整体仍经 systemPrompt 的
-// DataFence 围栏——摘要由历史答案派生，半可信）。
-func combineHistoryText(summary string, recent []storage.QATurn) string {
-	var parts []string
-	if s := strings.TrimSpace(summary); s != "" {
-		parts = append(parts, "更早对话摘要：\n"+s)
-	}
-	if h := renderHistory(recent); h != "" {
-		parts = append(parts, h)
-	}
-	return strings.Join(parts, "\n\n")
-}
-
 // rollSummary 增量压缩被淘汰轮次进摘要（QA 模型）。失败返回旧摘要——退化为纯 FIFO
 // （v3.12.0 G2 规划口径：摘要生成走 QA 模型，失败不阻塞回答主流程）。
-func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []storage.QATurn) string {
+// evicted 已是 conversation.Turn（v3.13.0 切 agentkit conversation 后窗口切分上收）。
+func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []conversation.Turn) string {
 	cm := e.chatModel()
 	if cm == nil {
 		e.log().Warn("argus.qa.summary_no_model", "pr", prRef, "effect", "摘要不更新（纯 FIFO）")
@@ -200,7 +189,7 @@ func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []s
 			"（已有摘要为空则直接总结新增轮次）。保留：已确认的问题/结论、涉及的关键文件与行号、未决事项。" +
 			"中文、不超过 300 字、只输出摘要正文。"),
 		schema.UserMessage(plugin.DataFence("已有摘要（数据）", old) + "\n\n" +
-			plugin.DataFence("新增轮次（数据）", renderHistory(evicted))),
+			plugin.DataFence("新增轮次（数据）", conversation.Render(evicted))),
 	}
 	resp, err := client.Generate(ctx, "qa:summary", msgs)
 	if err != nil {
@@ -312,24 +301,8 @@ func systemPrompt(strategy, historyText string) string {
 	return sys
 }
 
-// renderHistory 会话历史 → 注入文本。
-func renderHistory(history []storage.QATurn) string {
-	var b strings.Builder
-	for _, t := range history {
-		b.WriteString("用户: " + truncateLine(t.Question, 200) + "\n")
-		b.WriteString("Argus: " + truncateLine(t.Answer, 400) + "\n\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func truncateLine(s string, n int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if rc := len([]rune(s)); rc > n {
-		t, _ := textutil.TruncRunes(s, n)
-		return t + "…"
-	}
-	return s
-}
+// renderHistory/truncateLine 已下沉 agentkit conversation（v3.13.0）：
+// Render（"用户:/助手:" 行 + 单轮截断）。qa 侧经 conversation.Combine 组装注入文本。
 
 // react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本）。
 func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText string) (string, error) {
@@ -445,19 +418,11 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 	return strings.TrimSpace(resp.Content), true
 }
 
-// numberLines 逐行加 4 位宽行号前缀（"   1|"；与 requirement 包同名工具同语义，
-// 深挖 P0：无行号原文逼模型凭空编 file:line 证据）。尾随换行不产生幽灵空行。
+// numberLines 逐行加 4 位宽行号前缀（"   1|"；深挖 P0：无行号原文逼模型凭空
+// 编 file:line 证据）。v3.13.0 下沉 agentkit textutil.NumberLines（qa 与
+// requirement 两处克隆收敛），本包保留同名薄委托。
 func numberLines(s string) string {
-	if s == "" {
-		return ""
-	}
-	s = strings.TrimSuffix(s, "\n")
-	lines := strings.Split(s, "\n")
-	var b strings.Builder
-	for i, ln := range lines {
-		fmt.Fprintf(&b, "%4d|%s\n", i+1, ln)
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return textutil.NumberLines(s)
 }
 
 // loadContext 获取 PR 标题、描述、变更文件列表的轻量摘要（不含 diff 内容）。

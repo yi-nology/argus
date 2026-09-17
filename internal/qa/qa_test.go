@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"git.example.com/enjoydream/agentkit/conversation"
+
 	"argus/internal/storage"
 )
 
@@ -19,7 +21,7 @@ func TestRenderHistoryCapsAndEscapes(t *testing.T) {
 	hist := []storage.QATurn{
 		{Question: "q1", Answer: long.String(), At: "2026-09-07T00:00:00Z"},
 	}
-	out := renderHistory(hist)
+	out := conversation.Render(toConversationTurns(hist))
 	// 单条回答截断到 400 rune + 省略号：不应把 500 字全文带回上下文
 	if strings.Count(out, "长") > 401 {
 		t.Fatalf("历史应截断: %d", strings.Count(out, "长"))
@@ -29,28 +31,15 @@ func TestRenderHistoryCapsAndEscapes(t *testing.T) {
 	}
 }
 
-// ---- v3.12.0 G2 滚动摘要 ----
+// ---- v3.13.0 下沉后 argus 侧 glue：QATurn↔conversation.Turn 转换 + rollSummary 退化 ----
 
-func TestEvictedTurns(t *testing.T) {
-	if got := evictedTurns(makeTurns(6)); got != nil {
-		t.Fatalf("6 轮内无淘汰: %+v", got)
+func TestToConversationTurns(t *testing.T) {
+	got := toConversationTurns(makeTurns(2))
+	if len(got) != 2 || got[0].Question != "q0" || got[1].Answer != "a" || got[1].At != "t" {
+		t.Fatalf("转换字段错位: %+v", got)
 	}
-	got := evictedTurns(makeTurns(9))
-	if len(got) != 3 || got[0].Question != "q0" {
-		t.Fatalf("9 轮应淘汰前 3 轮: %+v", got)
-	}
-}
-
-func TestCombineHistoryText(t *testing.T) {
-	out := combineHistoryText("此前确认了登录已实现", makeTurns(2))
-	if !strings.Contains(out, "更早对话摘要") || !strings.Contains(out, "此前确认了登录已实现") {
-		t.Fatalf("摘要应在注入文本头部: %q", out)
-	}
-	if !strings.Contains(out, "用户: q0") {
-		t.Fatalf("verbatim 轮次应保留: %q", out)
-	}
-	if out := combineHistoryText("", nil); out != "" {
-		t.Fatalf("空会话应空注入: %q", out)
+	if got := toConversationTurns(nil); len(got) != 0 {
+		t.Fatalf("空历史应空转换: %+v", got)
 	}
 }
 
@@ -58,7 +47,8 @@ func TestCombineHistoryText(t *testing.T) {
 func TestRollSummary_DegradesToFIFO(t *testing.T) {
 	e := &Engine{} // Model/QAModel 均 nil：chatModel()=nil → Generate 必失败
 	old := "旧摘要要点"
-	got := e.rollSummary(context.Background(), "test", old, makeTurns(3))
+	got := e.rollSummary(context.Background(), "test", old,
+		[]conversation.Turn{{Question: "q", Answer: "a"}})
 	if got != old {
 		t.Fatalf("失败应保旧摘要: %q", got)
 	}

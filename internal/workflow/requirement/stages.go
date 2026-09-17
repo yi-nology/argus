@@ -627,17 +627,8 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // numberLines 逐行加 4 位宽行号前缀（"   1|"，深挖 P0：get_file 无行号逼模型编
-// 造 file:line 证据）。行号从 1 起，与平台侧评论定位语义一致；尾随换行不产生
-// 幽灵空行。
+// 造 file:line 证据）。行号从 1 起，与平台侧评论定位语义一致。v3.13.0 下沉
+// agentkit textutil.NumberLines（qa 与 requirement 两处克隆收敛），保留薄委托。
 func numberLines(s string) string {
-	if s == "" {
-		return ""
-	}
-	s = strings.TrimSuffix(s, "\n")
-	lines := strings.Split(s, "\n")
-	var b strings.Builder
-	for i, ln := range lines {
-		fmt.Fprintf(&b, "%4d|%s\n", i+1, ln)
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return textutil.NumberLines(s)
 }

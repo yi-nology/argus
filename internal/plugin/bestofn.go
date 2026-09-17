@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"git.example.com/enjoydream/agentkit/sampling"
 	"git.example.com/enjoydream/agentkit/severity"
 )
 
@@ -49,19 +50,12 @@ func BumpSeverity(s string) string {
 }
 
 // aggregateSamples 聚合 N 份**成功**采样结果（results 由调用方按采样序过滤，
-// k=成功数由调用方统计——失败/取消采样不产生 Result）。分组键与 Merger 轮内
-// 去重同构：先精确指纹、再 file+规范化评语（措辞漂移容差），均要求行号相容
-// （同文件两处不同位置是两个问题）。部分失败（k<n）时追加降级注记行。
+// k=成功数由调用方统计——失败/取消采样不产生 Result）。v3.13.0：聚簇核心下沉
+// agentkit sampling.Aggregate（双通道签名=精确指纹 + file|规范化评语，eq=行号
+// 相容——同文件两处不同位置是两个问题）；严重度合并与复现升级语义留在本包
+// （审查域词表，不属于通用原语）。部分失败（k<n）时追加降级注记行。
 func aggregateSamples(n, k int, results []Result) Result {
-	type acc struct {
-		finding Finding
-		fp      string
-		count   int
-	}
-	var order []*acc
-	byFP := map[string]*acc{}
-	byNC := map[string]*acc{}
-
+	var findings []Finding
 	var verdict string
 	artifacts := map[string]string{}
 	notes := map[string]bool{}
@@ -84,37 +78,29 @@ func aggregateSamples(n, k int, results []Result) Result {
 			notes[line] = true
 			noteOrder = append(noteOrder, line)
 		}
-		for _, f := range r.Findings {
-			fp := Fingerprint(f.File, f.Comment, f.Line)
-			if a, dup := byFP[fp]; dup && linesCompatible(a.finding.Line, f.Line) {
-				a.count++
-				a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
-				continue
-			}
-			ncKey := f.File + "|" + severity.NormalizeComment(f.Comment)
-			if a, dup := byNC[ncKey]; dup && linesCompatible(a.finding.Line, f.Line) {
-				a.count++
-				a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
-				continue
-			}
-			a := &acc{finding: f, fp: fp, count: 1}
-			order = append(order, a)
-			if _, dup := byFP[fp]; !dup {
-				byFP[fp] = a
-			}
-			if _, dup := byNC[ncKey]; !dup {
-				byNC[ncKey] = a
-			}
-		}
+		findings = append(findings, r.Findings...)
 	}
 
+	groups := sampling.Aggregate(findings,
+		func(f Finding) []string {
+			return []string{
+				"fp:" + Fingerprint(f.File, f.Comment, f.Line),
+				"nc:" + f.File + "|" + severity.NormalizeComment(f.Comment),
+			}
+		},
+		func(a, b Finding) bool { return linesCompatible(a.Line, b.Line) },
+	)
+
 	out := Result{Verdict: verdict, Artifact: artifacts}
-	for _, a := range order {
-		f := a.finding
-		if a.count >= 2 {
+	for _, g := range groups {
+		f := g.Representative
+		for _, it := range g.Items[1:] { // severity 合并（与首见者取高）
+			f.Severity = HigherSeverity(f.Severity, it.Severity)
+		}
+		if g.Count >= 2 {
 			// 复现 ≥2：确定性可信度信号 → 严重度上调一级 + 复现标注（k/n）
 			f.Severity = BumpSeverity(f.Severity)
-			f.Samples = strconv.Itoa(a.count) + "/" + strconv.Itoa(n)
+			f.Samples = strconv.Itoa(g.Count) + "/" + strconv.Itoa(n)
 		} else if f.Severity == SeverityLow {
 			// 仅单份采样且 low：保留（漏报防线）但标注降权提示
 			f.Samples = "1/" + strconv.Itoa(n)

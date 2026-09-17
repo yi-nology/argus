@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
-	"strings"
 
 	akseverity "git.example.com/enjoydream/agentkit/severity"
 )
@@ -21,30 +20,11 @@ const (
 
 // NormalizeSeverity 把任意写法归一到词表。
 // 第二个返回值=false 表示原值越界（已归为 low，调用方应记录告警）。
-// v3.8.0：先过 argus 侧别名表再委托 agentkit——此前 P0/fatal/major 等外部专家
-// （cli/acpx）常用词表整批落 low，高危意见永远触发不了 R5.2；agentkit 词表
-// 不动（兄弟仓，勿混补丁），别名归一收敛在 argus 侧。
+// v3.13.0：外部专家别名词表（P0/fatal/urgent→high 等）下沉 agentkit
+// severity.Normalize——此前本包维护别名克隆，多消费方重复实现；收敛后
+// 词表单一来源（本函数保留为 argus 侧 API 门面）。
 func NormalizeSeverity(s string) (string, bool) {
-	if v, ok := severityAliases[strings.ToLower(strings.TrimSpace(s))]; ok {
-		return v, true
-	}
 	return akseverity.Normalize(s)
-}
-
-// severityAliases 外部专家常见严重度词表的归一映射。
-// P0/fatal/urgent → high；P1/major → medium（重要但非致命的通用语义）；
-// P2/P3/trivial/nit → low。
-var severityAliases = map[string]string{
-	"p0":      SeverityHigh,
-	"fatal":   SeverityHigh,
-	"urgent":  SeverityHigh,
-	"p1":      SeverityMedium,
-	"major":   SeverityMedium,
-	"p2":      SeverityLow,
-	"p3":      SeverityLow,
-	"trivial": SeverityLow,
-	"nit":     SeverityLow,
-	"nits":    SeverityLow,
 }
 
 // DegradationMarker 插件在 Result.Notes 里自报"审查降级"的行内标记；
