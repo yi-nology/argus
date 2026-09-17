@@ -388,6 +388,10 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 	h.GET("/mcp", mcpHandlers...)
 	h.POST("/mcp", mcpHandlers...)
 	h.DELETE("/mcp", mcpHandlers...)
+	// G5 健康报告查询面（v3.13.0）：GET /reports/health + Bearer——与周期 IM
+	// 推送同数据源，供报告页/副驾类消费方按需拉取飞轮状态。手工注册路由
+	//（IDL 不承载聚合端点），handler 与 /tasks 同薄壳约定。
+	h.GET("/reports/health", svc.BearerMiddleware(), hapi.HealthReport)
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})

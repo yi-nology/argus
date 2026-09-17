@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.13.0 (2026-09-18) — 路线收尾：夹具 v2 + 三组真实对照 + G1c 导出管道 + G7 数据面（MiMo 批次 4 可执行部分）
+
+批次 4 明确的外部依赖项（完整副驾 UI、审查专用微调训练）仍需产品/资源拍板；
+本版把**代码侧能落地的全部落地**，并为外部依赖备好前置管道。
+
+### G1b · 夹具 v2 标定 + 三组真实对照
+
+- **harness 真实模式语义**：`real_verdicts` 集合命中（comment/approve 边界允许
+  模型合理方差，request_changes 边界精确）+ `skip_real`（依赖打桩前提的夹具
+  ——canned persona 11/12/25/26、非诚实 R3 前提 16/23——真实模式不计分）。
+- **夹具 v2**：05/07/09/10/18/24 代码升级为真实完整实现（诚实模型可判完成）、
+  14/22 真实 i18n、02 补集合期望——修正首轮 46% 基线的骨架化失真。
+- **三组对照实测**（mimo 官方 API 实测可用模型 mimo-v2.5 / mimo-v2.5-pro）：
+  pro 全局 / v2.5 全局 / v2.5 全局 + R3&Reviewer=pro（好钢用在刀刃组），
+  结果登记 eval/EXPERIMENTS.md。
+
+### G1c · 训练数据导出管道（cmd/exportdata）
+
+- 新命令把学习环原料导出为 JSONL：pattern_signals（posted/regret/suppress/
+  restore + Beta 置信度软标签）+ finding_prints（人工 suppress 最强负标签、
+  regret_count 弱负、times_seen≥2 且 open 正样本）。只读导出，供审查域
+  微调/蒸馏与离线分析取数——数据飞轮到训练集的管道就此打通。
+
+### G7 · 副驾数据出口（最小产品化）
+
+- **完备性裁判结构化产出持久化**：ResultPayload 新增 completeness——GET
+  /tasks/:id 与 MCP get_report 的消费方无需解析 markdown 即可拿到「审得全
+  不全」（检查项词表/逐项 OK/失败详情）。
+- 与既有 SSE（阶段进度）、@argus ask（追问）、MCP ask_argus 合计，构成副驾
+  类交互的全部数据面；富 UI 仍待产品拍板。
+
+### G5 · 健康报告查询面
+
+- `GET /reports/health`（Bearer，与 /tasks 同策略）：按需拉取飞轮状态 JSON
+  （噪声处置建议/guidelines 增量建议/计数），与周期 IM 推送同数据源；
+  学习环未开启返回空报告（Empty=true）而非错误。
+
 ## v3.12.0 (2026-09-18) — G2 长时程上下文（Q&A 滚动摘要 + 任务断点续审）+ G6 看板（MiMo 差距批次 3）
 
 对应 REPORT.md §5.3 G2/G6 缺口收尾（unshallow deepen 改造已由 v3.9.3 落地）。

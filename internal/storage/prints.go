@@ -340,3 +340,10 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 	})
 	return matched, err
 }
+
+// ListAllPrints 全量意见指纹（G1c 训练数据导出用；只读，无 PR 过滤）。
+func (s *Store) ListAllPrints(ctx context.Context) ([]FindingPrint, error) {
+	var rows []FindingPrint
+	err := s.db.WithContext(ctx).Order("id").Find(&rows).Error
+	return rows, err
+}

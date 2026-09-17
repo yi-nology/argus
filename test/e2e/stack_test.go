@@ -688,6 +688,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 			h.DELETE("/mcp", append([]app.HandlerFunc{auth}, mcpBridge)...)
 		}
 	}
+	// G5 健康报告查询面（与 main.go 一致：手工注册 + Bearer）
+	h.GET("/reports/health", auth, bizapi.HealthReport)
 	t.Cleanup(func() {
 		sctx, scancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer scancel()

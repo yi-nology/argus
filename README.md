@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.12.0**（agentkit v0.10.4 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
+当前版本 **v3.13.0**（agentkit v0.10.4 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
@@ -58,6 +58,9 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
   滚动压缩成摘要注入（失败退化为纯 FIFO）——第 8 轮仍能引用第 1 轮结论；
 - **任务断点续审（v3.12.0）**：R1/R2 阶段产物成功即持久化，同任务失败重试跳过已成功阶段
   （只在任务内生效，新任务恒全量重跑，staleness 语义不受影响）。
+- **数据出口（v3.13.0）**：`GET /reports/health`（Bearer）按需拉取学习环飞轮状态；
+  完备性裁判结构化产出进 `GET /tasks/:id` 的 result_json（副驾类消费方免解析 markdown）；
+  `go run ./cmd/exportdata` 把 suppress/regret/pattern 原料导出 JSONL（审查域微调的训练集管道）。
 
 ### 3. 确定性裁决 + 双层回帖
 
@@ -425,8 +428,8 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
 **生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
-接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.12.x（v3.10 评测集+best-of-N、
-v3.11 完备性裁判+健康报告、v3.12 长会话记忆+断点续审、v3.9.0 OCR 三通道+sink），生产升级部署待验证。
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.13.x（v3.10 评测集+best-of-N、
+v3.11 完备性裁判+健康报告、v3.12 长会话记忆+断点续审、v3.13 数据出口+导出管道），生产升级部署待验证。
 
 ---
 

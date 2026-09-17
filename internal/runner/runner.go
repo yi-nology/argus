@@ -651,6 +651,9 @@ type ResultPayload struct {
 	Summary    string                   `json:"change_summary,omitempty"`
 	Plugins    []string                 `json:"plugins"`
 	Degraded   []string                 `json:"degraded,omitempty"`
+	// Completeness 完备性裁判结构化产出（v3.13.0 G7 数据出口；nil = 未启用/全通过）。
+	// GET /tasks/:id 与 MCP get_report 的消费方据此渲染「审得全不全」。
+	Completeness *plugin.CompletenessReport `json:"completeness,omitempty"`
 	// DiffText 本次审查的 diff 原文（增量审查时用于 diff-of-diffs 比对）。
 	DiffText string `json:"diff_text,omitempty"`
 }
@@ -665,6 +668,9 @@ func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
 	if out.Report != nil {
 		p.ScopeCreep = out.Report.ScopeCreep
 	}
+	// G7：完备性报告持久化（nil 安全）——结构化产出进 result_json，任何任务
+	// 详情消费方（报告页/副驾/IDE 插件）无需解析 markdown 即可拿到
+	p.Completeness = out.Completeness
 	return p
 }
 

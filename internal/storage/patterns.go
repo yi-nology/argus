@@ -302,3 +302,10 @@ func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (int64
 
 // 编译期：*Store 实现 plugin.PatternStore。
 var _ plugin.PatternStore = (*Store)(nil)
+
+// ListAllPatternSignals 全量模式信号（G1c 训练数据导出用；只读，无仓库过滤）。
+func (s *Store) ListAllPatternSignals(ctx context.Context) ([]PatternSignal, error) {
+	var rows []PatternSignal
+	err := s.db.WithContext(ctx).Order("id").Find(&rows).Error
+	return rows, err
+}
