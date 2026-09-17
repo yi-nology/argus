@@ -4,6 +4,18 @@
 > 基线：main 77ae563（v3.9.0 已提交）· 代码锚点均已在本地仓核对
 > 约束前提：**只追能力缺口，不追定位差异**（REPORT §5.2：通用 agent 宿主、Desktop/IDE、路由裁决走 LLM、自动 suppress、R1→R5 叠 P&E 均为有意不做，本规划不触碰）
 
+## ✅ 执行状态（2026-09-18 更新）
+
+| 批次 | 状态 | 落点 |
+|---|---|---|
+| 0 卫生地基 | ✅ 已闭环（规划前由并行批次完成） | v3.9.1（2f00244）学习环记账/teardown/Prune 分批/消毒/发布文档批 + v3.9.2（7164b13）别名 PR 域/熔断配对/保留期 |
+| 1 评测集+路由实测+best-of-N | ✅ v3.10.0 已提交（217d630） | eval/golden 26 条 + make eval/eval-real + EXPERIMENTS.md + reviewN best-of-N；真实模型通路已打通 |
+| 2 完备性裁判+健康报告 | ✅ v3.11.0 已提交（217d630） | completeness 六项检查 + annotate/demote/retry + internal/health 周报 + guidelines 建议人工门控 |
+| 3 checkpoint+看板 | ✅ v3.12.0 已提交 | Q&A 滚动摘要 + 任务断点续审 + latest.md 看板；unshallow deepen 改由 v3.9.3（400578d）落地 |
+| 4 条件项 | 未触发 | G7 副驾/微调闭环仍需产品与资源拍板 |
+
+**G1b 首轮基线**：mimo-v2.5-pro 12/26（46%）——miss 归因为夹具骨架化代码而非模型失守（injection 场景全部安全）；**夹具 v2 标定**是下一步（comment/approve 期望类夹具换真实实现代码）。登记表在 eval/EXPERIMENTS.md。
+
 ---
 
 ## 0. 总路线图
