@@ -74,6 +74,11 @@ type AgentDecl struct {
 	SkillRefs      []string `yaml:"skillRefs"`
 	Enabled        *bool    `yaml:"enabled"`
 
+	// ReviewN best-of-N 同质采样次数（v3.10.0；0/1 = 单次，钳制 ≤ MaxReviewN=5）。
+	// 高危路径 opt-in：同一插件并发跑 N 次、复现 ≥2 的发现升严重度并标注 k/n。
+	// 成本 ×N（token 记账逐采样累计，/usage 可见）。
+	ReviewN int `yaml:"reviewN"`
+
 	// kind=cli
 	Cmd  []string `yaml:"cmd"`
 	Mode string   `yaml:"mode"` // full | delegate

@@ -280,6 +280,10 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 // 建议含 ``` 或超长时退化为纯文本意见（完整建议仍在总结评论中展示），不让围栏断裂。
 func inlineCommentBody(f plugin.Finding) string {
 	body := "**[" + strings.ToUpper(f.Severity) + "]** " + reportview.EscapeUntrusted(f.Comment)
+	if ann := plugin.SamplesAnnotation(f); ann != "" {
+		// best-of-N 复现计数（结构化字段渲染，非评语后缀——指纹身份不受影响）
+		body += ann
+	}
 	fix := strings.TrimSpace(f.SuggestedFix)
 	if fix != "" && !strings.Contains(fix, "```") {
 		if _, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {

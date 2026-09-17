@@ -1,0 +1,24 @@
+# 场景：R5.0 零插件守门——注册表为空（没人审）→ 禁入 APPROVE，降级 COMMENT 并注明
+name: 17-zero-plugin-guard-comment
+scenario: [guard]
+kind: 1
+strip_defaults: true
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,5 @@
+       package main
+      +
+      +func login() {}
+    additions: 2
+expect:
+  verdict: comment
+  must_find: ["未审查状态下给出"]
+  must_not_find: ["R5.5"]

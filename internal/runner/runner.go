@@ -86,6 +86,11 @@ type Runner struct {
 	ReflectModel model.BaseChatModel
 	// ReflectEvidence 证据门模式（ARGUS_REFLECTION_EVIDENCE：off|soft|strict，默认 off）。
 	ReflectEvidence string
+
+	// G4 完备性裁判（v3.11.0）：annotate|demote（ARGUS_COMPLETENESS_POLICY）；
+	// Retry=受限补审开关（ARGUS_COMPLETENESS_RETRY，默认关）。
+	CompletenessPolicy string
+	CompletenessRetry  bool
 	// Learning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
 	Learning plugin.LearningConfig
 
@@ -244,25 +249,27 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		r3Chat = fm
 	}
 	return &requirement.Workflow{
-		LLM:              gen,
-		R3ChatModel:      r3Chat,
-		SkillTool:        skillTool,
-		SDK:              r.SDK,
-		Dispatcher:       r.Dispatcher,
-		Merger:           r.Merger,
-		Tools:            r.ToolPool,
-		ToolSpecs:        r.ToolSpecs,
-		Knowledge:        r.Knowledge,
-		SkillText:        r.skillText,
-		Log:              r.Log,
-		ReqBodyMaxChars:  r.Cfg.ReqBodyMaxChars(),
-		ReqIssueMaxChars: r.Cfg.ReqIssueMaxChars(),
-		GetFileMaxChars:  r.Cfg.GetFileMaxRunes(),
-		GetIssueMaxChars: r.Cfg.GetIssueMaxRunes(),
-		GetDiffMaxChars:  r.Cfg.GetDiffMaxRunes(),
-		ReflectRounds:    r.ReflectRounds,
-		ReflectModel:     r.ReflectModel,
-		ReflectEvidence:  r.ReflectEvidence,
+		LLM:                gen,
+		R3ChatModel:        r3Chat,
+		SkillTool:          skillTool,
+		SDK:                r.SDK,
+		Dispatcher:         r.Dispatcher,
+		Merger:             r.Merger,
+		Tools:              r.ToolPool,
+		ToolSpecs:          r.ToolSpecs,
+		Knowledge:          r.Knowledge,
+		SkillText:          r.skillText,
+		Log:                r.Log,
+		ReqBodyMaxChars:    r.Cfg.ReqBodyMaxChars(),
+		ReqIssueMaxChars:   r.Cfg.ReqIssueMaxChars(),
+		GetFileMaxChars:    r.Cfg.GetFileMaxRunes(),
+		GetIssueMaxChars:   r.Cfg.GetIssueMaxRunes(),
+		GetDiffMaxChars:    r.Cfg.GetDiffMaxRunes(),
+		ReflectRounds:      r.ReflectRounds,
+		ReflectModel:       r.ReflectModel,
+		ReflectEvidence:    r.ReflectEvidence,
+		CompletenessPolicy: r.CompletenessPolicy,
+		CompletenessRetry:  r.CompletenessRetry,
 	}
 }
 
@@ -588,6 +595,8 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 		rep.Suppressed = out.Merged.Suppressed
 		rep.CrossReview = out.Merged.CrossReview
 	}
+	// G4 完备性段（DegradedNotes nil 安全：未启用/全通过 → nil）
+	rep.Completeness = out.Completeness.DegradedNotes()
 	if out.Spec != nil {
 		rep.ShowCompliance = true
 		rep.ReqSource = out.Spec.Source

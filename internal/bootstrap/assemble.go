@@ -223,6 +223,9 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		ReflectRounds:   cfg.ReflectRounds,
 		ReflectModel:    models.Reflect,
 		ReflectEvidence: cfg.ReflectEvidence,
+		// G4 完备性裁判（v3.11.0）：annotate 默认只注明；demote 降级门；retry 受限补审
+		CompletenessPolicy: cfg.CompletenessPolicy,
+		CompletenessRetry:  cfg.CompletenessRetry,
 		// 模式级后悔学习环（v3.5）：默认关闭
 		Learning: plugin.LearningConfig{
 			Enabled:     cfg.RegretLearning,

@@ -32,6 +32,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/dream"
+	"argus/internal/health"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/poller"
@@ -257,6 +258,34 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			}
 		})
 		log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
+	}
+
+	// ---- 审查健康报告（v3.11.0，G5）：周期聚合学习环状态，IM 推送给人看 ----
+	// 噪声处置建议（人工门控）+ guidelines 增量建议（建议文本，绝不自动改仓库文件）。
+	if cfg.HealthReportInterval > 0 {
+		learning := plugin.LearningConfig{
+			Enabled:     cfg.RegretLearning,
+			MinSamples:  cfg.RegretMinSamples,
+			SoftFloor:   cfg.RegretSoftFloor,
+			HardFloor:   cfg.RegretHardFloor,
+			InjectFloor: cfg.RegretInjectFloor,
+			InjectTopN:  cfg.RegretInjectTopN,
+		}
+		hr := &health.Runner{
+			Store:  store,
+			Notify: sys.Notify, // nil 安全：NotifyRaw 空实现仅日志
+			Cfg: health.Config{
+				Learning: learning,
+				TopN:     cfg.RegretInjectTopN,
+			},
+			Log: log,
+		}
+		wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
+			if err := hr.RunOnce(ctx); err != nil {
+				log.Warn("argus.health.report_failed", "error", err.Error())
+			}
+		})
+		log.Info("argus.health.enabled", "interval", cfg.HealthReportInterval.String())
 	}
 
 	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----

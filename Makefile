@@ -3,7 +3,7 @@ BINARY  := argus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt e2e it check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt e2e it eval eval-real check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -13,6 +13,8 @@ help:
 	@echo "make lint    - staticcheck 静态检查（排除 biz/model 生成代码）"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
 	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
+	@echo "make eval    - golden PR 评测集·打桩回归（编排语义固化，不联网）"
+	@echo "make eval-real - golden PR 评测·真实模型 A/B（ARGUS_EVAL=1，verdict 命中率）"
 	@echo "make check   - govulncheck 漏洞扫描"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
 	@echo "make compose-up / compose-down - docker-compose 部署（deploy/docker-compose）"
@@ -36,6 +38,13 @@ e2e:
 
 it:
 	ARGUS_IT=1 go test ./test/e2e/ -run TestIntegration -count=1 -v
+
+# golden PR 评测集（v3.10.0，G1a）：打桩回归固化编排语义；真实模式做模型 A/B
+eval:
+	go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v
+
+eval-real:
+	ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v -timeout 90m
 
 vet:
 	go vet ./...

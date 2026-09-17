@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.9.1**（agentkit v0.10.2 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
+当前版本 **v3.11.0**（agentkit v0.10.4 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
@@ -48,6 +48,12 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 - **报告反思闸门（v3.4，可选）**：合并去重后由终审编辑（agentkit/reflection 批判→修订收敛循环）
   按误报特征 Rubric 复核 findings——剔除幻觉引用/纯风格/无证据定位条目、修正严重级别（只删改不新增，
   默认关闭，`ARGUS_REFLECTION_ROUNDS` 开启）。
+- **best-of-N 同质采样（v3.10.0，高危路径 opt-in）**：插件声明 `reviewN: 3` 即对同一审查者并发
+  采样 3 次，复现 ≥2 的发现确定性升级严重度并标注「采样复现 k/n」——指纹匹配投票，不经任何模型，
+  与「裁决不走 LLM」铁律一致；单次出现的 low 意见标注「单次采样」。成本 ×N，`/usage` 可见。
+- **审查域评测集（v3.10.0）**：`eval/golden/` 26 条 golden PR 夹具（injection/partial/scope-creep/
+  unverifiable/merge/guard 等场景）双模式回归——`make eval` 打桩固化编排语义；`make eval-real`
+  换真实模型测 verdict 命中率（模型 A/B 固定 harness，见 eval/EXPERIMENTS.md）。
 
 ### 3. 确定性裁决 + 双层回帖
 
@@ -308,6 +314,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_REFLECTION_EVIDENCE` | off | R3.5 反思证据门模式（strict = 剔除证据不足条目）|
 | `ARGUS_REGRET_LEARNING` | false | 模式级 regret 学习环（低置信标注 SoftFloor / 抑制 HardFloor；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go）|
 | `ARGUS_DREAM_INTERVAL` | 0（关闭） | 长期记忆整合周期（internal/dream）|
+| `ARGUS_HEALTH_REPORT_INTERVAL` | 0（关闭） | 审查健康报告周期（v3.11.0，建议 168h 周报）：聚合学习环状态经 IM 推送——噪声处置建议（人工门控）+ guidelines 增量建议（只生成建议文本，绝不自动改仓库文件）|
+| `ARGUS_COMPLETENESS_POLICY` | annotate | 完备性裁判策略（v3.11.0）：annotate=失败项只注记报告「完备性检查」段；demote=任一检查不过时 APPROVE→COMMENT（R5.C）|
+| `ARGUS_COMPLETENESS_RETRY` | false | 受限补审（v3.11.0）：执行失败的插件在剩余预算内重试一次，成功替换原结果（不叠加 findings）|
 | `ARGUS_COMMENT_TIMEOUT` / `ARGUS_COMMENT_CONCURRENCY` | 10m / 2 | 评论回帖整体超时 / 并发数 |
 | `ARGUS_TASK_MAX_RETRIES` | 2 | failed 任务自动重试上限（指数退避）|
 | `ARGUS_WORKER_GRACE` | 60s | worker 优雅停机等待在途任务时长 |
@@ -412,8 +421,8 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
 **生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
-接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.9.x（v3.6 深挖收尾、
-v3.7.0 指纹 v2+近重复、v3.8.0 决策链修复、v3.9.0 OCR 三通道+sink），生产升级部署待验证。
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.11.x（v3.10 评测集+best-of-N、
+v3.11 完备性裁判+健康报告、v3.8.0 决策链修复、v3.9.0 OCR 三通道+sink），生产升级部署待验证。
 
 ---
 

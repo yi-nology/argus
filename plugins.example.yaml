@@ -10,6 +10,10 @@
 #   skillRefs       方法论注入（§9.1），从 ARGUS_SKILLS_DIR/<name>/SKILL.md 解析
 #   cost            fast | standard | heavy（token 预算吃紧时 heavy 先裁，锁定插件豁免）
 #   timeout         插件单次执行超时
+#   reviewN         best-of-N 同质采样次数（v3.10.0；缺省 1 = 关闭，上限 5）。>1 时同一
+#                   插件并发跑 N 次：复现 ≥2 的发现升一级严重度并标注「采样复现 k/n」，
+#                   仅单次出现的 low 意见标注「单次采样」。高危路径 opt-in，成本 ×N
+#                   （token 记账逐采样累计）。复现计数是确定性指纹匹配，不经任何模型。
 #   enabled         缺省 true
 #   cmd/mode        kind=cli：白名单可执行文件（§8 供应链信任）；mode= full | delegate
 #   endpoint        kind=remote：仅此处可声明
@@ -39,6 +43,8 @@ agents:
     lockRepoConfig: true                # 审查对象不得关闭对自己的安全审查
     cost: heavy
     timeout: 120s
+    # reviewN: 3                        # 高危路径 best-of-N 示例：3 次采样投票，
+    #                                   # 复现 ≥2 的发现升级严重度（v3.10.0，成本 ×3）
 
   # ---- remote：OCR（open-code-review）经 ocrshim MCP 通道（推荐主路径）----
   # OCR 官方只有 MCP 客户端方向（消费外部工具），被 MCP 调用须经 ocrshim

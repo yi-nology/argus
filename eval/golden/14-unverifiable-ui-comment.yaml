@@ -1,0 +1,32 @@
+# 场景：多语言 UI 类 AC 无法在代码层验证 → unverifiable → R5.3 人工确认
+name: 14-unverifiable-ui-comment
+scenario: [unverifiable, multilingual]
+kind: 0
+pr:
+  title: 登录页多语言
+  body: |
+    登录页支持中英文切换，见 issue #12
+changed_files:
+  - path: web/app.js
+    diff: |
+      diff --git a/web/app.js b/web/app.js
+      --- a/web/app.js
+      +++ b/web/app.js
+      @@ -1,2 +1,4 @@
+       const app = {}
+      +const i18n = {zh: "登录", en: "Login"}
+      +app.lang = i18n
+    additions: 2
+repo_files:
+  web/app.js: |
+    const app = {}
+    const i18n = {zh: "登录", en: "Login"}
+    app.lang = i18n
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"登录页展示中英文切换"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"UI 文案渲染与语言切换交互无法在代码静态审查中验证，需要预览环境人工确认"}],"scope_creep":[],"summary":"无法完全验证"}
+expect:
+  verdict: comment
+  must_find: ["R5.3", "unverifiable"]

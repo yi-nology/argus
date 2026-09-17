@@ -124,6 +124,13 @@ type Config struct {
 	// 12 轮可能不够，超限后两次 ReAct 尝试都空转到上限再降级单轮，白白多花数分钟。
 	// <2 视为未配置回退默认。仅 toolsHook 非 nil（ReAct 模式）时生效。
 	ReactMaxIterations int
+	// CompletenessPolicy 完备性裁判策略（ARGUS_COMPLETENESS_POLICY，v3.11.0 G4）：
+	//   annotate = 缺省，失败项只追加报告降级注记，不改 verdict；
+	//   demote   = 任一完备性检查不过时 APPROVE→COMMENT（rule=R5.C）。
+	CompletenessPolicy string
+	// CompletenessRetry 受限补审（ARGUS_COMPLETENESS_RETRY，默认关闭）：
+	// 执行失败的插件在剩余预算内重试一次，成功替换原结果（不叠加 findings）。
+	CompletenessRetry bool
 	// RegretLearning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
 	// 开启后：Merger 按置信度标注/丢弃 low 条目，R4 注入历史误报模式提示词。
 	RegretLearning bool
@@ -136,6 +143,10 @@ type Config struct {
 	// DreamInterval 长期记忆整合周期（ARGUS_DREAM_INTERVAL，Go duration；
 	// 0=关闭；建议 6h/24h）。仅在 RegretLearning 开启时有意义。
 	DreamInterval time.Duration
+	// HealthReportInterval 审查健康报告周期（ARGUS_HEALTH_REPORT_INTERVAL，
+	// v3.11.0 G5，Go duration；0 = 关闭）。周期聚合学习环状态并经 octopus IM
+	// 推送（未配 ARGUS_OCTOPUS_URL 时仅写日志）。建议 168h（周报）。
+	HealthReportInterval time.Duration
 	// CommentRouter 评论意图路由（ARGUS_COMMENT_ROUTER，默认关闭）：
 	// @argus 自由文本评论先分类再分派——review（要求重新审查）建新任务，其余走 Q&A。
 	// 显式关键词（"重新审查"等短命令）零分类调用直达；歧义文本才走 LLM 分类。
@@ -403,6 +414,8 @@ func Load() *Config {
 		StageModelRouter:       stageOverride("ARGUS_ROUTER_MODEL"),
 		ReflectRounds:          envInt("ARGUS_REFLECTION_ROUNDS", 0),
 		ReactMaxIterations:     envInt("ARGUS_REACT_MAX_ITERATIONS", 12),
+		CompletenessPolicy:     normalizeCompletenessPolicy(envStr("ARGUS_COMPLETENESS_POLICY", "annotate")),
+		CompletenessRetry:      envBool("ARGUS_COMPLETENESS_RETRY", false),
 		ReflectEvidence:        normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off")),
 		RegretLearning:         envBool("ARGUS_REGRET_LEARNING", false),
 		RegretMinSamples:       envInt("ARGUS_REGRET_MIN_SAMPLES", 3),
@@ -411,6 +424,7 @@ func Load() *Config {
 		RegretInjectFloor:      envFloat("ARGUS_REGRET_INJECT_FLOOR", 0.35),
 		RegretInjectTopN:       envInt("ARGUS_REGRET_INJECT_TOP_N", 10),
 		DreamInterval:          envDuration("ARGUS_DREAM_INTERVAL", 0),
+		HealthReportInterval:   envDuration("ARGUS_HEALTH_REPORT_INTERVAL", 0),
 		CommentRouter:          envBool("ARGUS_COMMENT_ROUTER", false),
 		CommentTimeout:         envDuration("ARGUS_COMMENT_TIMEOUT", 10*time.Minute),
 		CommentConcurrency:     envInt("ARGUS_COMMENT_CONCURRENCY", 2),
@@ -491,6 +505,18 @@ func normalizeEvidenceMode(v string) string {
 		return "strict"
 	default:
 		return "off"
+	}
+}
+
+// normalizeCompletenessPolicy 把 ARGUS_COMPLETENESS_POLICY 归一到 annotate|demote。
+// 未知值回退 annotate（保守：只注明不改 verdict）。词表与 plugin.CompletenessPolicy
+// 常量对齐——此处用字面量避免 config → plugin 依赖边（config 被全仓引用）。
+func normalizeCompletenessPolicy(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "demote":
+		return "demote"
+	default:
+		return "annotate"
 	}
 }
 

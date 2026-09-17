@@ -33,6 +33,8 @@ var (
 	HookCommentRoute func(route, via string)
 	// HookTaskDeduped 任务创建去重计数（reason: event_id|last_head_sha|in_flight）。
 	HookTaskDeduped func(reason string)
+	// HookBestOfN best-of-N 采样结果分布（k/n：full=全部成功、partial=部分成功）。
+	HookBestOfN func(plugin string, result string)
 )
 
 func obsTaskTotal(platform, kind, status string) {
@@ -139,8 +141,15 @@ func ReportCommentRoute(route, via string) {
 
 // ReportTaskDeduped 任务创建去重（reason 词表：event_id | last_head_sha | in_flight）。
 func ReportTaskDeduped(reason string) {
-	if HookTaskDeduped != nil && reason != "" {
+	if HookTaskDeduped != nil {
 		HookTaskDeduped(reason)
+	}
+}
+
+// ReportBestOfN best-of-N 采样结果分布（result 词表：full | partial）。
+func ReportBestOfN(name, result string) {
+	if HookBestOfN != nil {
+		HookBestOfN(name, result)
 	}
 }
 

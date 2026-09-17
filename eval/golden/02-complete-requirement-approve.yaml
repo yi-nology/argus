@@ -1,0 +1,49 @@
+# 场景：需求全部完成、无审查意见 → R5.5 APPROVE
+# 注意：代码须真实实现 AC——空函数会在真实模型下被诚实判 missing（R5.1），
+# 那是模型正确、夹具错误。approve 类夹具在真实模式下的 miss 还可能来自
+# reviewer 对真实代码的合理意见（过报率信号），归因见 eval/EXPERIMENTS.md。
+name: 02-complete-requirement-approve
+scenario: [complete]
+kind: 0
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录：提供 login(password) 校验函数，空口令报错。见 issue #12
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,10 @@
+       package main
+      +
+      +import "errors"
+      +
+      +func login(password string) error {
+      +	if password == "" {
+      +		return errors.New("empty password")
+      +	}
+      +	return nil
+      +}
+    additions: 8
+repo_files:
+  main.go: |
+    package main
+
+    import "errors"
+
+    func login(password string) error {
+    	if password == "" {
+    		return errors.New("empty password")
+    	}
+    	return nil
+    }
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"提供 login(password) 校验函数，空口令报错"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:5","detail":"空口令校验与错误返回已实现"}],"scope_creep":[],"summary":"完成"}
+expect:
+  verdict: approve
+  must_find: ["R5.5"]

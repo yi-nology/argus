@@ -1,0 +1,33 @@
+# 场景：证据门——implemented 缺 file:line 证据被代码级强制降级 unverifiable → R5.3
+name: 16-evidence-demote-comment
+scenario: [evidence-gate]
+kind: 0
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录，见 issue #12
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,5 @@
+       package main
+      +
+      +func login() {}
+    additions: 2
+repo_files:
+  main.go: |
+    package main
+
+    func login() {}
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","detail":"已实现（未附证据行）"}],"scope_creep":[],"summary":"完成"}
+expect:
+  verdict: comment
+  must_find: ["R5.3", "unverifiable"]
+  must_not_find: ["R5.5"]

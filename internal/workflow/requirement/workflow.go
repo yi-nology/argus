@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -73,6 +74,12 @@ type Workflow struct {
 	ReflectRounds   int
 	ReflectModel    model.BaseChatModel
 	ReflectEvidence string
+
+	// G4 完备性裁判（v3.11.0）：CompletenessPolicy = annotate（默认，只注明）|
+	// demote（任一检查不过时 APPROVE→COMMENT，rule=R5.C）；CompletenessRetry =
+	// 受限补审（失败插件在剩余预算内重试一次，结果替换不叠加）。
+	CompletenessPolicy string
+	CompletenessRetry  bool
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -179,6 +186,11 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	for _, sq := range w.Dispatcher.ConsensusSquads(&task.PR, changedFiles) {
 		outcomes = append(outcomes, w.Dispatcher.RunConsensus(ctx, task, sq, budget)...)
 	}
+	// G4 受限补审（opt-in）：执行失败的插件在剩余预算内重试一次（v3.11.0）
+	var retryNotes []string
+	if w.CompletenessRetry {
+		outcomes, retryNotes = w.retryFailedPlugins(ctx, task, budget, sel, outcomes)
+	}
 	plugin.ReportStageDuration("R4", time.Since(stageStart))
 	plugin.ReportLayerExec(plugin.LayerR4)
 
@@ -231,6 +243,12 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		w.Merger.AnnotateCrossReview(merged, members)
 	}
 
+	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
+	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段
+	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
+	completeness := JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
+	merged.Degraded = append(merged.Degraded, retryNotes...)
+
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
 	// v3.8.0：有 diff 文件集时启用 scope 闸门——reviewer 经 get_file 看到未变更
 	// 文件后对本次变更之外的文件报 high，此前可直接驱动 R5.2 REQUEST_CHANGES
@@ -267,6 +285,11 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 			verdict, rule = VerdictComment, "R5.0"
 		}
 	}
+	// G4 降级门（opt-in demote）：完备性检查不过时不允许白给 APPROVE（v3.11.0）。
+	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判。
+	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
+		verdict, rule = VerdictComment, "R5.C"
+	}
 	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
 	// 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审此前零痕迹——
 	// 与大 PR 截断同构的"覆盖范围收缩"，结论可信度的一部分必须可见。
@@ -282,26 +305,81 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 				fmt.Sprintf("增量审查：%d 个文件与上轮完全一致未重审，本次仅覆盖其余变更", reviewed))
 		}
 	}
-	// 大 PR 截断透出（深挖 P0）：diffprep 截断后 Truncated 标记此前全仓零消费，
-	// 审查覆盖不完整却无任何痕迹。此处统一注明（RunFull/RunReviewOnly 都经 finish）。
-	if task.Diff != nil && task.Diff.Truncated {
-		merged.Degraded = append(merged.Degraded,
-			"diff 超过上限被截断，本次审查仅覆盖保留部分——建议拆分 PR 或分段审查")
-	}
+	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
+	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
 
 	out := &Output{
-		Verdict:    verdict,
-		Rule:       rule,
-		Spec:       spec,
-		Report:     report,
-		Merged:     merged,
-		PluginsRun: plugin.OutcomeNames(outcomes),
-		Summary:    summary,
-		Elapsed:    time.Since(start),
-		Reflect:    reflectInfo,
+		Verdict:      verdict,
+		Rule:         rule,
+		Spec:         spec,
+		Report:       report,
+		Merged:       merged,
+		PluginsRun:   plugin.OutcomeNames(outcomes),
+		Summary:      summary,
+		Elapsed:      time.Since(start),
+		Reflect:      reflectInfo,
+		Completeness: completeness,
 	}
 	out.Tokens = w.LLM.UsedTokens()
 	return out, nil
+}
+
+// retryFailedPlugins G4 受限补审：对执行失败（Err 非空且非任务取消跳过）的插件
+// 重试一次。约束：剩余预算 >0 才补审；重试经 Dispatcher.Run 照常过预算门/熔断门
+// （已熔断插件会被跳过，保留原错误）；重试成功**替换**原 outcome——不叠加 findings，
+// 不产生双重指纹。consensus 产物不重试（黑板轮转语义由 RunConsensus 自管）。
+func (w *Workflow) retryFailedPlugins(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
+	sel []plugin.Selection, outcomes []plugin.Outcome) ([]plugin.Outcome, []string) {
+
+	selByName := make(map[string]plugin.Selection, len(sel))
+	for _, s := range sel {
+		selByName[s.Reg.Manifest.Name] = s
+	}
+	var retrySel []plugin.Selection
+	for _, o := range outcomes {
+		if o.Err != nil && o.SkippedReason == "" {
+			if s, ok := selByName[o.Name]; ok {
+				retrySel = append(retrySel, s)
+			}
+		}
+	}
+	if len(retrySel) == 0 {
+		return outcomes, nil
+	}
+	if budget != nil && budget.Remaining() <= 0 {
+		return outcomes, []string{"受限补审跳过：任务 token 预算已耗尽"}
+	}
+	names := make([]string, 0, len(retrySel))
+	for _, s := range retrySel {
+		names = append(names, s.Reg.Manifest.Name)
+	}
+	w.Log.Info("argus.completeness.retry", "plugins", strings.Join(names, ","))
+	retried := w.Dispatcher.Run(ctx, task, retrySel, budget)
+	retryByName := make(map[string]plugin.Outcome, len(retried))
+	for _, o := range retried {
+		retryByName[o.Name] = o
+	}
+	var notes []string
+	for i := range outcomes {
+		o := &outcomes[i]
+		if o.Err == nil || o.SkippedReason != "" {
+			continue
+		}
+		r, ok := retryByName[o.Name]
+		if !ok {
+			continue
+		}
+		switch {
+		case r.Err == nil && r.SkippedReason == "":
+			notes = append(notes, fmt.Sprintf("受限补审：%s 重试成功（原执行失败）", o.Name))
+			o.Result, o.Err, o.Duration, o.Manifest, o.SkippedReason = r.Result, nil, r.Duration, r.Manifest, ""
+		case r.SkippedReason != "":
+			notes = append(notes, fmt.Sprintf("受限补审：%s 重试被跳过（%s）", o.Name, r.SkippedReason))
+		default:
+			notes = append(notes, fmt.Sprintf("受限补审：%s 重试仍失败", o.Name))
+		}
+	}
+	return outcomes, notes
 }
 
 // Verdict R5 裁决真值表（design §4，按序求值首条命中即短路）：

@@ -420,6 +420,39 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			if timeout <= 0 {
 				timeout = 120 * time.Second
 			}
+
+			// best-of-N 路径（v3.10.0）：N 份采样并发执行、逐采样独立超时，
+			// 聚合后按一次插件执行配对熔断（Allow 一次 → Success/Failure/Abandon
+			// 恰好其一）；部分成功照常产结果，降级注记随 Result.Notes 透出。
+			if n := ClampReviewN(reg.Manifest.ReviewN); n > 1 {
+				start := d.Now()
+				res, k, canceled, sampleErr := d.runSampled(ctx, reg.Plugin, task, n, timeout)
+				o.Duration = d.Now().Sub(start)
+				switch {
+				case k > 0:
+					o.Result = &res
+					d.breakers.Success(reg.Manifest.Name)
+					result := "full"
+					if k < n {
+						result = "partial"
+					}
+					ReportBestOfN(reg.Manifest.Name, result)
+				case canceled:
+					// 任务级取消不是插件故障：Abandon 释放半开探测位（配对契约）
+					d.breakers.Abandon(reg.Manifest.Name)
+					o.SkippedReason = "任务已取消"
+					d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
+				default:
+					d.breakers.Failure(reg.Manifest.Name)
+					obsPluginFailure(reg.Manifest.Name)
+					o.Err = sampleErr
+					d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
+						"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
+				}
+				obsPluginDuration(reg.Manifest.Name, o.Duration)
+				return
+			}
+
 			cctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
@@ -450,6 +483,51 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 	}
 	wg.Wait()
 	return outcomes
+}
+
+// runSampled best-of-N 采样执行：同一插件同 prompt 并发跑 n 次（逐采样独立超时），
+// 成功采样经 aggregateSamples 聚合（复现计数/严重度升级/降级注记）。
+// 返回聚合结果、成功采样数 k、是否发生任务级取消、失败采样错误（k>0 时为 nil）。
+// 熔断配对由调用方按 (k, canceled) 统一决策——本函数不触碰 breaker。
+func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n int, timeout time.Duration) (Result, int, bool, error) {
+	type sampleRes struct {
+		res Result
+		err error
+	}
+	results := make([]sampleRes, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		async.GoSafe(func() {
+			defer wg.Done()
+			sctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			results[i].res, results[i].err = safeInvoke(sctx, p, task)
+		})
+	}
+	wg.Wait()
+
+	var ok []Result
+	canceled := false
+	var lastErr error
+	for _, r := range results {
+		switch {
+		case r.err == nil:
+			ok = append(ok, r.res)
+		case teardown(r.err, ctx):
+			canceled = true
+		default:
+			lastErr = r.err
+		}
+	}
+	if len(ok) == 0 {
+		if lastErr == nil && canceled {
+			lastErr = context.Canceled
+		}
+		return Result{}, 0, canceled, lastErr
+	}
+	agg := aggregateSamples(n, len(ok), ok)
+	return agg, len(ok), canceled, nil
 }
 
 // safeInvoke 防插件 panic 拖垮 worker（超时由 ctx + 适配器内部尊重 ctx 实现；

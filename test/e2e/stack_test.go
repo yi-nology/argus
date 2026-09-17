@@ -242,10 +242,15 @@ type mockLLM struct {
 	// 分类请求的 user 消息携带评论原文——routerHit 按测试设定标记句匹配。
 	RouterReply string
 	routerMark  string
+	// PersonaSeq 按人设标记（"【Argus <插件名>】"）的序列化回复：第 i 次调用取
+	// 第 i 项（越界取末项）；非空时优先于 Correctn。best-of-N 场景需要逐采样
+	// 可变的 reviewer 输出（复现计数依赖两次同题 + 一次不同）。
+	PersonaSeq   map[string][]string
+	personaCalls map[string]int
 }
 
 func newMockLLM(r1, r3, correctness string) *mockLLM {
-	m := &mockLLM{R1JSON: r1, R3JSON: r3, Correctn: correctness}
+	m := &mockLLM{R1JSON: r1, R3JSON: r3, Correctn: correctness, personaCalls: map[string]int{}}
 	m.srv = httptest.NewServer(http.HandlerFunc(m.handle))
 	return m
 }
@@ -328,8 +333,30 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		m.reply(w, r)
 	default:
+		if m.personaReply(w, text) {
+			return
+		}
 		m.reply(w, `{"findings":[],"notes":""}`)
 	}
+}
+
+// personaReply PersonaSeq 命中时按调用序回复（返回是否命中）。
+func (m *mockLLM) personaReply(w http.ResponseWriter, text string) bool {
+	for marker, seq := range m.PersonaSeq {
+		if !strings.Contains(text, marker) {
+			continue
+		}
+		m.mu.Lock()
+		i := m.personaCalls[marker]
+		m.personaCalls[marker] = i + 1
+		m.mu.Unlock()
+		if i >= len(seq) {
+			i = len(seq) - 1
+		}
+		m.reply(w, seq[i])
+		return true
+	}
+	return false
 }
 
 func (m *mockLLM) reply(w http.ResponseWriter, content string) {
@@ -377,10 +404,24 @@ type stackOpts struct {
 	reflectEvidence string // off|soft|strict
 	regretLearning  bool   // 模式级后悔学习环
 	r35Drafts       []string
-	commentRouter   bool               // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
-	squads          []plugin.SquadDecl // 编队声明（共识/互盲场景）
-	routerReply     string             // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
-	routerMark      string             // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
+	commentRouter   bool                // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
+	squads          []plugin.SquadDecl  // 编队声明（共识/互盲场景）
+	routerReply     string              // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
+	routerMark      string              // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
+	personaSeq      map[string][]string // 按人设标记的序列化回复（best-of-N 场景）
+
+	// ---- golden 评测夹具注入（golden_test.go 用；nil/空 = 默认场景）----
+	diffFiles     []provider.ChangedFile     // PR diff 文件集
+	repoFiles     map[string]string          // get_file 可读文件内容
+	prTitle       string                     // PR 标题（覆盖默认）
+	prBody        string                     // PR 描述（覆盖默认）
+	prLabels      []string                   // PR 标签
+	issues        map[string]*provider.Issue // R1 引用的 issue 内容（number → issue）
+	stripDefaults bool                       // 移除默认插件集（R5.0 零插件守门场景）
+
+	// G4 完备性裁判（golden 夹具用）
+	completenessPolicy string // annotate | demote（空 = annotate）
+	completenessRetry  bool   // 受限补审开关
 }
 
 func defaultOpts() stackOpts {
@@ -420,6 +461,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		llmMock.R35Drafts = opt.r35Drafts
 		llmMock.RouterReply = opt.routerReply
 		llmMock.routerMark = opt.routerMark
+		llmMock.PersonaSeq = opt.personaSeq
 		t.Cleanup(llmMock.srv.Close)
 		llmCfg.BaseURL = llmMock.srv.URL
 	} else {
@@ -489,6 +531,9 @@ func newStack(t TestingT, opt stackOpts) *stack {
 			Cost: plugin.CostHeavy, Timeout: "60s",
 		})
 	}
+	if opt.stripDefaults {
+		agents = nil // golden 场景：零插件守门（R5.0）等需要空注册表
+	}
 	agents = append(agents, opt.extraAgents...)
 	pluginsFile := tmp + "/plugins.yaml"
 	if len(opt.squads) > 0 {
@@ -518,6 +563,29 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	fake := newFakeProvider()
+	// golden 夹具注入：非空时覆盖默认 PR/diff/文件/issue
+	if len(opt.diffFiles) > 0 {
+		dfs := make([]*provider.ChangedFile, len(opt.diffFiles))
+		for i := range opt.diffFiles {
+			dfs[i] = &opt.diffFiles[i]
+		}
+		fake.diff = &provider.MergeDiff{Files: dfs}
+	}
+	if opt.repoFiles != nil {
+		fake.files = opt.repoFiles
+	}
+	if opt.prTitle != "" {
+		fake.cr.Title = opt.prTitle
+	}
+	if opt.prBody != "" {
+		fake.cr.Description = opt.prBody
+	}
+	if len(opt.prLabels) > 0 {
+		fake.cr.Labels = opt.prLabels
+	}
+	if len(opt.issues) > 0 {
+		fake.issues = opt.issues
+	}
 	provs := map[string]provider.Provider{"gitea": fake}
 	cfg.CommentRouter = opt.commentRouter
 	if opt.commentRouter {
@@ -584,6 +652,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		Version: "v3.0.0-e2e", SkillProvider: skills, SkillRefs: skillRefs,
 		ReflectRounds:   opt.reflectRounds,
 		ReflectEvidence: opt.reflectEvidence,
+		CompletenessPolicy: opt.completenessPolicy,
+		CompletenessRetry:  opt.completenessRetry,
 	}
 	if opt.regretLearning {
 		runnerRef.Learning = plugin.LearningConfig{

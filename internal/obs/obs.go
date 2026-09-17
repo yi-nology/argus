@@ -133,6 +133,11 @@ var (
 		Name: "argus_comment_post_failures_total", Help: "评论回帖失败分布（reply/…）",
 	}, []string{"kind"})
 
+	// bestOfN best-of-N 采样结果分布（result: full|partial；成本 ×N 的对照组观测）。
+	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
+	}, []string{"plugin", "result"})
+
 	// httpRequests/httpDuration 请求级指标（v3.9.2：此前 5xx 率与时延只能靠日志
 	// 聚合；path 用路由模板避免高基数）。
 	httpRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -154,7 +159,7 @@ func Init() {
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures,
-		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration,
+		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -197,6 +202,9 @@ func Init() {
 	}
 	plugin.HookTaskDeduped = func(reason string) {
 		taskDeduped.WithLabelValues(reason).Inc()
+	}
+	plugin.HookBestOfN = func(name, result string) {
+		bestOfN.WithLabelValues(name, result).Inc()
 	}
 }
 

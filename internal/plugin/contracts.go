@@ -15,7 +15,7 @@ import (
 // requirement 侧保留同名别名）。
 type WorkflowOutput struct {
 	Verdict    string // approve | comment | request_changes
-	Rule       string // R5.1..R5.5
+	Rule       string // R5.1..R5.5 | R5.C（完备性降级门）
 	Spec       *RequirementSpec
 	Report     *ComplianceReport
 	Merged     *MergedFindings
@@ -23,8 +23,12 @@ type WorkflowOutput struct {
 	Summary    string // R2 变更摘要
 	Elapsed    time.Duration
 	Tokens     int
-	Reflect    *ReflectSummary   // R3.5 反思结果（nil = 未启用）
-	Debug      map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
+	Reflect    *ReflectSummary // R3.5 反思结果（nil = 未启用）
+	// Completeness 完备性裁判产出（v3.11.0 G4；nil = 未启用）。R5 管结论对不对，
+	// 完备性管审得全不全（插件缺失/截断/AC 漏判/降级审查），策略词表见
+	// CompletenessPolicy（annotate 默认 / demote 降级门 rule=R5.C）。
+	Completeness *CompletenessReport
+	Debug        map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
 }
 
 // ReflectSummary R3.5 反思结果（WorkflowOutput.Reflect；nil = 未启用或无 findings）。

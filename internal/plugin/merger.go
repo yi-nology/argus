@@ -259,6 +259,11 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
 			a.finding.Line = f.Line
 		}
+		// best-of-N 采样复现计数随条目透传（多插件命中同题时保留首个非空，
+		// 数据在结构化字段——入 Comment 会污染指纹/模式键，v3.10.0）
+		if a.finding.Samples == "" {
+			a.finding.Samples = f.Samples
+		}
 		if !a.bys[f.By] { // 首次出现的插件才进 byOrder（与 bys 去重语义一致）
 			a.byOrder = append(a.byOrder, f.By)
 		}

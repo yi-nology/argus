@@ -1,0 +1,36 @@
+# 场景：意见带修复建议 → 报告「建议修复」段 + 行内评论 ```suggestion 围栏
+name: 18-suggestion-fence-comment
+scenario: [render, code-review]
+kind: 0
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录，见 issue #12
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,5 @@
+       package main
+      +
+      +func login() {}
+    additions: 2
+repo_files:
+  main.go: |
+    package main
+
+    func login() {}
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"login 应返回错误而非静默失败","suggested_fix":"func login() error {\n\treturn nil\n}"}],"notes":""}
+expect:
+  verdict: comment
+  # 注：```suggestion 围栏渲染在行内评论（poster.inlineCommentBody），
+  # 总结报告渲染「建议修复」段 + 普通代码围栏（reportview）
+  must_find: ["R5.4", "建议修复", "func login() error"]

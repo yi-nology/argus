@@ -1,0 +1,35 @@
+# 场景：真值表优先级——unverifiable（R5.3）与 medium 意见（R5.4）同时存在 → R5.3 先命中
+name: 22-unverifiable-plus-medium-comment
+scenario: [unverifiable, code-review]
+kind: 0
+pr:
+  title: 登录页多语言
+  body: |
+    登录页支持中英文切换，见 issue #12
+changed_files:
+  - path: web/app.js
+    diff: |
+      diff --git a/web/app.js b/web/app.js
+      --- a/web/app.js
+      +++ b/web/app.js
+      @@ -1,2 +1,4 @@
+       const app = {}
+      +const i18n = {zh: "登录", en: "Login"}
+      +app.lang = i18n
+    additions: 2
+repo_files:
+  web/app.js: |
+    const app = {}
+    const i18n = {zh: "登录", en: "Login"}
+    app.lang = i18n
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"登录页展示中英文切换"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"UI 渲染需人工在预览环境确认"}],"scope_creep":[],"summary":"无法完全验证"}
+  reviewer: |
+    {"findings":[{"file":"web/app.js","line":2,"severity":"medium","comment":"i18n 对象缺少 fallback 语言"}],"notes":""}
+expect:
+  verdict: comment
+  must_find: ["R5.3"]
+  must_not_find: ["R5.4"]

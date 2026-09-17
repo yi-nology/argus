@@ -83,6 +83,19 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 		if len(unknownNeeds) > 0 {
 			d.Log.Warn("argus.bootstrap.unknown_needs", "plugin", decl.Name, "needs", strings.Join(unknownNeeds, ","))
 		}
+		// best-of-N 采样次数钳制（0/负 = 关闭；上限 MaxReviewN 防配置滥用）。
+		// 执行期 Dispatcher.Run 再经 ClampReviewN 归一，manifest 保留语义原值。
+		reviewN := decl.ReviewN
+		if reviewN > plugin.MaxReviewN {
+			d.Log.Warn("argus.bootstrap.review_n_clamped", "plugin", decl.Name,
+				"configured", decl.ReviewN, "effective", plugin.MaxReviewN)
+			reviewN = plugin.MaxReviewN
+		}
+		if reviewN < 0 {
+			d.Log.Warn("argus.bootstrap.review_n_clamped", "plugin", decl.Name,
+				"configured", decl.ReviewN, "effective", 0)
+			reviewN = 0
+		}
 		manifest := plugin.AgentManifest{
 			Name:     decl.Name,
 			Version:  decl.Version,
@@ -93,6 +106,7 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 			Triggers: plugin.Trigger{Paths: decl.Triggers.Paths, Labels: decl.Triggers.Labels, Events: decl.Triggers.Events},
 			Cost:     decl.Cost,
 			Timeout:  timeout,
+			ReviewN:  reviewN,
 		}
 
 		var p plugin.AgentPlugin

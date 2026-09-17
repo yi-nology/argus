@@ -1,5 +1,72 @@
 # Changelog
 
+## v3.11.0 (2026-09-18) — G4 完备性裁判 + G5 审查健康报告（MiMo 差距批次 2）
+
+对应 `research/mimo-vs-argus/REPORT.md` §5.3 的 G4/G5 缺口；规划见同目录
+IMPROVEMENT-PLAN.md。R5 真值表管「结论对不对」，本批补上「审得全不全」与
+「飞轮被人看见」。
+
+### G4 完备性裁判（Completeness Judge）
+
+- **新增 `internal/workflow/requirement/completeness.go`**（判定）+
+  `internal/plugin/completeness.go`（契约）：纯确定性检查「审得全不全」——
+  diff 截断、插件未产出（超时/熔断/预算/错误，R5.0 只管全缺）、lockRepoConfig
+  锁定插件缺失、R1 AC 未被 R3 判定覆盖、R3 unverifiable 占比过半（>50%）、
+  reviewer 自报审查降级（ReAct 落单轮）。全部读运行时事实，不调模型。
+- **动作三种且都不改写 findings**：`annotate`（默认，报告新增「完备性检查」
+  独立段，不与插件降级说明重复）；`demote`（ARGUS_COMPLETENESS_POLICY=demote，
+  任一检查不过时 APPROVE→COMMENT，rule=R5.C——R5.0 精神向部分覆盖的延伸）；
+  `retry`（ARGUS_COMPLETENESS_RETRY=true，受限补审：执行失败插件在剩余预算内
+  重试一次，成功**替换**原结果不叠加 findings，已熔断/预算耗尽自动跳过）。
+- **diff 截断注记改由完备性检查统一产出**（原 finish 内散落注记移除，避免双写）。
+- 26 条 golden 夹具新增 25（annotate 通过）/26（demote 降级）两条守门场景。
+
+### G5 审查健康报告 + guidelines 增量建议
+
+- **新增 `internal/health`**：周期聚合 pattern_signals/学习环状态——噪声处置
+  建议（置信度跌破 HardFloor 的模式，系统已自动降权，给人复核入口）+
+  **guidelines 增量建议**（posted ≥3 且零人工 suppress 的重复意见，建议固化进
+  `.argus/review-guidelines.md`——只生成建议文本，**绝不自动改仓库文件**，
+  人工确认后生效，对齐「持久抑制只来自人工」红线）。
+- **ARGUS_HEALTH_REPORT_INTERVAL**（0=关闭，建议 168h 周报）：main.go AddTicker
+  驱动，经 octopus IM 推送（notify.Notifier 新增通用 NotifyRaw）；无数据不推送
+  （宁缺勿扰）。累计口径：连续两期差值即周期趋势。
+
+## v3.10.0 (2026-09-18) — G1a 审查域评测集 + G3 高危 best-of-N（MiMo 差距批次 1）
+
+对应 REPORT.md §5.3 G1/G3 缺口：把「审查准确率」从体感变成可测量数字，补齐
+「同一审查者 N 采样+裁判」形态（MiMo Max Mode 的审查域对位）。
+
+### G1a · golden PR 评测集（G6 回归看板的数据地基）
+
+- **`eval/golden/` 26 条 golden PR 夹具**：diff + 需求文本 + 期望 verdict/findings，
+  场景标签覆盖 injection（4 条）/partial/complete/scope-creep/unverifiable/
+  multilingual/merge/scope-gate/evidence-gate/guard/render。
+- **双模式驱动**（test/e2e/golden_test.go，复用 e2e 打桩栈并扩展 fixture 注入：
+  diffFiles/repoFiles/prBody/prLabels/issues/stripDefaults/personaSeq）：
+  `make eval` 打桩回归固化编排语义（R5 真值表/合并去重/反注入/证据门，CI 必跑）；
+  `make eval-real`（ARGUS_EVAL=1）同一批夹具换真实模型测 **verdict 命中率**——
+  逐用例增量落 `eval/results/latest.json`（G6 看板数据源）。
+- **G1b 实验脚手架**（eval/EXPERIMENTS.md）：固定 harness 的模型 A/B 对照矩阵
+  （基线 / 全局 mimo / StageRouter 只切 R3+Reviewer / Pro），拍板规则成文——
+  injection 类场景失守一票否决，与厂商分数无关。真实模型通路已实测打通
+  （mimo-v2.5-pro 全量基线运行中）。
+
+### G3 · best-of-N 同质采样
+
+- **配置**：plugins.yaml AgentDecl `reviewN`（0/1=关闭，钳制 ≤5），高危路径
+  opt-in，成本 ×N（token 记账逐采样累计，/usage 可见）。
+- **Dispatcher**：`runSampled` 同一插件同 prompt 并发 N 采样、逐采样独立超时；
+  `aggregateSamples`（bestofn.go）按 Merger 同构分组键（指纹 → file+规范化评语，
+  行号相容）聚合——**复现 ≥2 的发现确定性升级一级严重度并标注「采样复现 k/n」**
+  （指纹投票，不经任何模型）；单次出现的 low 意见标注「单次采样」；不同发现全保留
+  （漏报防线）。熔断配对契约不变（N 采样共享一次 Allow→Success/Failure/Abandon）。
+- **复现计数走结构化字段 Finding.Samples**（渲染层 plugin.SamplesAnnotation 展示，
+  总结报告与行内评论均可见）——标注文本绝不入 Comment，指纹/prints 原文/模式键
+  身份稳定（v3.9.1 错账教训同类预防）。
+- 指标 `argus_plugin_bestofn_total{plugin,result=full|partial}`；e2e 场景 21
+  （复现 2/3 升级 medium→high 驱动 R5.2）+ plugin 包聚合/熔断/部分失败单测。
+
 ## v3.9.3 (2026-09-18) — OCR 浅克隆历史补全改 deepen 增量式（internal/gitdeepen）
 
 旧方案（v3.9.0 起 ocrshim/ocrdeleg 各自的 `fetch --unshallow` 全量补历史）是

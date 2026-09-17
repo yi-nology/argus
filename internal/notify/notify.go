@@ -74,6 +74,28 @@ func (n *Notifier) NotifyTerminal(ctx context.Context, e TaskEvent) {
 	}
 }
 
+// NotifyRaw 通用 markdown 推送（G5 健康报告等周期性内容；空内容不推送）。
+func (n *Notifier) NotifyRaw(ctx context.Context, content string) {
+	if n == nil || n.BaseURL == "" || n.Log == nil || strings.TrimSpace(content) == "" {
+		return
+	}
+	var out map[string]any
+	if err := n.clientOf().PostJSON(ctx, "/api/v2/send/quick", map[string]any{
+		"channelId": n.ChannelID,
+		"content":   content,
+		"msgType":   "markdown",
+	}, &out); err != nil {
+		var svcErr *httpx.ServiceError
+		if errors.As(err, &svcErr) {
+			obs.IncrNotifyFailure(fmt.Sprintf("%d", svcErr.Code))
+			n.Log.Warn("argus.notify.raw_rejected", "status", svcErr.Code)
+			return
+		}
+		obs.IncrNotifyFailure("error")
+		n.Log.Warn("argus.notify.raw_failed", "error", err.Error())
+	}
+}
+
 // clientOf 惰性构建 httpx 客户端：10s 超时 + X-User-Id 机器账号头 + 可选 Bearer
 // （X-User-Id 无对应 Option，经 OnBeforeRequest 注入）。
 func (n *Notifier) clientOf() *httpx.Client {

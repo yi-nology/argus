@@ -69,6 +69,10 @@ type Report struct {
 
 	Findings []plugin.Finding
 
+	// Completeness 完备性失败项（G4 v3.11.0；nil = 全部通过或未启用）。
+	// 独立段而非 Degraded：完备性是覆盖事实（审得全不全），与插件降级说明分开展示。
+	Completeness []string
+
 	// 结论段
 	VerdictText string // 已映射好图标与文案（⛔/⚠️/💬/✅ …），渲染层不再判断
 	Rule        string // 命中的 R5 规则（R5.1..R5.5，可空）
@@ -149,6 +153,9 @@ func Render(r Report) string {
 			fp = fp[:8]
 			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
 			comment := strings.ReplaceAll(strings.TrimSpace(EscapeUntrusted(f.Comment)), "\n", "\n  ")
+			if ann := plugin.SamplesAnnotation(f); ann != "" {
+				comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
+			}
 			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
 				EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
 				EscapeUntrusted(by), fp)
@@ -165,6 +172,13 @@ func Render(r Report) string {
 			fmt.Fprintf(&b, "- %s\n", EscapeUntrusted(d))
 		}
 		b.WriteString("\n</details>\n")
+	}
+
+	if len(r.Completeness) > 0 {
+		b.WriteString("\n### ⚠️ 完备性检查（覆盖可能不完整）\n")
+		for _, c := range r.Completeness {
+			fmt.Fprintf(&b, "- %s\n", EscapeUntrusted(c))
+		}
 	}
 
 	b.WriteString("\n### 结论: ")

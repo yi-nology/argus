@@ -141,6 +141,10 @@ type AgentManifest struct {
 	Triggers Trigger
 	Cost     string
 	Timeout  time.Duration
+	// ReviewN best-of-N 同质采样次数（plugins.yaml reviewN；0/1 = 单次）。
+	// >1 时 Dispatcher 对同一插件并发跑 N 次（钳制 ≤ MaxReviewN）并聚合：
+	// 复现 ≥2 的发现升一级严重度并标注 k/n（bestofn.go）。高危路径 opt-in。
+	ReviewN int
 }
 
 // AgentPlugin L4 统一契约：所有形态（builtin/cli/remote）都收敛到这两个方法。
@@ -277,6 +281,10 @@ type Finding struct {
 	// 用它，禁止拿标注/R3.5 修订后的终稿文本重算——那会让短码与存储指纹漂移，
 	// 反馈闭环对"被标注过"的条目全部失效（v3.8.0 修复）。零值 = 未过 merger。
 	FP string `json:"fp,omitempty"`
+	// Samples best-of-N 采样复现计数 "k/n"（Dispatcher 聚合写定；reviewN<=1 恒空）。
+	// 结构化字段而非 Comment 后缀：指纹/prints 原文/模式键由评语派生，标注文本
+	// 入键会让跨轮身份漂移（v3.9.1 错账同类教训）。渲染层经 SamplesAnnotation 展示。
+	Samples string `json:"samples,omitempty"`
 }
 
 // Result 插件输出。

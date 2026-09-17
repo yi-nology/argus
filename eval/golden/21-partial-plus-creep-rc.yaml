@@ -1,0 +1,32 @@
+# 场景：真值表优先级——missing（R5.1）与 scope creep（R5.3）同时存在 → R5.1 先命中
+name: 21-partial-plus-creep-rc
+scenario: [partial, scope-creep]
+kind: 0
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录，见 issue #12
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,5 @@
+       package main
+      +
+      +func login() {}
+    additions: 2
+repo_files:
+  main.go: |
+    package main
+
+    func login() {}
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"},{"id":"AC-2","text":"登录失败三次锁定"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"},{"id":"AC-2","status":"missing","detail":"未见锁定逻辑"}],"scope_creep":[{"file":"extra.go","note":"需求外重构"}],"summary":"部分完成且有夹带"}
+expect:
+  verdict: request_changes
+  must_find: ["R5.1", "需求外改动"]
