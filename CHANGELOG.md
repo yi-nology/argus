@@ -1,5 +1,239 @@
 # Changelog
 
+## v3.9.0 (2026-09-17) — OCR 调用通道 MCP 化：ocrshim sidecar + remote 插件 working-copy
+
+OCR（alibaba/open-code-review）从 `kind: cli` 子进程调用演进为 `kind: remote
+protocol: mcp` 调用。实地核实：OCR 官方只有 MCP 客户端方向（消费外部工具），
+被 MCP 调用须自建包装——新增 ocrshim（`cmd/ocrshim` + `internal/ocrshim`），
+mark3labs/mcp-go streamable HTTP server，与 argus 同镜像双二进制、同主机
+sidecar 部署。argus 侧纯装配切换，旧 cli 条目保留为默认关闭的回退位。
+
+### 调用实证（迁移依据）
+- 上游 v1.12+ 无 `diff` 子命令（原配置 `ocr diff` 已失效）；批量审查为
+  `ocr review --from <base> --to <head> --format json --audience agent`。
+- findings JSON 新 schema：`{path, content, start_line, severity(critical|high|
+  medium|low), suggestion_code}` 包裹 `{"comments":[...]}`——旧解析器找
+  comment/line 字段，对当前上游输出会解析出零条。
+- workcopy 浅克隆下 merge-base 必挂（`cannot find merge-base`），shim 前置
+  `git fetch --unshallow`（守卫 `.git/shallow` 存在）后恢复。
+
+### 落地
+- **ocrshim**：工具 `review(payload)` → 校验 workcopy_dir/base_branch →
+  unshallow → acpx 托管执行 OCR（进程组/超时/env 白名单/stdout 限容与
+  adapter_cli 同底座）→ findings 归一化（新 schema 映射 critical→high，
+  旧 schema 回退 adapter_cli.ParseFindings）。healthz 上报 OCR 缺失。
+  LLM 凭证只配在 shim 侧（`OCRSHIM_OCR_ENV` 白名单），不再透传进 argus 进程
+  和待审工作树。
+- **remote 插件 working-copy**：`needs: [working-copy]` 的 remote 插件在
+  Invoke 内 Ensure/Release 工作副本（与 cli/acpx 同模式），目录经
+  `payload.workcopy_dir` 下发（此前仅文档承诺、无人填充）。构造期校验
+  声明与池的配套，缺池启动即停用。
+- **配置**：plugins.yaml `ocr` 主条目切 remote/mcp（endpoint 指向 ocrshim），
+  `ocr-cli` 回退条目默认关闭；compose 增 ocrshim sidecar 服务（共享
+  /data/work 工作副本卷 + 宿主预编译 OCR 二进制挂载）；design.md 通道表
+  "mcp ❌" 行按 ocrshim 方案修订。
+
+### delegate 委托前置（v3.9.0 同批，成本最低通道）
+
+OCR 的第三条调用通道，也是委托模式的正式实装（design §2 v3.0 起留接口至今）：
+argus 在 dispatch 前于工作副本执行 `ocr delegate preview/rule`（确定性子命令，
+OCR 端零 LLM、零凭证），把文件分诊（可审查/排除清单及原因）与仓库规则组渲染成
+提示词 section 注入 R4——审查 LLM 循环由 argus builtin 独家执行，省一份 LLM
+配置与双份审查成本（对比 full 模式）。
+
+- **internal/ocrdeleg**：preview（先 unshallow，range 模式 origin/&lt;base&gt; →
+  HEAD）/ rule 执行 + JSON 解析（对齐上游 delegatePreviewJSON/delegateRulesJSON
+  schema_version=1）+ 提示词渲染（自带数据区纪律声明；排除清单 40 条、单
+  section 6000 runes、规则组文件清单每组 20 个三重封顶）。
+- **runner 接线**：`Runner.WC` 注入工作副本池，`injectOCRDelegate` 仅对
+  code_review 任务生效，rule 的路径入参取 diffprep 的 Included 集合（与实际
+  审查范围一致）；任何失败告警降级，审查照常。
+- **配置**：`ARGUS_OCR_BIN`（绝对路径）启用，`ARGUS_OCR_TIMEOUT`（默认 90s）；
+  新 Artifacts 键 `ocr_file_triage`/`ocr_review_rules` 由 builtin 审查提示词
+  消费。
+- **实装修订**：delegate 装不进 cli 插件契约（产物是"审查输入"而非 findings，
+  且 Dispatcher 并发 fan-out 无插件间传递管道）——v3.0 的"cli 插件 delegate
+  子模式"设想作废，实装位置定为 runner 层；adapter_cli stub 与 bootstrap
+  启用逻辑的文案同步改写。
+- **上游实测（2026-09-16，源码构建 main @ darwin/arm64）**：`delegate preview`
+  与 `delegate rule --format json` 真实输出与本包解析器逐字段一致
+  （schema_version=1；规则组 source=system/pattern=`**/*.go`）；OCR 端确无任何
+  LLM 配置即可运行。实测默认 system Go 规则单组 10843 runes——section 封顶
+  据此定为 16000 runes（6000 级会把默认规则拦腰截断）；端到端走
+  `Preview/Rules` 代码路径实测注入 248+11050 runes、默认规则无截断。
+- **审查修复（独立 code review 批）**：① 三处 `argus.ocrdeleg.*_failed` Warn
+  的错误链（含 400 字符 stderr 尾巴，git 失败时会回显带凭证 clone URL）补
+  `logredact.Redact` 脱敏——与 §10.2 三路消费同纪律；② unshallow 加显式全量
+  refspec `+refs/heads/*:refs/remotes/origin/*`（真件复现：`clone --depth 1`
+  隐含 single-branch，裸 fetch 只补默认分支远端引用，PR base 非默认分支时
+  `origin/<base>` 不存在必挂），unshallow 拆独立 5m 预算（不随
+  ARGUS_OCR_TIMEOUT 收缩，大仓库全量 fetch 慢，对齐 ocrshim 先例）；git 协议
+  按 commit deepen 与 refspec 无关，PR head 祖先链照常补全（真件浅克隆实测）；
+  ③ `delegate rule` 对已删除路径容忍（真件实测 exit 0），includedPaths 无需
+  过滤 IsDeleted。
+
+### 工作副本持久化与 OCR 留档（v3.9.0 同批，deploy 驱动）
+
+用户诉求："git 仓库审查下载目录挂载出来，第二次审查少拉取；OCR 审查历史挂载
+出来方便人工回溯。"
+
+- **agentkit/workcopy 复用语义**：Release 引用归零**不再立即删目录**（此前每任务
+  必全新浅克隆，挂载持久卷也无从复用）——保留条目供复用，TTL 仍由 Sweep 兜底
+  回收（argus 侧 workcopy-scavenger TTL=1h）。Ensure 对同 PR 换 head（新推送）
+  优先**增量刷新**保留目录：只 fetch 新 PR refspec + checkout --force FETCH_HEAD，
+  base 分支浅对象已在库，省掉整次重克隆；刷新失败（force push 等）回落全新
+  克隆；不同 PR 不跨号复用。单测覆盖：保留复用、跨 SHA 刷新（同目录/内容前移/
+  不新建沙箱）、跨 PR 隔离、Sweep 回收。
+- **deploy 挂载固化**：compose 的 argus 服务此前**缺 ARGUS_WORK_ROOT**（默认
+  /tmp 临时目录），ocrshim 侧 ./data/work 同源要求形同虚设——现 compose 固化
+  `ARGUS_WORK_ROOT=/data/work`（./data:/data 持久卷已覆盖子路径）；k8s configmap
+  本已指向 /data/work（PVC），无需改。
+- **OCR 原始产物留档（人工回溯）**：argus DB 只存合并后 findings，OCR 原文
+  落盘为唯一原始凭证——delegate 通道 `ARGUS_OCR_HISTORY_DIR`（每次前置落
+  preview/rule 原始 JSON + 渲染 section，文件名时间戳+PR 标识）；ocrshim full
+  通道 `-history-dir` flag（落 OCR 原始 stdout JSON + 归一化 findings，非 JSON
+  原文降级为字符串保留）。compose 两侧固化 /data/ocr-history（宿主
+  ./data/ocr-history），k8s 走共享 PVC；留档失败仅告警降级，不影响审查。
+  实证：delegate 模式 OCR 自身不写 HOME，留档必须由 argus 落盘。
+
+### 审查修复批（2026-09-17 全量审查：1 P0 + 3 P1 + 4 P2）
+
+- **P0 凭证泄漏收口**：ocrshim 错误链此前全无脱敏——unshallow/OCR 失败时
+  stderr 尾巴（git 传输失败回显带凭证 clone URL）经 ToolResultError 原样回传，
+  dispatcher 裸打日志 + `Outcome.Notes()` 直通报告降级注明，作为 PR 评论发布。
+  现四处收口：shim 源头（run.go stderr 过 logredact）+ server.go 回传前兜底 +
+  argus 侧 dispatcher 日志/Notes()/mcp 适配器错误文本统一 Redact（纵深覆盖
+  所有插件通道，含 delegate 错误经 Notes 的路径）。
+- **P1 shim unshallow 补全量 refspec**：`+refs/heads/*:refs/remotes/origin/*`——
+  与 ocrdeleg 同款修复（真件复现）此前漏配到 shim，PR base 非默认分支时
+  `origin/<base>` 不存在必挂；测试锁定 argv 形态。
+- **P1 regret 指纹/模式键错账（惯犯条目归因丢失）**：reflection 此前对
+  merger 标注后的 Comment 现算指纹——跨轮复现/高 regret 条目（恰是 regret
+  要追的人群）对不上 prints 行。现 `RemovedPrints` 一律取入库身份 `Finding.FP`
+  （merger 标注前写定，空才回退现算）；merger 的 SoftFloor 匹配与
+  PatternPosted 记账前移到展示标注之前（PatternKey 由评语派生，同款错账）；
+  runner 的 PatternRegret 经 `PrintState.Comment`（新增，入库原文）回查原始
+  措辞后再记账，键与 PatternPosted 对齐。
+- **P1 compose ocrshim 留档卷缺失**：`-history-dir /data/ocr-history` 有配置
+  无挂载——full 通道 OCR 原始留档写进容器可写层、重建即丢且与 .env.example
+  承诺相悖。现 ocrshim 挂整 `./data:/data`（对齐 k8s 例整卷 PVC），同时消除
+  `./data/work` 单目录挂载在缺失时被 dockerd 自动建 root 属主目录、argus
+  （uid 1000）MkdirAll 失败的启动崩溃循环。
+- **P2**：① `delegate rule` 路径参数加 `--` 终止符（PR 可控文件名防 flag 注入，
+  与 workcopy `--branch` 防御同款）；② 镜像默认 plugins.example.yaml 的 `ocr`
+  remote 条目默认关闭（remote 端点无启动期校验，裸跑部署此前会每 PR
+  connection refused + 降级噪音 + 熔断空转；compose 配置显式 enabled: true）；
+  ③ ocrshim 共享密钥鉴权：`-auth-token`/`OCRSHIM_TOKEN` 配置后 /mcp 要求
+  `Authorization: Bearer`（常量时间比较，healthz 留门外），argus 侧 plugins.yaml
+  `auth_token_env: <环境变量名>` 声明、凭证留在 env，声明未设置启动期即停用
+  （compose/k8s 示例与 .env.example 均留说明，留空保持旧版行为）。
+- **卫生**：delegate.go/history_test.go 两文件 gofmt 补齐（make lint 只跑
+  staticcheck，格式盲区）。
+
+## v3.8.0 (2026-09-15) — 决策链/工作流二轮深挖修复批：3×P0 断流 + 反馈闭环身份一致化 + 执行层 fencing
+
+二轮深挖（决策链语义/学习闭环/事件工作流/盲区四路）的系统性修复。共同病根：
+finding 的"身份"在管线后段被反复改写（标注/R3.5 修订/守门），而下游消费
+（抑制/regret/跨轮计数/渲染短码）都拿前置身份查询——本批把规范指纹改为
+Merger 写定、只读贯穿（`Finding.FP`）。全部单测 + e2e 通过。
+
+### P0 修复
+- **webhook 白名单与 SDK 归一化词表脱节**（service）：白名单此前维护平台原生词
+  （cr.synchronize/cr.update…），但 github/gitlab/gitea 后端都先过
+  `NormalizeCRAction` 归一化——GitHub/GitLab"推新提交"= `cr.updated` 不在白名单，
+  **核心事件流整条静默断流**；Forgejo 的 `cr.synchronized` 命中纯靠透传拼写巧合。
+  白名单改为归一化词表（opened/reopened/updated + synchronized 兼容 + approved/
+  unapproved），`cr.merged/cr.closed` 移出（不再对已合并 MR 烧全量审查）。
+- **fp 短码漂移 → 人工抑制主入口系统性失效**：merger 先以原始评语入库、之后才
+  追加「跨轮复现/低置信/R3.5 剔除」标注，渲染层却用标注后终稿重算短码——被标注
+  条目（最需要抑制的）短码全部解析失败。现 `Finding.FP` 由 Merger 写定入库指纹、
+  渲染只读消费；新增"短码==入库指纹"往返回归测试。
+- **PatternSuppress/Restore 记在垃圾 key**：suppress 评论路径把整条评论原文当
+  finding 评语派生 pattern 键、restore 固定 `"restore:"+短码`（hex 被剥）——全部
+  塌缩到垃圾 key：真实 pattern 只进正票收不到负票（闸门失明），垃圾 key 反被
+  激活注入 R4 reviewHints/dream 导出。现新增 `ResolvePrintRecord` 取回 prints 行
+  原始身份（file/line/severity/comment/plugin），suppress/restore/知识回流/审计
+  统一用入库身份记账。
+
+### 学习闭环（P1）
+- R3.5 strict 丢弃的 regret 改记**改写前**原始指纹/评语（此前记改写后身份永不
+  匹配，且 `RecordPrintRegret` 行不存在时创建 File=""/Comment="" 幽灵行——现
+  按原始身份内容建行）。
+- 行号漂移容错：`findNearPrint` 新增 exact 通道——同 PR 同文件**规范化评语完全
+  相等**时不限行距（>±2 的 diff 位移不再让抑制/复现/regret 批量失忆复活），
+  行号跟随新值；`SuppressPrintNear` 预插的 line=0 抑制行现可被真实意见并回。
+- `RestorePrint` 补别名回退：suppress 能经别名进来、restore 走不出去的单向门修复。
+- v1→v2 指纹迁移：同 PR 重算后同指纹的行（v1 时代 regret 幽灵行遗留）先合并
+  （计数取 max、抑制 OR）再回写——此前第二行必撞唯一索引，迁移每次启动失败循环。
+  新增 `schema_migrations` 哨兵表：迁移成功一次后不再每次启动全表扫描。
+- suppress/restore 置信度公式调平：restore 不再加 α（此前成对循环净抬置信度，
+  API 持有者可循环洗白）；现 restore 仅回抬 β。
+- `UpsertPrint` MySQL 下 FOR UPDATE 行锁（多副本共库防"读-改-全列回写"互覆盖）。
+
+### 工作流/执行层（P1）
+- `FinishTaskFenced` 终态写入带归属 fencing（`status='running' AND runner_id`）：
+  stale 重置后僵尸执行体的旧报告/失败态不再覆盖新执行体结果（此前无守卫后写者
+  全列覆盖）。RunnerID 未装配的合成路径自动跳过。
+- `CreateTaskDirectIfIdle` 双方言对齐：MySQL 先对 review_targets 行 FOR UPDATE
+  （此前 count-then-insert 无锁可双建任务双烧 token）；SQLite 并发撞唯一索引时
+  回查 in-flight 幂等返回（此前直接 500，rerun 评论回帖"处理失败"）。
+- 评论链路治理：`SubmitComment` 统一入口——`WithoutCancel` 保 trace_id + 整体
+  超时上界（ARGUS_COMMENT_TIMEOUT，默认 10m）+ 有界并发闸（ARGUS_COMMENT_
+  CONCURRENCY，默认 2，满载回"忙"）+ 停机排水（DrainComments）；delivery 幂等
+  下沉 DB（comment_deliveries 表，多副本/重启一致；纯内存 map 此前两场景全失效）。
+- failed 退避重试（ARGUS_TASK_MAX_RETRIES，默认 2）：失败 attempt+1、指数退避
+  （5m×3^n 封顶 1h）后自动重置 pending；超限等新事件或手工重审。此前 failed 无
+  重试也无 in-flight 占位，两个方向都缺策略。
+- start-marker 幂等复用：重跑时原地更新最近一条"审查中"评论（此前每次发布打断
+  →重置→重跑都留一条孤儿 marker）。worker 排水宽限可配（ARGUS_WORKER_GRACE）。
+- rerun 评论命中在飞任务时如实回执"已有审查在进行中"（CreateTaskResponse 新增
+  Duplicated 字段），不再谎报"新一轮已开始"。
+
+### 决策链透出（P1/P2）
+- R5.0 文案：`VerdictText` 补 R5.0 分支——零插件守门降级后此前渲染"✅ 通过"，
+  人读文案与真值表直接矛盾；现为"⚠️ 未能完成审查（无插件实际产出）"。
+- severity 词表扩充（argus 侧别名表，agentkit 不动）：P0/fatal/urgent→high、
+  P1/major→medium、P2/P3/trivial/nit→low——此前外部专家常用词表整批落 low，
+  高危意见永远触发不了 R5.2；词表外严重度补 Degraded 注记（此前只有日志）。
+- 越界 scope 闸门：`VerdictScoped`——reviewer 经 get_file 看到的变更外文件报
+  high 不再直接驱动 R5.2 一票否决，降计 COMMENT 级并注明（scope nil 时真值表
+  原语义不变，既有测试不受影响）。
+- R4 ReAct→单轮降级留痕：含 `[审查降级]` 标记的插件 Notes 透出为报告 Degraded。
+- 增量审查范围透出：AlreadyReviewed 文件数计入 Degraded（与大 PR 截断同构的
+  覆盖收缩此前零痕迹）。
+- 学习环归属键：合并条目 by 改按合并发生序（首见者=评语作者在前）——此前
+  sort.Strings 让字母序靠前的插件消费其他插件写评语的学习历史（跨插件串门）。
+
+### 配置/装配/观测（P2）
+- Q&A 两处注入面补 `plugin.DataFence`：历史对话自拼围栏无中和、single() 降级
+  路径裸拼 PR 标题/描述（LLM 越不稳越走无围栏路径的倒挂修复）。
+- ARGUS_MODEL_{R3,R35,QA,ROUTER}_CONTEXT_TOKENS 半失效如实化：BaseChatModel
+  直调阶段无 fitInput 裁剪点，配置被忽略时启动告警（此前静默无效 + 注释误导）。
+- `envFloat` 严格解析（"0.5abc" 不再静默接受）；阶段覆盖模型无费率时告警
+  （此前成本恒按 0 记账）；WorkRoot 创建失败 fail-fast（此前带病启动、readyz
+  绿灯）；/readyz 不再回显 BaseURL。
+- 指标补缺：webhook skipped/rejected 分布（整类事件被丢此前不可观测）、LLM
+  主备切换计数、QA 失败计数；/metrics 可选 Bearer（ARGUS_METRICS_AUTH）。
+- dream 空导出覆盖：仓库无低置信模式时覆盖旧"历史高误报"结论（此前永久滞留
+  误导 R3 检索）；PruneStalePrints 随行清理孤儿 print_aliases（此前无限增长）。
+- qa 会话坏 JSON 留痕；poller 分页上限截断告警（此前第 91+ 个 PR 静默盲区）；
+  notify 失败原因 IM 推送截断 300 rune。
+
+### 部署/文档
+- 镜像 tag 统一 v3.8.0（kustomization 此前还指着 v3.0.1——照它部署永远升不了级）。
+- compose/k8s 健康检查 /healthz→/readyz（DB 挂了容器不再 healthy）；k8s
+  terminationGracePeriodSeconds 90→120（grace=ShutdownTimeout 的 SIGKILL 竞态）；
+  shareProcessNamespace/init 收养插件孙进程；build.sh（hertz 脚手架死残留）删除。
+- schema.sql 与模型同步（补 runner_id/heartbeat_at/attempt/known_comment_ids +
+  qa_sessions/leader_leases/pattern_signals/print_aliases/comment_deliveries/
+  schema_migrations 表）；sqlite-to-mysql.sh 改按列名导出（SELECT * 位置序对
+  v3.0.x 源库必然列错位且校验不拦截）；runbook 补升级注意事项与回滚红线
+  （回滚 <v3.7.0 = 指纹体系倒挂，禁止）。
+- 不采纳留痕：SSE 多副本扇出/回放（进程内总线是刻意设计）；MariaDB ≤10.5 的
+  event_id 多 NULL COALESCE 兼容（部署目标 MySQL 8.0）；容器 TZ 设置（UTC 自洽，
+  改时区引入 DB 时间戳语义漂移）；workcopy 同 SHA 目录互斥（samesha guard +
+  fencing 已收敛窗口）；poster 总结评论 head-SHA CAS（deadline 收敛后收益低）。
+
 ## v3.7.2 (2026-09-15) — 代码卫生批：build/vet 复活 + staticcheck 清零 + 死代码清理
 
 全量卫生扫描收口：`go build/vet` 从失败恢复、非生成代码 staticcheck 告警清零、

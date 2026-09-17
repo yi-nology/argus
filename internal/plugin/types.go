@@ -272,6 +272,11 @@ type Finding struct {
 	Comment      string `json:"comment"`
 	By           string `json:"by"`
 	SuggestedFix string `json:"suggested_fix,omitempty"` // 可选：修复建议代码片段
+	// FP 是该条目的入库指纹（prints 表身份，Fingerprint(file, 原始comment, line)），
+	// Merger 入库时写定、只读贯穿：渲染层短码与人工反馈（suppress/restore）都必须
+	// 用它，禁止拿标注/R3.5 修订后的终稿文本重算——那会让短码与存储指纹漂移，
+	// 反馈闭环对"被标注过"的条目全部失效（v3.8.0 修复）。零值 = 未过 merger。
+	FP string `json:"fp,omitempty"`
 }
 
 // Result 插件输出。
@@ -289,6 +294,15 @@ const ArtifactReviewGuidelines = "review_guidelines"
 // ArtifactReviewHints Task.Artifacts 键：仓库级历史高误报模式提示
 // （runner 从 pattern_signals 拉低置信度模式渲染，学习环关闭或无样本时无此键）。
 const ArtifactReviewHints = "review_hints"
+
+// ArtifactOCRTriage / ArtifactOCRRules Task.Artifacts 键：OCR delegate 委托前置
+// 产物（design §2 委托模式；runner dispatch 前执行 `ocr delegate preview/rule`
+// 渲染为提示词 section，ARGUS_OCR_BIN 未配置或执行失败时无此键）。section 自带
+// 数据区纪律声明，builtin 审查提示词原样拼接。
+const (
+	ArtifactOCRTriage = "ocr_file_triage"
+	ArtifactOCRRules  = "ocr_review_rules"
+)
 
 // ArtifactChangeSummary Task.Artifacts 键：R2 变更摘要。workflow 写入，R4 各插件
 // 作为待审数据（数据区包裹）注入提示词；compliance 插件经 Result.Artifact 透传

@@ -40,21 +40,56 @@ agents:
     cost: heavy
     timeout: 120s
 
-  # ---- cli：外部命令行（OCR）----
-  - name: ocr                           # alibaba/open-code-review
-    kind: cli
+  # ---- remote：OCR（open-code-review）经 ocrshim MCP 通道（推荐主路径）----
+  # OCR 官方只有 MCP 客户端方向（消费外部工具），被 MCP 调用须经 ocrshim
+  # （cmd/ocrshim）：streamable HTTP server，收 payload.workcopy_dir 后在目录内
+  # 执行 `ocr review --from origin/<base> --to HEAD` 并归一化 findings。
+  # 部署形态：argus 同主机 sidecar（共享工作副本卷）；OCR 的 LLM 凭证配在
+  # ocrshim 侧（OCRSHIM_OCR_ENV 白名单），不再透传进 argus 进程。
+  - name: ocr
+    kind: remote
+    protocol: mcp
     skills: [code-review]
-    needs: [working-copy]               # 触发工作副本服务：浅克隆 + checkout PR head
+    needs: [working-copy]               # argus 备工作副本，目录经 payload 下发
     # triggers.events 示例（SDK 归一化词表：cr.opened/cr.synchronize/cr.synchronized/cr.reopened）
     # 如只在首次打开时跑 OCR，取消注释下一行即可（v3.0.1 起生效）：
     # triggers: {events: [cr.opened]}
-    cmd: ["/opt/argus/bin/ocr", "diff", "--format", "json"]   # 安装期 pin 版本 + checksum（Makefile/部署脚本负责）
+    endpoint: "http://127.0.0.1:8090/mcp"   # sidecar 同主机；容器部署填 ocrshim 服务地址
+    tool: review
+    cost: heavy
+    timeout: 300s                       # 须 < ocrshim -timeout（shim 侧硬上限 10m）
+    # 默认关闭（v3.9.0 审查修复）：本文件是镜像默认 /app/plugins.yaml，未部署
+    # ocrshim sidecar 的裸跑形态下 remote 端点没有启动期校验——启用着会每个 PR
+    # connection refused、报告挂降级说明、白烧熔断额度。部署了 sidecar 的
+    # compose/k8s 配置里显式 enabled: true。
+    enabled: false
+    # 可选鉴权（与对端 ocrshim 的 -auth-token / OCRSHIM_TOKEN 配对）：
+    # auth_token_env: OCRSHIM_TOKEN     # argus 进程环境里的共享密钥变量名
+
+  # ---- cli：外部命令行（OCR 回退通道，默认关闭）----
+  # 保留作回退位。当前上游（v1.12+）已无 `diff` 子命令且 range 审查需 --from/--to
+  # 基准分支，静态 argv 无法表达——仅当 pin 的旧版本确有对应子命令时临时启用。
+  - name: ocr-cli
+    kind: cli
+    skills: [code-review]
+    needs: [working-copy]
+    cmd: ["/opt/argus/bin/ocr", "review", "--format", "json"]
     # env: cli 子进程按名透传的额外变量（缺省最小环境，绝不继承 ARGUS_*/OPENAI_* 等密钥——
     # cli 在待审仓库的工作树里执行）。OCR 需要访问 LLM API 时在此显式声明：
     env: [OPENAI_API_KEY, OPENAI_BASE_URL]
-    mode: full                          # full = OCR 全权审查；delegate = 只要它的文件筛选+规则（v3.1 实装）
+    mode: full                          # full = OCR 全权审查（插件只支持 full；delegate 已由 runner 前置实装，见下）
     cost: heavy
     timeout: 300s
+    enabled: false
+
+  # ---- OCR delegate 委托前置（v3.9.0，成本最低的推荐通道）----
+  # 不经插件：只要 OCR 的确定性工程（`delegate preview` 文件分诊 + `delegate rule`
+  # 仓库规则组），审查 LLM 循环由 argus builtin 独家执行——OCR 端零 LLM、零凭证，
+  # 省一份 LLM 配置与双份审查成本。配置环境变量即启用：
+  #   ARGUS_OCR_BIN=/opt/argus/bin/ocr   （绝对路径，§8 供应链纪律）
+  #   ARGUS_OCR_TIMEOUT=90s              （可选，单条命令硬上限）
+  # 未配置或执行失败自动告警降级，审查照常。三通道取舍：delegate（本项，零 LLM）
+  # > ocr remote/mcp（上项，OCR 自带审查 agent 的 findings 并入合议）> ocr-cli（回退位）。
 
   # ---- remote：远端 agent（v3.1 实装：mcp = mark3labs/mcp-go streamable http client；
   #      a2a = Agent Card 发现 → message/send → tasks/get 轮询）----

@@ -51,8 +51,8 @@ type a2aTask struct {
 }
 
 // invokeA2A 审查委托全流程。endpoint 为 agent 基地址（卡片的 /.well-known 前缀）。
-func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task) (plugin.Result, error) {
-	_, payload, err := buildPayload(task)
+func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir string) (plugin.Result, error) {
+	_, payload, err := buildPayload(task, workcopyDir)
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("构造 payload 失败: %w", err)
 	}

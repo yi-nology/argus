@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # sqlite-to-mysql.sh — Migrate Argus data from SQLite to MySQL 8.0.
 #
+# 适用范围：源库 schema ≥ v3.0.x。脚本按**列名**对齐导出（PRAGMA table_info 取源库
+# 实际列集，与 target schema 期望列清单比对），源库缺失的列自动补 NULL（如 v3.0.x
+# 没有 runner_id/heartbeat_at/attempt/next_retry_at、finding_prints 没有
+# plugin/regret_count），多出的列报错退出——任何源版本导出都与 LOAD DATA 列清单严格对齐。
+#
 # Usage:
 #   ./sqlite-to-mysql.sh [--dry-run] [--rollback] [--sqlite PATH] [--mysql-dsn DSN]
 #
@@ -168,20 +173,66 @@ create_schema() {
 # ── Data export from SQLite ──────────────────────────────────────────────────
 # We export as tab-separated values with NULL represented as \N (MySQL LOAD DATA convention).
 
-dump_sqlite_table() {
-    local table="$1"
-    sqlite3 -separator $'\t' -nullvalue '\N' "$SQLITE_PATH" "SELECT * FROM ${table}"
+# 期望列清单（= target schema（schema.sql）全列，顺序 = LOAD DATA 列顺序）。
+TASKS_COLS=(id kind platform owner repo number head_sha event_type event_id status verdict report result_json fail_reason tokens_used summary_comment_id artifacts_json debug_json runner_id heartbeat_at attempt next_retry_at created_at updated_at started_at finished_at)
+FINDING_PRINTS_COLS=(id platform owner repo number print file line severity comment status plugin first_task_id last_task_id times_seen regret_count first_seen_at last_seen_at created_at updated_at)
+REVIEW_TARGETS_COLS=(id platform owner repo number last_summary_comment_id known_comment_ids last_head_sha created_at updated_at)
+
+# source_columns <table> — 源库实际列集（PRAGMA table_info，每行一列名）。
+source_columns() {
+    sqlite3 "$SQLITE_PATH" "PRAGMA table_info(${1})" | cut -d'|' -f2
+}
+
+# build_select <table> <expected cols...> — 按期望列清单构建显式列名 SELECT：
+#   源库缺失的列 → NULL AS <col> 补位；源库多出的列 → 报错退出。
+# 这样导出的列序恒等于期望列清单，与 LOAD DATA 列清单严格对齐，
+# 不再依赖 SELECT * 的位置序（v3.0.x tasks 22 列对全列清单必然错位）。
+build_select() {
+    local table="$1"; shift
+    local -a expected=("$@")
+    local actual c
+    actual=$(source_columns "$table")
+    if [[ -z "$actual" ]]; then
+        err "Table '${table}' not found in source SQLite: ${SQLITE_PATH}"
+        exit 1
+    fi
+    # 源库多出的列：超出本脚本认知的 schema，无法安全映射，直接报错
+    while IFS= read -r c; do
+        if [[ -z "$c" ]]; then continue; fi
+        if ! printf '%s\n' "${expected[@]}" | grep -qx "$c"; then
+            err "Source table '${table}' has unexpected column '${c}' (not in the expected list) — aborting."
+            exit 1
+        fi
+    done <<< "$actual"
+    local -a parts=()
+    for c in "${expected[@]}"; do
+        if printf '%s\n' "$actual" | grep -qx "$c"; then
+            parts+=("\"${c}\"")
+        else
+            warn "Source table '${table}' lacks column '${c}' — exporting NULL AS ${c}"
+            parts+=("NULL AS \"${c}\"")
+        fi
+    done
+    local joined
+    joined=$(IFS=', '; echo "${parts[*]}")
+    echo "SELECT ${joined} FROM ${table}"
 }
 
 # Escape tabs and newlines in field values for LOAD DATA safety.
 # SQLite's .separator mode doesn't quote fields, so embedded tabs/newlines
 # would corrupt the import. We use a Python one-liner to re-encode.
+# 注意：report/result_json/debug_json（tasks）与 comment（finding_prints）是
+# LONGTEXT 大文本列，多行/带 Tab 内容靠这里的转义保证导入安全。
+# $1 = table（仅用于标识），$2 = build_select 产出的显式列名 SELECT。
+# 输出走 stdout（会被 import_* 重定向进 tmpfile），因此本函数内禁止 log() 打屏。
 safe_export() {
     local table="$1"
-    sqlite3 -json "$SQLITE_PATH" "SELECT * FROM ${table}" \
+    local select_sql="$2"
+    sqlite3 -json "$SQLITE_PATH" "${select_sql}" \
         | python3 -c "
 import json, sys
-for row in json.load(sys.stdin):
+data = sys.stdin.read().strip()
+for row in (json.loads(data) if data else []):
     fields = []
     for v in row.values():
         if v is None:
@@ -205,7 +256,7 @@ import_tasks() {
     trap "rm -f '$tmpfile'" RETURN
 
     log "Exporting tasks from SQLite..."
-    safe_export tasks > "$tmpfile"
+    safe_export tasks "$(build_select tasks "${TASKS_COLS[@]}")" > "$tmpfile"
     local rows
     rows=$(wc -l < "$tmpfile" | tr -d ' ')
     log "  Exported ${rows} rows"
@@ -227,7 +278,8 @@ import_tasks() {
          @head_sha, @event_type, @event_id,
          status, @verdict, @report, @result_json, @fail_reason,
          tokens_used, summary_comment_id, @artifacts_json, @debug_json,
-         @runner_id, @heartbeat_at, @created_at, @updated_at, @started_at, @finished_at)
+         @runner_id, @heartbeat_at, @attempt, @next_retry_at,
+         @created_at, @updated_at, @started_at, @finished_at)
         SET
             head_sha         = NULLIF(@head_sha, ''),
             event_type       = NULLIF(@event_type, ''),
@@ -238,8 +290,10 @@ import_tasks() {
             fail_reason      = NULLIF(@fail_reason, ''),
             artifacts_json   = NULLIF(@artifacts_json, ''),
             debug_json       = NULLIF(@debug_json, ''),
-            runner_id        = NULLIF(@runner_id, ''),
+            runner_id        = NULLIF(@runner_id, '\\\\N'),
             heartbeat_at     = NULLIF(@heartbeat_at, '\\\\N'),
+            attempt          = COALESCE(NULLIF(@attempt, '\\\\N'), 0),
+            next_retry_at    = NULLIF(@next_retry_at, '\\\\N'),
             created_at       = NULLIF(@created_at, '\\\\N'),
             updated_at       = NULLIF(@updated_at, '\\\\N'),
             started_at       = NULLIF(@started_at, '\\\\N'),
@@ -254,7 +308,7 @@ import_finding_prints() {
     trap "rm -f '$tmpfile'" RETURN
 
     log "Exporting finding_prints from SQLite..."
-    safe_export finding_prints > "$tmpfile"
+    safe_export finding_prints "$(build_select finding_prints "${FINDING_PRINTS_COLS[@]}")" > "$tmpfile"
     local rows
     rows=$(wc -l < "$tmpfile" | tr -d ' ')
     log "  Exported ${rows} rows"
@@ -273,14 +327,16 @@ import_finding_prints() {
         LINES TERMINATED BY '\n'
         (id, platform, owner, repo, number, print,
          @file, line, @severity, @comment, status,
-         @first_task_id, @last_task_id, times_seen,
-         @first_seen_at, @last_seen_at, @created_at, @updated_at)
+         @plugin, @first_task_id, @last_task_id, times_seen,
+         @regret_count, @first_seen_at, @last_seen_at, @created_at, @updated_at)
         SET
             file           = NULLIF(@file, ''),
             severity       = NULLIF(@severity, ''),
             comment        = NULLIF(@comment, ''),
+            plugin         = NULLIF(@plugin, '\\\\N'),
             first_task_id  = NULLIF(@first_task_id, ''),
             last_task_id   = NULLIF(@last_task_id, ''),
+            regret_count   = COALESCE(NULLIF(@regret_count, '\\\\N'), 0),
             first_seen_at  = NULLIF(@first_seen_at, '\\\\N'),
             last_seen_at   = NULLIF(@last_seen_at, '\\\\N'),
             created_at     = NULLIF(@created_at, '\\\\N'),
@@ -295,7 +351,7 @@ import_review_targets() {
     trap "rm -f '$tmpfile'" RETURN
 
     log "Exporting review_targets from SQLite..."
-    safe_export review_targets > "$tmpfile"
+    safe_export review_targets "$(build_select review_targets "${REVIEW_TARGETS_COLS[@]}")" > "$tmpfile"
     local rows
     rows=$(wc -l < "$tmpfile" | tr -d ' ')
     log "  Exported ${rows} rows"
@@ -313,9 +369,10 @@ import_review_targets() {
         ESCAPED BY '\\\\'
         LINES TERMINATED BY '\n'
         (id, platform, owner, repo, number,
-         last_summary_comment_id, @last_head_sha,
+         last_summary_comment_id, @known_comment_ids, @last_head_sha,
          @created_at, @updated_at)
         SET
+            known_comment_ids = NULLIF(@known_comment_ids, '\\\\N'),
             last_head_sha  = NULLIF(@last_head_sha, ''),
             created_at     = NULLIF(@created_at, '\\\\N'),
             updated_at     = NULLIF(@updated_at, '\\\\N')
@@ -324,6 +381,50 @@ import_review_targets() {
 }
 
 # ── Verification ─────────────────────────────────────────────────────────────
+
+# sample_verify_tasks_created_at — 抽样校验：随机取 1 行 tasks，源/目标各取该行
+# id 的 created_at 对比（行数比对拦不住列错位——错位时行数照样一致，时间戳却串列）。
+# 源串可能带时区后缀（glebarez/sqlite 存 RFC3339 形态），带偏移量时按绝对时间
+# （UNIX_TIMESTAMP）比，无偏移时按归一化后的分量串比。
+sample_verify_tasks_created_at() {
+    if $DRY_RUN; then
+        log "  (dry-run) skipping tasks.created_at sample check"
+        return 0
+    fi
+    local sid src_at my_unix my_fmt
+    sid=$(sqlite3 "$SQLITE_PATH" "SELECT id FROM tasks ORDER BY RANDOM() LIMIT 1")
+    if [[ -z "$sid" ]]; then
+        log "  tasks is empty — skipping created_at sample check"
+        return 0
+    fi
+    src_at=$(sqlite3 "$SQLITE_PATH" "SELECT created_at FROM tasks WHERE id = '${sid}'")
+    my_unix=$(mysql_exec "SELECT COALESCE(UNIX_TIMESTAMP(created_at), 0) FROM tasks WHERE id = '${sid}'" | tail -1)
+    my_fmt=$(mysql_exec "SELECT COALESCE(DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), '') FROM tasks WHERE id = '${sid}'" | tail -1)
+    if python3 - "$src_at" "$my_unix" "$my_fmt" <<'PYEOF'
+import calendar, re, sys
+src, my_unix, my_fmt = (a.strip() for a in sys.argv[1:4])
+m = re.match(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})", src)
+if not m:
+    sys.exit(1)
+Y, Mo, D, H, Mi, S = map(int, m.groups())
+src_base = "%04d-%02d-%02d %02d:%02d:%02d" % (Y, Mo, D, H, Mi, S)
+off = re.search(r"([+-])(\d{2}):?(\d{2})$", src)
+is_utc_z = bool(re.search(r"Z$", src))
+if off or is_utc_z:
+    src_epoch = calendar.timegm((Y, Mo, D, H, Mi, S, 0, 0, 0))
+    if off:
+        sign = 1 if off.group(1) == "+" else -1
+        src_epoch -= sign * (int(off.group(2)) * 3600 + int(off.group(3)) * 60)
+    sys.exit(0 if my_unix.lstrip("-").isdigit() and int(my_unix) == src_epoch else 1)
+sys.exit(0 if src_base == my_fmt else 1)
+PYEOF
+    then
+        log "  created_at sample check OK (id=${sid})"
+    else
+        err "  created_at sample check FAILED for id=${sid}: SQLite='${src_at}' MySQL(unix)=${my_unix} MySQL(fmt)=${my_fmt}"
+        exit 1
+    fi
+}
 
 verify() {
     log "Verifying row counts..."
@@ -342,6 +443,7 @@ verify() {
             fi
         fi
     done
+    sample_verify_tasks_created_at
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────

@@ -1,0 +1,46 @@
+// comment_delivery.go —— 评论事件的持久化投递幂等（v3.8.0）。
+//
+// 此前 HandleComment 的 delivery 幂等是纯内存 map：多副本共库时各副本独立
+// 判重（平台 at-least-once 重试命中另一副本即重复烧 LLM + 重复回帖）；单实例
+// 重启后 1 小时窗口内的重投递也会重复回答。DB 主键幂等多副本天然一致。
+package storage
+
+import (
+	"context"
+	"time"
+)
+
+// CommentDelivery 已处理的评论投递（delivery ID 主键幂等）。
+type CommentDelivery struct {
+	DeliveryID string    `gorm:"column:delivery_id;primaryKey;size:128"`
+	SeenAt     time.Time `gorm:"column:seen_at;index"`
+}
+
+func (CommentDelivery) TableName() string { return "comment_deliveries" }
+
+// MarkCommentDelivery 记录投递已处理。返回 fresh=false 表示该投递此前已处理过
+// （幂等命中，调用方直接跳过）。deliveryID 为空时跳过落库（header 缺失兜底），
+// 恒返回 fresh=true（此时只剩进程内 30s 节流兜底）。
+func (s *Store) MarkCommentDelivery(ctx context.Context, deliveryID string, at time.Time) (fresh bool, err error) {
+	if deliveryID == "" {
+		return true, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err = s.db.WithContext(ctx).Create(&CommentDelivery{DeliveryID: deliveryID, SeenAt: at}).Error
+	if err != nil {
+		if isDuplicateKeyErr(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// PruneCommentDeliveries 清理过期的投递记录（7 天前的重试已无幂等意义）。
+func (s *Store) PruneCommentDeliveries(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res := s.db.WithContext(ctx).Where("seen_at < ?", cutoff).Delete(&CommentDelivery{})
+	return res.RowsAffected, res.Error
+}

@@ -86,6 +86,11 @@ type AgentDecl struct {
 	Endpoint string `yaml:"endpoint"`
 	// Tool mcp 协议要调用的工具名（缺省 review；review-service 用 create_review）。
 	Tool string `yaml:"tool"`
+	// AuthTokenEnv Bearer 共享密钥的环境变量名（如 OCRSHIM_TOKEN；值从 argus 进程
+	// 环境按名解析，声明进 yaml、凭证留在 env——与 cli 的 Env 同范式）。设置后
+	// 请求带 Authorization: Bearer <值>；声明了但环境变量未设置 → 启动期停用该插件。
+	// 与 ocrshim 的 -auth-token/OCRSHIM_TOKEN 配对（非 loopback sidecar 建议开启）。
+	AuthTokenEnv string `yaml:"auth_token_env"`
 
 	// kind=acpx：CLI 编码 agent 名（agentkit/acpx 注册表词表：
 	// claude/zcode/codex/opencode/minimax/kimi/gemini/qwen/mimo）。

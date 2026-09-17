@@ -267,6 +267,46 @@ func TestEvidenceGate_SoftDegrades(t *testing.T) {
 	}
 }
 
+// 惯犯条目（merger 已写定入库指纹 FP、Comment 已带展示标注）被 R3.5 剔除时，
+// regret 必须记 FP（标注前身份），而不是对标注后文本现算——否则归因丢失、
+// prints 表长幽灵行（v3.9.0 审查修复）。
+func TestReflectFindings_RegretUsesPreannotationFP(t *testing.T) {
+	m := &reflectFakeModel{
+		// 模型只保留 id=0：id=1（惯犯）被整条剔除 → 走 Removed 兜底块
+		draftReplies: []string{`[{"id":0,"file":"a.go","line":10,"severity":"high","comment":"空指针解引用"}]`},
+		verdicts:     []string{`{"pass":true,"issues":[]}`},
+	}
+	w := &Workflow{ReflectRounds: 1, ReflectModel: m, Log: nopLogger{}}
+	task, merged := reflectTaskFixture()
+
+	wantFP := plugin.Fingerprint("b.go", "变量命名不贴合语义", 3) // merger.go:298 在标注前写定
+	merged.Findings[1].FP = wantFP
+	merged.Findings[1].Comment = "变量命名不贴合语义（跨轮复现 3 次）（历史被 R3.5 反思剔除 2 次，可信度低）"
+	stale := plugin.Fingerprint("b.go", merged.Findings[1].Comment, 3) // 对标注后文本现算的错误指纹
+
+	info := w.reflectFindings(context.Background(), task, "", merged)
+	if info == nil || info.Removed != 1 {
+		t.Fatalf("应剔除 1 条: %+v", info)
+	}
+	for _, fp := range info.RemovedPrints {
+		if fp == stale {
+			t.Fatalf("regret 记到了标注后文本的指纹上: %v", info.RemovedPrints)
+		}
+	}
+	hit := false
+	for _, fp := range info.RemovedPrints {
+		if fp == wantFP {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Fatalf("RemovedPrints 应含入库指纹 %s，got %v", wantFP, info.RemovedPrints)
+	}
+	if len(info.RemovedFindings) != 1 || info.RemovedFindings[0].FP != wantFP {
+		t.Fatalf("RemovedFindings 应携带入库身份: %+v", info.RemovedFindings)
+	}
+}
+
 // evidence 指向清单外文件 → strict 剔除。
 func TestEvidenceGate_StrictPathOutOfScope(t *testing.T) {
 	m := &reflectFakeModel{

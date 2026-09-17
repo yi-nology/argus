@@ -15,4 +15,4 @@ resources:
 
 images:
   - name: argus
-    newTag: v3.0.1          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.0.1
+    newTag: v3.8.0          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.8.0

@@ -1,6 +1,5 @@
 // Package toolpool L5 工具子系统：MCP client 连接管理 → eino tool.BaseTool 适配（design §9.2 方向 A）。
-// v3.0：接口 + mock tool（走 e2e 测试链路）。mark3labs/mcp-go 等依赖到 v3.1 实装时再进 go.mod
-// （§8 扩展点纪律：未实装前不引依赖）。
+// RealPool 直接实现 MCP 工具池（mcpServers 配置段驱动），经 internal/bootstrap 装配为任务级工具源。
 package toolpool
 
 import (

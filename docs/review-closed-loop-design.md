@@ -314,7 +314,7 @@ builtin Reviewer / acpx 适配器拼提示词时消费该 Artifact（与既有 `
 | 两开关全关（默认） | 与 v3.4.2 完全一致：无证据字段要求，无模式消费 |
 | `REFLECTION_EVIDENCE=soft` + `REGRET_LEARNING=1` | 证据不足降级标注；模式只标注+提示词注入，不 drop |
 | 全开 + `strict` | 证据门可剔除；low×低置信可丢；medium/high 仍不被学习环丢弃 |
-| DB 迁移 | AutoMigrate 新表；SQLite 开发库无痛；MySQL 灌 `schema.sql` 增量 |
+| DB 迁移 | AutoMigrate 新表；SQLite 开发库无痛；MySQL 可选灌 `deploy/migrations/schema.sql` 初始化（启动时 AutoMigrate 会自动补齐缺失部分） |
 | 回滚 | 关 env 即可；表保留不丢数据 |
 
 ---

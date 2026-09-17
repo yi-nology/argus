@@ -12,7 +12,7 @@
 
 services:
   argus:
-    image: argus:v3.6.0
+    image: argus:v3.8.0
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -28,11 +28,72 @@ services:
       - "${ARGUS_HOST_PORT:-8899}:8899"   # 宿主端口冲突时在 .env 里设 ARGUS_HOST_PORT
     env_file:
       - .env
+    environment:
+      # 工作副本根目录落到持久卷（./data:/data 已覆盖子路径）：
+      #   1) 与 ocrshim 侧 ./data/work 同源——sidecar 经 payload.workcopy_dir
+      #      直接可见 argus 备好的工作副本；
+      #   2) 池对保留目录做同 PR 增量复用（agentkit workcopy：同 PR 换 head 只
+      #      fetch 新 refspec，不重新浅克隆），容器重启不丢。
+      - ARGUS_WORK_ROOT=/data/work
+      # OCR delegate 原始产物留档（人工回溯；落 ./data/ocr-history）
+      - ARGUS_OCR_HISTORY_DIR=/data/ocr-history
     volumes:
       - ./data:/data
       - ./plugins.yaml:/app/plugins.yaml:ro
+      # OCR delegate 委托前置（v3.9.0，可选）：二进制预编译到 ./bin/ocr-amd64
+      # （scripts/install-ocr.sh，pin 版本 + checksum）；启用方式见 .env.example
+      # 的 ARGUS_OCR_BIN。不启用 delegate 时本挂载闲置无害。
+      - ./bin/ocr-amd64:/opt/argus/bin/ocr:ro
+    # v3.8.0：init(PAUSE) 作 PID1 收养插件孙进程，防僵尸累积
+    init: true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8899/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8899/readyz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ---- ocrshim：OCR（open-code-review）的 MCP sidecar（v3.9 调用通道）----
+  # 与 argus 共享工作副本卷（ARGUS_WORK_ROOT=/data/work）：argus 备好工作副本后
+  # 经 payload.workcopy_dir 下发目录，ocrshim 在其中执行 `ocr review` 并归一化
+  # findings。OCR 的 LLM 凭证经 .env 注入本服务（OCRSHIM_OCR_ENV 白名单按名透传），
+  # 不再进入 argus 进程。OCR 二进制沿用 Dockerfile.local 的宿主预编译形态：
+  #   scripts/install-ocr.sh（pin 版本 + checksum）→ ./bin/ocr-amd64
+  ocrshim:
+    image: argus:v3.8.0                 # 同一镜像双二进制（/app/argus + /app/ocrshim）
+    container_name: ocrshim
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    entrypoint: ["/app/ocrshim"]
+    command:
+      - "-listen"
+      - ":8090"                          # plugins.yaml 里 ocr 插件的 endpoint 指向这里
+      - "-ocr-bin"
+      - "/opt/argus/bin/ocr"
+      - "-ocr-env"
+      - "OPENAI_API_KEY,OPENAI_BASE_URL"
+      # OCR 原始 stdout 留档（人工回溯；full 模式通道）
+      - "-history-dir"
+      - "/data/ocr-history"
+    env_file:
+      - .env
+    volumes:
+      # 整个 /data 与 argus 同源（对齐 k8s 例的整卷 PVC 挂载）：/data/work 工作副本
+      # 共享 + /data/ocr-history 留档落宿主 ./data/ocr-history。勿拆成 ./data/work
+      # 单目录挂载——compose 会对缺失的 bind 源自动建 root 属主目录，argus（uid 1000）
+      # 在 /data/work 下建目录将失败（启动崩溃循环），且 -history-dir 的留档会写进
+      # 容器可写层、重建即丢。
+      - ./data:/data
+      - ./bin/ocr-amd64:/opt/argus/bin/ocr:ro
+    init: true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3

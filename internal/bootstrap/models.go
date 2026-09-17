@@ -11,6 +11,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/config"
+	"argus/internal/obs"
 	"git.example.com/enjoydream/agentkit/llm"
 )
 
@@ -128,6 +129,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		resilient.OnFallback = func(from, to, stage, reason string) {
 			log.Warn("argus.llm.fallback", "from", from, "to", to,
 				"stage", stage, "reason", reason)
+			obs.IncrLLMFailover(stage)
 		}
 		resilient.Limiter = m.Limiter
 		m.Generate = resilient
@@ -156,6 +158,14 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 
 	// ---- P6 分阶段模型路由 ----
 	buildStageModel := func(so *config.StageOverride) (model.BaseChatModel, error) {
+		// v3.8.0 诚实化：BaseChatModel 直调阶段（R3/R35/QA/Router，多为 ReAct/RawModel）
+		// 没有 fitInput 裁剪点——阶段窗口配置此前静默无效，运维会被 config 注释误导
+		//（"配了窗口就不超窗"，实际仍按主窗口塞输入）。显式告警 + 配置注释如实化。
+		if so.ContextTokens > 0 && so.ContextTokens != cfg.LLM.ContextToken {
+			log.Warn("argus.boot.stage_context_tokens_ignored", "model", so.Model,
+				"configured_ctx", so.ContextTokens, "effective_ctx", cfg.LLM.ContextToken,
+				"hint", "该阶段为 BaseChatModel 直调（无输入裁剪点），CONTEXT_TOKENS 不生效；如需窗口裁剪请使用 Generator 链阶段（R1/R2/Reviewer）")
+		}
 		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
 			MaxTokens: ptrNonNeg(cfg.MaxTokensParam()), Timeout: cfg.LLM.Timeout,
@@ -297,6 +307,7 @@ func wrapReactFailoverFn(cfg *config.Config, fallbackBM model.BaseChatModel,
 		fm.OnFailover = func(from, to, reason string) {
 			log.Warn("argus.llm.failover", "from", from, "to", to,
 				"stage", stage, "reason", reason)
+			obs.IncrLLMFailover(stage)
 		}
 		return fm
 	}

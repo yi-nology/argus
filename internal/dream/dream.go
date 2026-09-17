@@ -146,6 +146,22 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 		return false, err
 	}
 	if len(low) == 0 {
+		// v3.8.0：仓库不再有低置信模式时覆盖旧导出——此前提前 return，
+		// 旧的"历史高误报模式"结论永久滞留并持续注入 R3 检索（只增不删）。
+		// Milvus 无删除接口，写澄清文案覆盖（幂等，命中时不再误导）。
+		clear := fmt.Sprintf("## %s/%s 审查模式状态\n\n生成时间：%s。本仓库当前没有样本充足且低置信的审查模式。\n",
+			r.Owner, r.Repo, at.Format(time.RFC3339))
+		key := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
+		if ms, ok := d.Knowledge.(*rag.MilvusStore); ok && ms != nil {
+			if err := ms.Index(ctx, key, clear); err != nil {
+				d.warn("argus.dream.milvus_clear_failed", "error", err.Error())
+			}
+		}
+		if d.KnowledgeDir != "" {
+			if err := writeLocalKnowledge(d.KnowledgeDir, r, clear); err != nil {
+				return false, err
+			}
+		}
 		return false, nil
 	}
 	body := renderKnowledge(r, low, at)

@@ -40,18 +40,35 @@ agents:
     cost: heavy
     timeout: 120s
 
-  # ---- cli：外部命令行（OCR）----
-  - name: ocr                           # alibaba/open-code-review
+  # ---- remote：OCR（open-code-review）经 ocrshim MCP 通道（推荐主路径）----
+  # ocrshim（cmd/ocrshim）为 argus 同主机 sidecar：收 payload.workcopy_dir 后在
+  # 目录内执行 OCR 并归一化 findings；OCR 的 LLM 凭证配在 ocrshim 侧
+  # （OCRSHIM_OCR_ENV），不再透传进 argus 进程。
+  - name: ocr
+    kind: remote
+    protocol: mcp
+    skills: [code-review]
+    needs: [working-copy]               # argus 备工作副本，目录经 payload 下发
+    endpoint: "http://ocrshim:8090/mcp" # compose 服务名互通；工作副本卷须与 argus 共享
+    tool: review
+    cost: heavy
+    timeout: 300s                       # 须 < ocrshim -timeout（shim 侧硬上限 10m）
+    enabled: true                       # 本文件随 compose 部署（sidecar 在场）；镜像默认的 plugins.example.yaml 是关闭的
+    # 可选鉴权：.env 里设 OCRSHIM_TOKEN=<随机串>（env_file 已注入 ocrshim 容器，
+    # shim 侧读到即自动启用 Bearer 门），再取消下一行注释配对 argus 侧。
+    # compose 跨容器 endpoint 不在 loopback 上，建议开启：
+    # auth_token_env: OCRSHIM_TOKEN
+
+  # ---- cli：OCR 回退通道（默认关闭；上游 v1.12+ 无 diff 子命令，见 example 注释）----
+  - name: ocr-cli
     kind: cli
     skills: [code-review]
-    needs: [working-copy]               # 触发工作副本服务：浅克隆 + checkout PR head
-    # triggers.events 示例（SDK 归一化词表：cr.opened/cr.synchronize/cr.synchronized/cr.reopened）
-    # 如只在首次打开时跑 OCR，取消注释下一行即可（v3.0.1 起生效）：
-    # triggers: {events: [cr.opened]}
-    cmd: ["/opt/argus/bin/ocr", "diff", "--format", "json"]   # 安装期 pin 版本 + checksum（Makefile/部署脚本负责）
-    mode: full                          # full = OCR 全权审查；delegate = 只要它的文件筛选+规则（v3.1 实装）
+    needs: [working-copy]
+    cmd: ["/opt/argus/bin/ocr", "review", "--format", "json"]
+    mode: full
     cost: heavy
     timeout: 300s
+    enabled: false
 
   # ---- remote：远端 agent（v3.0 接口位，v3.1 实装协议子集）----
   - name: review-service                # 生产 review-service 的 MCP server（§3.5 对接通道 B）

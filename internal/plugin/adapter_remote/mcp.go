@@ -8,18 +8,27 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"git.example.com/enjoydream/agentkit/logredact"
 
 	"argus/internal/plugin"
 )
 
-func (r *Remote) invokeMCP(ctx context.Context, task plugin.Task) (plugin.Result, error) {
-	_, payload, err := buildPayload(task)
+func (r *Remote) invokeMCP(ctx context.Context, task plugin.Task, workcopyDir string) (plugin.Result, error) {
+	_, payload, err := buildPayload(task, workcopyDir)
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("构造 payload 失败: %w", err)
 	}
 
-	c, err := client.NewStreamableHttpClient(r.Endpoint)
+	opts := []transport.StreamableHTTPCOption{}
+	if r.AuthToken != "" {
+		opts = append(opts, transport.WithHTTPHeaders(map[string]string{
+			"Authorization": "Bearer " + r.AuthToken,
+		}))
+	}
+	c, err := client.NewStreamableHttpClient(r.Endpoint, opts...)
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("MCP client 构造失败: %w", err)
 	}
@@ -50,7 +59,8 @@ func (r *Remote) invokeMCP(ctx context.Context, task plugin.Task) (plugin.Result
 	}
 	joined := textFromContents(texts)
 	if res.IsError {
-		return plugin.Result{}, fmt.Errorf("MCP 工具 %s 返回错误: %.200s", r.Tool, joined)
+		// 错误文本（可能含对端回显的带凭证 URL）进 argus 日志/报告前脱敏
+		return plugin.Result{}, fmt.Errorf("MCP 工具 %s 返回错误: %.200s", r.Tool, logredact.Redact(joined))
 	}
 	return parseFindings(joined)
 }

@@ -10,6 +10,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/breaker"
 	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
@@ -50,13 +51,14 @@ type Outcome struct {
 	Duration      time.Duration
 }
 
-// Notes 汇总降级注明文案。
+// Notes 汇总降级注明文案。错误串统一脱敏：插件错误链可能携带带凭证的
+// clone URL（git 传输失败回显），此文本直通报告并作为 PR 评论发布。
 func (o Outcome) Notes() string {
 	switch {
 	case o.SkippedReason != "":
-		return fmt.Sprintf("%s 未参与（%s）", o.Name, o.SkippedReason)
+		return fmt.Sprintf("%s 未参与（%s）", o.Name, logredact.Redact(o.SkippedReason))
 	case o.Err != nil:
-		return fmt.Sprintf("%s 未参与（%v）", o.Name, o.Err)
+		return fmt.Sprintf("%s 未参与（%s）", o.Name, logredact.Redact(o.Err.Error()))
 	default:
 		return ""
 	}
@@ -435,7 +437,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 				d.breakers.Failure(reg.Manifest.Name)
 				obsPluginFailure(reg.Manifest.Name)
 				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
-					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
+					"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
 			}
 			obsPluginDuration(reg.Manifest.Name, o.Duration)
 		})

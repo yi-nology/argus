@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,9 @@ type Config struct {
 
 	// 阶段模型覆盖（P6 分阶段路由）：ARGUS_MODEL_<STAGE> 配模型名，
 	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口（fitInput 按阶段窗口裁剪）。
+	// ⚠️ 窗口裁剪仅对走 Generator 链的阶段（R1/R2/REVIEWER）生效；R3/R35/QA/ROUTER
+	// 为 BaseChatModel 直调（ReAct/RawModel，无裁剪点），配置的窗口会被忽略并在
+	// 启动期告警（v3.8.0 如实化——此前静默无效）。
 	// 覆盖阶段继承主 BaseURL/APIKey 与全局降级链（fallback 模型不覆盖）；
 	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, R35, REVIEWER, QA, ROUTER}。
 	StageModelR1       *StageOverride
@@ -140,9 +144,35 @@ type Config struct {
 	// LLMRateBurst 限速器突发容量；0 = 默认等于 MaxConcurrentTasks。
 	LLMRateBurst int
 
+	// CommentTimeout 单条评论事件（Q&A/重审路由/suppress 指令）的整体超时上界
+	//（ARGUS_COMMENT_TIMEOUT，Go duration；默认 10m）。此前 HandleComment 挂
+	// 无超时的 Background ctx，单条评论理论可达 30 分钟级且无上界（v3.8.0）。
+	CommentTimeout time.Duration
+	// CommentConcurrency 评论链路全局并发上限（ARGUS_COMMENT_CONCURRENCY，默认 2）。
+	// 此前评论链路无资源闸（对比任务链路有信号量+熔断+预算三重），评论风暴 =
+	// 无界 goroutine × 无界 LLM 调用（v3.8.0）。满载时新评论收到"忙"回复。
+	CommentConcurrency int
+	// TaskMaxRetries failed 任务自动重试上限（ARGUS_TASK_MAX_RETRIES，默认 2；
+	// 0 = 禁用）。指数退避 5m×3^attempt（封顶 1h），超限后等待新事件或手工重审。
+	TaskMaxRetries int
+	// WorkerGrace 停机时 worker 排水宽限（ARGUS_WORKER_GRACE，Go duration；默认 60s）。
+	// 与典型任务时长（compliance 600s 级）的匹配由部署方权衡：宽限越长发布打断越少。
+	WorkerGrace time.Duration
+	// MetricsAuth /metrics 挂 Bearer 鉴权（ARGUS_METRICS_AUTH，默认关闭）。
+	// 开启后 prometheus 抓取需带 token（与 APIToken 相同）；内网直抓部署保持关闭。
+	MetricsAuth bool
+
 	// WebhookMaxBody Webhook 请求体上限（字节）；默认 1MB。
 	// Hertz WithMaxRequestBodySize + Content-Length 双重防护。
 	WebhookMaxBody int
+
+	// SinkURL 审查结果上报端点（ARGUS_SINK_URL；非空即启用，push 模型旁路）。
+	// 审查完成后向该 URL POST 结果契约（Bearer ARGUS_SINK_TOKEN），供
+	// review-service「Argus 审查」页承接展示。上报失败只告警，不阻断审查主流程。
+	SinkURL string
+	// SinkToken 上报端点的 Bearer 凭证（ARGUS_SINK_TOKEN；与 review-service
+	// /api/v1/* 鉴权同源，配置为独立 ingest token）。空 = 不带 Authorization 头。
+	SinkToken string
 
 	// SDKCallTimeout 单次 git-platform-sdk 调用的兜底超时（ARGUS_SDK_TIMEOUT）。
 	// 入参 ctx 无 deadline 时启用；0 = 默认 120s；负值 = 关闭兜底（调用随 ctx 语义）。
@@ -162,6 +192,18 @@ type Config struct {
 	//   tool          = 决策使用（渐进披露）——提示词只注入可用清单（名称+描述），
 	//                   R3 agent 经 use_skill 工具按需加载全文（skill 多/大时用）。
 	SkillMode string
+
+	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
+	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
+	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
+	// 运行期只执行配置所指二进制）。任何失败告警降级，不阻断审查。
+	OcrBin string
+	// OcrTimeout OCR delegate 单条命令硬上限（ARGUS_OCR_TIMEOUT；0 = 默认 90s）。
+	OcrTimeout time.Duration
+	// OcrHistoryDir OCR delegate 产物留档目录（ARGUS_OCR_HISTORY_DIR；空 = 不留档）。
+	// 每次前置把 preview/rule 原始 JSON 与渲染 section 落盘一份，供人工回溯 OCR
+	// 原文（argus DB 只存合并后 findings）。deploy 挂到持久卷（/data/ocr-history）。
+	OcrHistoryDir string
 
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
 	MilvusAddr       string // Milvus 地址，如 "localhost:19530"
@@ -336,6 +378,9 @@ func Load() *Config {
 		SkillsDir:              envStr("ARGUS_SKILLS_DIR", "skills"),
 		WorkRoot:               envStr("ARGUS_WORK_ROOT", "/tmp/argus-work"),
 		KnowledgeDir:           envStr("ARGUS_KNOWLEDGE_DIR", "knowledge"),
+		OcrBin:                 envStr("ARGUS_OCR_BIN", ""),
+		OcrTimeout:             envDuration("ARGUS_OCR_TIMEOUT", 0),
+		OcrHistoryDir:          envStr("ARGUS_OCR_HISTORY_DIR", ""),
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),
@@ -361,10 +406,17 @@ func Load() *Config {
 		RegretInjectTopN:       envInt("ARGUS_REGRET_INJECT_TOP_N", 10),
 		DreamInterval:          envDuration("ARGUS_DREAM_INTERVAL", 0),
 		CommentRouter:          envBool("ARGUS_COMMENT_ROUTER", false),
+		CommentTimeout:         envDuration("ARGUS_COMMENT_TIMEOUT", 10*time.Minute),
+		CommentConcurrency:     envInt("ARGUS_COMMENT_CONCURRENCY", 2),
+		TaskMaxRetries:         envInt("ARGUS_TASK_MAX_RETRIES", 2),
+		WorkerGrace:            envDuration("ARGUS_WORKER_GRACE", 60*time.Second),
+		MetricsAuth:            envBool("ARGUS_METRICS_AUTH", false),
 		RouterMinConfidence:    envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
 		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),
+		SinkURL:                envStr("ARGUS_SINK_URL", ""),
+		SinkToken:              envStr("ARGUS_SINK_TOKEN", ""),
 		OctopusURL:             os.Getenv("ARGUS_OCTOPUS_URL"),
 		OctopusChannelID:       int64(envInt("ARGUS_OCTOPUS_CHANNEL_ID", 0)),
 		OctopusUser:            envStr("ARGUS_OCTOPUS_USER", "argus-bot"),
@@ -480,8 +532,10 @@ func envFloat(key string, def float64) float64 {
 	if v == "" {
 		return def
 	}
-	var f float64
-	if _, err := fmt.Sscanf(v, "%f", &f); err != nil {
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		// 严格解析（v3.8.0）：此前 fmt.Sscanf 对 "0.5abc" 尾部垃圾静默接受为 0.5，
+		// 与 envInt/envBool 的严格纪律不一致，费率 knob 配错不易察觉。
 		warnBadEnv(key, v, def)
 		return def
 	}

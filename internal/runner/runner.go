@@ -22,10 +22,12 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/notify"
+	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/reportview"
+	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
 	"argus/internal/workflow/requirement"
@@ -34,6 +36,7 @@ import (
 	"git.example.com/enjoydream/agentkit/obsx"
 	"git.example.com/enjoydream/agentkit/skill"
 	"git.example.com/enjoydream/agentkit/textutil"
+	"git.example.com/enjoydream/agentkit/workcopy"
 )
 
 // Runner 单任务执行器。
@@ -50,11 +53,14 @@ type Runner struct {
 	ToolPool   toolpool.Pool
 	ToolSpecs  []toolpool.ToolSpec
 	Knowledge  rag.KnowledgeService
-	Bus        *progress.Bus    // 任务进度事件（v3.1 SSE；nil 安全）
-	Notify     *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
-	Poster     *poster.Poster
-	Log        logx.Logger
-	Version    string
+	// WC 工作副本池（OCR delegate 前置使用；nil = 委托前置不生效）。
+	WC      *workcopy.Pool
+	Bus     *progress.Bus    // 任务进度事件（v3.1 SSE；nil 安全）
+	Notify  *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
+	Sink    *sink.Reporter   // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
+	Poster  *poster.Poster
+	Log     logx.Logger
+	Version string
 
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
 	LLMLimiter *rate.Limiter
@@ -317,7 +323,13 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// 日志、入库、IM 推送三路消费统一先脱敏（agentkit logredact）。
 	errMsg := logredact.Redact(err.Error())
 	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", errMsg)
-	_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, budget.Used(), 0)
+	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, budget.Used(), 0); ferr != nil {
+		r.Log.Warn("argus.runner.finish_failed", "task", taskID, "error", ferr.Error())
+	} else if fenced {
+		// stale 重置后新执行体已接管：本次写入归属失效，属预期而非错误
+		r.Log.Warn("argus.runner.finish_fenced", "task", taskID,
+			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+	}
 	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
@@ -367,6 +379,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if h := r.reviewHints(ctx, pr); h != "" {
 		ptask.Artifacts[plugin.ArtifactReviewHints] = h
 	}
+	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
+	r.injectOCRDelegate(ctx, pr, diff, &ptask)
 
 	var out *requirement.Output
 	switch task.Kind {
@@ -381,17 +395,35 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	// regret 跨轮入库：R3.5 反思剔除的指纹记录误报历史（产出 vs 终审的差值即
 	// regret），后续轮次由 Merger 读取标注可信度。失败只告警，不影响主流程。
+	// RemovedPrints[i] 与 RemovedFindings[i] 按索引一一对应（reflection 组装保证）：
+	// 行不存在时按原始身份内容建行，不再产生空内容幽灵行（v3.8.0）。
 	if out.Reflect != nil && len(out.Reflect.RemovedPrints) > 0 {
-		for _, fp := range out.Reflect.RemovedPrints {
+		for i, fp := range out.Reflect.RemovedPrints {
+			var finding plugin.Finding
+			if i < len(out.Reflect.RemovedFindings) {
+				finding = out.Reflect.RemovedFindings[i]
+			}
 			if err := r.Store.RecordPrintRegret(ctx,
-				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp); err != nil {
+				pr.Platform, pr.Owner, pr.Repo, pr.Number, fp, finding); err != nil {
 				r.Log.Warn("argus.regret.record_failed", "error", err.Error())
 			}
 		}
 	}
 	// 模式级 regret：完整剔除条目按 plugin+comment 入 pattern_signals。
+	// 记账键必须与 PatternPosted 一致（PatternKey 由 plugin+原始评语派生），而
+	// RemovedFindings 携带的 Comment 可能已带展示标注（merger 标注先于 R3.5）——
+	// 按索引配对的 RemovedPrints[i]（入库 FP）查 prints 行取回原文后再记账，
+	// 查不到（行被清理等）才退回携带文本（v3.9.0 审查修复：惯犯条目模式归因丢失）。
 	if out.Reflect != nil && len(out.Reflect.RemovedFindings) > 0 && r.Learning.Enabled {
-		for _, f := range out.Reflect.RemovedFindings {
+		for i, f := range out.Reflect.RemovedFindings {
+			if i < len(out.Reflect.RemovedPrints) {
+				if ps, err := r.Store.GetPrintState(ctx,
+					pr.Platform, pr.Owner, pr.Repo, pr.Number, out.Reflect.RemovedPrints[i]); err != nil {
+					r.Log.Warn("argus.regret.print_state_failed", "error", logredact.Redact(err.Error()))
+				} else if ps != nil && ps.Comment != "" {
+					f.Comment = ps.Comment
+				}
+			}
 			if err := r.Store.PatternRegret(ctx,
 				pr.Platform, pr.Owner, pr.Repo, f.By, f, time.Now()); err != nil {
 				r.Log.Warn("argus.regret.pattern_failed", "error", err.Error())
@@ -418,15 +450,31 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if res.Stale {
 		status = storage.StatusStale // findings/指纹已入库，不回帖不覆盖（§10.2）
 	}
-	if err := r.Store.FinishTask(ctx, task.ID, status, out.Verdict, reportview.Render(rep),
+	if fenced, err := r.Store.FinishTaskFenced(ctx, task.ID, status, out.Verdict, reportview.Render(rep),
 		string(resultJSON), "", out.Tokens, res.SummaryCommentID); err != nil {
 		return err
+	} else if fenced {
+		// 此前无守卫：stale 重置后僵尸执行体会把旧报告覆盖到新执行体的结果上
+		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
+			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+		return nil
 	}
 	// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
 	if r.Cfg.Debug && len(out.Debug) > 0 {
 		if b, e := json.Marshal(out.Debug); e == nil {
 			_ = r.Store.SetTaskDebug(ctx, task.ID, string(b))
 		}
+	}
+	// 结果上报（ARGUS_SINK_URL 非空启用）：push 旁路给 review-service 承接展示，
+	// 异步且失败只告警——绝不阻断/拖慢审查终态路径。argus 独立运行（未配置）时
+	// 整段跳过、零开销，不依赖 review-service 的任何存在。
+	if r.Sink.Enabled() {
+		merged := []plugin.Finding{}
+		if out.Merged != nil {
+			merged = out.Merged.Findings
+		}
+		r.Sink.Report(sink.BuildPayload(task.ID, pr, merged, out.Verdict,
+			out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
 	}
 	r.announceTerminal(ctx, task, status, out.Verdict, out, "")
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
@@ -634,6 +682,8 @@ func (r *Runner) publish(typ string, task *storage.Task, status, verdict string)
 
 // postStartMarker 审查开始时在 MR 上留一条"审查中"评论，便于用户感知进度。
 // 失败不阻塞审查流程（仅告警）。
+// 幂等复用（v3.8.0）：先找最近的 start-marker 评论，存在则原地更新其 task_id
+// 而不是新建——此前每次重跑（发布打断→重置→重跑）都留一条孤儿"审查中"。
 func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
 	if r.SDK == nil {
 		return
@@ -642,6 +692,20 @@ func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
 		"🔍 Argus 正在审查中，请稍候…\n\n<!-- argus:start task_id=%s -->",
 		task.ID,
 	)
+	// 复用最近一条 start marker（含历史任务的）：ListIssueComments 平台侧通常
+	// 按时间正序，取末尾几条扫描；找不到锚点才新建。
+	if comments, err := r.SDK.ListIssueComments(ctx, task.Platform, task.Owner, task.Repo, task.Number); err == nil {
+		for i := len(comments) - 1; i >= 0 && i >= len(comments)-50; i-- {
+			c := comments[i]
+			if c == nil || !strings.Contains(c.Body, "<!-- argus:start task_id=") {
+				continue
+			}
+			if _, uerr := r.SDK.UpdateIssueComment(ctx, task.Platform, task.Owner, task.Repo, task.Number, c.ID, body); uerr != nil {
+				r.Log.Warn("argus.runner.start_marker_update_failed", "task", task.ID, "error", uerr.Error())
+			}
+			return
+		}
+	}
 	if _, err := r.SDK.CreateIssueComment(ctx, task.Platform, task.Owner, task.Repo, task.Number, body); err != nil {
 		r.Log.Warn("argus.runner.start_marker_failed", "task", task.ID, "error", err.Error())
 	}
@@ -704,6 +768,101 @@ func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext
 	}
 	t, _ := textutil.TruncRunes(body, reviewGuidelinesMaxRunes)
 	return strings.TrimSpace(t)
+}
+
+// injectOCRDelegate OCR delegate 委托前置（design §2）：dispatch 前在工作副本执行
+// `ocr delegate preview/rule`（确定性子命令，OCR 端零 LLM、零凭证），把文件分诊与
+// 仓库规则组渲染成提示词 section 注入 Artifacts。仅 code_review 任务生效；未配置
+// ARGUS_OCR_BIN、无工作副本池或任何执行失败 → 告警降级，审查照常。
+func (r *Runner) injectOCRDelegate(ctx context.Context, pr *plugin.PRContext,
+	diff *plugin.DiffContext, ptask *plugin.Task) {
+	if r.Cfg == nil || r.Cfg.OcrBin == "" || r.WC == nil || ptask.Kind != plugin.TaskKindCodeReview {
+		return
+	}
+	paths := includedPaths(diff)
+	if len(paths) == 0 {
+		return
+	}
+	key := worktreeKey(pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		// workcopy 错误链可能携带带凭证 clone URL（git 回显 origin URL），进日志前
+		// 统一脱敏——与 §10.2 任务失败信息同纪律
+		r.Log.Warn("argus.ocrdeleg.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	defer r.WC.Release(key)
+	r.injectOCRDelegateInDir(ctx, dir, pr, paths, ptask)
+}
+
+// injectOCRDelegateInDir delegate 前置的执行段（dir 由调用方就绪；pool 语义在
+// injectOCRDelegate，本函数可独立单测）。
+func (r *Runner) injectOCRDelegateInDir(ctx context.Context, dir string, pr *plugin.PRContext,
+	paths []string, ptask *plugin.Task) {
+	began := time.Now()
+	cfg := ocrdeleg.Config{Bin: r.Cfg.OcrBin, Timeout: r.Cfg.OcrTimeout}
+	base := pr.BaseBranch
+	if base == "" {
+		base = pr.DefaultBranch
+	}
+	tri, err := ocrdeleg.Preview(ctx, cfg, dir, base)
+	if err != nil {
+		// OCR 在工作树里 shell git，stderr 同样可能回显带凭证 URL——先脱敏再进日志
+		r.Log.Warn("argus.ocrdeleg.preview_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	// preview 成功而 rule 失败：分诊照常注入，规则缺席只是少一组清单。
+	groups, err := ocrdeleg.Rules(ctx, cfg, dir, paths)
+	if err != nil {
+		r.Log.Warn("argus.ocrdeleg.rules_failed", "error", logredact.Redact(err.Error()))
+	}
+	if s := ocrdeleg.RenderTriage(tri); s != "" {
+		ptask.Artifacts[plugin.ArtifactOCRTriage] = s
+	}
+	if s := ocrdeleg.RenderRules(groups); s != "" {
+		ptask.Artifacts[plugin.ArtifactOCRRules] = s
+	}
+	// 原始产物留档（人工回溯 OCR 原文；DB 只存合并后 findings）——失败仅告警。
+	if r.Cfg.OcrHistoryDir != "" {
+		err := ocrdeleg.WriteHistory(r.Cfg.OcrHistoryDir, ocrdeleg.HistoryRecord{
+			PR:      worktreeKey(pr).String(),
+			Base:    base,
+			Preview: tri,
+			Rules:   groups,
+			Took:    time.Since(began).Round(time.Millisecond).String(),
+		})
+		if err != nil {
+			r.Log.Warn("argus.ocrdeleg.history_failed", "error", logredact.Redact(err.Error()))
+		}
+	}
+}
+
+// includedPaths diffprep 收进 Text 的文件（OCR delegate rule 的路径入参与
+// argus 实际审查范围保持一致）。
+func includedPaths(diff *plugin.DiffContext) []string {
+	if diff == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(diff.Files))
+	for _, f := range diff.Files {
+		if f.Included {
+			paths = append(paths, f.Path)
+		}
+	}
+	return paths
+}
+
+// worktreeKey 将 PRContext 转为 workcopy.WorktreeKey（与 adapter_cli.prToKey 同构；
+// 4 行结构体不值得为它反向依赖插件适配器包）。
+func worktreeKey(pr *plugin.PRContext) workcopy.WorktreeKey {
+	return workcopy.WorktreeKey{
+		Platform:      pr.Platform,
+		Owner:         pr.Owner,
+		Repo:          pr.Repo,
+		Number:        pr.Number,
+		HeadSHA:       pr.HeadSHA,
+		DefaultBranch: pr.DefaultBranch,
+	}
 }
 
 // reviewHints 渲染本仓库历史高误报模式提示词（学习环关闭或无样本时返回空）。

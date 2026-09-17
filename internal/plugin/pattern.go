@@ -77,7 +77,10 @@ func truncateRunes(s string, n int) string {
 
 // Confidence 由 posted/regret/suppress/restore 计数推 Beta 后验置信度。
 // 先验 (α=2, β=2) → 0.5；Posted α+1；Regret β+2；Suppress β+3；
-// Restore α+2 且 β 回抬 max(β-2,1)。samples=Posted+Regret+Suppress，读时计算不落列。
+// Restore 只回抬 β（max(β-2,1)），不加 α——此前 Restore α+2 会让
+// suppress+restore 成对循环净抬置信度（α+2, β+1），API 持有者可循环洗白；
+// 现在 restore 仅撤销部分负证据，成对循环净 β+1（置信度微降），无法洗白（v3.8.0）。
+// samples=Posted+Regret+Suppress，读时计算不落列。
 func Confidence(posted, regret, suppress, restore int) float64 {
 	if posted < 0 {
 		posted = 0
@@ -91,7 +94,7 @@ func Confidence(posted, regret, suppress, restore int) float64 {
 	if restore < 0 {
 		restore = 0
 	}
-	alpha := 2.0 + float64(posted) + 2*float64(restore)
+	alpha := 2.0 + float64(posted)
 	beta := 2.0 + 2*float64(regret) + 3*float64(suppress)
 	if restore > 0 {
 		// 撤销误杀：负证据回抬一档（不为负）

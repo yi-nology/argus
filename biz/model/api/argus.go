@@ -3419,6 +3419,9 @@ func (p *CreateTaskRequest) String() string {
 type CreateTaskResponse struct {
 	TaskId string `thrift:"taskId,1,required" form:"taskId,required" json:"taskId,required" query:"taskId,required"`
 	Status string `thrift:"status,2,required" form:"status,required" json:"status,required" query:"status,required"`
+	// Duplicated 命中在飞任务幂等返回（v3.8.0 附加字段，thrift 序列化不含；
+	// 评论 rerun 回执据此区分"已开始"与"已在进行"，不再谎报）
+	Duplicated bool `thrift:"-" form:"duplicated" json:"duplicated,omitempty" query:"duplicated"`
 }
 
 func NewCreateTaskResponse() *CreateTaskResponse {

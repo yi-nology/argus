@@ -36,3 +36,5 @@ data:
 
       # cli/remote 插件示例见仓库根 plugins.example.yaml；
       # 集群内 cli 二进制需自行打进镜像或挂载（§8 供应链信任：路径白名单）。
+      # OCR MCP 通道（v3.9）：ocr 插件条目 + sidecar 装配见
+      # deploy/k8s/08-ocrshim-sidecar.yaml.example（endpoint 填同 Pod loopback）。

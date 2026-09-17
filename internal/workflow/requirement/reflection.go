@@ -164,6 +164,11 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 		}
 		seen[rv.ID] = true
 		f := merged.Findings[rv.ID]
+		// 原始身份快照（改写前）：strict 剔除的 regret 必须记在入库时的指纹/文本上，
+		// 否则下一轮按原始措辞查询永远 miss——regret 归因丢失 + prints 表长出
+		// 空内容的幽灵行（v3.8.0 修复）。
+		origFP := printFP(f)
+		origFinding := f
 		adjusted := false
 		// file：只能改成变更清单内的路径；清单缺失（Diff nil）时接受非空改写；
 		// 否则维持原值（防幻觉搬家）。
@@ -194,9 +199,11 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 			if reason := evidenceFailure(rv, f.File, changed, w.ReflectEvidence == EvidenceStrict); reason != "" {
 				if w.ReflectEvidence == EvidenceStrict {
 					info.DroppedNoEvidence++
-					// 计入 regret：说了但举不出证据 = 强误报信号
-					info.RemovedPrints = append(info.RemovedPrints, plugin.Fingerprint(f.File, f.Comment, f.Line))
-					info.RemovedFindings = append(info.RemovedFindings, f)
+					// 计入 regret：说了但举不出证据 = 强误报信号。
+					// 用改写前的原始身份（origFP/origFinding）——那是 UpsertPrint /
+					// PatternPosted 的记账身份，改写后指纹永远对不上账。
+					info.RemovedPrints = append(info.RemovedPrints, origFP)
+					info.RemovedFindings = append(info.RemovedFindings, origFinding)
 					plugin.ReportReflectDrop(reason)
 					w.Log.Info("argus.r35.evidence_drop", "id", rv.ID, "file", f.File, "reason", reason)
 					continue
@@ -232,13 +239,13 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 		}
 		seenRemoved := map[string]bool{}
 		for _, f := range info.RemovedFindings {
-			seenRemoved[plugin.Fingerprint(f.File, f.Comment, f.Line)] = true
+			seenRemoved[printFP(f)] = true
 		}
 		for i, f := range merged.Findings {
 			if seen[i] {
 				continue
 			}
-			fp := plugin.Fingerprint(f.File, f.Comment, f.Line)
+			fp := printFP(f)
 			if !dup[fp] {
 				info.RemovedPrints = append(info.RemovedPrints, fp)
 			}
@@ -253,6 +260,18 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 		"removed", info.Removed, "adjusted", info.Adjusted, "kept", info.Kept,
 		"dropped_no_evidence", info.DroppedNoEvidence, "degraded_no_evidence", info.DegradedNoEvidence)
 	return info
+}
+
+// printFP 返回条目的入库身份指纹。merger 在任何标注/R3.5 修订之前已把规范指纹
+// 写进 FP（types.go Finding.FP 契约：写定于此、下游只读勿重算）——而 Comment 可能
+// 已带「（跨轮复现 N 次）」等展示标注，对它现算必然错账：恰是惯犯条目（最需要
+// regret 归因的人群）对不上 prints 行（v3.9.0 审查修复）。FP 为空（理论不发生，
+// 防御兜底）才回退现场重算。
+func printFP(f plugin.Finding) string {
+	if f.FP != "" {
+		return f.FP
+	}
+	return plugin.Fingerprint(f.File, f.Comment, f.Line)
 }
 
 // EvidenceMode 词表（与 config.ReflectEvidence 对齐）。

@@ -94,6 +94,28 @@ var (
 	sseConnections = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "argus_sse_connections", Help: "当前 /events SSE 订阅连接数",
 	})
+
+	// webhookSkipped 事件被白名单/规则过滤分布：此前 skipped() 零日志零指标，
+	// "整类事件被丢"（如 v3.7.x 白名单词表与归一化脱节导致 cr.updated 断流）
+	// 在生产完全不可观测。
+	webhookSkipped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_webhook_skipped_total", Help: "webhook 事件被规则跳过分布（event_type/bot_self/missing_cr/draft）",
+	}, []string{"reason"})
+
+	// webhookRejected webhook 入口拒绝分布（安全信号：签名拒绝/无 secret 拒绝）。
+	webhookRejected = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_webhook_rejected_total", Help: "webhook 入口拒绝分布（no_secret/signature/parse/body_too_large）",
+	}, []string{"reason"})
+
+	// llmFailovers LLM 主备切换计数：此前只有 Warn 日志，切换频率无法聚合告警。
+	llmFailovers = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_llm_failovers_total", Help: "LLM 主→备切换次数（fallback/failover）",
+	}, []string{"stage"})
+
+	// qaFailures 评论链路 LLM 失败计数。
+	qaFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_qa_failures_total", Help: "评论链路处理失败分布（llm/reject/…）",
+	}, []string{"reason"})
 )
 
 // Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
@@ -104,6 +126,7 @@ func Init() {
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
+		webhookSkipped, webhookRejected, llmFailovers, qaFailures,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
 		tasksTotal.WithLabelValues(platform, kind, status).Inc()
@@ -163,4 +186,24 @@ func SetTaskQueueDepth(pending, running int64) {
 // IncrNotifyFailure IM 通知推送失败计数。
 func IncrNotifyFailure(channel string) {
 	notifyFailures.WithLabelValues(channel).Inc()
+}
+
+// IncrWebhookSkipped webhook 事件被规则跳过计数（service 包调用）。
+func IncrWebhookSkipped(reason string) {
+	webhookSkipped.WithLabelValues(reason).Inc()
+}
+
+// IncrWebhookRejected webhook 入口拒绝计数（含安全信号：签名/secret 拒绝）。
+func IncrWebhookRejected(reason string) {
+	webhookRejected.WithLabelValues(reason).Inc()
+}
+
+// IncrLLMFailover LLM 主备切换计数（bootstrap 装配的两类切换回调调用）。
+func IncrLLMFailover(stage string) {
+	llmFailovers.WithLabelValues(stage).Inc()
+}
+
+// IncrQAFailure 评论链路处理失败计数（service 层调用）。
+func IncrQAFailure(reason string) {
+	qaFailures.WithLabelValues(reason).Inc()
 }

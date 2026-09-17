@@ -109,7 +109,13 @@ func renderMarkdown(e TaskEvent) string {
 		return fmt.Sprintf("**Argus 审查完成** %s\n- 结论: `%s`（%s）\n- findings: %d\n- 用时: %s / tokens: %d\n- task: %s",
 			pr, e.Verdict, e.Rule, e.Findings, e.Elapsed.Round(time.Second), e.Tokens, e.TaskID)
 	case "failed":
-		return fmt.Sprintf("**Argus 审查失败** %s\n- 原因: %s\n- task: %s", pr, e.FailReason, e.TaskID)
+		// v3.8.0：FailReason 可能含上游错误串（端点/URL 细节），IM 推送截断防泄露长串
+		reason := e.FailReason
+		if rc := len([]rune(reason)); rc > 300 {
+			r := []rune(reason)
+			reason = string(r[:300]) + "…"
+		}
+		return fmt.Sprintf("**Argus 审查失败** %s\n- 原因: %s\n- task: %s", pr, reason, e.TaskID)
 	default:
 		return "" // pending/running 不推送
 	}

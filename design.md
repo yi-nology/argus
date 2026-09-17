@@ -38,7 +38,7 @@ OCR（alibaba/open-code-review，Go 实现）只有三种官方形态：**CLI（
 | 接入姿势 | 结论 |
 |---|---|
 | cli 插件（v3.0 主路径） | ✅ 一切编程调用的终点都是 `ocr` CLI。Hub 工作副本服务准备现场（浅克隆 base + fetch PR head），调 `ocr diff --format json`，解析转 Result |
-| delegate 委托模式（cli 插件第二子模式） | ✅ 官方文档适用场景 3 就是"自建 agent 流水线，需要结构化输入（文件列表+规则）作为自身审查步骤的输入"——即 Argus。OCR 只做确定性工程（`ocr delegate preview` 出文件筛选清单、`ocr delegate rule` 出适用规则），**审查循环由 Argus builtin agent 用自己的 LLM 执行**，OCR 端无需配 LLM。做成 cli 插件 `mode: full\|delegate` 配置项：full=OCR 全权审查（用其打磨过的审查 agent）；delegate=只要它的文件筛选+规则，省一份 LLM 配置。**delegate 已有生产参考实现**：review-service `internal/ocr/delegate.go`（含进程组 exec 管理），v3.0 实现 full，delegate 留接口照抄其范式 |
+| delegate 委托模式（cli 插件第二子模式） | ✅ 官方文档适用场景 3 就是"自建 agent 流水线，需要结构化输入（文件列表+规则）作为自身审查步骤的输入"——即 Argus。OCR 只做确定性工程（`ocr delegate preview` 出文件筛选清单、`ocr delegate rule` 出适用规则），**审查循环由 Argus builtin agent 用自己的 LLM 执行**，OCR 端无需配 LLM。做成 cli 插件 `mode: full\|delegate` 配置项：full=OCR 全权审查（用其打磨过的审查 agent）；delegate=只要它的文件筛选+规则，省一份 LLM 配置。**实装修订（v3.9.0）**：delegate 产物是"审查输入"而非 findings，装不进 cli 插件契约（Dispatcher 并发 fan-out 无插件间传递管道）——实装位置定为 **runner 层 dispatch 前置**（`internal/ocrdeleg`，`ARGUS_OCR_BIN` 启用），"cli 插件 delegate 子模式"设想作废 |
 | 变成 skill | ✅ 但语义是"方法论注入"而非引擎替换：SKILL.md 里是前置检查、`--background` 业务上下文用法、High/Medium/Low 评分标准。**builtin 插件支持 `skillRef` 配置**，启动时拉 SKILL.md 拼进系统提示词——白嫖阿里的分级标准 |
 | 走 a2a | ⏳ OCR 原生不能做 A2A server。若将来要"远程 OCR"（独立审查机/多团队共享），写 20 行 sidecar 把 CLI 包成 HTTP，Hub 侧用现成 a2a 适配器调——与前端视觉 agent **共用同一个 a2a 接口位** |
 | 彩蛋（v3.1+） | OCR 是 MCP client ⇒ Hub 可把自己的"需求上下文服务"（issue/验收清单查询）暴露成 MCP server 喂给 OCR 的审查 agent，让 OCR 审查时能核对需求一致性——两个系统的深度组合点 |
@@ -47,10 +47,10 @@ OCR（alibaba/open-code-review，Go 实现）只有三种官方形态：**CLI（
 
 | 官方模式 | 调用方 | Argus 适用 |
 |---|---|---|
-| CLI（默认，OCR 自管 LLM） | 任何程序 | ✅ 主路径 |
-| delegate 委托 | 自建 agent 流水线（文档明列场景） | ✅ cli 插件子模式（见上表） |
+| CLI（默认，OCR 自管 LLM） | 任何程序 | ✅ 主路径（v3.9 起经 ocrshim 包装为 MCP 通道，cli 降为回退位） |
+| delegate 委托 | 自建 agent 流水线（文档明列场景） | ✅ v3.9.0 实装为 runner 层 dispatch 前置（`ARGUS_OCR_BIN`，见上表 delegate 行的实装修订） |
 | agent-skill | skill-compatible 对话式编码 agent（Claude Code 等） | ⚠️ 非调用通道，仅方法论注入（skillRef） |
-| mcp | 方向相反：OCR 作为 client 消费外部 MCP server | ❌ 非调用通道；作 v3.1+ 组合彩蛋 |
+| mcp | 方向相反：OCR 作为 client 消费外部 MCP server | ❌ OCR 原生不可被 MCP 调用；v3.9 起由 ocrshim（argus 自带薄 MCP server 包装 OCR CLI）补齐：argus 以 remote/mcp 插件调 ocrshim，ocrshim 在共享工作副本内执行 OCR 并归一化 findings |
 | claude-code 插件 / CI 集成 | 人 + Claude Code / 人的流水线 YAML | ❌ 宿主不对口；CI 无 Gitea 且 Argus 不是流水线 |
 
 ## 3. 插拔层（L4）设计
@@ -483,13 +483,15 @@ agents:
     cost: heavy
     timeout: 120s
   - name: ocr
-    kind: cli
+    kind: remote
+    protocol: mcp                     # v3.9.0：经 ocrshim sidecar 调 OCR（cli 降为回退位）
     skills: [code-review]
     needs: [working-copy]
-    cmd: ["/opt/argus/bin/ocr", "diff", "--format", "json"]   # 白名单可执行（§8 供应链）
-    mode: full                    # full | delegate（delegate 留接口，§2）
+    endpoint: "http://127.0.0.1:8090/mcp"   # 白名单 endpoint（§8 供应链）
     cost: heavy
     timeout: 300s
+    # 另有 delegate 委托前置通道（成本最低，OCR 端零 LLM）：不经插件，
+    # ARGUS_OCR_BIN 启用（internal/ocrdeleg）
   - name: review-service
     kind: remote
     protocol: mcp

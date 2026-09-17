@@ -1,5 +1,5 @@
 // Package storage 持久化（design §5.2）：GORM + SQLite 单文件起步（dialect 可切 MySQL）。
-// 三张表解决四个隐含承诺：
+// 七张表（+qa_sessions/leader_leases/pattern_signals/print_aliases，另有 comment_deliveries/schema_migrations 辅助表）解决四个隐含承诺：
 //
 //	tasks          —— TaskAPI 异步任务重启不丢 + webhook 幂等（event_id=平台 delivery ID 唯一约束）
 //	finding_prints —— Merger 指纹跨轮次持久化（status=open|suppressed，反馈通道 v3.1）
@@ -56,6 +56,12 @@ type Task struct {
 	RunnerID string `gorm:"column:runner_id;size:64;index"`
 	// HeartbeatAt 最近心跳（worker 池周期刷新 running 任务；超时未续才会被重置回 pending）
 	HeartbeatAt *time.Time `gorm:"column:heartbeat_at"`
+
+	// Attempt 已失败重试次数（v3.8.0 failed 退避策略）：FinishTask(failed) 时 +1，
+	// ResetFailedForRetry 按 ARGUS_TASK_MAX_RETRIES 上限把到期的 failed 重置 pending。
+	Attempt int `gorm:"column:attempt;default:0"`
+	// NextRetryAt 下次自动重试时间（指数退避 5m×3^attempt；nil = 不重试）。
+	NextRetryAt *time.Time `gorm:"column:next_retry_at"`
 
 	CreatedAt  time.Time  `gorm:"column:created_at;index"`
 	UpdatedAt  time.Time  `gorm:"column:updated_at"`
@@ -182,7 +188,7 @@ func Open(dsn string) (*Store, error) {
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
 	}
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if !s.sqlite {
@@ -190,9 +196,10 @@ func Open(dsn string) (*Store, error) {
 			return nil, err
 		}
 	}
-	// 指纹 v2 存量迁移（v3.7.0，幂等）：v1 行按存量 file/line/comment 重算回写；
+	// 指纹 v2 存量迁移（v3.7.0）：v1 行按存量 file/line/comment 重算回写。
+	// v3.8.0 起由 SchemaMigration 哨兵门控（成功一次后不再每次启动全表扫）；
 	// 失败不阻断启动（留待下次重试），只告警。
-	if n, merr := s.migratePrintFingerprintsV2(context.Background()); merr != nil {
+	if n, merr := s.ensureMigrationApplied(context.Background(), "fingerprint_v2", s.migratePrintFingerprintsV2); merr != nil {
 		s.db.Logger.Warn(context.Background(), "指纹 v2 迁移失败（下次启动重试）: %v", merr)
 	} else if n > 0 {
 		s.db.Logger.Info(context.Background(), "指纹 v2 迁移完成: %d 行", n)
@@ -389,6 +396,18 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	txErr := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// MySQL 下先对 review_targets 行 FOR UPDATE：与 CreateTaskForWebhook 同一
+		// 串行化锚点——此前 count-then-insert 无锁，跨副本可双建任务双烧 LLM
+		//（v3.8.0 修复）。首审无锚行时残余竞窗由下方 duplicate 回查兜底。
+		if !s.sqlite {
+			var anchor ReviewTarget
+			aq := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
+				t.Platform, t.Owner, t.Repo, t.Number).
+				Clauses(clause.Locking{Strength: "UPDATE"}).First(&anchor)
+			if aq.Error != nil && !errors.Is(aq.Error, gorm.ErrRecordNotFound) {
+				return aq.Error
+			}
+		}
 		var cnt int64
 		if err := tx.Model(&Task{}).
 			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
@@ -406,6 +425,18 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 			return nil
 		}
 		if err := tx.Create(t).Error; err != nil {
+			// SQLite 并发窗口撞 samesha 部分唯一索引 → 回查 in-flight 任务返回
+			// 幂等语义；此前直接上抛 500，rerun 评论回帖"处理失败"（v3.8.0 修复）。
+			if isDuplicateKeyErr(err) {
+				existing = &Task{}
+				if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+					Order("created_at DESC, id DESC").First(existing).Error; qerr != nil {
+					return err // 回查也失败：暴露原始错误
+				}
+				created = false
+				return nil
+			}
 			return err
 		}
 		created = true
@@ -484,6 +515,18 @@ func (s *Store) ListTasksByHead(ctx context.Context, platform, owner, repo, numb
 // UpdateTaskRunningStatus 局部更新状态字段（任务执行中的落点）。
 func (s *Store) FinishTask(ctx context.Context, id, status, verdict, report, resultJSON, failReason string,
 	tokensUsed int, summaryCommentID int64) error {
+	_, err := s.FinishTaskFenced(ctx, id, status, verdict, report, resultJSON, failReason, tokensUsed, summaryCommentID)
+	return err
+}
+
+// FinishTaskFenced 终态落库，带执行归属 fencing（v3.8.0）：
+// WHERE 追加 status='running'（+ runner_id 归属校验）——stale 重置后旧执行体
+// 的僵尸写入直接失效，不再覆盖新执行体的结果/引发双评论。此前是无守卫的
+// Where("id = ?")，后写者全列覆盖先写者。返回 fenced=true 表示本次写入因
+// 归属失效被拒（调用方告警；属预期行为而非错误）。
+// 例外：RunnerID 未装配（单测桩）时只校验 status。
+func (s *Store) FinishTaskFenced(ctx context.Context, id, status, verdict, report, resultJSON, failReason string,
+	tokensUsed int, summaryCommentID int64) (fenced bool, err error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	now := time.Now()
@@ -499,7 +542,55 @@ func (s *Store) FinishTask(ctx context.Context, id, status, verdict, report, res
 	if summaryCommentID > 0 {
 		updates["summary_comment_id"] = summaryCommentID
 	}
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Updates(updates).Error
+	if status == StatusFailed {
+		// failed 退避（v3.8.0）：attempt+1，指数退避（5m×3^n，封顶 1h）后由
+		// ResetFailedForRetry 重置重试；成功/stale 路径不动 attempt。
+		var cur Task
+		if err := s.db.WithContext(ctx).Select("attempt").Where("id = ?", id).First(&cur).Error; err == nil {
+			updates["attempt"] = cur.Attempt + 1
+			nr := now.Add(retryBackoff(5*time.Minute, cur.Attempt+1))
+			updates["next_retry_at"] = &nr
+		}
+	}
+	// 例外：RunnerID 未装配（单测桩直接 CreateTask(pending)→finish 的合成路径）
+	// 时跳过 fencing——生产装配流程 main 必然先赋 RunnerID 再启动 worker。
+	q := s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id)
+	if s.RunnerID != "" {
+		q = q.Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID)
+	}
+	res := q.Updates(updates)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 0, nil
+}
+
+// retryBackoff 第 attempt 次失败的退避：base×3^(attempt-1)，封顶 1h。
+func retryBackoff(base time.Duration, attempt int) time.Duration {
+	d := base
+	for i := 1; i < attempt && d < time.Hour; i++ {
+		d *= 3
+	}
+	if d > time.Hour {
+		d = time.Hour
+	}
+	return d
+}
+
+// ResetFailedForRetry failed 任务的到期重试（v3.8.0）：failed 且 attempt < maxRetries
+// 且退避到期的任务重置回 pending（attempt 保留，防循环）。maxRetries<=0 = 禁用。
+// 重启不重置 failed——只有此入口（或 TaskAPI 手工重审）能复活失败任务。
+func (s *Store) ResetFailedForRetry(ctx context.Context, maxRetries int, now time.Time) (int64, error) {
+	if maxRetries <= 0 {
+		return 0, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res := s.db.WithContext(ctx).Model(&Task{}).
+		Where("status = ? AND attempt < ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?",
+			StatusFailed, maxRetries, now).
+		Update("status", StatusPending)
+	return res.RowsAffected, res.Error
 }
 
 // SetTaskHeadSHA 回填 CLI 任务的 head SHA（执行期从平台获取）。
@@ -610,11 +701,26 @@ func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, e
 // finding_prints 含 LONGTEXT comment 永不清理）。语义安全：长期未复现的指纹
 // 遗忘后最坏效果是"同型意见重新从头计数"，不会复活已抑制意见（suppressed
 // 状态随行删除，同型意见若真复发会以 open 新行参与——保留期给足即可）。
+// v3.8.0：随行清理指向已删指纹的孤儿别名（print_aliases 此前无限增长）。
 func (s *Store) PruneStalePrints(ctx context.Context, cutoff time.Time) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	var pruned []string
+	if err := s.db.WithContext(ctx).Model(&FindingPrint{}).
+		Where("last_seen_at < ?", cutoff).Pluck("print", &pruned).Error; err != nil {
+		return 0, err
+	}
 	res := s.db.WithContext(ctx).Where("last_seen_at < ?", cutoff).Delete(&FindingPrint{})
-	return res.RowsAffected, res.Error
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if len(pruned) > 0 {
+		if err := s.db.WithContext(ctx).
+			Where("print_fp IN ?", pruned).Delete(&PrintAlias{}).Error; err != nil {
+			return res.RowsAffected, err
+		}
+	}
+	return res.RowsAffected, nil
 }
 
 // RepoTokenUsage 仓库维度 token 用量聚合（月度预算/用量报表，§5 v3.1）。

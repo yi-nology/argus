@@ -138,8 +138,15 @@ func Render(r Report) string {
 			if by == "" {
 				by = "argus"
 			}
-			// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）
-			fp := plugin.Fingerprint(f.File, f.Comment, f.Line)[:8]
+			// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）。
+			// 必须用 merger 写定的入库指纹 f.FP（prints 表身份）；终稿文本已被
+			// 复现/R3.5 标注改写，重算必漂移——漂移短码让"最需要抑制的条目"
+			// 恰好无法抑制（v3.8.0 修复）。零值回退仅兜底未经 merger 的测试桩。
+			fp := f.FP
+			if fp == "" {
+				fp = plugin.Fingerprint(f.File, f.Comment, f.Line)
+			}
+			fp = fp[:8]
 			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
 			comment := strings.ReplaceAll(strings.TrimSpace(EscapeUntrusted(f.Comment)), "\n", "\n  ")
 			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
@@ -196,8 +203,12 @@ func complianceProgress(acs []ACCheckView) (done, total int) {
 }
 
 // VerdictText 把 R5 结论映射为模板结论文案（workflow 调用，保持单一出处）。
+// 词表必须与 workflow 的 rule 赋值一一对应——R5.0（v3.8.0 修复）：此前无该分支，
+// 守门降级 COMMENT 后 default 落"✅ 通过"，人读文案与真值表直接矛盾。
 func VerdictText(rule string, missingPartial int) string {
 	switch {
+	case rule == "R5.0":
+		return "⚠️ 未能完成审查（无插件实际产出），本结论不可作为合并依据"
 	case rule == "R5.1":
 		return fmt.Sprintf("⛔ 需求未完成（%d 项未达标）", missingPartial)
 	case rule == "R5.2":

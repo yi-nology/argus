@@ -23,6 +23,7 @@ import (
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/runner"
+	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
@@ -69,8 +70,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	// workcopy 按实例隔离：共享 WorkRoot 时，本实例 Sweep 的孤儿扫描会把
 	// 他实例"已跟踪"的目录误判为孤儿删除（entries 是实例内内存态）
 	wcRoot := filepath.Join(cfg.WorkRoot, "instance-"+instanceID)
+	// fail-fast（v3.8.0）：目录建不出来时每个任务执行期才失败、/readyz 却照常
+	// 绿灯——启动期能判定的失败不该拖到每任务撞一次。
 	if err := os.MkdirAll(wcRoot, 0o755); err != nil {
-		log.Warn("argus.boot.workroot_failed", "dir", wcRoot, "error", err.Error())
+		return nil, fmt.Errorf("工作目录创建失败 %s: %w", wcRoot, err)
 	}
 	wc := workcopy.NewPool(wcRoot, log)
 	wc.CredentialOf = func(platform string) (string, string, bool) {
@@ -165,6 +168,11 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		if mdl == cfg.LLM.Model || mdl == cfg.LLM.FallbackModel {
 			return costRates // 备用模型按同一费率近似（百炼兼容端点同价）
 		}
+		// 阶段覆盖模型无费率匹配 → 恒按 0 记账，成本行系统性低估（v3.8.0 告警）
+		if len(costRates) > 0 && (costRates[0] > 0 || costRates[1] > 0) {
+			log.Warn("argus.boot.cost_rate_missing", "model", mdl,
+				"hint", "该阶段覆盖模型无 ARGUS_LLM_COST_* 费率，token 成本按 0 记账")
+		}
 		return [2]float64{}
 	}
 
@@ -198,6 +206,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		Dispatcher: dispatcher, Merger: merger,
 		Poster: sys.Poster, Log: log, Version: version,
 		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
+		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
 		Bus:       sys.Bus,
 		Notify:    sys.Notify,
 		Knowledge: sys.Knowledge,
@@ -223,6 +232,12 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 			InjectFloor: cfg.RegretInjectFloor,
 			InjectTopN:  cfg.RegretInjectTopN,
 		},
+	}
+	// 结果上报 sink（ARGUS_SINK_URL 非空启用）：审查完成后 push 给 review-service
+	// 承接端点（旁路，失败只告警不阻断审查主流程）。
+	if cfg.SinkURL != "" {
+		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL)
+		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
 	}
 	sys.Runner = runnerRef
 	return sys, nil

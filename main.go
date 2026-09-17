@@ -141,9 +141,10 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
 	wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store}, N: cfg.MaxConcurrentTasks, Log: log, Run: sys.Runner.Execute}
 	wp.Start(ctx)
-	// 注册序 [store, poll-leader, worker, http] → 关闭逆序：worker 在 HTTP 停止后排水 60s，store 最后关
+	// 排水宽限可配（v3.8.0 ARGUS_WORKER_GRACE，默认 60s）：grace < 典型任务时长时
+	// 每次发布必打断重跑；与 ShutdownTimeout 的余量关系见 runbook。
 	app.AddResource("worker", func(context.Context) error {
-		wp.Stop(60 * time.Second)
+		wp.Stop(cfg.WorkerGrace)
 		return nil
 	})
 
@@ -190,9 +191,26 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		} else if n > 0 {
 			log.Info("argus.boot.print_pruned", "removed", n)
 		}
+		// 评论投递幂等记录（v3.8.0 随幂等下沉 DB 而来）：7 天前的重试已无幂等意义
+		if n, err := store.PruneCommentDeliveries(ctx, time.Now().Add(-7*24*time.Hour)); err != nil {
+			log.Warn("argus.boot.delivery_prune_failed", "error", err.Error())
+		} else if n > 0 {
+			log.Info("argus.boot.delivery_pruned", "removed", n)
+		}
 	}
 	pruneAuxOnce(ctx)
 	wm.AddTicker("session-print-prune", 24*time.Hour, pruneAuxOnce)
+	// failed 任务到期重试（v3.8.0 ARGUS_TASK_MAX_RETRIES，默认 2；0=禁用）：
+	// 指数退避到期后重置 pending；多副本同时执行幂等（RowsAffected 至多一方非零）。
+	if cfg.TaskMaxRetries > 0 {
+		wm.AddTicker("failed-retry", time.Minute, func(ctx context.Context) {
+			if n, err := store.ResetFailedForRetry(ctx, cfg.TaskMaxRetries, time.Now()); err != nil {
+				log.Warn("argus.boot.failed_retry_failed", "error", err.Error())
+			} else if n > 0 {
+				log.Info("argus.boot.failed_retried", "reset", n, "max_retries", cfg.TaskMaxRetries)
+			}
+		})
+	}
 	wm.AddTicker("queue-depth", 30*time.Second, func(ctx context.Context) {
 		if pending, running, err := store.TaskCounts(ctx); err == nil {
 			obs.SetTaskQueueDepth(pending, running)
@@ -245,6 +263,12 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		Model: sys.Models.React, QAModel: sys.Models.QA,
 		RouterModel: sys.Models.Router,
 		Audit:       audit.New(log, "argus-audit"), Version: version}
+	// 评论链路停机排水（v3.8.0）：HTTP 已停（不再进新事件）后等在途 Q&A 收尾，
+	// 此前进程退出直接杀在途 ReAct——用户永无回复。放 worker 停机之前。
+	app.AddResource("comments", func(context.Context) error {
+		svc.DrainComments(30 * time.Second)
+		return nil
+	})
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()
 
@@ -285,15 +309,16 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 		c.JSON(http.StatusOK, map[string]any{"status": "ok", "version": version})
 	})
 
-	// 就绪：DB 连通 + LLM 端点可达（未配置 LLM 时跳过该检查）
+	// 就绪：DB 连通 + LLM 端点可达（未配置 LLM 时跳过该检查）。
+	// v3.8.0：失败响应不再回显 BaseURL（内网信息面收敛；细节看日志）。
 	h.GET("/readyz", func(ctx context.Context, c *app.RequestContext) {
 		if err := store.Ping(ctx); err != nil {
-			c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "db unavailable", "error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "db unavailable"})
 			return
 		}
 		if cfg.LLM.BaseURL != "" {
 			if !llmReachableCached(cfg.LLM.BaseURL) {
-				c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "llm unreachable", "base_url": cfg.LLM.BaseURL})
+				c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "llm unreachable"})
 				return
 			}
 		}
@@ -301,8 +326,14 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 	})
 
 	// Prometheus（ekit：挂 metrics.Registry——obs.Init 已补齐 go/process 收集器；
-	// MetricsHandlerFor 内部完成 RequestContext→http.ResponseWriter 适配）
-	h.GET("/metrics", hertzmetrics.MetricsHandlerFor(ekitmetrics.Registry))
+	// MetricsHandlerFor 内部完成 RequestContext→http.ResponseWriter 适配）。
+	// v3.8.0：ARGUS_METRICS_AUTH=1 时挂 Bearer——与 fail-closed 姿态对齐的可选
+	// 加固；默认保持无鉴权（k8s prometheus 注解无 token 抓取，开了会 401）。
+	metricsHandlers := []app.HandlerFunc{hertzmetrics.MetricsHandlerFor(ekitmetrics.Registry)}
+	if cfg.MetricsAuth {
+		metricsHandlers = []app.HandlerFunc{svc.BearerMiddleware(), hertzmetrics.MetricsHandlerFor(ekitmetrics.Registry)}
+	}
+	h.GET("/metrics", metricsHandlers...)
 
 	// MCP Server（v3.1 方向 B 实装）：streamable http + Bearer 鉴权
 	mcpBridge := mcpserver.HertzBridge(mcpserver.New(svc, version))

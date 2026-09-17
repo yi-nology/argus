@@ -57,7 +57,12 @@ main() {
   fi
   verify_checksum
   echo "验证: $DEST --help"
-  "$DEST" --help >/dev/null && echo "OCR 安装完成。plugins.yaml 中 cmd 填: [\"$DEST\", \"diff\", \"--format\", \"json\"]"
+  if "$DEST" --help >/dev/null 2>&1; then
+    echo "OCR 安装完成。"
+    echo "  MCP 通道（推荐，v3.9）: ocrshim -ocr-bin $DEST（compose 侧挂 ./bin/ocr-amd64）"
+    echo "  cli 回退通道: plugins.yaml cmd 填: [\"$DEST\", \"review\", \"--format\", \"json\"]"
+    echo "  （注意：上游 v1.12+ 无 diff 子命令；range 审查由 ocrshim 按工作副本自动传 --from/--to）"
+  fi
 }
 
 main "$@"

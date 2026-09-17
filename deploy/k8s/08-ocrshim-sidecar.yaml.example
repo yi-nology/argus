@@ -1,0 +1,72 @@
+# ocrshim sidecar 示例（v3.9 OCR MCP 通道，可选）
+#
+# k8s 没有 pod-merge：sidecar 容器需粘贴进 04-deployment.yaml 的 containers 列表
+# （与 argus 同 Pod：共享 data PVC——工作副本路径一致，payload.workcopy_dir 直接可用；
+#  同 Pod loopback 互通——plugins.yaml 的 ocr 插件 endpoint 填 http://127.0.0.1:8090/mcp）。
+#
+# 前置（§8 供应链信任）：
+#   1. 镜像需含 OCR 二进制。Dockerfile 构建期追加（版本 pin + checksum 由
+#      scripts/install-ocr.sh 的 OCR_VERSION/OCR_CHECKSUM 语义负责）：
+#        COPY scripts/install-ocr.sh /tmp/install-ocr.sh
+#        RUN OCR_VERSION=v1.12.2 OCR_CHECKSUM=<sha256> OCR_DEST=/opt/argus/bin/ocr \
+#            sh /tmp/install-ocr.sh && rm /tmp/install-ocr.sh
+#   2. plugins.yaml（05-plugins-configmap）加 ocr 插件条目：
+#        - name: ocr
+#          kind: remote
+#          protocol: mcp
+#          skills: [code-review]
+#          needs: [working-copy]
+#          endpoint: "http://127.0.0.1:8090/mcp"
+#          tool: review
+#          cost: heavy
+#          timeout: 300s
+#   3. argus-secret 需含 OPENAI_API_KEY / OPENAI_BASE_URL（LLM 凭证只进 ocrshim，
+#      不再透传给待审工作树内的进程）。
+#   4. 可选鉴权（v3.9.0 审查修复，建议开启）：sidecar 的 :8090 绑在 Pod 网络——
+#      argus 经 loopback 访问，但同集群其他 Pod 在无 NetworkPolicy 时同样可达。
+#      argus-secret 加 OCRSHIM_TOKEN=<随机串>（envFrom 已注入 shim），args 追加
+#        - "-auth-token"  →  由 OCRSHIM_TOKEN 环境变量自动生效（无需明文进 args），
+#      ocr 插件条目加 auth_token_env: OCRSHIM_TOKEN 两侧配对。
+#
+# ---- 以下块粘贴到 04-deployment.yaml 的 containers: 列表尾部 ----
+        - name: ocrshim
+          image: argus:v3.8.0            # 同镜像双二进制（/app/argus + /app/ocrshim）
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-listen"
+            - ":8090"
+            - "-ocr-bin"
+            - "/opt/argus/bin/ocr"
+            - "-ocr-env"
+            - "OPENAI_API_KEY,OPENAI_BASE_URL"
+            # OCR 原始 stdout 留档（人工回溯；与 argus 容器同 PVC 子路径，
+            # delegate 通道的留档也在此目录）
+            - "-history-dir"
+            - "/data/ocr-history"
+          envFrom:
+            - secretRef:
+                name: argus-secret
+          ports:
+            - name: mcp
+              containerPort: 8090
+          volumeMounts:
+            - name: data
+              mountPath: /data           # 与 argus 容器同一 PVC：工作副本卷共享
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

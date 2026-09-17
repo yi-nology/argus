@@ -26,6 +26,7 @@ import (
 	api "argus/biz/model/api"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/qa"
@@ -59,9 +60,14 @@ type Service struct {
 	RouterModel model.BaseChatModel
 
 	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
-	qaThrottleMu     sync.Mutex
-	qaThrottles      map[string]time.Time // PR 级 30s 节流
-	qaSeenDeliveries map[string]time.Time // delivery ID 幂等（防平台重试）
+	qaThrottleMu sync.Mutex
+	qaThrottles  map[string]time.Time // PR 级 30s 节流
+
+	// 评论链路资源闸（v3.8.0）：有界并发 + 超时 + 停机排水。此前评论事件挂
+	// 无超时的 Background ctx、无并发上限、停机直接杀在途 ReAct（用户永无回复）。
+	commentOnce  sync.Once
+	commentSlots chan struct{}  // 有界并发（容量 Cfg.CommentConcurrency）
+	commentWG    sync.WaitGroup // 在途评论事件（DrainComments 等待）
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。
@@ -84,6 +90,60 @@ func (s *Service) log() Logger {
 		return s.Log
 	}
 	return noopLogger{}
+}
+
+// initCommentGate 惰性初始化评论并发闸（容量来自 Cfg.CommentConcurrency）。
+func (s *Service) initCommentGate() {
+	s.commentOnce.Do(func() {
+		n := s.Cfg.CommentConcurrency
+		if n <= 0 {
+			n = 2
+		}
+		s.commentSlots = make(chan struct{}, n)
+	})
+}
+
+// SubmitComment 评论事件入口（v3.8.0 治理）：有界并发 + 整体超时 + 停机排水。
+// ctx 治理：WithoutCancel 保留请求 ctx 的 trace_id（此前 Background 直接丢弃），
+// 同时脱钩请求生命周期（平台 10s 断连不再杀在途 ReAct）；再包 CommentTimeout
+// 整体上界（此前理论可达 30 分钟级、无任何 deadline）。
+// 返回 false = 并发闸满载（调用方回"忙"，不排队——排队会把 webhook 线程池拖垮）。
+func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.NormalizedEvent, delivery string) bool {
+	s.initCommentGate()
+	select {
+	case s.commentSlots <- struct{}{}:
+	default:
+		return false
+	}
+	timeout := s.Cfg.CommentTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(requestCtx), timeout)
+	s.commentWG.Add(1)
+	async.GoSafe(func() {
+		defer cancel()
+		defer s.commentWG.Done()
+		defer func() { <-s.commentSlots }()
+		s.HandleComment(ctx, ev, delivery)
+	})
+	return true
+}
+
+// DrainComments 停机排水：等待在途评论事件收尾（最多 timeout，超时放行——
+// 与 worker 两阶段停机同一哲学，避免卡死整个 shutdown）。
+func (s *Service) DrainComments(timeout time.Duration) {
+	s.initCommentGate()
+	done := make(chan struct{})
+	go func() {
+		s.commentWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		s.log().Warn("argus.comment.drain_timeout", "timeout", timeout.String())
+	}
 }
 
 // ---------- 统一响应壳（ekit mw：{code,data,message,trace_id}）----------
@@ -117,22 +177,19 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 
 // ---------- webhook（POST /webhook/:platform）----------
 
-// 事件类型白名单（§5.1 规则 1）。注意 Type = "cr." + 平台原生 action 透传，按平台词表维护；
-// GitLab 的 MR action 词表不同（cr.open/cr.update 等），接入 GitLab 前必须先核词表（design §5.1）。
+// 事件类型白名单（§5.1 规则 1）。SDK 各后端在投递前都会过 provider.NormalizeCRAction
+// 归一化（opened/closed/merged/reopened/updated 五词，未识别词原样透传），因此键必须是
+// 归一化词表而非平台原生词：v3.7.x 及此前维护的是原生词表（cr.synchronize/cr.update 等），
+// GitHub 的 synchronize、GitLab 的 update 归一化为 cr.updated 后不在白名单——"推新提交
+// 触发重审"整条静默断流，Forgejo 的 cr.synchronized 命中纯靠透传拼写巧合（v3.8.0 修复）。
+// cr.merged / cr.closed 移出白名单：对已合并/已关闭的 MR 发起全量审查只烧 token。
 var crEventWhitelist = map[string]string{
-	// Gitea / GitHub
 	"cr.opened":       "opened",
-	"cr.synchronize":  "synchronize",
-	"cr.synchronized": "synchronized",
 	"cr.reopened":     "reopened",
-	// GitLab MR actions ("cr." + action, SDK 透传)
-	"cr.open":       "open",
-	"cr.close":      "close",
-	"cr.reopen":     "reopen",
-	"cr.update":     "update",
-	"cr.merged":     "merged",
-	"cr.approved":   "approved",
-	"cr.unapproved": "unapproved",
+	"cr.updated":      "updated",      // 所有平台"推新提交/编辑"的归一化形态
+	"cr.synchronized": "synchronized", // 历史兼容：未过归一化的直连投递仍可触发
+	"cr.approved":     "approved",     // 透传词：评审动作触发复审的平台接入点
+	"cr.unapproved":   "unapproved",
 }
 
 // Webhook 平台 webhook 入口：返回 (IDL 响应体, HTTP 状态码)。
@@ -145,6 +202,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
 	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
 	if pcfg.Secret == "" {
+		obs.IncrWebhookRejected("no_secret")
 		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
 		return &api.WebhookResponse{
@@ -158,6 +216,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	if s.Cfg.WebhookMaxBody > 0 {
 		if cl := string(c.GetHeader("Content-Length")); cl != "" {
 			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
+				obs.IncrWebhookRejected("body_too_large")
 				return &api.WebhookResponse{
 					Status: "error",
 					Reason: strPtr(fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)),
@@ -188,9 +247,11 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	if err != nil {
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
+			obs.IncrWebhookRejected("signature")
 			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
 			return &api.WebhookResponse{Status: "error", Reason: strPtr("签名校验失败")}, http.StatusUnauthorized
 		}
+		obs.IncrWebhookRejected("parse")
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("事件解析失败: " + err.Error())}, http.StatusBadRequest
 	}
 
@@ -207,8 +268,11 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		}
 	}
 
-	skipped := func(reason string) (*api.WebhookResponse, int) {
-		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(reason), EventId: strPtr(delivery)}, http.StatusOK
+	skipped := func(reason, why string) (*api.WebhookResponse, int) {
+		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
+		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
+		obs.IncrWebhookSkipped(reason)
+		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(why), EventId: strPtr(delivery)}, http.StatusOK
 	}
 
 	// GitHub App 安装事件：记录安装信息，不建审查任务
@@ -218,30 +282,31 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 
 	// Q&A 评论路由：issue_comment 事件中含 @argus ask → 直接 LLM 回答（不建 task）。
 	// 异步执行（深挖 P0）：ReAct 可达数分钟，同步跑会吃满平台 webhook 超时——
-	// 断连取消 ctx 杀掉 ReAct，平台重试又撞 30s 节流，用户永无回复。挂到
-	// Background ctx（与请求生命周期解耦）+ GoSafe 防 panic；delivery 幂等/
-	// per-PR 节流都在 HandleComment 内部，重复投递安全。
+	// 断连取消 ctx 杀掉 ReAct，平台重试又撞 30s 节流，用户永无回复。经
+	// SubmitComment（v3.8.0）：WithoutCancel 保 trace + 超时上界 + 有界并发 +
+	// 停机排水；delivery 幂等已下沉 DB（MarkCommentDelivery，多副本一致）。
 	if isCommentEvent(ev) {
-		async.GoSafe(func() {
-			s.HandleComment(context.Background(), ev, delivery)
-		})
+		if !s.SubmitComment(ctx, ev, delivery) {
+			s.log().Warn("argus.comment.busy", "platform", platform, "event_id", delivery)
+			return &api.WebhookResponse{Status: "busy", Reason: strPtr("评论处理并发已满，请稍后重试"), EventId: strPtr(delivery)}, http.StatusOK
+		}
 		return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), Reason: strPtr("qa comment")}, http.StatusOK
 	}
 
 	// §5.1 规则 1：事件类型白名单（防评论风暴、防自我触发循环）
 	if _, ok := crEventWhitelist[ev.Type]; !ok {
-		return skipped("事件类型不在白名单: " + ev.Type)
+		return skipped("event_type", "事件类型不在白名单: "+ev.Type)
 	}
 	// 规则 2：bot 自审保护
 	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
-		return skipped("bot 自身事件，跳过")
+		return skipped("bot_self", "bot 自身事件，跳过")
 	}
 	// 规则 3：draft 默认不审；缺 CR/Repo 信息的异常事件防御性跳过（长跑服务不 panic）
 	if ev.CR == nil || ev.Repo == nil {
-		return skipped("事件缺少 CR/Repo 信息")
+		return skipped("missing_cr", "事件缺少 CR/Repo 信息")
 	}
 	if ev.CR.Draft && s.Cfg.SkipDraft {
-		return skipped("draft PR 默认不审（ARGUS_SKIP_DRAFT=true）")
+		return skipped("draft", "draft PR 默认不审（ARGUS_SKIP_DRAFT=true）")
 	}
 
 	// 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
@@ -356,7 +421,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		// 同 PR 已有在飞任务：幂等返回既有任务，不再叠加一份重复审查（token 白烧）。
 		s.log().Info("argus.api.task_create_deduped", "existing", existing.ID,
 			"status", existing.Status, "pr", owner+"/"+repo+"#"+number)
-		return &api.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status}, http.StatusOK
+		return &api.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status, Duplicated: true}, http.StatusOK
 	}
 	s.publishCreated(task)
 
@@ -428,16 +493,26 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		pluginName   string
 		matched      bool
 		suppressDone bool
+		// resolvedFinding 模式一解析出的入库原始身份（模式二为零值，仍用请求身份）
+		resolvedFinding plugin.Finding
 	)
 	switch {
 	case str(req.Fingerprint) != "":
-		// 模式一：报告意见行的 fp 短码直达（前缀解析完整指纹，含别名回映射）
-		full, by, found := s.Store.ResolvePrintWithPlugin(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
+		// 模式一：报告意见行的 fp 短码直达（前缀解析完整行，含别名回映射）。
+		// v3.8.0：取回 prints 行的原始 file/line/severity/comment/plugin——
+		// 抑制回写与 pattern 记账都必须用入库身份；请求里的评语（评论路径下是
+		// 整条评论原文）只会把学习环账本记到垃圾键上。
+		rec, found := s.Store.ResolvePrintRecord(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
 		if !found {
 			return &api.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
 		}
-		fp = full
-		pluginName = by
+		fp = rec.Print
+		pluginName = rec.Plugin
+		file = rec.File
+		resolvedFinding = plugin.Finding{
+			File: rec.File, Line: rec.Line, Severity: rec.Severity,
+			Comment: rec.Comment, By: rec.Plugin,
+		}
 	case file != "" && comment != "":
 		// 模式二：file + 意见原文（v3.7.0）——v2 指纹含行号，原文无法直算；
 		// 走近重复检索抑制既有条目（措辞/行号漂移容忍），未命中预插 suppressed 行
@@ -452,10 +527,15 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		return nil, http.StatusBadRequest // fingerprint 或 (file+comment) 二选一
 	}
 
+	// 学习环/知识飞轮/回写统一用入库原始身份（模式一 resolvedFinding；模式二用请求身份）
+	ledgerFinding := resolvedFinding
+	if ledgerFinding.Comment == "" && ledgerFinding.File == "" {
+		ledgerFinding = plugin.Finding{File: file, Comment: comment, By: pluginName}
+	}
 	if !suppressDone {
 		var err error
 		matched, err = s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
-			fp, plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now())
+			fp, ledgerFinding, time.Now())
 		if err != nil {
 			s.log().Error("argus.api.suppress_failed", "error", err.Error())
 			return nil, http.StatusInternalServerError
@@ -464,12 +544,15 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	if matched {
 		// 知识飞轮（v3.3）：误报结论回流知识库——R3 search_knowledge 命中
 		// "本仓库历史误报"即带抑制上下文，同型误报率随使用下降
-		s.recordFalsePositiveKnowledge(ctx, platform, req.Owner, req.Repo, req.Number, fp, file, comment)
+		s.recordFalsePositiveKnowledge(ctx, platform, req.Owner, req.Repo, req.Number,
+			fp, ledgerFinding.File, ledgerFinding.Comment)
 	}
-	// 学习环：人工判误报 → PatternSuppress（失败只告警）
+	// 学习环：人工判误报 → PatternSuppress（失败只告警）。
+	// 必须用入库原始评语派生 pattern 键——请求评语（评论路径=整条评论原文）
+	// 剥离指令词/hex 后塌缩到垃圾键，真实 pattern 永远收不到人工负票（v3.8.0 修复）。
 	if s.Cfg != nil && s.Cfg.RegretLearning {
 		if err := s.Store.PatternSuppress(ctx, platform, req.Owner, req.Repo, pluginName,
-			plugin.Finding{File: file, Comment: comment, By: pluginName}, time.Now()); err != nil {
+			ledgerFinding, time.Now()); err != nil {
 			s.log().Warn("argus.regret.pattern_suppress_failed", "error", err.Error())
 		}
 	}
@@ -1000,26 +1083,17 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
 		return
 	}
-	// delivery 幂等：防平台重试导致重复 LLM 调用 + 重复回复
+	// delivery 幂等：防平台重试导致重复 LLM 调用 + 重复回复。
+	// v3.8.0 下沉 DB（comment_deliveries 主键冲突=已处理）：纯内存 map 在多副本
+	// 共库与单实例重启场景下全部失效。落库失败 fail-open（继续处理）——回帖重复
+	// 可容忍，丢单不可容忍。
 	if delivery != "" {
-		s.qaThrottleMu.Lock()
-		if s.qaSeenDeliveries == nil {
-			s.qaSeenDeliveries = make(map[string]time.Time)
-		}
-		if _, seen := s.qaSeenDeliveries[delivery]; seen {
-			s.qaThrottleMu.Unlock()
+		fresh, err := s.Store.MarkCommentDelivery(ctx, delivery, time.Now())
+		if err != nil {
+			s.log().Warn("argus.qa.delivery_mark_failed", "delivery", delivery, "error", err.Error())
+		} else if !fresh {
 			return
 		}
-		s.qaSeenDeliveries[delivery] = time.Now()
-		// 清理旧条目
-		if len(s.qaSeenDeliveries) > 200 {
-			for k, t := range s.qaSeenDeliveries {
-				if time.Since(t) > time.Hour {
-					delete(s.qaSeenDeliveries, k)
-				}
-			}
-		}
-		s.qaThrottleMu.Unlock()
 	}
 	if ev.Repo == nil {
 		return
@@ -1079,6 +1153,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	if !s.Cfg.CommentRouter {
 		answer, err := s.qa().Answer(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question)
 		if err != nil {
+			obs.IncrQAFailure("llm")
 			s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
 			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "LLM 调用失败: "+err.Error())
 			return
@@ -1091,6 +1166,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 	reply, err := s.routeAndReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question, delivery)
 	if err != nil {
+		obs.IncrQAFailure("llm")
 		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
 		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "处理失败: "+err.Error())
 		return
@@ -1218,14 +1294,17 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 	number int, fpPrefix string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)
-	// 学习环：先解析插件归属，restore 后原行仍可查但状态已变
-	var pluginName, fullFP, comment string
+	// 学习环：解析完整行——restore 的 pattern 键同样必须由入库原始评语派生
+	//（此前固定 "restore:"+短码，hex 被剥离后全部塌缩到单一垃圾键，v3.8.0 修复）
+	var pluginName, fullFP string
+	var resolvedFinding plugin.Finding
 	if s.Cfg != nil && s.Cfg.RegretLearning {
-		if fp, by, ok := s.Store.ResolvePrintWithPlugin(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fpPrefix); ok {
-			fullFP, pluginName = fp, by
-			if st, err := s.Store.GetPrintState(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fp); err == nil && st != nil {
-				// PrintState 无 Comment 字段，用 fingerprint 短码作为可追踪样本
-				comment = "restore:" + fp[:8]
+		if rec, ok := s.Store.ResolvePrintRecord(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fpPrefix); ok {
+			fullFP = rec.Print
+			pluginName = rec.Plugin
+			resolvedFinding = plugin.Finding{
+				File: rec.File, Line: rec.Line, Severity: rec.Severity,
+				Comment: rec.Comment, By: rec.Plugin,
 			}
 		}
 	}
@@ -1236,7 +1315,7 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 	}
 	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
 		if err := s.Store.PatternRestore(ctx, platform, ev.Repo.Owner, ev.Repo.Name, pluginName,
-			plugin.Finding{Comment: comment}, time.Now()); err != nil {
+			resolvedFinding, time.Now()); err != nil {
 			s.log().Warn("argus.regret.pattern_restore_failed", "error", err.Error())
 		}
 	}

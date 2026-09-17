@@ -2,6 +2,7 @@ package adapter_remote
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -44,9 +45,13 @@ func remoteTask() plugin.Task {
 }
 
 func newRemote(t *testing.T, protocol plugin.Protocol, endpoint, tool string) *Remote {
+	return newRemoteAuth(t, protocol, endpoint, tool, "")
+}
+
+func newRemoteAuth(t *testing.T, protocol plugin.Protocol, endpoint, tool, authToken string) *Remote {
 	t.Helper()
 	m := plugin.AgentManifest{Name: "review-service", Skills: []string{plugin.SkillCodeReview}, Timeout: 5 * time.Second}
-	r, err := New(m, protocol, endpoint, tool)
+	r, err := New(m, protocol, endpoint, tool, authToken, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +88,48 @@ func TestRemoteMCPEndpointDown(t *testing.T) {
 	r := newRemote(t, plugin.ProtocolMCP, "http://127.0.0.1:1/mcp", "review")
 	if _, err := r.Invoke(context.Background(), remoteTask()); err == nil {
 		t.Fatal("不可达应上抛")
+	}
+}
+
+// spawnAuthMCPServer 带 Bearer 共享密钥门的 MCP server（401 语义与 ocrshim 一致）。
+func spawnAuthMCPServer(t *testing.T, token string) *httptest.Server {
+	t.Helper()
+	s := server.NewMCPServer("test-reviewer", "1.0")
+	s.AddTool(mcp.NewTool("review", mcp.WithDescription("审查工具")),
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(`{"findings":[],"notes":"ok"}`), nil
+		})
+	srv := server.NewStreamableHTTPServer(s)
+	var handler http.Handler = srv
+	if token != "" {
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer "+token {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			srv.ServeHTTP(w, r)
+		})
+	}
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// TestRemoteMCPAuthHeader 配置 AuthToken → 请求携带 Bearer 头通过对端门；
+// 错误 token 被对端 401 → Invoke 上抛（Merger 部分失败容忍路径）。
+func TestRemoteMCPAuthHeader(t *testing.T) {
+	ts := spawnAuthMCPServer(t, "s3cret")
+	res, err := newRemoteAuth(t, plugin.ProtocolMCP, ts.URL, "review", "s3cret").
+		Invoke(context.Background(), remoteTask())
+	if err != nil {
+		t.Fatalf("正确 token 应通过: %v", err)
+	}
+	if res.Notes != "ok" {
+		t.Fatalf("notes 不符: %q", res.Notes)
+	}
+	if _, err := newRemoteAuth(t, plugin.ProtocolMCP, ts.URL, "review", "wrong").
+		Invoke(context.Background(), remoteTask()); err == nil {
+		t.Fatal("错误 token 应被对端 401 拒绝并上抛")
 	}
 }

@@ -466,6 +466,22 @@ gunzip < argus-20260901.sql.gz | mysql -h $MYSQL_HOST -u argus -p argus_db
 
 ## 9. 升级 Argus 版本
 
+### v3.0.x → v3.8.x 升级注意事项
+
+- **Schema 迁移零手工 SQL**：启动时 GORM AutoMigrate 自动增量迁移（补齐缺失列/表，
+  如 `tasks.runner_id/heartbeat_at/attempt/next_retry_at`、`review_targets.known_comment_ids`，
+  以及 `qa_sessions` / `leader_leases` / `pattern_signals` / `print_aliases` /
+  `comment_deliveries` / `schema_migrations` 等新表）。MySQL 亦可在启动前可选灌
+  `deploy/migrations/schema.sql` 初始化，与 AutoMigrate 可共存。
+- **指纹 v2（v3.7.0 起）——存量短码全部失效**：v3.7.0 指纹格式升级为 v2，**升级后
+  存量报告评论里的 `fp:xxx` 短码全部失效**（近重复层可兜底部分场景，但不保证全部命中）。
+  需提前在群里告知：旧报告中的短码不可再用于 suppress，请以新报告短码或 file+原文提交反馈。
+- **回滚红线：禁止回滚到 <v3.7.0**：回滚到 <v3.7.0 的二进制接同一数据库 = 指纹体系倒挂
+  （旧代码按 v1 语义读 v2 指纹库），**历史抑制全部失配复活**（已抑制意见重新回帖刷屏）。
+  如必须回滚，需明确接受该后果，或先清空 `finding_prints`（建议连同 `print_aliases`）。
+- **升级前备份 DB**：SQLite 直接 cp 数据文件（停写后 `cp /data/argus.db /backup/`，
+  见场景 8）；MySQL 用 `mysqldump --single-transaction`（见上文 MySQL 备份）。
+
 ### Docker Compose 升级
 
 ```bash
@@ -603,6 +619,11 @@ curl -s -H "Authorization: Bearer $ARGUS_APITOKEN" \
 | `ARGUS_LLM_RATE_BURST` | 等于并发数 | 限速器突发容量 |
 | `ARGUS_TASK_RETENTION_DAYS` | `0` | 任务保留天数（0=永久） |
 | `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | `0` | 仓库月度 token 预算（0=不限） |
+| `ARGUS_COMMENT_TIMEOUT` | `10m` | 评论链路整体超时（总结/标注回帖，超时任务按 failed 落库） |
+| `ARGUS_COMMENT_CONCURRENCY` | `2` | 评论回帖并发数 |
+| `ARGUS_TASK_MAX_RETRIES` | `2` | failed 任务自动重试上限（指数退避 5m×3^n 封顶 1h；0=禁用重试） |
+| `ARGUS_WORKER_GRACE` | `60s` | worker 优雅停机时等待在途任务的时长（超时硬取消） |
+| `ARGUS_METRICS_AUTH` | `false` | /metrics 鉴权开关（开启后需 `Authorization: Bearer $ARGUS_APITOKEN`） |
 | `ARGUS_DEBUG` | `false` | 留存阶段调试产物 |
 | `ARGUS_POLL_INTERVAL` | `0` | 轮询间隔（0=关闭） |
 | `ARGUS_POLL_REPOS` | 空 | 轮询仓库列表 |

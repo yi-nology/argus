@@ -654,11 +654,13 @@ func (s *stack) anyTaskDoneByHead(head string) bool {
 }
 
 // setEvent 预置 webhook 事件。
+// v3.8.0：action 先过 provider.NormalizeCRAction——与真实 SDK 链路一致（此前
+// fake 直接拼原生词绕过归一化，掩盖了白名单与归一化词表脱节的 P0 断流）。
 func (s *stack) setEvent(action, headSHA string) {
 	s.fake.mu.Lock()
 	defer s.fake.mu.Unlock()
 	s.fake.ev = &provider.NormalizedEvent{
-		ID: "evt", Type: "cr." + action, Source: "gitea",
+		ID: "evt", Type: "cr." + provider.NormalizeCRAction(action, false), Source: "gitea",
 		Actor: &provider.CRUser{Username: "alice"},
 		Repo:  &provider.EventRepo{Owner: "acme", Name: "app"},
 		CR: &provider.ChangeRequest{Number: "7", HeadSHA: headSHA,

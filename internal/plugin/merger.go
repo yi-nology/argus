@@ -74,6 +74,9 @@ type PrintState struct {
 	Severity    string
 	TimesSeen   int
 	RegretCount int // 历史被 R3.5 反思剔除次数（误报历史）
+	// Comment 入库原文（任何展示标注之前）——模式记账键（PatternKey 由评语
+	// 派生）的权威来源；下游 regret 记账用它对齐 PatternPosted 的键。
+	Comment string
 }
 
 // MergedFindings Merger 产出。
@@ -241,6 +244,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		finding Finding
 		fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
 		bys     map[string]bool
+		byOrder []string // 来源插件按合并发生序（首见者=评语作者，学习环记账键依赖此序）
 	}
 	byFP := map[string]*acc{} // fp → 首个 acc（轮内指纹去重探测）
 	byNC := map[string]*acc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
@@ -255,6 +259,9 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
 			a.finding.Line = f.Line
 		}
+		if !a.bys[f.By] { // 首次出现的插件才进 byOrder（与 bys 去重语义一致）
+			a.byOrder = append(a.byOrder, f.By)
+		}
 		a.bys[f.By] = true
 		if !strings.Contains(a.finding.Comment, f.Comment) && !strings.Contains(f.Comment, a.finding.Comment) {
 			a.finding.Comment += "\n\n（" + f.By + " 同位置补充）" + f.Comment
@@ -268,17 +275,31 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		if o.Result == nil {
 			continue
 		}
+		// 插件自报的审查降级（如 builtin ReAct 失败落回单轮）透出为 Degraded——
+		// 此前同一 "by xxx" 标签掩盖两种审查强度，报告消费者无法区分（v3.8.0）。
+		for _, line := range strings.Split(o.Result.Notes, "\n") {
+			if strings.Contains(line, DegradationMarker) {
+				out.Degraded = append(out.Degraded, o.Name+"："+strings.TrimSpace(line))
+			}
+		}
 		for _, f := range o.Result.Findings {
 			sev, ok := NormalizeSeverity(f.Severity)
 			if !ok {
 				m.log.Warn("argus.merger.severity_unknown",
 					"plugin", o.Name, "raw", f.Severity, "mapped", sev)
+				// 词表外严重度整批落 low 是"外部插件词表失配"的信号——此前只有
+				// 日志，报告零痕迹（v3.8.0 补 Degraded 注记）
+				out.Degraded = append(out.Degraded,
+					fmt.Sprintf("%s 报告了词表外严重度 %q（已按 %s 处理）", o.Name, f.Severity, sev))
 			}
 			f.Severity = sev
 			f.By = o.Name
 			obsFindings(sev, o.Name, 1)
 
-			fp := Fingerprint(f.File, f.Comment, f.Line)
+			// 规范指纹写定于此（原始 comment/行号，先于任何标注与 R3.5 修订），
+			// 之后只读贯穿到渲染/反馈层——身份唯一化（v3.8.0，勿在下游重算）。
+			f.FP = Fingerprint(f.File, f.Comment, f.Line)
+			fp := f.FP
 			if a, dup := byFP[fp]; dup && linesCompatible(a.finding.Line, f.Line) {
 				// 轮内去重：severity 冲突取高；行号 ±2 内采纳新行号（匹配辅助）；
 				// by 追加来源插件。
@@ -294,7 +315,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 				mergeInto(a, f)
 				continue
 			}
-			a2 := &acc{finding: f, fp: fp, bys: map[string]bool{f.By: true}}
+			a2 := &acc{finding: f, fp: fp, bys: map[string]bool{f.By: true}, byOrder: []string{f.By}}
 			// 位置合并兜底：不同专家对同一 file:line 用不同措辞描述时（指纹必不同），
 			// 按位置归并为一条——「不同专家发现同一问题只报一次」的确定性兜底；
 			// 不同行号不并（保守，两个真正不同的问题常落在相邻行）。
@@ -333,13 +354,11 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 	}
 	for _, a := range order {
 		f := a.finding
-		if len(a.bys) > 1 { // 多插件报了同一问题：by 合并展示
-			var names []string
-			for n := range a.bys {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			f.By = joinNames(names)
+		if len(a.bys) > 1 { // 多插件报了同一问题：by 按合并发生序拼接展示
+			// v3.8.0：不再 sort.Strings——展示序决定记账键（PatternPosted/matchLowPattern
+			// 取 By 首段=评语作者）。字母序会让 a-max 持续消费 z-review 写的评语的
+			// 学习历史（误报模式跨插件串门）。
+			f.By = joinNames(a.byOrder)
 		}
 		// 跨轮历史查询（GetPrintState 此前只有接口与实现、无调用方——接线于此）：
 		// 复现次数与 regret（被 R3.5 反思剔除次数）作为可信度信号。
@@ -372,23 +391,16 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 				continue
 			}
 		}
-		// 展示标注（注释在入库之后改写，不污染指纹与 prints 表存储的原文）：
-		// 复现 = 同一问题跨轮再现；高 regret = 历史上多次被终审判为误报嫌疑。
-		if prior != nil {
-			if prior.TimesSeen >= 2 {
-				f.Comment = fmt.Sprintf("%s（跨轮复现 %d 次）", f.Comment, prior.TimesSeen+1)
-			}
-			if prior.RegretCount >= 2 {
-				f.Comment += fmt.Sprintf("（历史被 R3.5 反思剔除 %d 次，可信度低）", prior.RegretCount)
-			}
-		}
 		// 模式级低置信标注（SoftFloor）：medium/high 也标注，人审优先看。
+		// PatternPosted 与本匹配都必须基于标注前的原始评语——PatternKey 由评语
+		// 派生（pattern.go），先标注后记账/匹配会让惯犯条目对不上自己的历史
+		// 模式行（与 FP 同款错账，v3.9.0 审查修复）。
 		if m.learn.Enabled {
 			if hit := matchLowPattern(lowPatterns, f, m.learn.MinSamples, m.learn.SoftFloor); hit != nil {
 				f.Comment += "（本仓库同类意见历史置信度低）"
 			}
 		}
-		// PatternPosted：意见进入报告后记账（失败只告警）
+		// PatternPosted：意见进入报告后记账（失败只告警）。
 		if m.learn.Enabled && m.patterns != nil {
 			by := f.By
 			if i := strings.IndexByte(by, ','); i > 0 {
@@ -396,6 +408,17 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			}
 			if err := m.patterns.PatternPosted(ctx, pr.Platform, pr.Owner, pr.Repo, by, f, at); err != nil {
 				m.log.Warn("argus.merger.pattern_posted_failed", "error", err.Error())
+			}
+		}
+		// 展示标注（注释在入库与模式记账之后改写，不污染指纹/prints 原文/
+		// 模式键）：复现 = 同一问题跨轮再现；高 regret = 历史上多次被终审判为
+		// 误报嫌疑。所以必须放在本循环最后。
+		if prior != nil {
+			if prior.TimesSeen >= 2 {
+				f.Comment = fmt.Sprintf("%s（跨轮复现 %d 次）", f.Comment, prior.TimesSeen+1)
+			}
+			if prior.RegretCount >= 2 {
+				f.Comment += fmt.Sprintf("（历史被 R3.5 反思剔除 %d 次，可信度低）", prior.RegretCount)
 			}
 		}
 		out.Findings = append(out.Findings, f)

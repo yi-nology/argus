@@ -121,3 +121,21 @@ func TestRenderEscapesFindings(t *testing.T) {
 		t.Fatalf("伪造结论标题未被中和:\n%s", out)
 	}
 }
+
+// v3.8.0 回归：渲染短码必须消费 merger 写定的 FP（prints 表身份），
+// 不得用标注后的终稿文本重算——那正是 fp 短码漂移、suppress 解析失败的根因。
+func TestRenderUsesStoredFingerprintOverRecompute(t *testing.T) {
+	stored := plugin.Fingerprint("a.go", "空指针风险", 1)
+	annotated := "空指针风险（跨轮复现 3 次）（历史被 R3.5 反思剔除 2 次，可信度低）"
+	if plugin.Fingerprint("a.go", annotated, 1) == stored {
+		t.Fatal("测试前置失效：标注文本重算指纹不应等于入库指纹")
+	}
+	rep := Report{TaskID: "t", Version: "v", VerdictText: "⚠️ 降级", Rule: "R5.0",
+		Findings: []plugin.Finding{{File: "a.go", Line: 1, Severity: "high",
+			Comment: annotated, By: "s1", FP: stored}}}
+	out := Render(rep)
+	want := "fp:" + stored[:8]
+	if !strings.Contains(out, want) {
+		t.Fatalf("报告短码应使用入库指纹 %s:\n%s", want, out)
+	}
+}

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,8 +210,25 @@ func TestMerger(t *testing.T) {
 	if merged.Suppressed != 1 {
 		t.Fatalf("抑制计数错误: %d", merged.Suppressed)
 	}
-	if len(merged.Degraded) != 1 || merged.Degraded[0] == "" {
+	// v3.8.0：Degraded 含 broken 未参与 + 词表外严重度注记，断言改为语义匹配
+	foundBroken := false
+	for _, d := range merged.Degraded {
+		if strings.Contains(d, "broken 未参与") {
+			foundBroken = true
+		}
+	}
+	if !foundBroken {
 		t.Fatalf("降级注明缺失: %+v", merged.Degraded)
+	}
+	// v3.8.0：词表外严重度必须有 Degraded 注记（此前只有日志零痕迹）
+	foundSevNote := false
+	for _, d := range merged.Degraded {
+		if strings.Contains(d, "词表外严重度") {
+			foundSevNote = true
+		}
+	}
+	if !foundSevNote {
+		t.Fatalf("词表外严重度应注入 Degraded: %+v", merged.Degraded)
 	}
 }
 

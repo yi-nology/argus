@@ -145,10 +145,12 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				enabled = false
 				p = &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 cmd"}
 			} else if strings.EqualFold(decl.Mode, "delegate") {
-				// delegate 模式仍未实装（运行期必报错）——启动期即停用并注明，
-				// 不再注册成"可用"插件每个 PR 撞一次错、白烧熔断额度（深挖修复）
+				// delegate 产物是审查输入而非 findings，装不进插件契约（运行期必报错）——
+				// 已实装为 runner 层前置步骤（internal/ocrdeleg，ARGUS_OCR_BIN 启用）。
+				// 启动期即停用并注明，不注册成"可用"插件每个 PR 撞一次错、白烧熔断额度。
 				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "cli delegate 模式未实装（留接口）"}
+				p = &unavailablePlugin{manifest: manifest,
+					reason: "cli 插件无 delegate 模式（delegate 由 runner 前置实装：ARGUS_OCR_BIN）"}
 			} else if _, err := exec.LookPath(decl.Cmd[0]); err != nil {
 				// 供应链信任（§8）：白名单可执行文件不存在 → 不启用（绝不尝试其他解析路径）
 				d.Log.Warn("argus.bootstrap.cli_binary_missing", "plugin", decl.Name, "cmd", decl.Cmd[0])
@@ -167,7 +169,20 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 				p = &unavailablePlugin{manifest: manifest, reason: "protocol 非法: " + string(manifest.Protocol)}
 				break
 			}
-			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool)
+			authToken := ""
+			if decl.AuthTokenEnv != "" {
+				authToken = os.Getenv(decl.AuthTokenEnv)
+				if authToken == "" {
+					// 与 needs:[working-copy] 缺池同款启动期停用：配置声明了凭证
+					// 而环境未给，运行期必被对端 401——不注册成"可用"插件每个 PR 撞一次
+					d.Log.Warn("argus.bootstrap.remote_auth_env_missing", "plugin", decl.Name, "env", decl.AuthTokenEnv)
+					enabled = false
+					p = &unavailablePlugin{manifest: manifest,
+						reason: "auth_token_env 环境变量未设置: " + decl.AuthTokenEnv}
+					break
+				}
+			}
+			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool, authToken, d.WC)
 			if err != nil {
 				d.Log.Warn("argus.bootstrap.remote_skipped", "plugin", decl.Name, "error", err.Error())
 				enabled = false

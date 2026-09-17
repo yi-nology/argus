@@ -201,6 +201,14 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 			r.log.Warn("argus.builtin.react_fallback", "plugin", r.manifest.Name,
 				"error", err.Error(), "fallback", "单轮调用")
 		}
+		// 降级透出（v3.8.0）：ReAct 失败静默落回单轮曾让同一 "by xxx" 标签掩盖
+		// 两种审查强度；Merger 把含标记的 Notes 行透出为报告 Degraded。
+		res, serr := r.invokeSingle(ctx, task)
+		if serr == nil {
+			res.Notes = strings.TrimSpace(res.Notes + "\n" + plugin.DegradationMarker +
+				" ReAct 执行失败，已降级为单轮审查（无工具核实，覆盖深度受限）")
+		}
+		return res, serr
 	}
 	return r.invokeSingle(ctx, task)
 }
@@ -348,7 +356,8 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 // Task.Artifacts[ArtifactReviewGuidelines]）。指引是仓库维护者写的审查偏好
 // （关注点、禁报面、团队规范），与 .reviewagents.yaml 同属 §3.4 仓库配置信任
 // 边界；为空时返回空串，不改变原有 prompt。
-// 同时拼接学习环历史误报提示（ArtifactReviewHints，可空）。
+// 同时拼接学习环历史误报提示（ArtifactReviewHints，可空）与 OCR delegate 前置
+// 产物（ArtifactOCRTriage/ArtifactOCRRules，section 已含数据区纪律声明，可空）。
 func guidelinesPrompt(task plugin.Task) string {
 	var b strings.Builder
 	if g := strings.TrimSpace(task.Artifacts[plugin.ArtifactReviewGuidelines]); g != "" {
@@ -361,6 +370,12 @@ func guidelinesPrompt(task plugin.Task) string {
 		b.WriteString("\n\n===【本仓库历史高误报模式】===\n")
 		b.WriteString(h)
 		b.WriteString("提高举证标准：命中类似表述时必须给出具体行与影响，否则不要输出。\n")
+	}
+	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules} {
+		if s := strings.TrimSpace(task.Artifacts[key]); s != "" {
+			b.WriteString("\n\n")
+			b.WriteString(s)
+		}
 	}
 	return b.String()
 }

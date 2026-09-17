@@ -17,13 +17,16 @@ ARG TARGETARCH=amd64
 RUN --mount=type=ssh \
     GOPRIVATE=git.example.com/* GOINSECURE=git.example.com/* GOPROXY=https://goproxy.cn,direct \
     CGO_ENABLED=0 GOARCH=${TARGETARCH} \
-    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/argus .
+    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/argus . && \
+    CGO_ENABLED=0 GOARCH=${TARGETARCH} \
+    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/ocrshim ./cmd/ocrshim
 
 FROM alpine:3.20
 RUN apk add --no-cache git ca-certificates tzdata && \
     addgroup -S argus -g 1000 && adduser -S argus -G argus -u 1000
 WORKDIR /app
 COPY --from=builder /out/argus /app/argus
+COPY --from=builder /out/ocrshim /app/ocrshim
 COPY plugins.example.yaml /app/plugins.yaml
 COPY skills /app/skills
 # 工作副本沙箱与 SQLite 库放卷上，容器重建不丢任务
@@ -44,6 +47,6 @@ EXPOSE 8899
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8899/healthz || exit 1
+    CMD wget -qO- http://127.0.0.1:8899/readyz || exit 1
 
 ENTRYPOINT ["/app/argus"]

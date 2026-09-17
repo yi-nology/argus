@@ -102,7 +102,7 @@ func TestExportRepoWritesLocalMarkdown(t *testing.T) {
 		t.Fatalf("markdown 内容不完整: %s", raw)
 	}
 
-	// 负控：无低置信 → 不写文件
+	// 负控：无低置信 → 不再残留旧误报结论（v3.8.0 改为写澄清文案覆盖）
 	st.low = map[string][]plugin.PatternState{}
 	os.Remove(filepath.Join(dir, "dream-acme-app.md"))
 	_, exported, err = d.RunOnce(context.Background())
@@ -112,8 +112,12 @@ func TestExportRepoWritesLocalMarkdown(t *testing.T) {
 	if exported != 0 {
 		t.Fatal("无低置信不应导出")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "dream-acme-app.md")); err == nil {
-		t.Fatal("不应残留文件")
+	raw2, err := os.ReadFile(filepath.Join(dir, "dream-acme-app.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw2), "建议提取魔法数字") || !strings.Contains(string(raw2), "没有样本充足且低置信") {
+		t.Fatalf("无低置信时应覆盖为澄清文案: %s", raw2)
 	}
 }
 

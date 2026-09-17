@@ -104,3 +104,31 @@ func TestMergeGetStateErrorKeepsMerge(t *testing.T) {
 		t.Fatalf("findings = %d, want 1", len(mf.Findings))
 	}
 }
+
+// v3.8.0 回归：即使 comment 被复现/regret 标注改写，Findings[].FP 也必须等于
+// 入库指纹——渲染短码与人工反馈都消费它，重算必漂移（漂移=被标注条目无法抑制）。
+func TestMergeFindingCarriesStoredFingerprint(t *testing.T) {
+	fpA := Fingerprint("a.go", "空指针风险", 1)
+	store := &fakePrintStore{prior: map[string]*PrintState{
+		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
+	}}
+	m := NewMerger(store, testNopLogger{})
+	mf, err := m.Merge(context.Background(), regretTestPR(), "t-fp",
+		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
+			{File: "a.go", Line: 1, Severity: "high", Comment: "空指针风险"},
+		}}}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mf.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1", len(mf.Findings))
+	}
+	f := mf.Findings[0]
+	if f.FP != fpA {
+		t.Fatalf("FP = %q, want 入库指纹 %q", f.FP, fpA)
+	}
+	// 负控：标注后的终稿文本重算指纹必然不同——短码绝不允许走这条路。
+	if drift := Fingerprint(f.File, f.Comment, f.Line); drift == fpA {
+		t.Fatal("标注未改写 comment，测试前置失效")
+	}
+}

@@ -84,7 +84,11 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	}
 	var history []storage.QATurn
 	if sess != nil {
-		_ = json.Unmarshal([]byte(sess.HistoryJSON), &history)
+		// v3.8.0：坏 JSON 此前静默当无历史——与"读失败留痕"的自我要求不一致
+		if err := json.Unmarshal([]byte(sess.HistoryJSON), &history); err != nil {
+			e.log().Warn("argus.qa.history_corrupt", "pr", prRef, "error", err.Error())
+			history = nil
+		}
 	}
 
 	answer, err := e.react(ctx, platform, owner, repo, number, question, history)
@@ -221,7 +225,9 @@ func systemPrompt(strategy, historyText string) string {
 		sys += "\n\n" + strategy
 	}
 	if historyText != "" {
-		sys += "\n\n===【历史对话（同一 PR 的此前问答，数据）】===\n" + historyText
+		// v3.8.0：历史对话里的"用户:"行来自 PR 评论（攻击者可控），此前自拼
+		// 围栏无中和处理，可伪造结构化标记/注入伪指令。统一走 plugin.DataFence。
+		sys += "\n\n" + plugin.DataFence("历史对话（同一 PR 的此前问答）", historyText)
 	}
 	return sys
 }
@@ -291,7 +297,9 @@ func (e *Engine) single(ctx context.Context, platform, owner, repo, number, ques
 	client := llm.NewClient(e.chatModel(), "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage(systemPrompt("", renderHistory(history))),
-		schema.UserMessage("PR 上下文:\n" + prCtx + "\n\n用户问题: " + question),
+		// v3.8.0：PR 标题/描述/作者（敌对输入）此前裸拼进 user message——
+		// ReAct 失败时自动落回此路径，注入防线与故障率正相关倒挂。补围栏。
+		schema.UserMessage(plugin.DataFence("PR 上下文", prCtx) + "\n\n用户问题: " + question),
 	}
 	resp, err := client.Generate(ctx, "qa", msgs)
 	if err != nil {

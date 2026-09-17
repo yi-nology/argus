@@ -1,7 +1,8 @@
 # 关键约束（SQLite 单写模型——当前默认部署形态）：
 #   - replicas 恒为 1，禁止多副本（storage.go 连接数=1 + 写锁保证幂等/去重事务性）
 #   - strategy 必须用 Recreate：RWO PVC + 滚动更新会卡在卷挂载
-#   - terminationGracePeriodSeconds(90) > worker 优雅停机 grace(60s)：
+#   - terminationGracePeriodSeconds(120) > 应用 ShutdownTimeout(90s)：k8s 侧宽限
+#     必须大于应用侧，否则最坏停机链的关库动作会被 SIGKILL 掐断（v3.8.0 修正）
 #     SIGTERM 后 HTTP 停止、在途审查自然完成，超时才硬取消（保持 running 待重启重置）
 #
 # 多副本横向扩展：切 MySQL（ARGUS_DB_DSN 指向网络库）+ 去掉 DB PVC 后放开 replicas，
@@ -30,7 +31,9 @@ spec:
         prometheus.io/port: "8899"
         prometheus.io/path: "/metrics"
     spec:
-      terminationGracePeriodSeconds: 90
+      # v3.8.0：cli/acpx 插件派生的孙进程由 init(PAUSE) 收养 reap，防僵尸累积
+      shareProcessNamespace: true
+      terminationGracePeriodSeconds: 120
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -38,7 +41,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: argus
-          image: argus:v3.6.0          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.0.1
+          image: argus:v3.8.0          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.8.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

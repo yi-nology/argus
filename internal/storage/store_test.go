@@ -505,3 +505,89 @@ func TestReviewTargetKnownCommentsRoundtrip(t *testing.T) {
 		t.Fatalf("id<=0 应静默忽略: %v", err)
 	}
 }
+
+// v3.8.0 回归：FinishTaskFenced 归属 fencing——stale 重置后旧执行体（runner_id
+// 不匹配或任务已易主）的终态写入被丢弃，新执行体的写入不受影响。
+func TestFinishTaskFenced(t *testing.T) {
+	s := openTestStore(t)
+	s.RunnerID = "runner-a"
+	ctx := context.Background()
+
+	claim := func(id string) {
+		if err := s.db.Model(&Task{}).Where("id = ?", id).
+			Updates(map[string]any{"status": StatusRunning, "runner_id": s.RunnerID}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	t1 := mkTask("ft-1", nil, "sha-a")
+	if err := s.CreateTask(ctx, t1); err != nil {
+		t.Fatal(err)
+	}
+	claim("ft-1")
+	fenced, err := s.FinishTaskFenced(ctx, "ft-1", StatusDone, "comment", "r", "{}", "", 5, 0)
+	if err != nil || fenced {
+		t.Fatalf("归属匹配应成功写入: fenced=%v err=%v", fenced, err)
+	}
+
+	// 模拟 stale 重置后被 runner-b 认领：旧执行体 runner-a 的写入必须被拒
+	if err := s.db.Model(&Task{}).Where("id = ?", "ft-1").
+		Updates(map[string]any{"status": StatusRunning, "runner_id": "runner-b"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	fenced, err = s.FinishTaskFenced(ctx, "ft-1", StatusFailed, "", "", "", "zombie", 1, 0)
+	if err != nil || !fenced {
+		t.Fatalf("僵尸写入应被 fencing 拒绝: fenced=%v err=%v", fenced, err)
+	}
+	got, _ := s.GetTask(ctx, "ft-1")
+	if got.Status != StatusRunning || got.FailReason != "" {
+		t.Fatalf("僵尸写入不得改动任务: %+v", got)
+	}
+
+	// RunnerID 未装配（合成路径）：跳过 fencing，直接可写
+	s2 := openTestStore(t)
+	t2 := mkTask("ft-2", nil, "sha-b")
+	if err := s2.CreateTask(ctx, t2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.FinishTask(ctx, "ft-2", StatusDone, "comment", "r", "{}", "", 0, 0); err != nil {
+		t.Fatalf("未装配 RunnerID 时应跳过 fencing: %v", err)
+	}
+}
+
+// v3.8.0 回归：failed 退避重试——failed 时 attempt+1 并写 next_retry_at；
+// ResetFailedForRetry 只重置 attempt 未超限且已到期的任务。
+func TestFailedRetryBackoff(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	t1 := mkTask("fr-1", nil, "sha-a")
+	if err := s.CreateTask(ctx, t1); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟首次失败（RunnerID 空 → 无 fencing，同合成路径）
+	if err := s.FinishTask(ctx, "fr-1", StatusFailed, "", "", "", "boom", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetTask(ctx, "fr-1")
+	if got.Attempt != 1 || got.NextRetryAt == nil {
+		t.Fatalf("失败应记 attempt+1 与退避时间: %+v", got)
+	}
+	// 退避未到期：不重置
+	if n, err := s.ResetFailedForRetry(ctx, 2, got.NextRetryAt.Add(-time.Second)); err != nil || n != 0 {
+		t.Fatalf("未到期不得重置: n=%d err=%v", n, err)
+	}
+	// 到期：重置回 pending（attempt 保留）
+	if n, err := s.ResetFailedForRetry(ctx, 2, got.NextRetryAt.Add(time.Second)); err != nil || n != 1 {
+		t.Fatalf("到期应重置: n=%d err=%v", n, err)
+	}
+	got, _ = s.GetTask(ctx, "fr-1")
+	if got.Status != StatusPending || got.Attempt != 1 {
+		t.Fatalf("重置后 pending 且 attempt 保留: %+v", got)
+	}
+	// 超限：attempt 达到 maxRetries 后不再重置
+	_ = s.db.Model(&Task{}).Where("id = ?", "fr-1").Update("attempt", 2).Error
+	_ = s.db.Model(&Task{}).Where("id = ?", "fr-1").Updates(map[string]any{
+		"status": StatusFailed, "next_retry_at": time.Now().Add(-time.Minute)}).Error
+	if n, err := s.ResetFailedForRetry(ctx, 2, time.Now()); err != nil || n != 0 {
+		t.Fatalf("超限不得重置: n=%d err=%v", n, err)
+	}
+}

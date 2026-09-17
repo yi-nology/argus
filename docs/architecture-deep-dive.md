@@ -806,7 +806,7 @@ type TaskStore interface {
 }
 ```
 
-**三张表**：
+**七张核心表（tasks/finding_prints/review_targets/qa_sessions/leader_leases/pattern_signals/print_aliases）**：
 
 | 表 | 字段 | 解决什么 |
 |---|---|---|

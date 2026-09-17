@@ -26,7 +26,8 @@ func TestScenario22_TriggerEventsFilter(t *testing.T) {
 		Enabled: true,
 	})
 
-	// ① cr.synchronize：events 白名单外 → open-only 不应执行
+	// ① cr.updated（"推新提交"的归一化形态）：白名单内任务 accepted，但 events
+	//    白名单外 → open-only 不应执行
 	s.setEvent("synchronize", "sha-s1")
 	_, respSync := s.postWebhook(t, "d-sync")
 	if respSync.Status != "accepted" {
@@ -38,6 +39,15 @@ func TestScenario22_TriggerEventsFilter(t *testing.T) {
 	s.waitForStatus(t, respSync.TaskId, "done")
 	if got := countPlugin.invoked; got != 0 {
 		t.Fatalf("synchronize 不应触发 open-only 插件，实际执行 %d 次", got)
+	}
+
+	// ①b 负控（v3.8.0）：merged 归一化后不在白名单 → skipped。
+	// setEvent 现在过 NormalizeCRAction，与真实 SDK 链路一致——此前 fake 绕过
+	// 归一化，掩盖了白名单词表脱节（cr.updated 断流）的 P0。
+	s.setEvent("merged", "sha-m1")
+	_, respMerged := s.postWebhook(t, "d-merged")
+	if respMerged.Status != "skipped" {
+		t.Fatalf("merged 应 skipped（白名单外）: %+v", respMerged)
 	}
 
 	// ② cr.opened：白名单内 → open-only 执行

@@ -153,7 +153,9 @@ agents:
 
 **注入逻辑**：
 - `needs: [diff]` -> `task.Diff` 非 nil
-- `needs: [working-copy]` -> 触发工作副本服务：浅克隆仓库 + checkout PR head，`task.Artifacts["workcopy_dir"]` 为工作目录路径
+- `needs: [working-copy]` -> 触发工作副本服务：浅克隆仓库 + checkout PR head。
+  按 kind 落点不同：cli/acpx 适配器内部 Ensure 后在工作树内执行；remote 插件
+  （v3.9）在 Invoke 内 Ensure，目录经 `payload.workcopy_dir` 下发给远端
 - `needs: [requirement-spec]` -> `task.Requirement` 非 nil（R1 产出的验收清单）
 - `needs: [preview-url]` -> `task.Artifacts["preview_url"]` 为预览 URL
 

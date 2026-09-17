@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"git.example.com/enjoydream/agentkit/severity"
 
@@ -30,6 +31,7 @@ func (s *Store) GetPrintState(ctx context.Context, platform, owner, repo, number
 		Severity:    p.Severity,
 		TimesSeen:   p.TimesSeen,
 		RegretCount: p.RegretCount,
+		Comment:     p.Comment, // 入库原文（标注前）——pattern regret 记账键的权威来源
 	}, nil
 }
 
@@ -43,9 +45,16 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 	return suppressed, s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fingerprint = resolveAliasFP(tx, fingerprint)
 		var p FindingPrint
-		err := tx.Where(
+		exact := false // 本轮是否经"完全同评语"通道并入（行号跟随用）
+		pQ := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-			platform, owner, repo, number, fingerprint).First(&p).Error
+			platform, owner, repo, number, fingerprint)
+		// MySQL 下 FOR UPDATE：多副本共库时防止并发轮次的"读-改-全列回写"
+		// 互相覆盖（抑制状态/TimesSeen 丢失）；SQLite 单写串行无需锁（v3.8.0）。
+		if !s.sqlite {
+			pQ = pQ.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		err := pQ.First(&p).Error
 		if err != nil {
 			if err != gorm.ErrRecordNotFound {
 				return err
@@ -53,12 +62,15 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 			// 近重复匹配层（v3.7.0）：精确未命中时，同 PR 同文件内行号相容且
 			// 评语近重复的既有条目视为同一问题——并入它（计数/抑制状态延续），
 			// 新措辞记为别名。措辞漂移不再产生"永远新问题"。
-			near, nerr := findNearPrint(tx, platform, owner, repo, number, f)
+			// v3.8.0：完全同评语免行距（exact 通道）——行号整体位移 >±2 时
+			// 计数/抑制不失忆；并入后行号跟随新值，行内评论位置不漂移。
+			near, xexact, nerr := findNearPrint(tx, platform, owner, repo, number, f)
 			if nerr != nil {
 				return nerr
 			}
 			if near != nil {
 				p = *near
+				exact = xexact
 				if fingerprint != p.Print {
 					if aerr := tx.Create(&PrintAlias{AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
 						return aerr
@@ -84,7 +96,9 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 		if p.Plugin == "" {
 			p.Plugin = firstBy(f.By)
 		}
-		if absDiff(p.Line, f.Line) <= 2 && f.Line > 0 {
+		// 行号跟随：exact（完全同评语，含行号漂移）无条件跟随新值；
+		// near（近重复）保持 ±2 相容才跟随的保守语义。
+		if f.Line > 0 && (exact || absDiff(p.Line, f.Line) <= 2) {
 			p.Line = f.Line
 		}
 		if err := tx.Save(&p).Error; err != nil {
@@ -146,27 +160,47 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 // ResolvePrintFingerprint 按短码前缀解析完整指纹（取最近更新的一条）。
 // found=false 表示该前缀在此 PR 下无匹配。同时返回产出插件名（可为空）。
 func (s *Store) ResolvePrintFingerprint(ctx context.Context, platform, owner, repo, number, prefix string) (string, bool) {
-	fp, pluginName, ok := s.ResolvePrintWithPlugin(ctx, platform, owner, repo, number, prefix)
-	_ = pluginName
-	return fp, ok
+	p, ok := s.ResolvePrintRecord(ctx, platform, owner, repo, number, prefix)
+	if !ok {
+		return "", false
+	}
+	return p.Print, true
 }
 
 // ResolvePrintWithPlugin ResolvePrintFingerprint 的超集：附带插件名供学习环归属。
 func (s *Store) ResolvePrintWithPlugin(ctx context.Context, platform, owner, repo, number, prefix string) (fp, pluginName string, ok bool) {
+	p, ok := s.ResolvePrintRecord(ctx, platform, owner, repo, number, prefix)
+	if !ok {
+		return "", "", false
+	}
+	return p.Print, p.Plugin, true
+}
+
+// ResolvePrintRecord 按短码前缀解析完整 prints 行（v3.8.0）：
+// 人工反馈（suppress/restore）派生 pattern 键与回写必须用行内原始
+// file/line/severity/comment——此前调用方拿"请求里的评语"（评论路径下是
+// 整条评论原文）记账，PatternKey 剥离 hex/指令词后全部塌缩到垃圾键，学习环
+// 账本与真实模式永远对不上。别名前缀命中时二跳回规范行。
+func (s *Store) ResolvePrintRecord(ctx context.Context, platform, owner, repo, number, prefix string) (FindingPrint, bool) {
 	var p FindingPrint
 	err := s.db.WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
 		platform, owner, repo, number, prefix+"%").
 		Order("last_seen_at DESC").First(&p).Error
 	if err == nil {
-		return p.Print, p.Plugin, true
+		return p, true
 	}
-	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射回规范指纹
+	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射回规范行
 	var a PrintAlias
 	if err := s.db.WithContext(ctx).Where("alias_fp LIKE ?", prefix+"%").Order("updated_at DESC").First(&a).Error; err != nil {
-		return "", "", false
+		return FindingPrint{}, false
 	}
-	return a.PrintFP, "", true
+	if err := s.db.WithContext(ctx).Where(
+		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+		platform, owner, repo, number, a.PrintFP).First(&p).Error; err != nil {
+		return FindingPrint{}, false
+	}
+	return p, true
 }
 
 func firstBy(by string) string {
@@ -188,11 +222,14 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 // RecordPrintRegret R3.5 反思剔除某指纹时累加 regret 计数：该指纹历史上被
 // 终审 rubric 判为误报的次数，跨轮由 Merger 读取并标注到报告（只标注，不自动
 // suppress——持久抑制仍必须来自人工反馈通道，防自动化误杀）。
-// 行不存在时创建（status=open, TimesSeen=0）。
-func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, number, fingerprint string) error {
+// 行不存在时以 f 的原始内容创建（v3.8.0：此前创建 File=""/Comment="" 的幽灵行，
+// 近重复层永不回收、v2 迁移还会因同 PR 多条空行重算出同一常量指纹而撞唯一索引）。
+// 指纹先经别名解析：剔除的可能以别名身份在库。
+func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, number, fingerprint string, f plugin.Finding) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		fingerprint = resolveAliasFP(tx, fingerprint)
 		var p FindingPrint
 		err := tx.Where(
 			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
@@ -204,8 +241,9 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 			now := time.Now()
 			return tx.Create(&FindingPrint{
 				Platform: platform, Owner: owner, Repo: repo, Number: number,
-				Print:       fingerprint,
-				Comment:     "",
+				Print: fingerprint,
+				File:  f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
+				Plugin:      firstBy(f.By),
 				Status:      PrintOpen,
 				RegretCount: 1,
 				FirstTaskID: "reflect", LastTaskID: "reflect", TimesSeen: 0,
@@ -223,6 +261,8 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 // 下一轮审查起重新可见。只作用于 suppressed 行——已 open 的同前缀行视为已恢复
 // （matched=true 不改状态）；无匹配或前缀歧义 matched=false，由调用方回帖提示。
 // restore 不回流知识：恢复只是撤销剔除，不是新的误报/正确结论。
+// 别名回退（v3.8.0）：suppress 可经别名表进来（措辞漂移后报告展示的是别名短码），
+// restore 同样必须走别名兜底——否则抑制是"进得来、出不去"的单向门。
 func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, number int, prefix string) (bool, error) {
 	if len(prefix) < 6 {
 		return false, nil
@@ -233,6 +273,23 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
 			platform, owner, repo, number, prefix+"%").Find(&rows).Error; err != nil {
 			return err
+		}
+		if len(rows) == 0 {
+			// 别名前缀兜底：alias_fp 为全指纹，前缀命中歧义时同样不猜
+			var aliases []PrintAlias
+			if err := tx.Where("alias_fp LIKE ?", prefix+"%").Find(&aliases).Error; err != nil {
+				return err
+			}
+			if len(aliases) != 1 {
+				return nil // 无匹配或歧义：不猜
+			}
+			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+				platform, owner, repo, number, aliases[0].PrintFP).Find(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) != 1 {
+				return nil
+			}
 		}
 		if len(rows) != 1 {
 			return nil // 无匹配或前缀歧义：不猜

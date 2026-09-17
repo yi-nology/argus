@@ -23,6 +23,31 @@ func finding(sev string) plugin.Finding {
 	return plugin.Finding{File: "a.go", Line: 1, Severity: sev, Comment: "x"}
 }
 
+// v3.8.0 回归：VerdictScoped 的 scope 闸门——越界 high 不触发 R5.2（降计
+// COMMENT 级并报越界数）；nil scope 与 Verdict 完全等价。
+func TestVerdictScoped(t *testing.T) {
+	scope := map[string]bool{"a.go": true}
+	inScope := []plugin.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "x"}}
+	outOfScopeF := []plugin.Finding{{File: "unrelated.go", Line: 9, Severity: "high", Comment: "y"}}
+
+	if v, rule, n := VerdictScoped(nil, nil, inScope, scope); v != VerdictRequestChanges || rule != "R5.2" || n != 0 {
+		t.Fatalf("范围内 high 应照常 R5.2: %s %s n=%d", v, rule, n)
+	}
+	if v, rule, n := VerdictScoped(nil, nil, outOfScopeF, scope); v != VerdictComment || rule != "R5.4" || n != 1 {
+		t.Fatalf("越界 high 应降级 COMMENT 且计数: %s %s n=%d", v, rule, n)
+	}
+	// file 为空的意见不受 scope 闸门影响（保守：无法判定归属时维持原语义）
+	if _, rule, n := VerdictScoped(nil, nil, []plugin.Finding{{File: "", Severity: "high"}}, scope); rule != "R5.2" || n != 0 {
+		t.Fatalf("无 file 的 high 不应被 scope 闸门拦截: rule=%s n=%d", rule, n)
+	}
+	// nil scope 与 Verdict 等价
+	v1, r1 := Verdict(nil, nil, outOfScopeF)
+	v2, r2, n2 := VerdictScoped(nil, nil, outOfScopeF, nil)
+	if v1 != v2 || r1 != r2 || n2 != 0 {
+		t.Fatalf("nil scope 应与 Verdict 等价: %s/%s vs %s/%s n=%d", v1, r1, v2, r2, n2)
+	}
+}
+
 // TestVerdictTruthTable R5 裁决真值表（design §4）——按序求值首条命中即短路。
 func TestVerdictTruthTable(t *testing.T) {
 	t.Run("R5.1_missing_一票否决", func(t *testing.T) {

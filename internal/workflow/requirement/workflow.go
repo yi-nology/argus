@@ -229,9 +229,23 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		w.Merger.AnnotateLowConfidence(ctx, task.PR, merged)
 	}
 
-	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）
+	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
+	// v3.8.0：有 diff 文件集时启用 scope 闸门——reviewer 经 get_file 看到未变更
+	// 文件后对本次变更之外的文件报 high，此前可直接驱动 R5.2 REQUEST_CHANGES
+	//（一票否决了与本次变更无关的意见）；现在越界 high 只计入 COMMENT 级并注明。
 	r5Start := time.Now()
-	verdict, rule := Verdict(spec, report, merged.Findings)
+	var scope map[string]bool
+	if task.Diff != nil && len(task.Diff.Files) > 0 {
+		scope = make(map[string]bool, len(task.Diff.Files))
+		for _, f := range task.Diff.Files {
+			scope[f.Path] = true
+		}
+	}
+	verdict, rule, outOfScope := VerdictScoped(spec, report, merged.Findings, scope)
+	if outOfScope > 0 {
+		merged.Degraded = append(merged.Degraded,
+			fmt.Sprintf("%d 条意见位于本次变更范围之外（get_file 读到的未变更文件），未计入高危裁决", outOfScope))
+	}
 	plugin.ReportStageDuration("R5", time.Since(r5Start))
 	plugin.ReportLayerExec(plugin.LayerR5)
 
@@ -252,6 +266,20 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		}
 	}
 	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
+	// 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审此前零痕迹——
+	// 与大 PR 截断同构的"覆盖范围收缩"，结论可信度的一部分必须可见。
+	if task.Diff != nil {
+		reviewed := 0
+		for _, f := range task.Diff.Files {
+			if f.AlreadyReviewed {
+				reviewed++
+			}
+		}
+		if reviewed > 0 {
+			merged.Degraded = append(merged.Degraded,
+				fmt.Sprintf("增量审查：%d 个文件与上轮完全一致未重审，本次仅覆盖其余变更", reviewed))
+		}
+	}
 	// 大 PR 截断透出（深挖 P0）：diffprep 截断后 Truncated 标记此前全仓零消费，
 	// 审查覆盖不完整却无任何痕迹。此处统一注明（RunFull/RunReviewOnly 都经 finish）。
 	if task.Diff != nil && task.Diff.Truncated {
@@ -285,10 +313,26 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 // 注意：R5.3 的 Ambiguous/AC 总数条件取自 R1 的 spec（而非 R3 report）——R3 失败/缺席时
 // 空清单与模糊需求仍必须落入人工确认路径，不能漏进 R5.5（二轮评审修掉的注入洞）。
 func Verdict(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, findings []plugin.Finding) (verdict, rule string) {
+	verdict, rule, _ = VerdictScoped(spec, report, findings, nil)
+	return verdict, rule
+}
+
+// VerdictScoped Verdict 的 scope 感知变体（v3.8.0）：inScope 非 nil 时，file 不在
+// 本次变更文件集内的 high 意见不触发 R5.2（reviewer 经 get_file 能看到未变更文件，
+// 对变更外文件的一票否决越权），降计 COMMENT 级；返回值为越界条数（0 = 无或未启用）。
+// inScope 为 nil 时与 Verdict 完全等价（真值表原语义不变，既有测试不受影响）。
+func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, findings []plugin.Finding,
+	inScope map[string]bool) (verdict, rule string, outOfScope int) {
 	var high, midLow, unverifiable int
 	for _, f := range findings {
 		switch f.Severity {
 		case severity.High:
+			// scope 闸门：越界 high 不进 R5.2 计数，但保留为 COMMENT 级意见
+			if inScope != nil && f.File != "" && !inScope[f.File] {
+				outOfScope++
+				midLow++
+				continue
+			}
 			high++
 		case severity.Medium, severity.Low:
 			midLow++
@@ -306,22 +350,22 @@ func Verdict(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, find
 		}
 	}
 	if missingPartial {
-		return VerdictRequestChanges, "R5.1"
+		return VerdictRequestChanges, "R5.1", outOfScope
 	}
 	if high > 0 {
-		return VerdictRequestChanges, "R5.2"
+		return VerdictRequestChanges, "R5.2", outOfScope
 	}
 	needHuman := unverifiable > 0 || (report != nil && len(report.ScopeCreep) > 0)
 	if spec != nil { // requirement 模式：模糊需求 / 空清单强制人工确认
 		needHuman = needHuman || len(spec.Ambiguous) > 0 || len(spec.ACs) == 0
 	}
 	if needHuman {
-		return VerdictComment, "R5.3"
+		return VerdictComment, "R5.3", outOfScope
 	}
 	if midLow > 0 {
-		return VerdictComment, "R5.4"
+		return VerdictComment, "R5.4", outOfScope
 	}
-	return VerdictApprove, "R5.5"
+	return VerdictApprove, "R5.5", outOfScope
 }
 
 // loadRepoConfig 仓库主权配置（§3.4：只从默认分支读；失败按无配置 + 告警）。

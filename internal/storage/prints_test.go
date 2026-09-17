@@ -136,6 +136,48 @@ func TestSuppressPrintNear_MatchesExisting(t *testing.T) {
 	}
 }
 
+// v3.8.0 回归：suppress 能经别名进来，restore 也必须能经别名出去——
+// 抑制不得是"进得来、出不去"的单向门。
+func TestRestorePrint_AliasFallback(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	orig := "goroutine 泄漏未处理"
+	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "9",
+		plugin.Fingerprint("a.go", orig, 30),
+		plugin.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: orig}, "t1", at); err != nil {
+		t.Fatal(err)
+	}
+	// 措辞漂移：新措辞并入既有条目，产生别名
+	drifted := "goroutine 泄漏了却没人处理它"
+	aliasFP := plugin.Fingerprint("a.go", drifted, 31)
+	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "9", aliasFP,
+		plugin.Finding{File: "a.go", Line: 31, Severity: "medium", Comment: drifted}, "t2", at); err != nil {
+		t.Fatal(err)
+	}
+	// 经别名 suppress（用别名短码直达）
+	rec, ok := s.ResolvePrintRecord(ctx, "gitea", "acme", "app", "9", aliasFP[:8])
+	if !ok || rec.Print == aliasFP {
+		t.Fatalf("别名短码应解析回规范行: ok=%v print=%q", ok, rec.Print)
+	}
+	if rec.Comment != orig {
+		t.Fatalf("ResolvePrintRecord 应回原始评语: got %q want %q", rec.Comment, orig)
+	}
+	if _, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "9", rec.Print,
+		plugin.Finding{File: rec.File, Comment: rec.Comment}, at); err != nil {
+		t.Fatal(err)
+	}
+	// 用别名短码 restore（此前 RestorePrint 无别名回退，此处 matched=false 单向门）
+	matched, err := s.RestorePrint(ctx, "gitea", "acme", "app", 9, aliasFP[:8])
+	if err != nil || !matched {
+		t.Fatalf("别名短码 restore 应命中: matched=%v err=%v", matched, err)
+	}
+	st, err := s.GetPrintState(ctx, "gitea", "acme", "app", "9", rec.Print)
+	if err != nil || st == nil || st.Status != "open" {
+		t.Fatalf("restore 后状态=%+v err=%v", st, err)
+	}
+}
+
 // 存量迁移：v1 格式行按 file/line/comment 重算为 v2（幂等；第二次运行为零）。
 func TestMigratePrintFingerprintsV2_RekeysLegacyRows(t *testing.T) {
 	s := openTestStore(t)
@@ -169,5 +211,104 @@ func TestMigratePrintFingerprintsV2_RekeysLegacyRows(t *testing.T) {
 	// 幂等：重跑为零
 	if n, err := s.migratePrintFingerprintsV2(ctx); err != nil || n != 0 {
 		t.Fatalf("迁移应幂等，got n=%d err=%v", n, err)
+	}
+}
+
+// v3.8.0 回归：v1 时代 regret 幽灵行（空 file/comment，Print 为各自改写后身份）
+// 重算 v2 后同指纹——迁移必须合并而不是撞唯一索引死循环。
+func TestMigratePrintFingerprintsV2_CollisionMerges(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	// 两条空内容行（模拟 v1 时代 RecordPrintRegret 幽灵行），Print 是任意互异的
+	// 旧格式值——重算后都等于 Fingerprint("","",0) 同一常量。
+	for _, old := range []string{"aaaa1111aaaa1111aaaa1111aaaa1111", "bbbb2222bbbb2222bbbb2222bbbb2222"} {
+		if err := s.db.Create(&FindingPrint{
+			Platform: "gitea", Owner: "acme", Repo: "app", Number: "8", Print: old,
+			Status: PrintOpen, RegretCount: 1,
+			FirstTaskID: "reflect", LastTaskID: "reflect",
+			FirstSeenAt: now, LastSeenAt: now,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.migratePrintFingerprintsV2(ctx)
+	if err != nil {
+		t.Fatalf("碰撞组应合并成功而非唯一索引冲突: %v", err)
+	}
+	if n != 2 { // 计数口径：合并组删除 1 行 + 主行 print 回写 1 次
+		t.Fatalf("应合并掉 1 行并回写主行（n=2），got n=%d", n)
+	}
+	var rows []FindingPrint
+	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "8").
+		Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("应只剩 1 行，got %d", len(rows))
+	}
+	if rows[0].Print != plugin.Fingerprint("", "", 0) || rows[0].RegretCount != 1 {
+		t.Fatalf("合并行指纹/regret 应保留: %+v", rows[0])
+	}
+}
+
+// v3.8.0 回归：同 PR 推一版代码使行号整体位移 >±2 时，完全同评语的意见
+// 仍并入既有条目（TimesSeen 延续、抑制不复活、行号跟随新值）——±2 近重复
+// 窗口救不回的"行号漂移"由 exact 通道承接。
+func TestUpsertPrint_LineDriftBeyondWindow_ExactCommentAbsorbed(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
+		plugin.Fingerprint("a.go", "资源释放缺失", 30),
+		plugin.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "资源释放缺失"}, "t1", at); err != nil {
+		t.Fatal(err)
+	}
+	// 抑制后行号大幅位移（30 → 40，>±2），同评语复现
+	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
+		plugin.Fingerprint("a.go", "资源释放缺失", 40),
+		plugin.Finding{File: "a.go", Line: 40, Severity: "medium", Comment: "资源释放缺失"}, "t2", at)
+	_ = suppressed
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []FindingPrint
+	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "10").
+		Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("行号漂移的完全同评语应并入既有行，got %d 行", len(rows))
+	}
+	if rows[0].TimesSeen != 2 || rows[0].Line != 40 {
+		t.Fatalf("计数应延续、行号应跟随: %+v", rows[0])
+	}
+}
+
+// v3.8.0 回归：SuppressPrintNear 未命中时预插的 line=0 suppressed 行，必须能被
+// 后续真实意见（任意行号）经 exact 通道并回——"先抑制后见到"才真正生效。
+func TestSuppressPrintNear_PreinsertRecoveredByExactComment(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitea", "acme", "app", "11", "b.go", "并发写 map 未加锁", at); err != nil || matched {
+		t.Fatalf("预插路径 matched 应为 false: %v %v", matched, err)
+	}
+	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "11",
+		plugin.Fingerprint("b.go", "并发写 map 未加锁", 88),
+		plugin.Finding{File: "b.go", Line: 88, Severity: "high", Comment: "并发写 map 未加锁"}, "t2", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !suppressed {
+		t.Fatal("真实意见应并回预插的 suppressed 行（抑制生效）")
+	}
+	var rows []FindingPrint
+	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "11").
+		Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Line != 88 || rows[0].Status != PrintSuppressed {
+		t.Fatalf("应并回单行且行号跟随: %+v", rows)
 	}
 }

@@ -46,9 +46,10 @@ func (p *CLIPlugin) Manifest() plugin.AgentManifest { return p.manifest }
 // Invoke 执行链：工作副本就绪 → exec 白名单命令 → 解析 JSON → Result。
 func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, error) {
 	if strings.EqualFold(p.Mode, "delegate") {
-		// delegate 子模式留接口（§2）：OCR 只出文件筛选+规则，审查循环由 Argus builtin 执行。
-		// 生产参考实现：review-service internal/ocr/delegate.go，v3.1 照抄其范式实装。
-		return plugin.Result{}, fmt.Errorf("cli 插件 delegate 模式 v3.0 留接口，v3.1 实装")
+		// delegate 产物是"审查输入"（文件筛选+规则）而非 findings，且 Dispatcher
+		// 并发 fan-out 无插件间传递管道——不在插件层实装。已实装为 runner 层
+		// dispatch 前置步骤（internal/ocrdeleg，ARGUS_OCR_BIN 启用，v3.9.0）。
+		return plugin.Result{}, fmt.Errorf("cli 插件不支持 delegate 模式（delegate 已由 runner 前置实装：ARGUS_OCR_BIN）")
 	}
 	if p.wc == nil {
 		return plugin.Result{}, fmt.Errorf("cli 插件未接入工作副本服务")

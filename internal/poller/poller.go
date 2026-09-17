@@ -103,6 +103,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		default:
 		}
 		var prs []*provider.ChangeRequest
+		pagingTruncated := false
 		for page := 1; page <= 3; page++ { // 上限 3 页 × 30：超大盘仓库另议
 			pagePrs, _, err := p.SDK.ListCRs(ctx, t.Platform, provider.ListCROptions{
 				Owner: t.Owner, Repo: t.Repo, State: provider.CRStateOpened,
@@ -118,6 +119,14 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			if len(pagePrs) < 30 {
 				break
 			}
+			if page == 3 {
+				// 分页上限截断静默是盲区：第 91+ 个 open PR 永远不被轮询发现（v3.8.0）
+				pagingTruncated = true
+			}
+		}
+		if pagingTruncated {
+			p.Log.Warn("argus.poller.paging_truncated", "repo", t.Owner+"/"+t.Repo,
+				"limit", 90, "hint", "open PR 超过轮询分页上限，超出部分不被发现；如需覆盖请调大分页上限")
 		}
 		for _, cr := range prs {
 			// 防线：平台 state 过滤失灵时（实测 Forgejo 曾因 state=opened 被忽略而

@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.5.12**（agentkit v0.9.8 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
+当前版本 **v3.8.0**（agentkit v0.9.8 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
@@ -131,6 +131,7 @@ IDE/其他 agent 可经 MCP `ask_argus` 工具直接提问或取某 PR 最新审
 报告里每条意见带指纹短码（`fp:ab12cd34`）。认为是误报？调一次
 `POST /findings/suppress`（支持短码直达，或 file+原文，指纹对空白/标点不敏感），
 之后每轮报告自动剔除，脚注注明"N 条历史意见已被抑制"。
+v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的问题）；v3.7.0 之前报告中的旧短码不可解析。
 
 **知识飞轮（v3.3，可选）**：配置 Milvus（`ARGUS_MILVUS_ADDR` + Embedding 三件套）后，
 每次人工 suppress 的误报结论会向量化回流知识库；R3 的 `search_knowledge` 检索命中历史
@@ -393,7 +394,7 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
 **生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
-接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.5.12（v3.5.4–v3.5.5 三平台评论触发真机修复、v3.5.6 Forgejo 复验、v3.5.7–v3.5.9 架构还债、v3.5.12 深挖 P0 修复），生产升级部署待验证。
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.8.0（v3.5.4–v3.5.5 三平台评论触发真机修复、v3.5.6 Forgejo 复验、v3.5.7–v3.5.9 架构还债、v3.5.12 深挖 P0 修复），生产升级部署待验证。
 
 ---
 
