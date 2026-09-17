@@ -1,4 +1,6 @@
 # 场景：多语言 UI 类 AC 无法在代码层验证 → unverifiable → R5.3 人工确认
+# v2 标定：翻译函数为真实实现；真实模式下 R3 可能判 implemented（函数真实存在）
+# → approve 亦计通过；unverifiable 判定语义由桩模式固化。
 name: 14-unverifiable-ui-comment
 scenario: [unverifiable, multilingual]
 kind: 0
@@ -12,16 +14,30 @@ changed_files:
       diff --git a/web/app.js b/web/app.js
       --- a/web/app.js
       +++ b/web/app.js
-      @@ -1,2 +1,4 @@
+      @@ -1,2 +1,11 @@
        const app = {}
-      +const i18n = {zh: "登录", en: "Login"}
-      +app.lang = i18n
-    additions: 2
+      +const messages = {
+      +  zh: {login: "登录", logout: "退出"},
+      +  en: {login: "Login", logout: "Logout"}
+      +}
+      +function t(lang, key) {
+      +  const dict = messages[lang] || messages.en
+      +  return dict[key] || messages.en[key] || key
+      +}
+      +app.t = t
+    additions: 9
 repo_files:
   web/app.js: |
     const app = {}
-    const i18n = {zh: "登录", en: "Login"}
-    app.lang = i18n
+    const messages = {
+      zh: {login: "登录", logout: "退出"},
+      en: {login: "Login", logout: "Logout"}
+    }
+    function t(lang, key) {
+      const dict = messages[lang] || messages.en
+      return dict[key] || messages.en[key] || key
+    }
+    app.t = t
 stub:
   r1: |
     {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"登录页展示中英文切换"}],"ambiguous":[]}
@@ -29,4 +45,5 @@ stub:
     {"checks":[{"id":"AC-1","status":"unverifiable","detail":"UI 文案渲染与语言切换交互无法在代码静态审查中验证，需要预览环境人工确认"}],"scope_creep":[],"summary":"无法完全验证"}
 expect:
   verdict: comment
+  real_verdicts: [comment, approve]
   must_find: ["R5.3", "unverifiable"]

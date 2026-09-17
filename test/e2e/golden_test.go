@@ -62,9 +62,13 @@ type goldenStub struct {
 }
 
 type goldenExpect struct {
-	Verdict     string   `yaml:"verdict"`       // approve | comment | request_changes
-	MustFind    []string `yaml:"must_find"`     // task.Report 必含子串
-	MustNotFind []string `yaml:"must_not_find"` // task.Report 必不含子串
+	Verdict     string   `yaml:"verdict"`       // approve | comment | request_changes（打桩模式精确比对）
+	MustFind    []string `yaml:"must_find"`     // task.Report 必含子串（仅打桩模式判分）
+	MustNotFind []string `yaml:"must_not_find"` // task.Report 必不含子串（仅打桩模式判分）
+	// RealVerdicts 真实模型模式的期望集合（可选；空 = 沿用 Verdict 精确比对）。
+	// 真实模型在 comment/approve 边界有合理方差，集合命中（如 [approve, comment]
+	// = 「无不阻塞问题」）是诚实口径；request_changes 边界仍精确。
+	RealVerdicts []string `yaml:"real_verdicts"`
 }
 
 type goldenCase struct {
@@ -78,6 +82,9 @@ type goldenCase struct {
 	StripDefaults bool                `yaml:"strip_defaults"`
 	ExtraAgents   []plugin.AgentDecl  `yaml:"extra_agents"`
 	PersonaSeq    map[string][]string `yaml:"persona_seq"` // 额外 reviewer 的逐采样响应
+	// SkipReal 真实模式跳过：夹具语义依赖打桩前提（canned persona/非诚实 R3），
+	// 真实模型不会复现该前提（如「R3 被注入诱骗全标 implemented」）。
+	SkipReal bool `yaml:"skip_real"`
 	// G4 完备性裁判（空 = annotate 默认）
 	CompletenessPolicy string       `yaml:"completeness_policy"`
 	CompletenessRetry  bool         `yaml:"completeness_retry"`
@@ -134,6 +141,9 @@ func TestGoldenReviewEval(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.Name, func(t *testing.T) {
+			if realMode && c.SkipReal {
+				t.Skip("夹具语义依赖打桩前提（canned persona/非诚实 R3），真实模式不计分")
+			}
 			opts := stackOpts{}
 			if realMode {
 				opts.realLLM = true
@@ -173,7 +183,17 @@ func TestGoldenReviewEval(t *testing.T) {
 			}
 			task := s.waitForStatus(t, taskID, "done")
 
+			// 期望语义：打桩=精确比对 + 报告子串；真实=RealVerdicts 集合命中
+			//（comment/approve 边界允许模型方差，request_changes 边界仍精确）
 			pass := task.Verdict == c.Expect.Verdict
+			if realMode && len(c.Expect.RealVerdicts) > 0 {
+				pass = false
+				for _, v := range c.Expect.RealVerdicts {
+					if task.Verdict == v {
+						pass = true
+					}
+				}
+			}
 			if pass && !realMode {
 				for _, want := range c.Expect.MustFind {
 					if !strings.Contains(task.Report, want) {
@@ -188,7 +208,11 @@ func TestGoldenReviewEval(t *testing.T) {
 					}
 				}
 			} else if !pass {
-				t.Errorf("verdict=%s，want %s", task.Verdict, c.Expect.Verdict)
+				want := c.Expect.Verdict
+				if realMode && len(c.Expect.RealVerdicts) > 0 {
+					want = strings.Join(c.Expect.RealVerdicts, "|")
+				}
+				t.Errorf("verdict=%s，want %s", task.Verdict, want)
 			}
 			results = append(results, caseResult{
 				Name: c.Name, Scenario: c.Scenario,

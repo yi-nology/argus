@@ -46,4 +46,5 @@ stub:
     {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:5","detail":"空口令校验与错误返回已实现"}],"scope_creep":[],"summary":"完成"}
 expect:
   verdict: approve
+  real_verdicts: [approve, comment]   # 真实模式：无不阻塞问题即可（评审偏好有合理方差）
   must_find: ["R5.5"]

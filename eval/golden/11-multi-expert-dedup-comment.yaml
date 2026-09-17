@@ -1,5 +1,7 @@
 # 场景：两个专家报同一问题 → 指纹去重为一条，by 拼接（correctness,style）
 name: 11-multi-expert-dedup-comment
+# 真实模式跳过：style 专家为 canned persona，真实模型不复现该前提
+skip_real: true
 scenario: [merge]
 kind: 0
 pr:

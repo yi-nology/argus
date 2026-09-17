@@ -1,4 +1,6 @@
 # 场景：medium 意见 → R5.4 COMMENT（不驱动一票否决）
+# v2 标定：代码为真实完整实现；真实模式下 reviewer 是否报 doc comment 意见有
+# 合理方差，comment/approve 均计通过（request_changes 仍为 miss）。
 name: 09-medium-finding-comment
 scenario: [code-review]
 kind: 0
@@ -12,23 +14,38 @@ changed_files:
       diff --git a/main.go b/main.go
       --- a/main.go
       +++ b/main.go
-      @@ -1,3 +1,5 @@
+      @@ -1,3 +1,10 @@
        package main
       +
-      +func login() {}
-    additions: 2
+      +import "errors"
+      +
+      +func login(password string) error {
+      +	if password == "" {
+      +		return errors.New("empty password")
+      +	}
+      +	return nil
+      +}
+    additions: 8
 repo_files:
   main.go: |
     package main
 
-    func login() {}
+    import "errors"
+
+    func login(password string) error {
+    	if password == "" {
+    		return errors.New("empty password")
+    	}
+    	return nil
+    }
 stub:
   r1: |
     {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
   r3: |
-    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:5"}],"scope_creep":[],"summary":"完成"}
   reviewer: |
-    {"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"login 缺少 doc comment"}],"notes":""}
+    {"findings":[{"file":"main.go","line":5,"severity":"medium","comment":"login 缺少 doc comment"}],"notes":""}
 expect:
   verdict: comment
+  real_verdicts: [comment, approve]
   must_find: ["R5.4", "doc comment"]

@@ -1,5 +1,7 @@
 # 场景：两专家同位置冲突（medium vs high）→ severity 取高 → R5.2
 name: 12-conflict-take-high-rc
+# 真实模式跳过：冲突前提依赖 style canned high 意见
+skip_real: true
 scenario: [merge, code-review]
 kind: 0
 pr:

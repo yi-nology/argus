@@ -1,4 +1,5 @@
 # 场景：意见带修复建议 → 报告「建议修复」段 + 行内评论 ```suggestion 围栏
+# v2 标定：代码为真实完整实现（同 09 口径）。
 name: 18-suggestion-fence-comment
 scenario: [render, code-review]
 kind: 0
@@ -12,25 +13,40 @@ changed_files:
       diff --git a/main.go b/main.go
       --- a/main.go
       +++ b/main.go
-      @@ -1,3 +1,5 @@
+      @@ -1,3 +1,10 @@
        package main
       +
-      +func login() {}
-    additions: 2
+      +import "errors"
+      +
+      +func login(password string) error {
+      +	if password == "" {
+      +		return errors.New("empty password")
+      +	}
+      +	return nil
+      +}
+    additions: 8
 repo_files:
   main.go: |
     package main
 
-    func login() {}
+    import "errors"
+
+    func login(password string) error {
+    	if password == "" {
+    		return errors.New("empty password")
+    	}
+    	return nil
+    }
 stub:
   r1: |
     {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
   r3: |
-    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:5"}],"scope_creep":[],"summary":"完成"}
   reviewer: |
-    {"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"login 应返回错误而非静默失败","suggested_fix":"func login() error {\n\treturn nil\n}"}],"notes":""}
+    {"findings":[{"file":"main.go","line":5,"severity":"medium","comment":"login 应返回错误而非静默失败","suggested_fix":"func login() error {\n\treturn nil\n}"}],"notes":""}
 expect:
   verdict: comment
   # 注：```suggestion 围栏渲染在行内评论（poster.inlineCommentBody），
   # 总结报告渲染「建议修复」段 + 普通代码围栏（reportview）
-  must_find: ["R5.4", "建议修复", "func login() error"]
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4", "建议修复"]

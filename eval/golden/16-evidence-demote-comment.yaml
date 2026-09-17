@@ -1,5 +1,7 @@
 # 场景：证据门——implemented 缺 file:line 证据被代码级强制降级 unverifiable → R5.3
 name: 16-evidence-demote-comment
+# 真实模式跳过：前提=R3 返回无证据 implemented（真实诚实模型必附证据）
+skip_real: true
 scenario: [evidence-gate]
 kind: 0
 pr:

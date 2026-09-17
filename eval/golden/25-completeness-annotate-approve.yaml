@@ -1,6 +1,8 @@
 # 场景：G4 完备性裁判（annotate 默认策略）——一个插件执行失败、其余正常：
 # 报告出现独立「完备性检查」段点名失败插件；verdict 不受影响（annotate 只注明）。
 name: 25-completeness-annotate-approve
+# 真实模式跳过：doomed 插件依赖 garbage 响应，真实模型不会失败
+skip_real: true
 scenario: [guard, complete]
 kind: 0
 pr:

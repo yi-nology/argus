@@ -1,6 +1,8 @@
 # 场景：G4 完备性裁判（demote 降级门）——同 25 的失败形态，demote 策略下
 # APPROVE 被降级为 COMMENT（rule=R5.C）：部分覆盖不允许白给通过。
 name: 26-completeness-demote-comment
+# 真实模式跳过：同 25（demote 降级门语义由桩模式固化）
+skip_real: true
 scenario: [guard, complete]
 kind: 0
 completeness_policy: demote
