@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.9.3 (2026-09-18) — OCR 浅克隆历史补全改 deepen 增量式（internal/gitdeepen）
+
+旧方案（v3.9.0 起 ocrshim/ocrdeleg 各自的 `fetch --unshallow` 全量补历史）是
+立案在案的最大隐患：大仓每 PR 把完整历史拉进审查关键路径（同步阻塞、5m 上限）。
+改为探测式按需补全，两侧同构逻辑收敛进新包 **internal/gitdeepen**。
+
+- **EnsureMergeBase 语义**：先本地探测 `git merge-base origin/<base> HEAD`
+  （秒级、零网络——完整克隆与已补全工作副本零 fetch 直达）；不可达且为浅克隆
+  时 `git fetch --deepen=64` 指数加深（逐轮 ×2，8 轮封顶 + 总时长预算 5m），
+  每轮后重探——摊销形态从"每 PR 一次全量 fetch"变为"加深到 base↔head 实际
+  距离为止"。
+- **不变的纪律**：refspec 显式全量（clone --depth 1 隐含 --single-branch，
+  裸 fetch 只补默认分支远端引用，PR base 非默认分支时 origin/<base> 缺失，
+  真件实测复现）；非浅克隆的探测失败静默返回（交由后续 OCR 报真实错误，与旧
+  "无 shallow 标记即跳过"语义一致）；加深失败/预算耗尽报错降级，整条消息
+  logredact（带凭证 clone URL 不落日志/PR 评论），审查主链路不阻断。
+- **守卫语义变化**：deepen 不移除 .git/shallow 标记——守卫从"标记存在"改为
+  "merge-base 可达探测"；已 deepen 的工作副本（池按 PR 生命周期复用、换 head
+  走增量刷新）探测通过即零成本。
+- **测试**：gitdeepen 六场景（完整克隆快路径 / 已可达 / 一轮收敛 / 指数递增与
+  预算耗尽 / 凭证脱敏 / base 守卫，可编程假 git——状态读取用 shell 内建
+  `read`，子进程 PATH 经 acpx 最小环境只剩假 git 目录）；ocrdeleg/ocrshim 的
+  unshallow argv 锁定测试随语义迁移更新。
+
 ## v3.9.2 (2026-09-18) — 深挖欠账清零：熔断配对契约 + 别名 PR 域改造 + 指标面补全
 
 二轮深挖遗留项的全部收口（配合 agentkit v0.10.4）。

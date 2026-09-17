@@ -19,6 +19,7 @@ import (
 	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/textutil"
 
+	"argus/internal/gitdeepen"
 	"argus/internal/plugin"
 )
 
@@ -92,7 +93,7 @@ func Preview(ctx context.Context, cfg Config, dir, baseBranch string) (*PreviewR
 	if baseBranch == "" {
 		return nil, fmt.Errorf("delegate preview 缺少 base 分支")
 	}
-	if err := unshallowIfNeeded(ctx, dir); err != nil {
+	if err := gitdeepen.EnsureMergeBase(ctx, dir, baseBranch, defaultUnshallowTimeout); err != nil {
 		return nil, err
 	}
 	stdout, err := run(ctx, cfg, dir, []string{
@@ -149,31 +150,6 @@ func run(ctx context.Context, cfg Config, dir string, argv []string) (string, er
 		return "", fmt.Errorf("OCR delegate 执行失败: %w；stderr: %s", err, tail(stderr, unshallowTailChars))
 	}
 	return stdout, nil
-}
-
-// unshallowIfNeeded 浅克隆工作副本补全历史（range 模式的 merge-base 在浅历史下
-// 必挂："cannot find merge-base"；完整克隆跳过；git 协议按 commit deepen，与
-// refspec 无关，PR head 的祖先链同样被补全——真件浅克隆实测）。
-// refspec 必须显式全量：workcopy 以 `clone --depth 1 --branch <默认分支>` 建库，
-// `--depth` 隐含 `--single-branch`，裸 `fetch --unshallow` 只补默认分支的
-// 远端引用——PR base 非默认分支时 `origin/<base>` 不存在，preview 必挂
-// （真件实测复现）。与 ocrshim 同款 git 纪律：workcopy 凭证嵌在 clone URL 中，
-// git fetch 直接复用；绝不日志输出 URL（错误链交 runner 侧 logredact 兜底）。
-func unshallowIfNeeded(ctx context.Context, dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, ".git", "shallow")); err != nil {
-		return nil // 完整克隆（或非 git 目录——交由后续 delegate 执行报错）
-	}
-	_, stderr, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
-		Argv: []string{
-			"git", "-C", dir, "fetch", "--unshallow", "origin",
-			"+refs/heads/*:refs/remotes/origin/*",
-		},
-		Timeout: defaultUnshallowTimeout,
-	})
-	if err != nil {
-		return fmt.Errorf("浅克隆补全历史失败（git fetch --unshallow）: %w；stderr: %s", err, tail(stderr, unshallowTailChars))
-	}
-	return nil
 }
 
 // tail 取 stderr 尾部（诊断用，限长防爆）。

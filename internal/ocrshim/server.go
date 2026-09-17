@@ -17,6 +17,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/logredact"
 
+	"argus/internal/gitdeepen"
 	"argus/internal/plugin"
 )
 
@@ -118,8 +119,8 @@ func handleReview(cfg Config) server.ToolHandlerFunc {
 		if st, err := os.Stat(p.WorkcopyDir); err != nil || !st.IsDir() {
 			return mcp.NewToolResultError("workcopy_dir 不存在: " + p.WorkcopyDir), nil
 		}
-		if err := unshallowIfNeeded(ctx, p.WorkcopyDir, cfg.UnshallowTimeout); err != nil {
-			// 错误串回传 argus 前统一脱敏（纵深：run.go 已在源头处理 stderr，
+		if err := gitdeepen.EnsureMergeBase(ctx, p.WorkcopyDir, p.BaseBranch, cfg.UnshallowTimeout); err != nil {
+			// 错误串回传 argus 前统一脱敏（纵深：gitdeepen 已在源头处理 stderr，
 			// 这里兜住未来新增的错误路径——此文本会进 argus 日志与报告降级注明）
 			return mcp.NewToolResultError(logredact.Redact(err.Error())), nil
 		}

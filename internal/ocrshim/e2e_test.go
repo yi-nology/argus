@@ -34,6 +34,20 @@ func fakeOCR(t *testing.T, bin string) (argvProbe, envProbe string) {
 // staticPool 固定返回工作副本目录（满足 adapter_remote.WorkcopyPool）。
 type staticPool struct{ dir string }
 
+// fakeGitOnPath 把一个伪造 git 放上 PATH：记录完整 argv 到 <probe>、退出 0——
+// gitdeepen 探测（merge-base）恒成功 → 零 fetch，shim 主流程照常走 fake OCR。
+func fakeGitOnPath(t *testing.T) (probe string) {
+	t.Helper()
+	bin := t.TempDir()
+	probe = filepath.Join(bin, "called")
+	script := "#!/bin/sh\necho \"$@\" >> " + probe + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	return probe
+}
+
 func (p staticPool) Ensure(_ context.Context, _ workcopy.WorktreeKey) (string, error) {
 	return p.dir, nil
 }
@@ -62,7 +76,7 @@ func TestHandlerEndToEnd(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-secret")
 	bin := t.TempDir()
 	argvProbe, envProbe := fakeOCR(t, bin)
-	fakeGitOnPath(t) // PATH 上的假 git（摘 shallow 标记）
+	gitProbe := fakeGitOnPath(t) // PATH 上的假 git（argv 记探针、恒退出 0）
 
 	wc := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(wc, ".git"), 0o755); err != nil {
@@ -108,9 +122,15 @@ func TestHandlerEndToEnd(t *testing.T) {
 		t.Fatalf("归一化不符: %+v", f)
 	}
 
-	// shallow 标记应已被假 git 摘除（unshallow 触发）
-	if _, err := os.Stat(filepath.Join(wc, ".git", "shallow")); !os.IsNotExist(err) {
-		t.Fatal("unshallow 应已执行")
+	// v3.9.3：历史补全改为 gitdeepen 探测式——假 git 的 merge-base 恒成功，
+	// 零 fetch 直达主流程（deepen 路径语义锁在 internal/gitdeepen 测试里）。
+	// 这里锁定探测确实发生：shim 至少调用过一次 git（argv 探针含 merge-base）。
+	gitArgv, err := os.ReadFile(gitProbe)
+	if err != nil {
+		t.Fatal("gitdeepen 探测应调用 git")
+	}
+	if !strings.Contains(string(gitArgv), "merge-base origin/main HEAD") {
+		t.Fatalf("应对 origin/base 与 HEAD 探测 merge-base: %s", gitArgv)
 	}
 	// argv 形态锁定
 	argvRaw, err := os.ReadFile(argvProbe)

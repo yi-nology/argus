@@ -97,18 +97,19 @@ func TestPreviewArgvAndParse(t *testing.T) {
 		}
 	}
 	if _, err := os.Stat(gitProbe); err != nil {
-		t.Fatal("浅克隆应触发 unshallow")
+		t.Fatal("merge-base 探测应调用 git")
 	}
 	gitArgv, err := os.ReadFile(gitProbe)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// unshallow 必须带显式全量 refspec：clone --depth 1 隐含 single-branch，
-	// 裸 fetch 只补默认分支远端引用，PR base 非默认分支时 origin/<base> 不存在
-	for _, want := range []string{"fetch --unshallow origin", "+refs/heads/*:refs/remotes/origin/*"} {
-		if !strings.Contains(string(gitArgv), want) {
-			t.Fatalf("unshallow git argv 缺 %q: %s", want, gitArgv)
-		}
+	// v3.9.3：merge-base 探测通过即零 fetch（deepen 只在探测失败时发生，其
+	// argv 与显式 refspec 锁在 internal/gitdeepen 测试里）
+	if strings.Contains(string(gitArgv), "fetch") {
+		t.Fatalf("merge-base 可达不应触发 fetch: %s", gitArgv)
+	}
+	if !strings.Contains(string(gitArgv), "merge-base origin/main HEAD") {
+		t.Fatalf("应对 origin/base 与 HEAD 探测 merge-base: %s", gitArgv)
 	}
 }
 
