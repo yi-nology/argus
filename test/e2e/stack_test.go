@@ -569,9 +569,11 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	merger := plugin.NewMerger(store, log)
 	if opt.regretLearning {
-		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费
+		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费。SoftFloor=0.55：
+		// v3.9.1 记账口径修正后，轮 2 发布使真实模式行置信度恰达 1+1 计数的
+		// 0.50（旧错账把它记进影子行才低于阈值）——放宽到 0.55 保住边界余量。
 		merger.WithLearning(store, plugin.LearningConfig{
-			Enabled: true, MinSamples: 1, SoftFloor: 0.50, HardFloor: 0.30,
+			Enabled: true, MinSamples: 1, SoftFloor: 0.55, HardFloor: 0.30,
 			InjectFloor: 0.50, InjectTopN: 10,
 		})
 	}
@@ -585,7 +587,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	if opt.regretLearning {
 		runnerRef.Learning = plugin.LearningConfig{
-			Enabled: true, MinSamples: 1, SoftFloor: 0.50, HardFloor: 0.30,
+			Enabled: true, MinSamples: 1, SoftFloor: 0.55, HardFloor: 0.30,
 			InjectFloor: 0.50, InjectTopN: 10,
 		}
 	}

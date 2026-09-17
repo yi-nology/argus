@@ -176,8 +176,11 @@ func writeHistory(dir string, p shimPayload, rawStdout string, findings []plugin
 		}
 		raw = b
 	}
-	name := fmt.Sprintf("%s-%s-%s-PR%s.json",
-		time.Now().UTC().Format("20060102-150405.000000000"), p.Owner, p.Repo, p.Number)
+	// 标识消毒：GitLab 嵌套组 owner 含 "/"、number 无格式校验——原样拼文件名
+	// 会导致留档写入失败甚至目录穿越（v3.9.1，与 ocrdeleg 同款）。
+	name := fmt.Sprintf("%s-%s.json",
+		time.Now().UTC().Format("20060102-150405.000000000"),
+		plugin.SanitizeFileStem(p.Owner+"-"+p.Repo+"-PR"+p.Number))
 	b, err := json.MarshalIndent(map[string]any{
 		"pr":       p.Platform + "/" + p.Owner + "/" + p.Repo + "#" + p.Number + "@" + p.HeadSHA,
 		"ocr_raw":  raw,

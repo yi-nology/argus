@@ -312,3 +312,32 @@ func TestSuppressPrintNear_PreinsertRecoveredByExactComment(t *testing.T) {
 		t.Fatalf("应并回单行且行号跟随: %+v", rows)
 	}
 }
+
+// v3.9.1 回归：alias_fp 全局唯一主键下，两个 PR 出现同款措辞漂移（同一新指纹）
+// 时，第二个 PR 重复创建别名此前会撞主键、UpsertPrint 整体回滚（该意见此后
+// 每轮 print_upsert_failed，抑制/计数/复现全部失效）。别名写入现已幂等。
+func TestUpsertPrint_SameDriftAcrossPRsNoAliasConflict(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	base := "这里存在SQL注入风险"
+	drift := "拼接 SQL 存在注入风险！"
+	baseFP := plugin.Fingerprint("a.go", base, 10)
+	driftFP := plugin.Fingerprint("a.go", drift, 11)
+
+	for _, number := range []string{"7", "8"} {
+		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, baseFP,
+			plugin.Finding{File: "a.go", Line: 10, Severity: "high", Comment: base, By: "security"},
+			"t-base-"+number, at); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, driftFP,
+			plugin.Finding{File: "a.go", Line: 11, Severity: "high", Comment: drift, By: "security"},
+			"t-drift-"+number, at); err != nil {
+			t.Fatalf("PR %s 漂移并入不得因别名主键冲突失败: %v", number, err)
+		}
+		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, baseFP); err != nil || st == nil || st.TimesSeen != 2 {
+			t.Fatalf("PR %s 既有条目计数应延续（TimesSeen=2），got %+v err=%v", number, st, err)
+		}
+	}
+}

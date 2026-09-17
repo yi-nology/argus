@@ -20,23 +20,29 @@ import (
 // sameSHAIndex SQLite 部分唯一索引名。
 const sameSHAIndex = "idx_tasks_same_sha_live"
 
-// EnsureSameSHAGuard 建立在飞同 SHA 唯一防线。active=false 表示因历史在飞重复
-// 未能建立（v3.5.12 之前无此约束）——双跑防线退化为事务内检查，调用方应告警；
-// 在飞任务收敛后重启自愈。MySQL 恒返回 (true, nil)（防线在事务锁，见文件头注释）。
+// EnsureSameSHAGuard 建立在飞同 SHA 唯一防线。active=false + err=nil 表示因
+// 历史在飞重复未能建立（v3.5.12 之前无此约束）——双跑防线退化为事务内检查，
+// 调用方应告警；在飞任务收敛后重启自愈。active=false + err≠nil 为真实执行
+// 错误（权限/磁盘等），调用方须带原始错误告警（v3.9.1：此前整体吞掉，运维
+// 会按"历史在飞重复"的 hint 清数据、永远无效）。MySQL 恒返回 (true, nil)
+// （防线在事务锁，见文件头注释）。
 func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
 	if !s.sqlite {
 		return true, nil
 	}
 	// 幂等：IF NOT EXISTS 对已存在的同名索引（含非唯一形态）不重建
-	err = s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndex +
+	cerr := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndex +
 		" ON tasks(platform, owner, repo, number, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
-	if err != nil {
-		// 历史在飞重复会让索引创建失败：不阻断启动（与"探测失败必须暴露"的分寸
-		// 一致——这不是探测失败，是数据不满足约束，调用方告警后照常服务）
+	if cerr == nil {
+		return true, nil
+	}
+	if isDuplicateKeyErr(cerr) {
+		// 历史在飞重复会让唯一索引创建失败：不阻断启动（数据不满足约束，
+		// 非执行错误——调用方按数据冲突告警后照常服务）
 		return false, nil
 	}
-	return true, nil
+	return false, cerr
 }
 
 // isDuplicateKeyErr 跨方言唯一/主键冲突判定：MySQL errno 1062；

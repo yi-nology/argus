@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/blackboard"
+	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/textutil"
 )
 
@@ -167,12 +168,22 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 				dur := d.Now().Sub(invStart)
 				obsPluginDuration(name, dur)
 				if err != nil {
-					d.breakers.Failure(name)
-					obsPluginFailure(name)
 					st.lastErr = err
-					d.log.Error("argus.squad.consensus_member_failed", "squad", sq.Name,
-						"member", name, "error", err.Error())
-					b.Write(name, boardKindNote, "执行失败: "+err.Error())
+					if teardown(err, ctx) {
+						// 任务级取消/终止不是插件故障：不计熔断（与 Dispatcher.Run
+						// 同语义）——否则优雅停机打断共识时每个成员各记一次
+						// Failure，连续 3 次滚动发布即误熔断 security 类成员（v3.9.1）。
+						d.log.Warn("argus.squad.consensus_member_canceled", "squad", sq.Name,
+							"member", name, "error", err.Error())
+					} else {
+						d.breakers.Failure(name)
+						obsPluginFailure(name)
+						d.log.Error("argus.squad.consensus_member_failed", "squad", sq.Name,
+							"member", name, "error", logredact.Redact(err.Error()))
+					}
+					// 黑板条目会渲染进其他成员的提示词（ArtifactSquadBoard）——
+					// acpx 类错误内嵌 stderr 原文，必须整条脱敏（同凭证泄漏 P0 教训）。
+					b.Write(name, boardKindNote, "执行失败: "+logredact.Redact(err.Error()))
 					return false, nil
 				}
 				d.breakers.Success(name)

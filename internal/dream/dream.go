@@ -205,7 +205,9 @@ func writeLocalKnowledge(dir string, r storage.RepoRef, body string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	name := fmt.Sprintf("dream-%s-%s.md", r.Owner, r.Repo)
+	// 标识消毒：GitLab 嵌套组 owner 含 "/" 时未消毒文件名会写入失败、
+	// exportRepo 每周期告警（v3.9.1）。
+	name := plugin.SanitizeFileStem(fmt.Sprintf("dream-%s-%s", r.Owner, r.Repo)) + ".md"
 	return os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
 }
 

@@ -72,7 +72,14 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 				p = *near
 				exact = xexact
 				if fingerprint != p.Print {
-					if aerr := tx.Create(&PrintAlias{AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
+					// 幂等写入（v3.9.1）：alias_fp 是全局唯一主键而指纹按 PR 归属
+					// ——两个 PR 出现同款措辞漂移（同一新指纹）时，第二个 PR 重复
+					// 创建别名会撞主键、整个 UpsertPrint 事务回滚，该意见此后每轮
+					// print_upsert_failed（抑制/计数/复现全部失效）。冲突保留既有
+					// 映射（DoNothing）：同映射幂等无害；异映射（跨 PR 指向不同
+					// 规范行）属已知设计张力，近重复层每轮仍能在本 PR 内兜底合并。
+					if aerr := tx.Clauses(clause.OnConflict{DoNothing: true}).
+						Create(&PrintAlias{AliasFP: fingerprint, PrintFP: p.Print, UpdatedAt: at}).Error; aerr != nil {
 						return aerr
 					}
 				}
@@ -176,25 +183,58 @@ func (s *Store) ResolvePrintWithPlugin(ctx context.Context, platform, owner, rep
 	return p.Print, p.Plugin, true
 }
 
+// validFPPrefix 指纹短码前缀校验：4~64 位十六进制（指纹为 sha256 hex 串）。
+// 前缀会直接拼进 LIKE——含 %/_ 的输入会变成通配模式越权匹配（v3.9.1 收口）。
+func validFPPrefix(p string) bool {
+	if len(p) < 4 || len(p) > 64 {
+		return false
+	}
+	for _, c := range p {
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
+}
+
 // ResolvePrintRecord 按短码前缀解析完整 prints 行（v3.8.0）：
 // 人工反馈（suppress/restore）派生 pattern 键与回写必须用行内原始
 // file/line/severity/comment——此前调用方拿"请求里的评语"（评论路径下是
 // 整条评论原文）记账，PatternKey 剥离 hex/指令词后全部塌缩到垃圾键，学习环
 // 账本与真实模式永远对不上。别名前缀命中时二跳回规范行。
+// v3.9.1：①前缀 hex 白名单（防 LIKE 通配注入）；②本 PR 内多行命中同一前缀
+// 时拒绝解析（与 restore 同款"不猜"——错误抑制比不抑制难回滚）；③别名兜底
+// 限定到本 PR 的规范行（别名表全局共享，此前取全局最近更新可能落到别的 PR）。
 func (s *Store) ResolvePrintRecord(ctx context.Context, platform, owner, repo, number, prefix string) (FindingPrint, bool) {
-	var p FindingPrint
-	err := s.db.WithContext(ctx).Where(
-		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
-		platform, owner, repo, number, prefix+"%").
-		Order("last_seen_at DESC").First(&p).Error
-	if err == nil {
-		return p, true
-	}
-	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射回规范行
-	var a PrintAlias
-	if err := s.db.WithContext(ctx).Where("alias_fp LIKE ?", prefix+"%").Order("updated_at DESC").First(&a).Error; err != nil {
+	if !validFPPrefix(prefix) {
 		return FindingPrint{}, false
 	}
+	var rows []FindingPrint
+	if err := s.db.WithContext(ctx).
+		Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
+			platform, owner, repo, number, prefix+"%").
+		Order("last_seen_at DESC").Find(&rows).Error; err != nil {
+		return FindingPrint{}, false
+	}
+	if len(rows) == 1 {
+		return rows[0], true
+	}
+	if len(rows) > 1 {
+		return FindingPrint{}, false // 前缀歧义：不猜
+	}
+	// 别名前缀兜底：报告意见行展示的可能是新措辞指纹（别名），短码解析需映射
+	// 回规范行。候选别名经子查询限定到本 PR 已有的规范行。
+	var a PrintAlias
+	err := s.db.WithContext(ctx).Where(
+		"alias_fp LIKE ? AND print_fp IN (?)", prefix+"%",
+		s.db.Model(&FindingPrint{}).Select("print").
+			Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number),
+	).Order("updated_at DESC").First(&a).Error
+	if err != nil {
+		return FindingPrint{}, false
+	}
+	var p FindingPrint
 	if err := s.db.WithContext(ctx).Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
 		platform, owner, repo, number, a.PrintFP).First(&p).Error; err != nil {
@@ -264,7 +304,7 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 // 别名回退（v3.8.0）：suppress 可经别名表进来（措辞漂移后报告展示的是别名短码），
 // restore 同样必须走别名兜底——否则抑制是"进得来、出不去"的单向门。
 func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, number int, prefix string) (bool, error) {
-	if len(prefix) < 6 {
+	if len(prefix) < 6 || !validFPPrefix(prefix) {
 		return false, nil
 	}
 	matched := false

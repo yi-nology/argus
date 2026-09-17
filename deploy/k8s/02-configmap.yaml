@@ -19,6 +19,17 @@ data:
   ARGUS_MODEL_CONTEXT_TOKENS: "1000000"
   ARGUS_TASK_RETENTION_DAYS: "30"
 
+  # 结果上报 sink（v3.9.0，可选）：审查完成后 push 给 review-service 承接端点
+  # （前端「Argus 审查」页）；URL 非空即启用，失败只告警不阻断审查。
+  # ARGUS_SINK_TOKEN 在 argus-secret。默认关闭。
+  # ARGUS_SINK_URL: "http://review-service.<ns>.svc:8000/api/v1/argus/reviews"
+
+  # OCR delegate 委托前置（v3.9.0，可选）：仅当镜像内已装 OCR 二进制（见
+  # 08-ocrshim-sidecar.yaml.example 的镜像构建步骤，/opt/argus/bin/ocr）时取消
+  # 注释——OCR 文件分诊+仓库规则注入 R4，审查循环仍由 argus 执行；OCR 端零 LLM。
+  # ARGUS_OCR_BIN: "/opt/argus/bin/ocr"
+  # ARGUS_OCR_TIMEOUT: "90s"
+
   # 平台接入（token/secret 在 argus-secret）
   ARGUS_GITEA_URL: "https://git.example.com"
   # ⚠️ SKIP_TLS=1 同时覆盖平台 API 与 git clone 两条通道：平台 token（header 与

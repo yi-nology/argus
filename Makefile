@@ -3,14 +3,15 @@ BINARY  := argus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build run test vet lint fmt e2e it check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt e2e it check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
+	@echo "make build-ocrshim - 编译 ocrshim sidecar 二进制（bin/ocrshim）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 单元测试（不联网）"
 	@echo "make lint    - staticcheck 静态检查（排除 biz/model 生成代码）"
-	@echo "make e2e     - E2E 双打桩九场景（不联网，mock LLM）"
+	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
 	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
 	@echo "make check   - govulncheck 漏洞扫描"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
@@ -20,6 +21,9 @@ help:
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/$(BINARY) .
+
+build-ocrshim:
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ocrshim ./cmd/ocrshim
 
 run: build
 	./bin/$(BINARY)

@@ -381,33 +381,43 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 				continue
 			}
 		}
+		// 学习环记账/匹配的权威评语（v3.9.1）：跨轮既有条目以 prints 行原文为
+		// 准——轮内合并拼接（"（X 同位置补充）…"）发生在 acc.finding 上，而条目
+		// 指纹=首见评语的指纹，内存文本会偏离历史模式行的键；新条目用本轮文本
+		//（UpsertPrint 首建即存该文本，regret 回查同源，两键天然一致）。
+		patternComment := f.Comment
+		if prior != nil && prior.Comment != "" {
+			patternComment = prior.Comment
+		}
+		probe := f
+		probe.Comment = patternComment
+
 		// 学习环硬闸门：样本充足且置信度低于 HardFloor 的 low 条目直接丢弃。
 		// medium/high 不丢——误杀代价不对称（design D4）。
 		if m.learn.Enabled && f.Severity == SeverityLow {
-			if hit := matchLowPattern(lowPatterns, f, m.learn.MinSamples, m.learn.HardFloor); hit != nil {
+			if hit := matchLowPattern(lowPatterns, probe, m.learn.MinSamples, m.learn.HardFloor); hit != nil {
 				out.Degraded = append(out.Degraded, fmt.Sprintf(
 					"学习环抑制：%s/%s（模式置信度 %.2f）", hit.Plugin, truncateText(hit.PatternText, 40), hit.Confidence))
 				// 记 posted 以外：被闸门吃掉不记 posted，避免抬高置信度
 				continue
 			}
 		}
-		// 模式级低置信标注（SoftFloor）：medium/high 也标注，人审优先看。
-		// PatternPosted 与本匹配都必须基于标注前的原始评语——PatternKey 由评语
-		// 派生（pattern.go），先标注后记账/匹配会让惯犯条目对不上自己的历史
-		// 模式行（与 FP 同款错账，v3.9.0 审查修复）。
-		if m.learn.Enabled {
-			if hit := matchLowPattern(lowPatterns, f, m.learn.MinSamples, m.learn.SoftFloor); hit != nil {
-				f.Comment += "（本仓库同类意见历史置信度低）"
+		// PatternPosted：意见进入报告后记账（失败只告警）。必须先于 SoftFloor/
+		// 展示两类标注——PatternKey 由评语派生（pattern.go），标注文本进键会把
+		// posted 记进"原文+标注"的影子行，真实模式行只累积 regret，置信度单调
+		// 下跌后 HardFloor 永久吞掉本应正确的条目（v3.9.0 修复只挪过了展示标注，
+		// v3.9.1 补齐 SoftFloor 标注先于记账的漏网层）。
+		if m.learn.Enabled && m.patterns != nil {
+			if err := m.patterns.PatternPosted(ctx, pr.Platform, pr.Owner, pr.Repo, FirstBy(f.By), probe, at); err != nil {
+				m.log.Warn("argus.merger.pattern_posted_failed", "error", err.Error())
 			}
 		}
-		// PatternPosted：意见进入报告后记账（失败只告警）。
-		if m.learn.Enabled && m.patterns != nil {
-			by := f.By
-			if i := strings.IndexByte(by, ','); i > 0 {
-				by = by[:i] // 多插件合并时取首个归属记账，避免一票多记
-			}
-			if err := m.patterns.PatternPosted(ctx, pr.Platform, pr.Owner, pr.Repo, by, f, at); err != nil {
-				m.log.Warn("argus.merger.pattern_posted_failed", "error", err.Error())
+		// 模式级低置信标注（SoftFloor）：medium/high 也标注，人审优先看。
+		// 匹配同样基于权威评语 probe；标注恒在记账/匹配之后（错账见上，
+		// v3.9.0 审查修复确立的不变量）。
+		if m.learn.Enabled {
+			if hit := matchLowPattern(lowPatterns, probe, m.learn.MinSamples, m.learn.SoftFloor); hit != nil {
+				f.Comment += "（本仓库同类意见历史置信度低）"
 			}
 		}
 		// 展示标注（注释在入库与模式记账之后改写，不污染指纹/prints 原文/
@@ -446,11 +456,7 @@ func abs(n int) int {
 // matchLowPattern 用 finding 的 plugin+comment 键在低置信列表中找匹配。
 // samples < minSamples 或 confidence ≥ floor 时返回 nil（小样本/未够低不消费）。
 func matchLowPattern(low []PatternState, f Finding, minSamples int, floor float64) *PatternState {
-	by := f.By
-	if i := strings.IndexByte(by, ','); i > 0 {
-		by = by[:i]
-	}
-	key := PatternKey(by, f.Comment)
+	key := PatternKey(FirstBy(f.By), f.Comment)
 	for i := range low {
 		if low[i].Pattern == key && low[i].Samples >= minSamples && low[i].Confidence < floor {
 			return &low[i]

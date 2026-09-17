@@ -38,9 +38,28 @@ func (s *Store) MarkCommentDelivery(ctx context.Context, deliveryID string, at t
 }
 
 // PruneCommentDeliveries 清理过期的投递记录（7 天前的重试已无幂等意义）。
+// 分批删除（每批 500，与 PruneTasks 同理：单条大 DELETE 长事务占住 SQLite
+// 单写连接，v3.9.1 补齐）。
 func (s *Store) PruneCommentDeliveries(ctx context.Context, cutoff time.Time) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res := s.db.WithContext(ctx).Where("seen_at < ?", cutoff).Delete(&CommentDelivery{})
-	return res.RowsAffected, res.Error
+	var total int64
+	for {
+		var batch []string
+		if err := s.db.WithContext(ctx).Model(&CommentDelivery{}).
+			Where("seen_at < ?", cutoff).Limit(500).Pluck("delivery_id", &batch).Error; err != nil {
+			return total, err
+		}
+		if len(batch) == 0 {
+			return total, nil
+		}
+		res := s.db.WithContext(ctx).Where("delivery_id IN ?", batch).Delete(&CommentDelivery{})
+		total += res.RowsAffected
+		if res.Error != nil {
+			return total, res.Error
+		}
+		if len(batch) < 500 {
+			return total, nil
+		}
+	}
 }

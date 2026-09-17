@@ -157,6 +157,8 @@ docker compose start argus
 - 生产环境必须设置 `ARGUS_TASK_RETENTION_DAYS`（推荐 30）
 - `ARGUS_DEBUG=false`（默认）避免留存大量调试产物
 - 定期监控磁盘使用率
+- OCR 留档目录 `/data/ocr-history`（v3.9.0 起 delegate/ocrshim 双通道原始产物）只增不删，
+  高频审查下纳入磁盘监控与定期归档清理
 
 ---
 
@@ -466,7 +468,7 @@ gunzip < argus-20260901.sql.gz | mysql -h $MYSQL_HOST -u argus -p argus_db
 
 ## 9. 升级 Argus 版本
 
-### v3.0.x → v3.8.x 升级注意事项
+### v3.0.x → v3.9.x 升级注意事项
 
 - **Schema 迁移零手工 SQL**：启动时 GORM AutoMigrate 自动增量迁移（补齐缺失列/表，
   如 `tasks.runner_id/heartbeat_at/attempt/next_retry_at`、`review_targets.known_comment_ids`，
@@ -479,6 +481,10 @@ gunzip < argus-20260901.sql.gz | mysql -h $MYSQL_HOST -u argus -p argus_db
 - **回滚红线：禁止回滚到 <v3.7.0**：回滚到 <v3.7.0 的二进制接同一数据库 = 指纹体系倒挂
   （旧代码按 v1 语义读 v2 指纹库），**历史抑制全部失配复活**（已抑制意见重新回帖刷屏）。
   如必须回滚，需明确接受该后果，或先清空 `finding_prints`（建议连同 `print_aliases`）。
+- **v3.9.0 起 OCR 走 ocrshim sidecar（同镜像双二进制）**：compose/k8s 升级时 argus 与
+  ocrshim 必须同 tag 滚动——旧版本镜像无 `/app/ocrshim`，sidecar 容器会崩溃循环。
+  不启用 OCR 通道可无视（plugins.yaml `ocr` 条目默认关闭）；delegate 委托前置走
+  `ARGUS_OCR_BIN`，与 sidecar 无关。
 - **升级前备份 DB**：SQLite 直接 cp 数据文件（停写后 `cp /data/argus.db /backup/`，
   见场景 8）；MySQL 用 `mysqldump --single-transaction`（见上文 MySQL 备份）。
 
@@ -605,6 +611,48 @@ curl -s -H "Authorization: Bearer $ARGUS_APITOKEN" \
 
 ---
 
+## 11. OCR 通道（ocrshim / delegate）故障
+
+### 症状
+
+- 报告降级注明 `ocr 未参与`，日志出现 `argus.plugin.failed`（name=ocr）或熔断告警
+- ocrshim 容器崩溃循环（典型根因：镜像 tag 落后——v3.9.0 前的镜像无 `/app/ocrshim`）
+- delegate 通道：日志 `argus.ocrdeleg` 告警，R4 提示词缺文件分诊段（审查照常，只是少了 OCR 的确定性输入）
+
+### 诊断
+
+```bash
+# 1. sidecar 健康度（MCP 通道；healthz 会注明 OCR 二进制缺失等状态）
+docker compose exec argus wget -qO- http://ocrshim:8090/healthz   # k8s 同 Pod：curl 127.0.0.1:8090/healthz
+
+# 2. 确认镜像双二进制与 OCR 二进制在位
+docker compose exec ocrshim ls -l /app/ocrshim /opt/argus/bin/ocr
+
+# 3. 浅克隆历史补全失败（大仓 unshallow 超时，上限默认 5m；workcopy 池按 PR 复用后自然摊销）
+grep "unshallow" /var/log/argus.log | tail -5
+
+# 4. delegate 通道（配置 ARGUS_OCR_BIN 时）
+ls -l "$ARGUS_OCR_BIN"
+grep "argus.ocrdeleg" /var/log/argus.log | tail -5
+```
+
+### 解决
+
+- **镜像 tag 不匹配**：argus 与 ocrshim 必须同 tag（同一镜像双二进制），统一 bump 后
+  `docker compose up -d` / `kubectl rollout restart`
+- **OCR 二进制缺失**：`scripts/install-ocr.sh` 预编译到挂载路径（compose：`./bin/ocr-amd64`；
+  k8s：镜像构建期 COPY，见 08-ocrshim-sidecar.yaml.example 文件头）
+- **unshallow 超时/失败**：审查自动降级不阻断；大仓可在 plugins.yaml 关 `ocr` 条目
+- **鉴权 401**：`OCRHIM_TOKEN` 拼写注意为 OCRSHIM_TOKEN——shim 侧 env 与 plugins.yaml
+  `auth_token_env` 必须两侧配对（一侧设置另一侧未配即 401）
+
+### 预防
+
+- ocr/argus/ocrshim 同版本升级；`ARGUS_OCR_TIMEOUT`（默认 90s）按仓库规模放宽
+- OCR 任何通道失败都只降级告警、审查主链路不受影响——告警量异常才需介入
+
+---
+
 ## 附录：环境变量速查
 
 | 变量 | 默认值 | 说明 |
@@ -633,3 +681,8 @@ curl -s -H "Authorization: Bearer $ARGUS_APITOKEN" \
 | `OPENAI_MAX_TOKENS` | `0`（自动派生） | 单次生成上限 |
 | `ARGUS_MODEL_CONTEXT_TOKENS` | `128000` | 模型上下文窗口 |
 | `ARGUS_WEBHOOK_MAX_BODY` | `1048576` | Webhook 请求体上限（字节） |
+| `ARGUS_SINK_URL` / `ARGUS_SINK_TOKEN` | 空 | 结果上报 sink（v3.9.0）：审查完成后 push 给 review-service；URL 非空即启用，失败只告警 |
+| `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / `90s` | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4 |
+| `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道，v3.9.0） |
+| `ARGUS_REACT_MAX_ITERATIONS` | `12` | builtin ReAct 迭代上限 |
+| `ARGUS_REGRET_LEARNING` | `false` | 模式级 regret 学习环（SoftFloor/HardFloor 闸门与低置信标注；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go） |

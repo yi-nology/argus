@@ -18,6 +18,8 @@ import (
 
 	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/textutil"
+
+	"argus/internal/plugin"
 )
 
 // 缺省硬上限：单条 delegate 命令 90s（确定性 git/规则解析，无 LLM 往返，通常秒级）；
@@ -289,17 +291,6 @@ func WriteHistory(dir string, rec HistoryRecord) error {
 	if err != nil {
 		return fmt.Errorf("OCR 历史序列化失败: %w", err)
 	}
-	name := rec.DoneAt.Format("20060102-150405") + "-" + sanitizeFileStem(rec.PR) + ".json"
+	name := rec.DoneAt.Format("20060102-150405") + "-" + plugin.SanitizeFileStem(rec.PR) + ".json"
 	return os.WriteFile(filepath.Join(dir, name), b, 0o644)
-}
-
-// sanitizeFileStem 文件名安全化：PR 标识中的路径分隔/引用语法字符归一为 -。
-func sanitizeFileStem(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch r {
-		case '/', '#', '@', ':', '\\':
-			return '-'
-		}
-		return r
-	}, s)
 }

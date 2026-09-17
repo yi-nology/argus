@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.8.0**（agentkit v0.9.8 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
+当前版本 **v3.9.1**（agentkit v0.10.2 / git-platform-sdk v0.61.0 / ekit v0.27.2 / eino v0.9.18；版本口径以 CHANGELOG 头为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
@@ -28,9 +28,11 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 - 插件式架构（`plugins.yaml` 声明），单插件失败/超时/熔断只做"降级注明"，不拖垮整轮审查；
 - 内置 **requirement-compliance**（上面的需求复核全流程）、**correctness**（通用代码审查）、
   **security**（安全审查，仓库配置禁不掉）三类 LLM agent；
-- 可插 **CLI 外部工具**（内置 OCR：alibaba/open-code-review，进程组托管、容错 JSON 解析）、
-  **CLI 编码 agent**（`kind: acpx`，v3.2：codex/kimi/claude 等作为 R4 审查专家，只读沙箱）
-  和 **remote 远端 agent**（a2a/mcp 协议子集，v3.1 实装）；
+- 可插 **CLI 外部工具**、**CLI 编码 agent**（`kind: acpx`，v3.2：codex/kimi/claude 等作为 R4 审查专家，只读沙箱）
+  和 **remote 远端 agent**（a2a/mcp 协议子集，v3.1 实装）。内置 **OCR**（alibaba/open-code-review）
+  提供三条调用通道（v3.9.0）：**ocrshim MCP sidecar**（OCR 全权审查，同镜像双二进制）、
+  **delegate 委托前置**（OCR 端零 LLM 的文件分诊+仓库规则注入 R4，审查循环仍归 argus，
+  `ARGUS_OCR_BIN` 启用）、`kind: cli` 回退位（默认关闭）；
 - 支持**方法论注入**（skillRefs）：把 SKILL.md 里的评分标准注入对应阶段的 prompt；
 - **Reviewer 也能带工具（v3.3）**：通用审查 agent 可选挂载 R3 同款工具表（读文件/读 diff/
   查知识库）走 ReAct 模式核实线索，失败自动落回单轮审查——工具链故障不影响出结果；
@@ -158,7 +160,11 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
 - **平台降级**：平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop；
 - **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
   分阶段模型路由（P6）可按 R1/R2/R3/R3.5/Reviewer/QA/Router 各配各的模型与窗口；
-- 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）。
+- 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）；
+- **结果外推 sink（v3.9.0，可选）**：审查完成后把结构化结果（verdict + findings +
+  统计）push 给外部承接端（review-service 的「Argus 审查」页），`ARGUS_SINK_URL`
+  非空即启用，失败只告警不阻断；其前端「误报抑制」按钮可经代理回流到 argus 的
+  `/findings/suppress`，形成两系统反馈闭环（见 review-service-integration.md）。
 
 ---
 
@@ -295,6 +301,18 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_GITHUB_APP_ID` | 空 | GitHub App ID（替代 PAT 的另一种认证方式）|
 | `ARGUS_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App 私钥（PEM 格式）|
 | `ARGUS_GITHUB_APP_INSTALLATION_ID` | 空 | GitHub App installation ID |
+| `ARGUS_SINK_URL` / `ARGUS_SINK_TOKEN` | 空 | 结果上报 sink（v3.9.0）：审查完成后 push 给 review-service；URL 非空即启用，失败只告警不阻断 |
+| `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / 90s | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4，审查循环仍归 argus |
+| `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
+| `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
+| `ARGUS_REFLECTION_EVIDENCE` | off | R3.5 反思证据门模式（strict = 剔除证据不足条目）|
+| `ARGUS_REGRET_LEARNING` | false | 模式级 regret 学习环（低置信标注 SoftFloor / 抑制 HardFloor；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go）|
+| `ARGUS_DREAM_INTERVAL` | 0（关闭） | 长期记忆整合周期（internal/dream）|
+| `ARGUS_COMMENT_TIMEOUT` / `ARGUS_COMMENT_CONCURRENCY` | 10m / 2 | 评论回帖整体超时 / 并发数 |
+| `ARGUS_TASK_MAX_RETRIES` | 2 | failed 任务自动重试上限（指数退避）|
+| `ARGUS_WORKER_GRACE` | 60s | worker 优雅停机等待在途任务时长 |
+| `ARGUS_METRICS_AUTH` | false | /metrics 鉴权开关（公网/办公网直露部署建议开启）|
+| `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | 0（不限） | 仓库月度 token 预算 |
 
 ### 6. 仓库侧配置（.reviewagents.yaml，放业务仓库默认分支）
 
@@ -371,7 +389,7 @@ squads:
 
 ```bash
 make test    # 单元测试（真值表/反注入/指纹/渲染/diffprep/存储，不联网）
-make e2e    # E2E 双打桩 21 场景（mock OpenAI + fake Gitea/GitLab + mock OCR，不联网）
+make e2e    # E2E 双打桩场景集（mock OpenAI + fake Gitea/GitLab + mock OCR，不联网）
 make it      # 真实 LLM 集成测试（ARGUS_IT=1，走 OPENAI_*，约 1-3 分钟）
 make check   # vet + gofmt
 ```
@@ -394,7 +412,8 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 - bot 自审限制（Forgejo 拒绝 PR 作者提 blocking 评审）已自动降级 COMMENT 并在 body 注明。
 
 **生产运行**：已在内网 GitLab（git.example.com，自签证书）常驻运行——4 仓库 webhook
-接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.8.0（v3.5.4–v3.5.5 三平台评论触发真机修复、v3.5.6 Forgejo 复验、v3.5.7–v3.5.9 架构还债、v3.5.12 深挖 P0 修复），生产升级部署待验证。
+接入、OCR 等 4 插件启用、MaxConcurrent=2。仓库 HEAD 已演进至 v3.9.x（v3.6 深挖收尾、
+v3.7.0 指纹 v2+近重复、v3.8.0 决策链修复、v3.9.0 OCR 三通道+sink），生产升级部署待验证。
 
 ---
 
@@ -428,7 +447,7 @@ internal/
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
-test/e2e/                      双打桩 E2E 21 场景 + 真实 LLM 集成测试
+test/e2e/                      双打桩 E2E 场景集 + 真实 LLM 集成测试
 deploy/                        docker-compose + k8s kustomize 双形态（+ 多副本指南）
 scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
 skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
@@ -468,7 +487,7 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 - 路由/裁决/合并走 LLM：确定性优先的原则不变。
 
 **剩余待办/已知边界**：
-- 生产升级部署验证（生产现运行 v3.0.5，仓库 HEAD 已 v3.5.12）；
+- 生产升级部署验证（生产现运行 v3.0.x，仓库 HEAD 已 v3.9.x）；
 - 总结评论扫描兜底受 SDK 分页限制（评论被顶出第一页后走新建路径）；
 - 编队共识上限 2 轮（比 agentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
   （成本经 obsx/费率记账可见）；

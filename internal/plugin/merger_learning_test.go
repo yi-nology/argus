@@ -9,9 +9,10 @@ import (
 
 // fakePatternStore 内存版 PatternStore：预置低置信模式表，记录 Posted 调用。
 type fakePatternStore struct {
-	low     []PatternState
-	posted  []Finding
-	listErr error
+	low      []PatternState
+	posted   []Finding
+	postedBy []string // PatternPosted 的 pluginName 实参（键的 plugin 分量）
+	listErr  error
 }
 
 func (f *fakePatternStore) ListLowConfidencePatterns(_ context.Context, _, _, _ string,
@@ -19,8 +20,9 @@ func (f *fakePatternStore) ListLowConfidencePatterns(_ context.Context, _, _, _ 
 	return f.low, f.listErr
 }
 
-func (f *fakePatternStore) PatternPosted(_ context.Context, _, _, _, _ string, finding Finding, _ time.Time) error {
+func (f *fakePatternStore) PatternPosted(_ context.Context, _, _, _, pluginName string, finding Finding, _ time.Time) error {
 	f.posted = append(f.posted, finding)
+	f.postedBy = append(f.postedBy, pluginName)
 	return nil
 }
 
@@ -136,5 +138,75 @@ func TestMergeLearningRecordsPosted(t *testing.T) {
 	}
 	if len(ps.posted) != 1 || ps.posted[0].Comment != "存在空指针解引用风险" {
 		t.Fatalf("应记 1 次 posted: %+v", ps.posted)
+	}
+}
+
+// v3.9.1 回归：SoftFloor 命中条目若先标注后记账，标注文本会进 PatternKey
+// ——posted 记进"原文+标注"的影子行，真实模式行只累积 regret，置信度单调
+// 下跌后 HardFloor 永久吞掉本应正确的条目。posted 必须基于标注前原文。
+func TestMergeSoftFloorPostsPreAnnotationKey(t *testing.T) {
+	comment := "存在空指针解引用风险"
+	ps := &fakePatternStore{low: []PatternState{{
+		Plugin: "security", Pattern: PatternKey("security", comment),
+		PatternText: PatternSample(comment),
+		Confidence:  0.2, Samples: 5,
+	}}}
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, LearningConfig{
+		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
+	})
+	mf, err := m.Merge(context.Background(), regretTestPR(), "t-softfloor",
+		[]Outcome{{Name: "security", Result: &Result{Findings: []Finding{
+			{File: "a.go", Line: 1, Severity: SeverityMedium, Comment: comment},
+		}}}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mf.Findings) != 1 || !strings.Contains(mf.Findings[0].Comment, "历史置信度低") {
+		t.Fatalf("应保留并标注: %+v", mf.Findings)
+	}
+	if len(ps.posted) != 1 {
+		t.Fatalf("应记 1 次 posted: %d", len(ps.posted))
+	}
+	if ps.posted[0].Comment != comment {
+		t.Fatalf("posted 评语必须为标注前原文: %q", ps.posted[0].Comment)
+	}
+}
+
+// v3.9.1 回归：多插件合并条目（By="a,b"、评语拼接"（X 同位置补充）"）的 posted
+// 必须落在首见插件的 prints 行原文键上——prints 原文是 regret 回查的权威来源，
+// 两键不一致 = posted/regret 错账（真实模式行只缺不涨）。
+func TestMergeMergedEntryPostsAuthoritativeComment(t *testing.T) {
+	base := "空指针风险"
+	fp := Fingerprint("a.go", base, 1)
+	prints := &fakePrintStore{prior: map[string]*PrintState{
+		fp: {Status: "open", TimesSeen: 1, Comment: base},
+	}}
+	ps := &fakePatternStore{}
+	m := NewMerger(prints, testNopLogger{}).WithLearning(ps, LearningConfig{
+		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
+	})
+	mf, err := m.Merge(context.Background(), regretTestPR(), "t-merged",
+		[]Outcome{
+			{Name: "sec", Result: &Result{Findings: []Finding{
+				{File: "a.go", Line: 1, Severity: SeverityHigh, Comment: base},
+			}}},
+			{Name: "aux", Result: &Result{Findings: []Finding{
+				{File: "a.go", Line: 1, Severity: SeverityMedium, Comment: "判空缺失另一种措辞"},
+			}}},
+		}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mf.Findings) != 1 {
+		t.Fatalf("同位置应并为一条: %d", len(mf.Findings))
+	}
+	if len(ps.posted) != 1 {
+		t.Fatalf("应记 1 次 posted: %d", len(ps.posted))
+	}
+	if ps.posted[0].Comment != base {
+		t.Fatalf("posted 必须用 prints 行原文（非拼接文本）: %q", ps.posted[0].Comment)
+	}
+	if len(ps.postedBy) != 1 || ps.postedBy[0] != "sec" {
+		t.Fatalf("posted 归属必须取首段: %q", ps.postedBy)
 	}
 }

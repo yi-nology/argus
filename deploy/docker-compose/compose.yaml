@@ -12,7 +12,7 @@
 
 services:
   argus:
-    image: argus:v3.8.0
+    image: argus:v3.9.1
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -60,11 +60,13 @@ services:
   # ---- ocrshim：OCR（open-code-review）的 MCP sidecar（v3.9 调用通道）----
   # 与 argus 共享工作副本卷（ARGUS_WORK_ROOT=/data/work）：argus 备好工作副本后
   # 经 payload.workcopy_dir 下发目录，ocrshim 在其中执行 `ocr review` 并归一化
-  # findings。OCR 的 LLM 凭证经 .env 注入本服务（OCRSHIM_OCR_ENV 白名单按名透传），
-  # 不再进入 argus 进程。OCR 二进制沿用 Dockerfile.local 的宿主预编译形态：
+  # findings。OCR 的 LLM 凭证经 .env 注入本服务（OCRSHIM_OCR_ENV 白名单按名透传给
+  # OCR 子进程；argus 自身 LLM 消费同套 OPENAI_* 属正常配置，真正的隔离边界是
+  # "凭证绝不进入待审工作树内的插件子进程"——cli/acpx 的 env 白名单保证）。
+  # OCR 二进制沿用 Dockerfile.local 的宿主预编译形态：
   #   scripts/install-ocr.sh（pin 版本 + checksum）→ ./bin/ocr-amd64
   ocrshim:
-    image: argus:v3.8.0                 # 同一镜像双二进制（/app/argus + /app/ocrshim）
+    image: argus:v3.9.1                 # 同一镜像双二进制（/app/argus + /app/ocrshim）
     container_name: ocrshim
     restart: unless-stopped
     mem_limit: 512m

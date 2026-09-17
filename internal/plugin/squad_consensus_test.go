@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,18 @@ func (p *failOnCallPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
 		return Result{}, errors.New("simulated later-round failure")
 	}
 	return Result{}, nil
+}
+
+// cancelInvokePlugin Invoke 即阻塞至 ctx 取消并返回取消错误（模拟优雅停机
+// 打断共识成员执行）。
+type cancelInvokePlugin struct {
+	manifest AgentManifest
+}
+
+func (p *cancelInvokePlugin) Manifest() AgentManifest { return p.manifest }
+func (p *cancelInvokePlugin) Invoke(ctx context.Context, _ Task) (Result, error) {
+	<-ctx.Done()
+	return Result{}, fmt.Errorf("reAct 中断: %w", ctx.Err())
 }
 
 func regWith(p AgentPlugin) *Registration {
@@ -288,5 +301,31 @@ func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
 	}
 	if !aFailed {
 		t.Fatalf("后续轮次失败的成员应回填 Err，got %+v", outcomes)
+	}
+}
+
+// v3.9.1 回归：任务级取消（优雅停机）打断共识成员不得计入熔断——与
+// Dispatcher.Run 的 teardown 守卫同语义；否则连续 3 次滚动发布即可把
+// security 类成员误熔断 5 分钟。
+func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
+	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	_ = d.reg.Register(regWith(&cancelInvokePlugin{manifest: AgentManifest{
+		Name: "blocker", Skills: []string{"code-review"},
+		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))
+	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []Finding{}, []Finding{})))
+	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
+	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_ = d.RunConsensus(ctx, task, sq, nil)
+
+	// 取消不算失败：blocker 的熔断器必须仍在闭合态（Allow 放行）。
+	if !d.breakers.Allow("blocker") {
+		t.Fatal("任务级取消不得计入熔断连续失败")
 	}
 }

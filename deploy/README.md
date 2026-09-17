@@ -20,12 +20,16 @@ curl http://127.0.0.1:8899/healthz
 - 平台 → 本机 webhook 不可达（NAT/VPN 环境，Mac 试点实测如此）：启用 `.env` 里的
   `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` 轮询兜底，零功能损失
 - 日志轮转已配置（50m×5）
+- **ocrshim sidecar（v3.9.0，可选）**：compose 已内置 `ocrshim` 服务（与 argus 同镜像双
+  二进制，共享 `./data` 卷）——plugins.yaml 的 `ocr` 条目指向 `http://ocrshim:8090/mcp`
+  即启用 OCR MCP 通道；OCR 二进制预编译到 `./bin/ocr-amd64`（scripts/install-ocr.sh）。
+  argus 与 ocrshim 必须同 tag 滚动。OCR/delegate/sink 全部开关见 `.env.example` 注释
 
 ## 模式二 · k8s (kustomize)
 
 ```bash
-# 0) 镜像：本地构建并推 Harbor（或先在本节点 load；tag 以实际版本为准，如 v3.4.0）
-make docker && docker tag argus:v3.4.0 harbor.example.com/enjoydream/argus:v3.4.0 && docker push ...
+# 0) 镜像：本地构建并推 Harbor（或先在本节点 load；tag 以实际版本为准，如 v3.9.1）
+make docker && docker tag argus:v3.9.1 harbor.example.com/enjoydream/argus:v3.9.1 && docker push ...
 # 并把 deploy/k8s/kustomization.yaml 的 images.newTag 改为 Harbor 地址
 
 # 1) 修改凭证
@@ -51,6 +55,19 @@ curl http://<nodeIP>:<port>/healthz
 | 05-plugins-configmap | 插件声明 | 改完 `kubectl rollout restart deployment/argus -n argus` |
 | 06-service | ClusterIP | webhook 需要时改 NodePort 30883 |
 | 07-ingress.yaml.example | nginx 形态参考 | APISIX 集群不用它，走 APISIX 路由；未加入 kustomization |
+| 08-ocrshim-sidecar.yaml.example | OCR MCP sidecar 粘贴块 | 可选；粘贴进 04-deployment 的 containers（同 Pod 共享 PVC/loopback），镜像需按文件头步骤加装 OCR 二进制 |
+
+### v3.9 形态（可选装配）
+
+- **OCR MCP 通道**：把 [08-ocrshim-sidecar.yaml.example](k8s/08-ocrshim-sidecar.yaml.example)
+  的容器块粘贴进 04-deployment，按其文件头步骤构建含 OCR 二进制的镜像，05-plugins-configmap
+  的 `ocr` 条目指向 `http://127.0.0.1:8090/mcp`。**argus 与 ocrshim 必须同 tag 滚动**
+  （同一镜像双二进制；旧镜像无 `/app/ocrshim`，sidecar 会崩溃循环）
+- **OCR delegate 委托前置**：镜像内含 OCR 二进制时，取消 02-configmap 的
+  `ARGUS_OCR_BIN` 注释即可（与 sidecar 无关，可并用：delegate 供确定性输入、sidecar 供独立审查）
+- **结果上报 sink**：取消 02-configmap 的 `ARGUS_SINK_URL` 注释 + 01-secret 加
+  `ARGUS_SINK_TOKEN`，审查完成后 push 给 review-service（承接端见 review-service 仓
+  argusingest 模块；URL 非空即启用，失败只告警不阻断审查）
 
 ### 工作区对接（后续演进）
 

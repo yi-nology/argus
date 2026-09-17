@@ -106,9 +106,10 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	store.RunnerID = instanceID
 	log.Info("argus.boot.instance", "id", instanceID)
 	// 多副本同 SHA 双跑最终防线（深挖 P0）：SQLite 部分唯一索引；历史在飞重复
-	// 数据会使其退化（active=false），清理后重启自愈。
+	// 数据会使其退化（active=false），清理后重启自愈。真实执行错误只告警不阻断
+	// （v3.9.1：错误必须带原始原因透出，此前吞掉会误导运维清数据）。
 	if guardActive, err := store.EnsureSameSHAGuard(); err != nil {
-		return err
+		log.Warn("argus.boot.same_sha_guard_failed", "error", err.Error())
 	} else if !guardActive {
 		log.Warn("argus.boot.same_sha_guard_skipped", "hint",
 			"tasks 表存在历史在飞重复 (platform,owner,repo,number,head_sha)，唯一索引未建立；清理重复任务后重启自愈")
@@ -163,6 +164,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		}
 		pruneOnce(ctx)
 		wm.AddTicker("task-prune", 24*time.Hour, pruneOnce)
+	} else {
+		log.Warn("argus.boot.retention_disabled", "hint",
+			"ARGUS_TASK_RETENTION_DAYS 未设置（默认 0=永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长，生产建议设置保留天数（推荐 30，见 deploy/ops-runbook.md 场景 3）")
 	}
 	// 会话与指纹的保留清理（深挖修复：qa_sessions/finding_prints 此前永不清理，
 	// history_json/comment 单调膨胀拖慢全表扫描与备份）。

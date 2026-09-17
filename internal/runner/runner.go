@@ -142,6 +142,10 @@ func (r *Runner) skillText(_ context.Context) string {
 			}
 		}
 		r.skillCache = skill.ListPrompt(filtered)
+		// tool 模式同样吃 10 分钟刷新周期（v3.9.1：此前不设 loaded/refresh，
+		// 缓存条件永假，每任务每次 R3 都重拉 ListSkills）
+		r.skillLoaded = true
+		r.skillRefresh = time.Now().Add(10 * time.Minute)
 		return r.skillCache
 	}
 	for _, ref := range r.SkillRefs {
@@ -414,6 +418,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	// RemovedFindings 携带的 Comment 可能已带展示标注（merger 标注先于 R3.5）——
 	// 按索引配对的 RemovedPrints[i]（入库 FP）查 prints 行取回原文后再记账，
 	// 查不到（行被清理等）才退回携带文本（v3.9.0 审查修复：惯犯条目模式归因丢失）。
+	// By 取首段与 merger PatternPosted 同口径（v3.9.1：多插件合并条目的 regret
+	// 此前落在 "a,b" 键的影子行，真实模式行只缺不涨）。
 	if out.Reflect != nil && len(out.Reflect.RemovedFindings) > 0 && r.Learning.Enabled {
 		for i, f := range out.Reflect.RemovedFindings {
 			if i < len(out.Reflect.RemovedPrints) {
@@ -425,7 +431,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 				}
 			}
 			if err := r.Store.PatternRegret(ctx,
-				pr.Platform, pr.Owner, pr.Repo, f.By, f, time.Now()); err != nil {
+				pr.Platform, pr.Owner, pr.Repo, plugin.FirstBy(f.By), f, time.Now()); err != nil {
 				r.Log.Warn("argus.regret.pattern_failed", "error", err.Error())
 			}
 		}

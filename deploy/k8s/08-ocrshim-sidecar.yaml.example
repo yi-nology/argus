@@ -20,8 +20,8 @@
 #          tool: review
 #          cost: heavy
 #          timeout: 300s
-#   3. argus-secret 需含 OPENAI_API_KEY / OPENAI_BASE_URL（LLM 凭证只进 ocrshim，
-#      不再透传给待审工作树内的进程）。
+#   3. argus-secret 需含 OPENAI_API_KEY / OPENAI_BASE_URL（OCR 子进程的凭证由
+#      shim 白名单透传；凭证不进入待审工作树内的插件子进程）。
 #   4. 可选鉴权（v3.9.0 审查修复，建议开启）：sidecar 的 :8090 绑在 Pod 网络——
 #      argus 经 loopback 访问，但同集群其他 Pod 在无 NetworkPolicy 时同样可达。
 #      argus-secret 加 OCRSHIM_TOKEN=<随机串>（envFrom 已注入 shim），args 追加
@@ -30,7 +30,7 @@
 #
 # ---- 以下块粘贴到 04-deployment.yaml 的 containers: 列表尾部 ----
         - name: ocrshim
-          image: argus:v3.8.0            # 同镜像双二进制（/app/argus + /app/ocrshim）
+          image: argus:v3.9.1            # 同镜像双二进制（/app/argus + /app/ocrshim）
           imagePullPolicy: IfNotPresent
           args:
             - "-listen"

@@ -1,5 +1,82 @@
 # Changelog
 
+## v3.9.1 (2026-09-17) — 学习环记账口径修正 + P2/P3 快修 + 发布/文档批
+
+v3.9.0 提交后（main 192d6fa/77ae563）的四路深挖修复批。重点：学习环
+posted/regret 记账键的三处错账（v3.9.0 审查修复的漏网层）、deploy 镜像 tag
+统一 bump（v3.8.0 tag 下 ocrshim sidecar 会崩溃循环）、一批 P2/P3 快修与
+部署文档收口。
+
+### 学习环记账口径（P1）
+
+- **PatternPosted 先于 SoftFloor 标注**（merger.go）：此前标注
+  `（本仓库同类意见历史置信度低）` 先于记账，标注文本进 PatternKey——被标注
+  条目的 posted 记进"原文+标注"影子行，真实模式行只累积 regret，置信度单调
+  下跌后 HardFloor 永久吞掉本应正确的条目。v3.9.0 只把记账挪过了展示标注，
+  本批补齐 SoftFloor 这层。
+- **权威评语 probe**：记账与 SoftFloor/HardFloor 匹配统一改用 prints 行原文
+  （prior.Comment，新条目用本轮文本=UpsertPrint 首建文本）——轮内多插件合并
+  拼接（`（X 同位置补充）`）不再让 posted 偏离历史模式行的键。
+- **regret 的 By 取首段**（runner.go）：多插件合并条目（By="a,b"）的
+  PatternRegret 此前落在 "a,b" 键，与 merger 取首段的 posted 不同行。上提
+  `plugin.FirstBy` 为统一口径（merger/matchLowPattern/runner 三处共用）。
+- **workflow 标注重放先于交叉分歧标注**：交叉标注文本先入 Comment 会让
+  AnnotateLowConfidence 的键失配，被交叉标注的条目永远补不上低置信标注。
+- e2e 场景 17 阈值修订（SoftFloor 0.50→0.55）：旧场景依赖错账（轮 2 posted
+  落影子行）压低置信度才过；记账修正后轮 2 真实行置信度恰达 0.50，放宽 e2e
+  阈值保住边界余量（场景意图不变）。
+
+### P2/P3 快修
+
+- **consensus 成员失败计熔断**（squad_consensus.go）：复用 Dispatcher.Run 的
+  `teardown` 守卫——优雅停机打断共识不再计入熔断连续失败（此前连续 3 次滚动
+  发布可误熔断 security 类成员 5 分钟）；成员失败日志与黑板 note 补
+  logredact.Redact（黑板条目会渲染进其他成员的提示词，同凭证泄漏 P0 教训）。
+- **PrintAlias 幂等写入**（prints.go）：alias_fp 全局唯一主键下，两个 PR 出现
+  同款措辞漂移（同一新指纹）时第二个 PR 重复建别名撞主键、UpsertPrint 整体
+  回滚（该意见此后每轮 print_upsert_failed，抑制/计数失效）。改
+  OnConflict DoNothing；跨 PR 异映射的别名设计张力留档（近重复层每轮仍可
+  本 PR 兜底），PR 域改造待拍板。
+- **短码前缀收口**（prints.go）：hex 白名单（防 LIKE 通配注入）；同 PR 多行
+  命中同一前缀时拒绝解析（与 restore 同款"不猜"）；别名兜底经子查询限定到
+  本 PR 的规范行。
+- **辅助表 Prune 分批**：qa_sessions/finding_prints/comment_deliveries 三处
+  补齐与 PruneTasks 同款 500 分批（单条大 DELETE 长事务占住 SQLite 单写连接）。
+- **EnsureSameSHAGuard 错误透出**：区分"数据冲突"（原 hint）与真实执行错误
+  （带原始原因告警）——此前整体吞掉，运维按 hint 清数据永远无效；main 侧
+  改告警不阻断。
+- **AnswerAboutReview 消费 ARGUS_QA_MODEL**：追问路径此前直用主模型，静默
+  忽略 QA 覆盖。
+- **skillText tool 模式缓存**：补设 skillLoaded/skillRefresh——此前缓存条件
+  永假，每任务每次 R3 重拉 ListSkills。
+- **SQLite DSN pragma**：DSN 已带 `?` 时以 `&` 追加 busy_timeout/WAL（此前
+  静默丢失，并发写行为漂移）。
+- **文件名消毒上收 `plugin.SanitizeFileStem`**：ocrshim 留档文件名此前未消毒
+  （GitLab 嵌套组 owner 含 `/` → 留档必失败；number 无格式校验），dream 本地
+  知识导出同款；ocrdeleg 私有实现并入统一。
+- **保留策略启动告警**：ARGUS_TASK_RETENTION_DAYS 未设置时启动告警提示
+  （tasks 产物每任务 MB 级单调增长；默认仍 0=永久，是否默认开启待拍板）。
+
+### 发布与文档
+
+- **镜像 tag 统一 v3.9.1**（compose/k8s 04/08/kustomization）：v3.9.0 的
+  ocrshim 二进制随 v3.9.1 镜像发布——按旧 v3.8.0 tag 部署时 sidecar 容器
+  崩溃循环（旧镜像无 /app/ocrshim）。
+- k8s 02-configmap/01-secret 补 ARGUS_SINK_URL/ARGUS_SINK_TOKEN 与
+  ARGUS_OCR_BIN（注释位）；deploy/README 增 "v3.9 形态（可选装配）" 段与
+  08 清单行，示例 tag 修为 v3.9.1；ops-runbook 增场景 11（OCR 通道故障）、
+  场景 9 补 sidecar 同 tag 滚动红线、env 速查补 sink/ocr/react/regret 各行、
+  场景 3 补 ocr-history 磁盘增长。
+- README：版本行（v3.9.1/agentkit v0.10.2）、OCR 三通道与 sink 能力、env 表
+  补 15+ 已实装变量、HEAD/生产待办口径更新；.env.example/compose/08 例的
+  "LLM 凭证不进 argus 进程"文案修正（真实保证=不进待审工作树子进程）。
+- review-service-integration.md 重写为现状：sink push 上报 + 误报抑制回流
+  已落地、真实仓路径更正、argus 独立性结论、remote/mcp 为长期方向。
+- Makefile 增 `build-ocrshim` 目标；help 的 e2e 场景数改为不写死。
+- **补记**：ARGUS_SINK_URL/ARGUS_SINK_TOKEN 结果外推 sink（internal/sink，
+  审查完成后 push 给 review-service，失败只告警）随 192d6fa 落地，此前无
+  变更记载——配置见 README env 表与 deploy 注释位。
+
 ## v3.9.0 (2026-09-17) — OCR 调用通道 MCP 化：ocrshim sidecar + remote 插件 working-copy
 
 OCR（alibaba/open-code-review）从 `kind: cli` 子进程调用演进为 `kind: remote

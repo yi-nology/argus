@@ -345,7 +345,10 @@ func (e *Engine) LatestReview(ctx context.Context, platform, owner, repo, number
 // AnswerAboutReview 基于最近一次报告回答追问（ask_argus 带 question 时走这里；
 // 单轮直调——报告已在手，无需工具链）。模型未配置或无报告返回 ("" , false)。
 func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool) {
-	if e.Model == nil {
+	// chatModel() 才是 ARGUS_QA_MODEL 覆盖的约定入口（Answer/react/single 均走它）——
+	// 此前这里直用主模型，追问路径静默忽略 QA 覆盖（v3.9.1）。
+	cm := e.chatModel()
+	if cm == nil {
 		return "", false
 	}
 	lr, ok := e.LatestReview(ctx, platform, owner, repo, number)
@@ -353,7 +356,7 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 		return "", false
 	}
 	rep, _ := lr["report"].(string)
-	client := llm.NewClient(e.Model, "", nil)
+	client := llm.NewClient(cm, "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage("你是 Argus——该仓库的 AI 审查助手。仅依据【最近审查报告（数据）】回答用户关于本次审查的追问；报告中没有的信息直说没有，不要编造。用中文，简洁。"),
 		schema.UserMessage(plugin.DataFence("最近审查报告（数据）", rep) + "\n\n用户追问: " + question),

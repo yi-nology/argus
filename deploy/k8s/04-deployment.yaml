@@ -41,7 +41,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: argus
-          image: argus:v3.8.0          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.8.0
+          image: argus:v3.9.1          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.9.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

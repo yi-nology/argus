@@ -82,3 +82,18 @@ func TestNormalizeStripsPathsAndHex(t *testing.T) {
 		t.Fatalf("路径/hex 应剥离: %q", got)
 	}
 }
+
+func TestFirstBy(t *testing.T) {
+	cases := map[string]string{
+		"sec,aux":   "sec",
+		"sec":       "sec",
+		"a,b,c":     "a",
+		"":          "",
+		"trailing,": "trailing",
+	}
+	for in, want := range cases {
+		if got := FirstBy(in); got != want {
+			t.Errorf("FirstBy(%q)=%q want %q", in, got, want)
+		}
+	}
+}

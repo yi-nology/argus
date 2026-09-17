@@ -64,6 +64,17 @@ func PatternSample(comment string) string {
 	return truncateRunes(normalizePatternComment(comment), PatternTextMax)
 }
 
+// FirstBy 返回 By 串的首段：Merge 阶段多插件命中同题会把 By 拼成 "a,b"，
+// 首见者=评语作者。学习环全部记账（PatternPosted/PatternRegret/matchLowPattern）
+// 的 plugin 分量必须统一走这里——漏截会让同一意见的 posted 与 regret 落进
+// 不同 plugin 键（错账）。
+func FirstBy(by string) string {
+	if i := strings.IndexByte(by, ','); i > 0 {
+		return by[:i]
+	}
+	return by
+}
+
 func truncateRunes(s string, n int) string {
 	if n <= 0 {
 		return ""

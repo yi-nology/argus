@@ -218,15 +218,17 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		}
 	}
 
+	// 学习环低置信标注重放：R3.5 按 id 回写 comment 会覆盖 Merger 阶段的后缀
+	// （docs/review-closed-loop-design.md §3.5）。幂等。必须先于交叉分歧标注——
+	// 交叉标注文本先入 Comment 会让重放 matchLowPattern 的键失配（PatternKey 由
+	// 评语派生），被交叉标注的条目永远补不上低置信标注（v3.9.1）。
+	if w.Merger != nil {
+		w.Merger.AnnotateLowConfidence(ctx, task.PR, merged)
+	}
+
 	// 交叉审查分歧标注（v3.3）：编队成员对同一区域意见不一致时标给人审
 	if members := w.Dispatcher.ActiveSquadMembers(&task.PR, changedFiles); len(members) >= 2 {
 		w.Merger.AnnotateCrossReview(merged, members)
-	}
-
-	// 学习环低置信标注重放：R3.5 按 id 回写 comment 会覆盖 Merger 阶段的后缀
-	// （docs/review-closed-loop-design.md §3.5）。幂等。
-	if w.Merger != nil {
-		w.Merger.AnnotateLowConfidence(ctx, task.PR, merged)
 	}
 
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
