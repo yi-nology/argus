@@ -35,6 +35,22 @@
 - 新增 PR 模板：模型/prompt/插件默认路由变更必须附最近一次 golden 数字
   （`make eval` 全过 + eval-real 命中率随附）——「变更必附回归数字」成为流程。
 
+## v3.13.1 (2026-09-18) — 通用能力下沉 agentkit v0.10.5
+
+把 argus 侧验证过的通用能力上收兄弟仓（`../agentkit` replace 保留；require 对齐
+v0.10.5，canonical origin + GitHub 镜像双路发布），argus 本地保留薄门面保 API 兼容：
+
+| 能力 | 去向 | 说明 |
+|---|---|---|
+| 数据区围栏 DataFence | agentkit **fence**（新包） | 中和计数返回调用方，观测钩子留在 argus（包零副作用） |
+| 会话窗口/渲染/拼装 | agentkit **conversation**（新包） | Split/Combine/Render；摘要 LLM 压缩策略留在 qa |
+| best-of-N 聚簇 | agentkit **sampling**（新包） | 多通道签名+eq 泛型原语；severity 升级语义留在 plugin |
+| 文件名消毒 SanitizeFileStem | agentkit **textutil** | ocrshim/dream/ocrdeleg 三调用方不动 |
+| 行号标注 numberLines ×2 | agentkit **textutil** | qa 与 requirement 两处克隆收敛 |
+| severity 别名表 | agentkit **severity** | P0/fatal/…词表单一来源（v3.8.0 修复的克隆收敛） |
+
+不下沉（审查域语义非通用）：PatternKey/Beta 置信度、完备性检查器、健康报告。
+
 ## v3.13.0 (2026-09-18) — 路线收尾：夹具 v2 + 三组真实对照 + G1c 导出管道 + G7 数据面（MiMo 批次 4 可执行部分）
 
 批次 4 明确的外部依赖项（完整副驾 UI、审查专用微调训练）仍需产品/资源拍板；
