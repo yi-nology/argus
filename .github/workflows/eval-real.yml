@@ -1,0 +1,72 @@
+name: Eval Real
+
+# G1b/G6 评测文化门禁（v3.14.0）：定时跑真实模型 golden 评测，结果
+# （latest.json/latest.md）作为制品归档，命中率进 job summary 与
+# /metrics 的 argus_eval_* 指标（服务侧加载最新落盘文件）。
+#
+# 前置（部署侧一次性动作，代码库无法自证）：
+#   1. Forgejo/Gitea 实例配置 Actions runner（ubuntu 镜像，可出网到 MiMo API）；
+#   2. 仓库/组织 Secrets 配置 OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL；
+#   3. runner 到 LLM 端点网络可达（内网部署需代理或内网端点）。
+#
+# 默认只跑当前默认配置一组（控制 token 成本）；改默认路由/模型/prompt 前的
+# A/B 对照矩阵（EXPERIMENTS.md A/B/C/D 四组）用 workflow_dispatch 手动触发，
+# inputs 覆盖模型与阶段路由，跑完按 EXPERIMENTS.md 登记归档。
+
+on:
+  schedule:
+    - cron: "20 21 * * 1" # 每周二 05:20 (UTC+8)，LLM 端点低峰
+  workflow_dispatch:
+    inputs:
+      openai_model:
+        description: "OPENAI_MODEL 覆盖（空 = 默认全局模型）"
+        required: false
+        default: ""
+      argus_model_r3:
+        description: "ARGUS_MODEL_R3 覆盖（R3 阶段路由，空 = 继承全局）"
+        required: false
+        default: ""
+      argus_reviewer_model:
+        description: "ARGUS_REVIEWER_MODEL 覆盖（Reviewer 阶段路由，空 = 继承全局）"
+        required: false
+        default: ""
+
+jobs:
+  eval-real:
+    name: Golden eval (real model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run golden eval (real model, serial)
+        env:
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ github.event.inputs.openai_model || secrets.OPENAI_MODEL }}
+          ARGUS_MODEL_R3: ${{ github.event.inputs.argus_model_r3 }}
+          ARGUS_REVIEWER_MODEL: ${{ github.event.inputs.argus_reviewer_model }}
+        run: make eval-real
+
+      # 评测失败（命中率下降/夹具 miss）时结果文件仍要归档——对比是全量数据，
+      # 不只是 pass/fail 信号
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.run_id }}
+          path: |
+            eval/results/latest.json
+            eval/results/latest.md
+          if-no-files-found: warn
+
+      - name: Summarize
+        if: always()
+        run: |
+          if [ -f eval/results/latest.md ]; then
+            cat eval/results/latest.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || cat eval/results/latest.md
+          fi

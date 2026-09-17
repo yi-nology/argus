@@ -4,7 +4,7 @@
 > 基线：main 77ae563（v3.9.0 已提交）· 代码锚点均已在本地仓核对
 > 约束前提：**只追能力缺口，不追定位差异**（REPORT §5.2：通用 agent 宿主、Desktop/IDE、路由裁决走 LLM、自动 suppress、R1→R5 叠 P&E 均为有意不做，本规划不触碰）
 
-## ✅ 执行状态（2026-09-18 更新）
+## ✅ 执行状态（2026-09-18 二次更新，覆盖 v3.13.0）
 
 | 批次 | 状态 | 落点 |
 |---|---|---|
@@ -12,9 +12,10 @@
 | 1 评测集+路由实测+best-of-N | ✅ v3.10.0 已提交（217d630） | eval/golden 26 条 + make eval/eval-real + EXPERIMENTS.md + reviewN best-of-N；真实模型通路已打通 |
 | 2 完备性裁判+健康报告 | ✅ v3.11.0 已提交（217d630） | completeness 六项检查 + annotate/demote/retry + internal/health 周报 + guidelines 建议人工门控 |
 | 3 checkpoint+看板 | ✅ v3.12.0 已提交 | Q&A 滚动摘要 + 任务断点续审 + latest.md 看板；unshallow deepen 改由 v3.9.3（400578d）落地 |
-| 4 条件项 | 未触发 | G7 副驾/微调闭环仍需产品与资源拍板 |
+| 4 条件项·代码侧可执行部分 | ✅ v3.13.0 已提交（10ac7df） | 夹具 v2 标定 + 三组真实对照登记 + G1c `cmd/exportdata` 训练数据导出 + G7 completeness 结构化数据面 + G5 `GET /reports/health` |
+| 4 条件项·外部依赖部分 | ⏳ 未触发 | 完整副驾 UI、审查专用微调训练闭环仍需产品/资源拍板 |
 
-**G1b 首轮基线**：mimo-v2.5-pro 12/26（46%）——miss 归因为夹具骨架化代码而非模型失守（injection 场景全部安全）；**夹具 v2 标定**是下一步（comment/approve 期望类夹具换真实实现代码）。登记表在 eval/EXPERIMENTS.md。
+**G1b 基线演进**：首轮 mimo-v2.5-pro 12/26（46%）——miss 归因为夹具骨架化代码而非模型失守（injection 场景全部安全）[eval/EXPERIMENTS.md]；v3.13.0 夹具 v2 已把 05/07/09/10/18/24 升级为真实实现、14/22 真实 i18n，并补 `real_verdicts`/`skip_real` 真实模式语义；三组对照（pro 全局 / v2.5 全局 / v2.5+R3&Reviewer=pro）结果登记在 `eval/EXPERIMENTS.md`。跨夹具版本绝对数字不可比，后续 A/B 须以 v2 夹具为基线重跑。
 
 ---
 

@@ -178,6 +178,11 @@ type Config struct {
 	// 开启后 prometheus 抓取需带 token（与 APIToken 相同）；内网直抓部署保持关闭。
 	MetricsAuth bool
 
+	// EvalResultsPath golden 评测结果文件（ARGUS_EVAL_RESULTS_PATH，默认
+	// eval/results/latest.json）：eval-real 离线落盘，服务侧周期加载暴露
+	// argus_eval_* gauge；文件不存在属常态（该部署未跑过评测），静默跳过。
+	EvalResultsPath string
+
 	// WebhookMaxBody Webhook 请求体上限（字节）；默认 1MB。
 	// Hertz WithMaxRequestBodySize + Content-Length 双重防护。
 	WebhookMaxBody int
@@ -431,6 +436,7 @@ func Load() *Config {
 		TaskMaxRetries:         envInt("ARGUS_TASK_MAX_RETRIES", 2),
 		WorkerGrace:            envDuration("ARGUS_WORKER_GRACE", 60*time.Second),
 		MetricsAuth:            envBool("ARGUS_METRICS_AUTH", false),
+		EvalResultsPath:        envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json"),
 		RouterMinConfidence:    envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
 		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),

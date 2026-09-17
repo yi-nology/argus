@@ -1,5 +1,40 @@
 # Changelog
 
+## v3.14.0 (2026-09-18) — 评测文化门禁：G1b 夹具 v2 对照矩阵拍板 + eval 指标进 /metrics + CI 评测门禁
+
+本版回答 REPORT §5.3 的最后一层差距：把评测从「能跑」变成「在决策」——
+数字进指标面、门禁进流水线、模型路由用夹具 v2 数据拍板。
+
+### G1b · 夹具 v2 对照矩阵（A/B/C 三组）+ 拍板
+
+- 修正 v3.13.0 的超前表述：三组对照彼时并未实际登记（EXPERIMENTS.md 仅夹具 v1
+  的 pro 全局 12/26 一行；遗留后台跑与新一轮跑并发互踩结果文件，数据作废）。
+  本版在夹具 v2 上串行重跑三组并登记：
+  **A 基线**（mimo-v2.5 全局）/ **B**（mimo-v2.5-pro 全局）/
+  **C**（v2.5 全局 + R3&Reviewer=pro，「好钢用在刀刃」组）。
+- 结论与默认路由处置见 `eval/EXPERIMENTS.md` 登记表（按既定拍板规则执行：
+  显著差异 ≥2 条才切默认；injection 失守一票否决）。
+
+### G6 · 评测指标进 /metrics
+
+- 新增 `argus_eval_verdict_match_ratio{model,route}` / `argus_eval_cases_total` /
+  `argus_eval_cases_passed` / `argus_eval_results_timestamp_seconds`（`internal/obs`）：
+  eval-real 每轮落盘 `eval/results/latest.json`，服务侧启动加载 + 5 分钟周期刷新
+  （`ARGUS_EVAL_RESULTS_PATH` 可改路径）；文件不存在=未跑过评测，静默跳过。
+  每次刷新整体 Reset 标签序列，指标始终只反映最近一次完整评测——质量趋势可被
+  Prometheus 抓取，不再只活在登记表里。
+- `route` 标签区分 A/B 组（`global` 或 `r3=…,reviewer=…`），跨组对比同面可见。
+
+### CI · 评测门禁
+
+- `test.yml` 新增 `golden-eval` job：打桩模式 `make eval` 独立成必需检查项
+  （编排语义回归必跑，可进分支保护）。
+- 新增 `eval-real.yml`：每周定时 + 手动触发跑真实模型评测，结果制品归档 +
+  job summary 展示；workflow_dispatch inputs 可覆盖模型/阶段路由（跑 A/B 组）。
+  前置的 runner/Secrets 配置属部署侧动作，workflow 头部有清单。
+- 新增 PR 模板：模型/prompt/插件默认路由变更必须附最近一次 golden 数字
+  （`make eval` 全过 + eval-real 命中率随附）——「变更必附回归数字」成为流程。
+
 ## v3.13.0 (2026-09-18) — 路线收尾：夹具 v2 + 三组真实对照 + G1c 导出管道 + G7 数据面（MiMo 批次 4 可执行部分）
 
 批次 4 明确的外部依赖项（完整副驾 UI、审查专用微调训练）仍需产品/资源拍板；

@@ -54,6 +54,11 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 - **审查域评测集（v3.10.0）**：`eval/golden/` 26 条 golden PR 夹具（injection/partial/scope-creep/
   unverifiable/merge/guard 等场景）双模式回归——`make eval` 打桩固化编排语义；`make eval-real`
   换真实模型测 verdict 命中率（模型 A/B 固定 harness，见 eval/EXPERIMENTS.md）。
+- **评测指标面（v3.14.0）**：eval-real 每轮落盘 `eval/results/latest.json`，服务侧周期加载后在
+  `/metrics` 暴露 `argus_eval_verdict_match_ratio{model,route}` / `argus_eval_cases_total` /
+  `argus_eval_cases_passed` / `argus_eval_results_timestamp_seconds`——审查质量趋势与运行时指标
+  同面抓取（`ARGUS_EVAL_RESULTS_PATH` 改路径；文件不存在=该部署未跑过评测，静默跳过）。CI 侧
+  `golden-eval` job 必跑打桩回归，`eval-real` workflow 定时跑真实模型并归档结果制品。
 - **Q&A 长会话记忆（v3.12.0）**：@argus 追问的 verbatim 上下文保持 6 轮，更早轮次由 QA 模型
   滚动压缩成摘要注入（失败退化为纯 FIFO）——第 8 轮仍能引用第 1 轮结论；
 - **任务断点续审（v3.12.0）**：R1/R2 阶段产物成功即持久化，同任务失败重试跳过已成功阶段
@@ -168,7 +173,8 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
   （失联 ≤ttl 自动换主、优雅停机主动让位），工作副本沙箱按实例隔离防误删；
   SQLite 保持单写（replicas=1 + Recreate）；
 - **可观测**：`/metrics` 暴露 `argus_tasks_total/pending/running`、`argus_llm_tokens_total`、
-  插件耗时/失败、阶段耗时；`GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
+  插件耗时/失败、阶段耗时、golden 评测命中率（`argus_eval_verdict_match_ratio`，v3.14.0）；
+  `GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
   `ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
 - **平台降级**：平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop；
 - **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
@@ -328,6 +334,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_TASK_MAX_RETRIES` | 2 | failed 任务自动重试上限（指数退避）|
 | `ARGUS_WORKER_GRACE` | 60s | worker 优雅停机等待在途任务时长 |
 | `ARGUS_METRICS_AUTH` | false | /metrics 鉴权开关（公网/办公网直露部署建议开启）|
+| `ARGUS_EVAL_RESULTS_PATH` | eval/results/latest.json | golden 评测结果文件路径（eval-real 落盘 → /metrics 的 argus_eval_* 指标；不存在则静默跳过）|
 | `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | 0（不限） | 仓库月度 token 预算 |
 
 ### 6. 仓库侧配置（.reviewagents.yaml，放业务仓库默认分支）

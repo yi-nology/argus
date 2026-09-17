@@ -48,3 +48,20 @@ jobs:
         env:
           ARGUS_TEST_MYSQL_DSN: "root:test@tcp(127.0.0.1:3306)/argus_test?parseTime=true"
         run: go test -race -count=1 -timeout=300s ./...
+
+  golden-eval:
+    name: Golden eval (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # G1a 评测门禁（v3.14.0）：打桩模式固化编排语义——R5 真值表/合并去重/
+      # 反注入/证据门的回归必跑；真实模型 A/B 走独立定时工作流 eval-real.yml。
+      # 注意 make eval 语义上覆盖了 test-sqlite 里的 TestGoldenReviewEval，
+      # 独立成 job 是为了给分支保护一个可指名的必需检查项。
+      - name: Run golden eval (stub, orchestration semantics)
+        run: make eval

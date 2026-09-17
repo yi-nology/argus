@@ -233,6 +233,17 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			obs.SetTaskQueueDepth(pending, running)
 		}
 	})
+	// golden 评测结果指标（v3.14.0，G1/G6）：eval-real 离线落盘 latest.json，
+	// 这里周期加载暴露 argus_eval_*——审查质量趋势与运行时指标同面抓取。
+	// 文件不存在（未跑过评测）与增量快照（评测进行中）静默跳过。
+	refreshEvalMetrics := func() {
+		if err := obs.RefreshEvalResults(cfg.EvalResultsPath); err != nil &&
+			!obs.IsNotExistRefreshErr(err) && !obs.IsIncompleteRefreshErr(err) {
+			log.Warn("argus.boot.eval_metrics_refresh_failed", "error", err.Error())
+		}
+	}
+	refreshEvalMetrics()
+	wm.AddTicker("eval-results", 5*time.Minute, func(ctx context.Context) { refreshEvalMetrics() })
 	// ---- dream 长期记忆整合（v3.5.1）：去重 pattern_signals + 导出低置信模式到知识库 ----
 	// 仅在学习环开启且显式配置周期时启动（默认 0=关闭）。
 	if cfg.RegretLearning && cfg.DreamInterval > 0 {
