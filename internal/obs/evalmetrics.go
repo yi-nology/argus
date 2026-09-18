@@ -40,6 +40,15 @@ var (
 	evalResultsTimestamp = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "argus_eval_results_timestamp_seconds", Help: "golden 评测结果落盘时间（unix 秒）",
 	})
+	// evalFalsePositives clean 夹具上的意见总数（v3.15.0 P1-6 北极星口径）：
+	// 无问题 diff 上报出的每条意见都计误报。与命中率同面可见。
+	evalFalsePositives = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_eval_false_positives", Help: "golden 评测 clean 夹具误报意见数（最近一次完整 eval-real 落盘，v3.15.0）",
+	}, []string{"model", "route"})
+	// evalCleanApprove clean 夹具 approve 命中数（分母 = clean_total）。
+	evalCleanApprove = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "argus_eval_clean_approve", Help: "golden 评测 clean 夹具 approve 命中数（同上；分母见 latest.json metrics.clean_total）",
+	}, []string{"model", "route"})
 )
 
 // ErrEvalIncomplete 结果文件是运行中增量快照（done=false），不计分不覆盖 gauge。
@@ -62,6 +71,15 @@ func RefreshEvalResults(path string) error {
 		Passed      int               `json:"passed"`
 		PassRate    float64           `json:"pass_rate"`
 		Done        bool              `json:"done"`
+		// Metrics v3.15.0 P1-6 补充口径（goldenStats 同构；缺字段零值安全——
+		// 旧版结果文件不含 metrics 段，gauge 置 0 属如实反映）。
+		Metrics struct {
+			CleanTotal     int `json:"clean_total"`
+			CleanApprove   int `json:"clean_approve"`
+			FalsePositives int `json:"false_positives"`
+			BoundaryTotal  int `json:"boundary_total"`
+			BoundaryHits   int `json:"boundary_hits"`
+		} `json:"metrics"`
 	}
 	if err := json.Unmarshal(data, &r); err != nil {
 		return fmt.Errorf("解析评测结果: %w", err)
@@ -77,9 +95,13 @@ func RefreshEvalResults(path string) error {
 	evalMatchRatio.Reset()
 	evalCasesTotal.Reset()
 	evalCasesPassed.Reset()
+	evalFalsePositives.Reset()
+	evalCleanApprove.Reset()
 	evalMatchRatio.With(labels).Set(r.PassRate)
 	evalCasesTotal.With(labels).Set(float64(r.Total))
 	evalCasesPassed.With(labels).Set(float64(r.Passed))
+	evalFalsePositives.With(labels).Set(float64(r.Metrics.FalsePositives))
+	evalCleanApprove.With(labels).Set(float64(r.Metrics.CleanApprove))
 	evalResultsTimestamp.Set(float64(ts.Unix()))
 	return nil
 }

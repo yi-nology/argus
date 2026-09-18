@@ -1,0 +1,53 @@
+# 场景（v3，P1-6 北极星，边界标定）：明确 high（忽略关闭错误致数据丢失）→ R5.2 REQUEST_CHANGES
+# rc 方向夹具维持精确比对（漏升级是危险方向，不容方差——与既有 08 同口径）；
+# 与 08 的硬编码密钥不同，本夹具考察"错误被吞"这一需理解控制流的 high 形态，
+# 用于标定「看起来只是风格问题」的 high 是否被如实升级。
+name: 32-high-boundary-rc
+scenario: [boundary]
+kind: 0
+pr:
+  title: 实现配置保存功能
+  body: |
+    实现配置保存：saveConfig(cfg) 将配置写入磁盘文件。见 issue #31
+stub:
+  r1: |
+    {"source":"issue #31","acceptance_criteria":[{"id":"AC-1","text":"提供 saveConfig(cfg) 将配置写入磁盘文件"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"config.go:6"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"config.go","line":8,"severity":"high","comment":"os.Close 的错误被忽略：写盘 close 失败意味着数据可能未落盘，静默丢失配置数据"}],"notes":""}
+changed_files:
+  - path: config.go
+    diff: |
+      diff --git a/config.go b/config.go
+      --- a/config.go
+      +++ b/config.go
+      @@ -1,2 +1,10 @@
+       package conf
+      +
+      +func saveConfig(data []byte) error {
+      +	f, err := os.Create(configPath)
+      +	if err != nil {
+      +		return err
+      +	}
+      +	defer f.Close()
+      +	_, err = f.Write(data)
+      +	return err
+      +}
+    additions: 9
+repo_files:
+  config.go: |
+    package conf
+
+    func saveConfig(data []byte) error {
+    	f, err := os.Create(configPath)
+    	if err != nil {
+    		return err
+    	}
+    	defer f.Close()
+    	_, err = f.Write(data)
+    	return err
+    }
+expect:
+  verdict: request_changes
+  must_find: ["R5.2", "close"]

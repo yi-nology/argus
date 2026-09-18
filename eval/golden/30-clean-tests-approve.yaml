@@ -1,0 +1,54 @@
+# 场景（v3，P1-6 北极星）：clean 纯测试新增 → 无意见 → R5.5 APPROVE
+# 同 27/28：clean 夹具 approve 精确比对；findings 即 FP。测试文件补充属常规变更，
+# 审查者不应在无实现问题时制造意见。
+name: 30-clean-tests-approve
+scenario: [clean]
+kind: 0
+pr:
+  title: 补充 loginWithPassword 单元测试
+  body: |
+    测试变更：为 loginWithPassword 补充表驱动单元测试（空口令/正常口令两用例）。无实现变更。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"为 loginWithPassword 补充单元测试"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"login_test.go:6"}],"scope_creep":[],"summary":"纯测试新增"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: login_test.go
+    diff: |
+      diff --git a/login_test.go b/login_test.go
+      --- /dev/null
+      +++ b/login_test.go
+      @@ -0,0 +1,12 @@
+      +package auth
+      +
+      +import "testing"
+      +
+      +func TestLoginWithPassword(t *testing.T) {
+      +	cases := map[string]bool{"": false, "secret": true}
+      +	for pw, want := range cases {
+      +		if err := loginWithPassword(pw); (err == nil) != want {
+      +			t.Errorf("password %q: err = %v", pw, err)
+      +		}
+      +	}
+      +}
+    additions: 12
+repo_files:
+  login_test.go: |
+    package auth
+
+    import "testing"
+
+    func TestLoginWithPassword(t *testing.T) {
+    	cases := map[string]bool{"": false, "secret": true}
+    	for pw, want := range cases {
+    		if err := loginWithPassword(pw); (err == nil) != want {
+    			t.Errorf("password %q: err = %v", pw, err)
+    		}
+    	}
+    }
+expect:
+  verdict: approve
+  must_find: ["R5.5"]

@@ -1,0 +1,48 @@
+# 场景（v3，P1-6 北极星）：clean 重命名重构 → 无意见 → R5.5 APPROVE
+# clean 夹具语义：diff 无任何阻塞/非阻塞问题；不配 real_verdicts（真实模式走
+# approve 精确比对）——clean 上的任何 findings 都计为误报（FP），approve 失败
+# 即 FP 现形，与「comment 夹具可诚实放宽」的口径相反。
+name: 28-clean-refactor-approve
+scenario: [clean]
+kind: 0
+pr:
+  title: 重命名 login 为 loginWithPassword 并补注释
+  body: |
+    纯重构：login 函数重命名为 loginWithPassword（更准确），并补充 doc comment。无行为变更。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"完成 login → loginWithPassword 的重命名重构"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"login.go:5"}],"scope_creep":[],"summary":"纯重命名重构"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: login.go
+    diff: |
+      diff --git a/login.go b/login.go
+      --- a/login.go
+      +++ b/login.go
+      @@ -1,4 +1,7 @@
+       package auth
+       
+      -func login(password string) error {
+      +// loginWithPassword 校验账号口令；空口令返回错误。
+      +func loginWithPassword(password string) error {
+       	if password == "" {
+       		return errors.New("empty password")
+    additions: 4
+    deletions: 1
+repo_files:
+  login.go: |
+    package auth
+
+    // loginWithPassword 校验账号口令；空口令返回错误。
+    func loginWithPassword(password string) error {
+    	if password == "" {
+    		return errors.New("empty password")
+    	}
+    	return nil
+    }
+expect:
+  verdict: approve
+  must_find: ["R5.5"]

@@ -40,6 +40,22 @@ type goldenCaseResult struct {
 	Expected string   `json:"expected"`
 	Actual   string   `json:"actual"`
 	Pass     bool     `json:"pass"`
+	// Findings 合并后意见数（v3.15.0 P1-6 北极星口径）：clean 夹具上的
+	// findings 全部计为误报（FP），从 result_json 读取。
+	Findings int `json:"findings"`
+}
+
+// goldenStats 聚合口径（v3.15.0 P1-6）：verdict 命中率之外的「误报/覆盖」补充面。
+//   - clean 夹具（scenario 含 "clean"）：期望零意见、verdict=approve；findings
+//     总数即误报数（false_positives），approve 未命中即 FP 现形。
+//   - boundary 夹具（scenario 含 "boundary"）：comment/rc 方向标定（30 号钉住
+//     comment 不上移、31 号钉住 rc 不下移）。
+type goldenStats struct {
+	CleanTotal     int `json:"clean_total"`
+	CleanApprove   int `json:"clean_approve"`
+	FalsePositives int `json:"false_positives"`
+	BoundaryTotal  int `json:"boundary_total"`
+	BoundaryHits   int `json:"boundary_hits"`
 }
 
 type goldenPR struct {
@@ -220,10 +236,11 @@ func TestGoldenReviewEval(t *testing.T) {
 			results = append(results, caseResult{
 				Name: c.Name, Scenario: c.Scenario,
 				Expected: c.Expect.Verdict, Actual: task.Verdict, Pass: pass,
+				Findings: resultFindingsCount(task.ResultJSON),
 			})
 			// 逐用例增量落盘：真实模型单条 ~2 分钟，中途超时/中断也保留已完成数据
 			if realMode {
-				writeGoldenResults(t, results, -1)
+				writeGoldenResults(t, results, -1, goldenStats{})
 			}
 		})
 	}
@@ -240,11 +257,59 @@ func TestGoldenReviewEval(t *testing.T) {
 			passed++
 		}
 	}
-	t.Logf("golden 评测：%d/%d 命中（模式=%s）", passed, len(results),
-		map[bool]string{true: "real", false: "stub"}[realMode])
+	stats := aggregateGoldenStats(results)
+	t.Logf("golden 评测：%d/%d 命中（模式=%s）；clean=%d/%d approve、FP=%d、boundary=%d/%d",
+		passed, len(results), map[bool]string{true: "real", false: "stub"}[realMode],
+		stats.CleanApprove, stats.CleanTotal, stats.FalsePositives,
+		stats.BoundaryHits, stats.BoundaryTotal)
 	if realMode {
-		writeGoldenResults(t, results, passed)
+		writeGoldenResults(t, results, passed, stats)
 	}
+}
+
+// aggregateGoldenStats 聚合 clean/boundary 补充口径（纯函数，增量落盘同样可用）。
+func aggregateGoldenStats(results []goldenCaseResult) goldenStats {
+	var s goldenStats
+	for _, r := range results {
+		isClean, isBoundary := false, false
+		for _, sc := range r.Scenario {
+			if sc == "clean" {
+				isClean = true
+			}
+			if sc == "boundary" {
+				isBoundary = true
+			}
+		}
+		if isClean {
+			s.CleanTotal++
+			s.FalsePositives += r.Findings
+			if r.Actual == "approve" {
+				s.CleanApprove++
+			}
+		}
+		if isBoundary {
+			s.BoundaryTotal++
+			if r.Pass {
+				s.BoundaryHits++
+			}
+		}
+	}
+	return s
+}
+
+// resultFindingsCount 从 result_json 提取合并后意见数（解析失败返回 0——
+// 失败任务的 findings 本就不可信，不参与 FP 计数）。
+func resultFindingsCount(resultJSON string) int {
+	if resultJSON == "" {
+		return 0
+	}
+	var p struct {
+		Findings []json.RawMessage `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(resultJSON), &p); err != nil {
+		return 0
+	}
+	return len(p.Findings)
 }
 
 func orStubDefault(v, def string) string {
@@ -256,7 +321,7 @@ func orStubDefault(v, def string) string {
 
 // writeGoldenResults 真实模型评测结果落 JSON（回归看板/A/B 对照的数据源）。
 // passed<0 = 运行中增量快照（不记 pass_rate 终值）。
-func writeGoldenResults(t *testing.T, results []goldenCaseResult, passed int) {
+func writeGoldenResults(t *testing.T, results []goldenCaseResult, passed int, stats goldenStats) {
 	t.Helper()
 	out := map[string]any{
 		"generated_at": time.Now().Format(time.RFC3339),
@@ -270,6 +335,8 @@ func writeGoldenResults(t *testing.T, results []goldenCaseResult, passed int) {
 		"total": len(results),
 		"cases": results,
 		"done":  passed >= 0,
+		// v3.15.0 P1-6 北极星补充口径：clean 误报面 + boundary 标定
+		"metrics": stats,
 	}
 	if passed >= 0 {
 		out["passed"] = passed
@@ -309,6 +376,10 @@ func renderResultsMarkdown(out map[string]any) string {
 		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
 			c.Name, strings.Join(c.Scenario, ","), c.Expected, c.Actual, mark)
+	}
+	if m, ok := out["metrics"].(goldenStats); ok {
+		fmt.Fprintf(&b, "\n补充口径：clean %d/%d approve、误报（FP）%d 条、boundary 标定 %d/%d。\n",
+			m.CleanApprove, m.CleanTotal, m.FalsePositives, m.BoundaryHits, m.BoundaryTotal)
 	}
 	return b.String()
 }

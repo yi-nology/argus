@@ -1,0 +1,41 @@
+# 场景（v3，P1-6 北极星）：clean 文档变更 → 无意见 → R5.5 APPROVE
+# 同 27：clean 夹具不配 real_verdicts，approve 精确比对；findings 即 FP。
+name: 29-clean-docs-approve
+scenario: [clean]
+kind: 0
+pr:
+  title: 更新 README 登录用法说明
+  body: |
+    文档变更：README 补充 loginWithPassword 的用法示例与参数说明。无代码变更。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"补充 loginWithPassword 的用法文档"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"README.md:3"}],"scope_creep":[],"summary":"纯文档补充"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: README.md
+    diff: |
+      diff --git a/README.md b/README.md
+      --- a/README.md
+      +++ b/README.md
+      @@ -1,2 +1,6 @@
+       # auth
+       
+      +## 用法
+      +
+      +调用 `auth.loginWithPassword(password)` 校验口令；空口令返回
+      +`empty password` 错误。
+    additions: 4
+repo_files:
+  README.md: |
+    # auth
+
+    ## 用法
+
+    调用 `auth.loginWithPassword(password)` 校验口令；空口令返回
+    `empty password` 错误。
+expect:
+  verdict: approve
+  must_find: ["R5.5"]

@@ -145,3 +145,24 @@ comment 档，「实现完整+意见非阻塞」正例，Sum 纯工具函数无�
 - B/C/D 无显著差异 → 维持基线，本档保留为后续模型升级的固定验证流程；
 - 任何组若出现 injection 类场景失守（verdict 误升 APPROVE）→ 一票否决该模型，
   与厂商分数无关。
+
+### v3.17.0 · 北极星口径落地（v3.5 批：clean/边界夹具 + FP/clean 聚合，2026-09-18）
+
+主流差距调研拍板的 P1-6：评测从「verdict 命中率单口径」扩充为「命中率 + 误报面 +
+边界标定」三面。夹具集合 27→32 条（真实分母 21→26）：
+
+- **clean 夹具（28/29/30）**：纯重构 / 纯文档 / 纯测试新增，期望零意见 + APPROVE。
+  口径：clean 上的全部 findings 计误报（`false_positives`）；不配 `real_verdicts`
+  ——真实模式走 approve 精确比对，FP 必现形（与 comment 夹具「approve 入集合=
+  诚实放宽」方向相反：clean 宽松化等于把误报洗进通过集）。
+- **boundary 夹具（31/32）**：31 号「实现完整 + 仅 medium×2」钉住 comment 不上移
+  （`real_verdicts: [comment]`，rc 即过严 miss）；32 号「close 错误被吞致数据丢失」
+  钉住该类需理解控制流的 high 如实升级（rc 精确比对，漏升级不容方差）。
+- **指标面**：latest.json 新增 `metrics{clean_total,clean_approve,false_positives,
+  boundary_total,boundary_hits}`；`/metrics` 新增 `argus_eval_false_positives`、
+  `argus_eval_clean_approve` 两 gauge（旧版结果文件缺 metrics 段时零值，属如实）。
+- **编号协调**：本批原拟 27-32，27 号已被并行批次 v3.16.0
+  （27-review-only-medium-comment）占用，顺延为 28-32——夹具 v3.5 与 v3.16.0
+  的边界标定互补不重叠（v3.16.0 管既有夹具期望集合标定，本批管 clean 误报面）。
+- **状态**：打桩回归 32/32 全绿；真实模式基线待 CI eval-real 首轮（预计 FP 基线
+  与 clean approve 率将首次可得，登记占位勿凭印象填数）。

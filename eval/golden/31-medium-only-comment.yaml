@@ -1,0 +1,48 @@
+# 场景（v3，P1-6 北极星，边界标定）：medium-only 意见 → R5.4 COMMENT
+# comment/rc 方向系统性过严的标定夹具：实现完整、仅两条 medium 非阻塞意见，
+# 无 high/需求缺口——真实模式绝不允许升 rc（rc = 危险的过严 miss，与 09 的
+# 「comment/approve 均可」诚实放宽不同：本夹具就是要钉住 comment 不上移）。
+name: 31-medium-only-comment
+scenario: [boundary]
+kind: 0
+pr:
+  title: 添加登录功能
+  body: |
+    实现账号密码登录：提供 loginWithPassword(password) 校验函数，空口令报错。见 issue #12
+stub:
+  r1: |
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"提供 loginWithPassword(password) 校验函数，空口令报错"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"login.go:5"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"login.go","line":5,"severity":"medium","comment":"函数缺少 doc comment"},{"file":"login.go","line":6,"severity":"medium","comment":"错误信息建议带上下文前缀"}],"notes":""}
+changed_files:
+  - path: login.go
+    diff: |
+      diff --git a/login.go b/login.go
+      --- a/login.go
+      +++ b/login.go
+      @@ -1,2 +1,7 @@
+       package auth
+      +
+      +func loginWithPassword(password string) error {
+      +	if password == "" {
+      +		return errors.New("empty password")
+      +	}
+      +	return nil
+      +}
+    additions: 6
+repo_files:
+  login.go: |
+    package auth
+
+    func loginWithPassword(password string) error {
+    	if password == "" {
+    		return errors.New("empty password")
+    	}
+    	return nil
+    }
+expect:
+  verdict: comment
+  real_verdicts: [comment]
+  must_find: ["R5.4"]
