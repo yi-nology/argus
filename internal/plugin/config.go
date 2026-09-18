@@ -3,8 +3,11 @@ package plugin
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -134,9 +137,42 @@ func (d *AgentDecl) ParseTimeout() (time.Duration, error) {
 
 // RepoConfigFile 仓库侧文件（design §3.4：按敌对输入对待）。
 type RepoConfigFile struct {
-	Use     []string      `yaml:"use"`
-	Disable []string      `yaml:"disable"`
-	Routing []RoutingRule `yaml:"routing"`
+	Use      []string         `yaml:"use"`
+	Disable  []string         `yaml:"disable"`
+	Routing  []RoutingRule    `yaml:"routing"`
+	Review   ReviewSettings   `yaml:"review"`   // v3.15.0 评审行为开关（路径过滤/严重度阈值/评论上限/附加指令）
+	Describe DescribeSettings `yaml:"describe"` // v3.15.0 @argus describe 的标签词表
+}
+
+// ReviewSettings 仓库级评审行为配置（v3.15.0 主流差距收口：对标 .coderabbit.yaml
+// 的 path filters / review profiles）。全部字段缺省 = 维持服务级默认行为。
+type ReviewSettings struct {
+	// ExcludePaths 额外噪声路径（glob，.gitignore 语义）：命中文件不进 diff 文本，
+	// 元信息保留。与服务级硬编码噪声表叠加（用户配置只能再排除，不能放行内置噪声）。
+	ExcludePaths []string `yaml:"exclude_paths"`
+	// IncludePaths 审查白名单（glob）：非空时未命中的文件一律排除（Exclude 之上再收紧）。
+	IncludePaths []string `yaml:"include_paths"`
+	// MinSeverity 报告与裁决的最低严重度（low|medium|high）：低于阈值的意见不进
+	// 报告、不参与 R5 裁决。空 = 不过滤（缺省）。high 意见任何阈值下都保留。
+	MinSeverity string `yaml:"min_severity"`
+	// MaxComments 单轮行内评论上限（0 = 不限，缺省）。超出部分按严重度保留 top N，
+	// 其余仅在总结评论列出（降级注明）。钳制 ≤500。
+	MaxComments int `yaml:"max_comments"`
+	// ExtraInstructions 仓库附加审查指令（对标 Copilot custom instructions）：
+	// 与 .argus/review-guidelines.md 合并注入 R4 提示词。≤4000 runes（截断）。
+	ExtraInstructions string `yaml:"extra_instructions"`
+}
+
+// DescribeSettings @argus describe 命令的仓库级配置（v3.15.0）。
+type DescribeSettings struct {
+	// Labels 建议标签词表：非空时 describe 只从词表选；空 = 模型自拟 type/area 建议。
+	Labels []LabelDecl `yaml:"labels"`
+}
+
+// LabelDecl 建议标签声明。
+type LabelDecl struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
 }
 
 // RoutingRule 条件启用：paths/labels 任一命中即把 use 里的插件加入本 PR。
@@ -161,15 +197,67 @@ func ParseRepoConfig(data []byte) (*RepoConfig, error) {
 			return nil, fmt.Errorf(".reviewagents.yaml routing[%d].use 超长", i)
 		}
 	}
-	return &RepoConfig{Use: f.Use, Disable: f.Disable, Routing: f.Routing, Loaded: true}, nil
+	review, err := sanitizeReviewSettings(f.Review, maxList)
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Describe.Labels) > maxList {
+		return nil, fmt.Errorf(".reviewagents.yaml describe.labels 超长（>%d），拒绝加载", maxList)
+	}
+	return &RepoConfig{
+		Use: f.Use, Disable: f.Disable, Routing: f.Routing,
+		Review: review, Describe: f.Describe, Loaded: true,
+	}, nil
+}
+
+// sanitizeReviewSettings review 段敌对输入钳制：glob 数量/长度上限、severity 词表
+// 校验（非法整份拒绝——LoadRepoConfig 侧会降级为无配置+告警，不会炸任务）、
+// max_comments 封顶、extra_instructions 截断。
+func sanitizeReviewSettings(r ReviewSettings, maxList int) (ReviewSettings, error) {
+	const maxGlobLen = 256
+	for _, fld := range [][]string{r.ExcludePaths, r.IncludePaths} {
+		if len(fld) > maxList {
+			return r, fmt.Errorf(".reviewagents.yaml review 路径列表超长（>%d），拒绝加载", maxList)
+		}
+		for _, p := range fld {
+			if len(p) > maxGlobLen {
+				return r, fmt.Errorf(".reviewagents.yaml review 路径超长（>%d 字节）", maxGlobLen)
+			}
+		}
+	}
+	if r.MinSeverity != "" {
+		// 只收规范词表（比 severity.Normalize 严格）：别名宽容会让 "critcal" 类
+		// 笔误静默落到意外档位，配置卫生优先
+		switch strings.ToLower(strings.TrimSpace(r.MinSeverity)) {
+		case severity.Low, severity.Medium, severity.High:
+			r.MinSeverity = strings.ToLower(strings.TrimSpace(r.MinSeverity))
+		default:
+			return r, fmt.Errorf(".reviewagents.yaml review.min_severity=%q 非法（合法词表 low|medium|high）", r.MinSeverity)
+		}
+	}
+	const maxCommentsCap = 500
+	if r.MaxComments < 0 {
+		r.MaxComments = 0
+	} else if r.MaxComments > maxCommentsCap {
+		r.MaxComments = maxCommentsCap
+	}
+	const maxExtraRunes = 4000
+	if t, truncated := textutil.TruncRunes(strings.TrimSpace(r.ExtraInstructions), maxExtraRunes); truncated {
+		r.ExtraInstructions = t + "\n…（截断）"
+	} else {
+		r.ExtraInstructions = strings.TrimSpace(r.ExtraInstructions)
+	}
+	return r, nil
 }
 
 // RepoConfig 解析后供 Dispatcher 使用的仓库配置（RepoConfigFile 的运行时形态）。
 type RepoConfig struct {
-	Use     []string
-	Disable []string
-	Routing []RoutingRule
-	Loaded  bool // 是否成功读到文件（读不到 = 全部默认启用）
+	Use      []string
+	Disable  []string
+	Routing  []RoutingRule
+	Review   ReviewSettings   // v3.15.0 评审行为开关
+	Describe DescribeSettings // v3.15.0 describe 标签词表
+	Loaded   bool             // 是否成功读到文件（读不到 = 全部默认启用）
 }
 
 // EmptyRepoConfig 未加载到仓库配置时的默认值。

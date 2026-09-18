@@ -86,6 +86,9 @@ type Report struct {
 	CrossReview string   // 交叉审查编队注记（空 = 无编队参与）
 	Degraded    []string // 降级注明（插件未参与原因）
 	Suppressed  int      // 被误报抑制的 finding 数（脚注）
+	// MaxInlineComments 行内评论上限（v3.15.0 .reviewagents.yaml review.max_comments；
+	// 0 = 不限）。钳制发生在 poster，超限注明进 Degraded。
+	MaxInlineComments int
 }
 
 // Render 渲染整份 markdown 报告（含 HTML 注释头）。

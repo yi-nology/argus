@@ -85,6 +85,11 @@ type Workflow struct {
 	// R1/R2 成功完成后即时回调，runner 持久化到 tasks.stage_artifacts；
 	// 同任务重试时经 task.Artifacts 的 checkpoint_* 键回流，跳过已成功阶段。
 	CheckpointSink func(artifacts map[string]string)
+
+	// RepoConfig 仓库主权配置（v3.15.0：runner 单次加载后注入，min_severity 等
+	// review 段行为在 finish 内消费）。nil = 未注入（loadRepoConfig 自行加载，
+	// 既有测试路径不受影响）。
+	RepoConfig *plugin.RepoConfig
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -296,6 +301,32 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		w.Merger.AnnotateCrossReview(merged, members)
 	}
 
+	// 仓库级严重度阈值（v3.15.0 review.min_severity）：确定性过滤，低于阈值者
+	// 不进报告、不参与 R5 裁决（阈值是仓库主权，裁决仍不走 LLM）。
+	if rc != nil && rc.Review.MinSeverity != "" {
+		kept, dropped := plugin.FilterByMinSeverity(merged.Findings, rc.Review.MinSeverity)
+		if dropped > 0 {
+			merged.Findings = kept
+			merged.Degraded = append(merged.Degraded,
+				fmt.Sprintf("仓库配置 review.min_severity=%s：%d 条低于阈值的意见未纳入报告与裁决",
+					rc.Review.MinSeverity, dropped))
+		}
+	}
+	// 仓库级路径排除透出（v3.15.0）：被 exclude/include 排除的文件对模型不可见，
+	// 覆盖范围收缩必须可见（与截断/增量注记同哲学）。
+	if task.Diff != nil {
+		excluded := 0
+		for _, f := range task.Diff.Files {
+			if f.RepoExcluded {
+				excluded++
+			}
+		}
+		if excluded > 0 {
+			merged.Degraded = append(merged.Degraded,
+				fmt.Sprintf("仓库配置 review 路径过滤：%d 个变更文件被排除在审查之外（.reviewagents.yaml）", excluded))
+		}
+	}
+
 	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
 	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段
 	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
@@ -502,7 +533,11 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 }
 
 // loadRepoConfig 仓库主权配置（§3.4：只从默认分支读；失败按无配置 + 告警）。
+// runner 注入的 RepoConfig（v3.15.0）优先：diff 过滤与 workflow 共用一次加载结果。
 func (w *Workflow) loadRepoConfig(ctx context.Context, task plugin.Task) *plugin.RepoConfig {
+	if w.RepoConfig != nil {
+		return w.RepoConfig
+	}
 	pr := task.PR
 	if pr.DefaultBranch == "" {
 		repo, err := w.SDK.GetRepo(ctx, pr.Platform, pr.Owner, pr.Repo)

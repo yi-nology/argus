@@ -190,6 +190,9 @@ type DiffFile struct {
 	Included  bool // 是否进入了 Text（噪声文件被剔除但保留元信息）
 	// AlreadyReviewed 增量审查标记：该文件 diff 与上次审查完全一致，无需重新审查。
 	AlreadyReviewed bool
+	// RepoExcluded 仓库级排除标记（v3.15.0 .reviewagents.yaml review.exclude/include_paths）：
+	// 用户主动排除，与预算截断无关——不进截断清单，不计入 Truncated。
+	RepoExcluded bool
 }
 
 // DiffContext 清洗后的 diff（design §4 术语：diffprep）。

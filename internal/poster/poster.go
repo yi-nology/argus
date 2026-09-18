@@ -8,6 +8,7 @@ package poster
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -95,6 +96,15 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
 		return severity.Rank(inlineFindings[i].Severity) > severity.Rank(inlineFindings[j].Severity)
 	})
+	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限）：按严重度保留
+	// top N，其余仅在总结评论列出（Findings 段完整，透明可查）。
+	if rep.MaxInlineComments > 0 && len(inlineFindings) > rep.MaxInlineComments {
+		dropped := len(inlineFindings) - rep.MaxInlineComments
+		inlineFindings = inlineFindings[:rep.MaxInlineComments]
+		rep.Degraded = append(rep.Degraded, fmt.Sprintf(
+			"仓库配置 review.max_comments=%d：%d 条行内意见超出上限，仅在总结评论列出",
+			rep.MaxInlineComments, dropped))
+	}
 	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
 	for _, f := range inlineFindings {
 		comments = append(comments, provider.ReviewComment{

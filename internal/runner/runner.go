@@ -353,7 +353,14 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if err != nil {
 		return err
 	}
-	diff, err := r.buildDiffIncremental(ctx, pr, task)
+	// 仓库主权配置单次加载（v3.15.0）：diff 路径过滤、附加指令、workflow 严重度
+	// 阈值与评论上限共用；加载失败降级为空配置（全默认行为）。
+	rc := r.loadRepoConfig(ctx, pr)
+	diffOpts := argusctx.PrepareOptions{
+		Exclude: rc.Review.ExcludePaths,
+		Include: rc.Review.IncludePaths,
+	}
+	diff, err := r.buildDiffIncremental(ctx, pr, task, diffOpts)
 	if err != nil {
 		return err
 	}
@@ -403,12 +410,26 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if g := r.fetchReviewGuidelines(ctx, pr); g != "" {
 		ptask.Artifacts[plugin.ArtifactReviewGuidelines] = g
 	}
+	// 仓库附加审查指令（v3.15.0 .reviewagents.yaml review.extra_instructions）：
+	// 与 guidelines.md 合并注入（无文件指引时单独成段），同一信任边界。
+	if extra := rc.Review.ExtraInstructions; strings.TrimSpace(extra) != "" {
+		merged := ptask.Artifacts[plugin.ArtifactReviewGuidelines]
+		if merged != "" {
+			merged += "\n"
+		}
+		ptask.Artifacts[plugin.ArtifactReviewGuidelines] = merged +
+			"\n===【仓库附加审查指令（.reviewagents.yaml review.extra_instructions）】===\n" + extra
+	}
 	// 学习环：注入本仓库历史高误报模式提示词（无样本/关闭时无此键）。
 	if h := r.reviewHints(ctx, pr); h != "" {
 		ptask.Artifacts[plugin.ArtifactReviewHints] = h
 	}
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
+
+	// 仓库级行为配置进 workflow（v3.15.0）：min_severity 过滤在 finish 内执行；
+	// RepoConfig 非 nil 时 workflow 不再重复加载（省一次 API 往返）。
+	wf.RepoConfig = rc
 
 	var out *requirement.Output
 	switch task.Kind {
@@ -465,6 +486,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
+	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
+	rep.MaxInlineComments = rc.Review.MaxComments
 
 	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
 	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
@@ -548,8 +571,9 @@ func (r *Runner) buildPRContext(ctx context.Context, task *storage.Task) (*plugi
 
 // buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。
 // 仅在 synchronize 事件（PR 更新）且存在前置审查记录时激活增量路径；
-// 其余场景退化为全量 Prepare。
-func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext, task *storage.Task) (*plugin.DiffContext, error) {
+// 其余场景退化为全量 Prepare。opts 为仓库级路径过滤（v3.15.0 review 段）。
+func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext, task *storage.Task,
+	opts ...argusctx.PrepareOptions) (*plugin.DiffContext, error) {
 	md, err := r.SDK.GetCRDiff(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
 		return nil, fmt.Errorf("获取 diff 失败: %w", err)
@@ -560,23 +584,48 @@ func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext,
 
 	// 非 synchronize 事件 → 全量审查（首次审查 / reopen 等）
 	if task.EventType != "cr.synchronize" {
-		return argusctx.Prepare(md, totalLimit), nil
+		return argusctx.Prepare(md, totalLimit, opts...), nil
 	}
 
 	// 查询同 PR 最近一次 done 任务的 diff 文本
 	lastDiff, err := r.Store.GetLastReviewedDiff(ctx, task.Platform, task.Owner, task.Repo, task.Number)
 	if err != nil {
 		r.Log.Warn("argus.runner.get_last_diff_failed", "task", task.ID, "error", err.Error())
-		return argusctx.Prepare(md, totalLimit), nil // 降级全量
+		return argusctx.Prepare(md, totalLimit, opts...), nil // 降级全量
 	}
 
 	if lastDiff == "" {
-		return argusctx.Prepare(md, totalLimit), nil // 无前置记录 → 全量
+		return argusctx.Prepare(md, totalLimit, opts...), nil // 无前置记录 → 全量
 	}
 
 	r.Log.Info("argus.runner.incremental_diff", "task", task.ID,
 		"last_diff_chars", len(lastDiff))
-	return argusctx.PrepareIncremental(md, lastDiff, totalLimit), nil
+	return argusctx.PrepareIncremental(md, lastDiff, totalLimit, opts...), nil
+}
+
+// loadRepoConfig 仓库主权配置（runner 侧单次加载，diff 过滤与 workflow 共用；
+// v3.15.0 前该加载只在 workflow.loadRepoConfig，为传 diffprep 选项在此提前）。
+// 失败按无配置 + 告警（与 workflow 侧同纪律）。
+func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plugin.RepoConfig {
+	if pr.DefaultBranch == "" {
+		repo, err := r.SDK.GetRepo(ctx, pr.Platform, pr.Owner, pr.Repo)
+		if err != nil {
+			r.Log.Warn("argus.runner.repo_fetch_failed", "error", err.Error())
+			return plugin.EmptyRepoConfig()
+		}
+		pr.DefaultBranch = repo.DefaultBranch
+	}
+	rc, err := r.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
+	if err != nil {
+		r.Log.Warn("argus.runner.repo_config_failed", "error", err.Error())
+		return plugin.EmptyRepoConfig()
+	}
+	if warns := plugin.ResolveRepoConfig(rc, r.Dispatcher.Registry()); len(warns) > 0 {
+		for _, wn := range warns {
+			r.Log.Warn("argus.runner.repo_config_warning", "warning", wn)
+		}
+	}
+	return rc
 }
 
 // costRate 模型单价（主/备模型按配置费率，其余按 0 计）。

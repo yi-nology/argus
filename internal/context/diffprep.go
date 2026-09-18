@@ -69,6 +69,26 @@ func noise(path string) bool {
 // truncationNoteMaxPaths 截断清单最多列出的文件数（超出只给计数，防清单本身吃预算）。
 const truncationNoteMaxPaths = 30
 
+// PrepareOptions 仓库级过滤选项（v3.15.0 P0-2：.reviewagents.yaml review 段）。
+// Exclude/Include 为 glob 词表（.gitignore 语义，复用 plugin.GlobMatch）：
+// Exclude 命中者排除；Include 非空 = 白名单模式（未命中者排除）。
+// 被排除文件保留元信息（RepoExcluded=true），不进 diff 文本、不进截断清单。
+type PrepareOptions struct {
+	Exclude []string
+	Include []string
+}
+
+// repoFilter 从变参选项取过滤器（无选项返回 nil = 永不排除）。
+func repoFilter(opts []PrepareOptions) func(string) bool {
+	for _, o := range opts {
+		if len(o.Exclude) > 0 || len(o.Include) > 0 {
+			return plugin.RepoSettingsFilter(&plugin.RepoConfig{Loaded: true,
+				Review: plugin.ReviewSettings{ExcludePaths: o.Exclude, IncludePaths: o.Include}})
+		}
+	}
+	return nil
+}
+
 // appendTruncationNote 截断透出（深挖修复）：Truncated 置位此前全仓零消费，
 // 被预算排除的文件对 R2/R3 完全不可见——审查覆盖不完整却表现为完整。
 // 在 diff 文本尾部以数据区形式列出被排除文件清单（路径源自 git，包 DataFence
@@ -79,8 +99,8 @@ func appendTruncationNote(dc *plugin.DiffContext) {
 	}
 	var excluded []string
 	for _, f := range dc.Files {
-		// 噪声/二进制文件本就不进文本（按规则排除），不算"因预算被排除"
-		if !f.Included && !f.AlreadyReviewed && !f.IsBinary && !noise(f.Path) {
+		// 噪声/二进制/仓库级排除文件本就不进文本（按规则排除），不算"因预算被排除"
+		if !f.Included && !f.AlreadyReviewed && !f.IsBinary && !f.RepoExcluded && !noise(f.Path) {
 			excluded = append(excluded, f.Path)
 		}
 	}
@@ -101,14 +121,16 @@ func appendTruncationNote(dc *plugin.DiffContext) {
 
 // Prepare 从 SDK 的 MergeDiff 构建 plugin.DiffContext：
 // 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
-// totalLimit <=0 表示不截断总量（单测用）。
+// totalLimit <=0 表示不截断总量（单测用）。opts 为仓库级过滤选项（v3.15.0，
+// 变参向后兼容既有调用方）。
 // 兼容性兜底（v3.0.1 真实试点发现）：gitea 后端的 ChangedFile.Diff 为空、内容在 RawDiff
 // （BuildRawDiff 拼接）——此时按 "diff --git" 切块回填到各文件，否则下游拿到空 diff。
-func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
+func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	files := md.Files
 	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
 		files = fillFromRawDiff(files, md.RawDiff)
 	}
+	exclude := repoFilter(opts)
 	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
 	var b strings.Builder
 	remaining := totalLimit
@@ -129,6 +151,12 @@ func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext {
 		}
 		if f.NewPath == "" {
 			entry.Path = f.OldPath
+		}
+		// 仓库级排除（用户主动配置）：标记后与噪声同路，但不进截断清单
+		if exclude != nil && exclude(entry.Path) {
+			entry.RepoExcluded = true
+			dc.Files = append(dc.Files, entry)
+			continue
 		}
 		// 噪声（lockfile/vendor/生成物/二进制）：不进文本，元信息保留
 		if f.IsBinary || noise(entry.Path) {
@@ -176,10 +204,10 @@ const minIncrementalChars = 100
 //   - Text: 仅包含有变化的文件 diff
 //   - Files: 全部文件（未变文件标记 AlreadyReviewed=true）
 //   - NoNewChanges: true 表示 diff 完全一致，无需审查
-func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit int) *plugin.DiffContext {
+func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	// 无上次审查记录 → 全量审查
 	if lastDiffText == "" {
-		return Prepare(md, totalLimit)
+		return Prepare(md, totalLimit, opts...)
 	}
 
 	files := md.Files
@@ -190,6 +218,7 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 	// 解析上次 diff 为 per-file map
 	lastByPath := parseDiffByFile(lastDiffText)
 
+	exclude := repoFilter(opts)
 	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
 	var b strings.Builder
 	remaining := totalLimit
@@ -211,6 +240,13 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 		}
 		if f.NewPath == "" {
 			entry.Path = f.OldPath
+		}
+
+		// 仓库级排除（用户主动配置）：标记后与噪声同路，但不进截断清单
+		if exclude != nil && exclude(entry.Path) {
+			entry.RepoExcluded = true
+			dc.Files = append(dc.Files, entry)
+			continue
 		}
 
 		// 噪声/二进制：不进文本，元信息保留（与 Prepare 一致）
@@ -263,7 +299,7 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 
 	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
 	if hasChanges && len([]rune(dc.Text)) < minIncrementalChars {
-		return Prepare(md, totalLimit)
+		return Prepare(md, totalLimit, opts...)
 	}
 
 	if !hasChanges {
