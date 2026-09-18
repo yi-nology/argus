@@ -385,7 +385,7 @@ func guidelinesPrompt(task plugin.Task) string {
 		b.WriteString(h)
 		b.WriteString("提高举证标准：命中类似表述时必须给出具体行与影响，否则不要输出。\n")
 	}
-	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules} {
+	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched} {
 		if s := strings.TrimSpace(task.Artifacts[key]); s != "" {
 			b.WriteString("\n\n")
 			b.WriteString(s)

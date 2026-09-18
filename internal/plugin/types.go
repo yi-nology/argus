@@ -320,6 +320,12 @@ const (
 // 给报告渲染。
 const ArtifactChangeSummary = "change_summary"
 
+// ArtifactCodegraphTouched Task.Artifacts 键：变更触达符号提示（v3.15.0 P0-1）。
+// runner 在工作副本上建 Go AST 索引后渲染（符号清单 + get_symbol/get_references
+// 可用性提示），经 guidelinesPrompt 注入 R4、CheckCompliance 注入 R3。
+// 变更不含 Go 文件 / 关闭 ARGUS_CODEGRAPH / 无工作副本时无此键。
+const ArtifactCodegraphTouched = "codegraph_touched"
+
 // 任务级阶段产物 checkpoint 键（v3.12.0 G2 断点续审）：workflow 成功完成 R1/R2
 // 后经 CheckpointSink 持久化到 tasks.stage_artifacts，同任务重试时复用——省掉
 // 已成功阶段的重复 LLM 调用。只在任务内有效，新任务永远全量重跑。

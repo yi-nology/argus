@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/codegraph"
 	"argus/internal/notify"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
@@ -429,6 +432,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
 	// SAST 确定性前置（v3.15.0）：gitleaks/semgrep 工作副本扫描，产出直进 Merger。
 	r.injectSAST(ctx, pr, wf)
+	// Go 符号索引（v3.15.0 P0-1）：get_symbol/get_references 工具 + 触达符号注入。
+	r.injectCodeGraph(ctx, pr, diff, &ptask, wf)
 
 	// 仓库级行为配置进 workflow（v3.15.0）：min_severity 过滤在 finish 内执行；
 	// RepoConfig 非 nil 时 workflow 不再重复加载（省一次 API 往返）。
@@ -956,6 +961,126 @@ func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext, wf *requi
 	if len(wf.SASTOutcomes) > 0 {
 		r.Log.Info("argus.sast.done", "tools", len(wf.SASTOutcomes))
 	}
+}
+
+// injectCodeGraph Go 符号索引前置（v3.15.0 P0-1）：变更含 Go 文件时在工作副本上
+// 以 go/parser 建索引——Workflow.CodeGraph 供 R3/R4 挂 get_symbol/get_references
+// 工具；触达符号（diff hunk 行区间与符号定义的交集）渲染为提示词 section 注入
+// Artifacts。索引纯内存，建完即释放工作副本。任何失败告警降级，不阻断审查。
+func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
+	diff *plugin.DiffContext, ptask *plugin.Task, wf *requirement.Workflow) {
+	if !r.Cfg.Codegraph || r.WC == nil {
+		return
+	}
+	if !hasIncludedGoFiles(diff) {
+		return
+	}
+	key := worktreeKey(pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		r.Log.Warn("argus.codegraph.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	defer r.WC.Release(key)
+	idx, err := codegraph.NewIndex(dir, 2000)
+	if err != nil {
+		r.Log.Warn("argus.codegraph.index_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	wf.CodeGraph = idx
+	if s := renderTouchedSymbols(idx, parseHunkLines(diff.Text)); s != "" {
+		ptask.Artifacts[plugin.ArtifactCodegraphTouched] = s
+	}
+	r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
+}
+
+// hunkRe unified diff hunk 头：@@ -oldStart,oldLines +newStart,newLines @@。
+var hunkRe = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
+
+// maxTouchedSymbols 触达符号清单上限（防巨型 PR 的清单吃预算）。
+const maxTouchedSymbols = 30
+
+// parseHunkLines 从清洗后 diff 文本提取每个文件的新行区间（闭区间 [start,end]）。
+func parseHunkLines(diffText string) map[string][][2]int {
+	out := map[string][][2]int{}
+	curFile := ""
+	for _, line := range strings.Split(diffText, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
+			curFile = line[len("+++ b/"):]
+			if i := strings.IndexByte(curFile, '\t'); i >= 0 {
+				curFile = curFile[:i]
+			}
+		case curFile != "" && strings.HasPrefix(line, "@@"):
+			m := hunkRe.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			start, err1 := strconv.Atoi(m[1])
+			cnt := 1
+			if m[2] != "" {
+				cnt, _ = strconv.Atoi(m[2])
+			}
+			if err1 != nil || cnt <= 0 {
+				continue // 纯删除块：新文件侧无行
+			}
+			out[curFile] = append(out[curFile], [2]int{start, start + cnt - 1})
+		}
+	}
+	return out
+}
+
+// renderTouchedSymbols 汇总触达符号并渲染提示词 section（含可用性提示与数据区纪律）。
+func renderTouchedSymbols(idx *codegraph.Index, ranges map[string][][2]int) string {
+	seen := map[string]bool{}
+	var lines []string
+	for file, rs := range ranges {
+		for _, r := range rs {
+			for _, s := range idx.TouchedByLines(file, r[0], r[1]) {
+				name := s.Name
+				if s.Recv != "" {
+					name = s.Recv + "." + s.Name
+				}
+				key := s.File + ":" + name
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				lines = append(lines, fmt.Sprintf("- %s %s（%s:%d）", s.Kind, name, s.File, s.Line))
+				if len(lines) >= maxTouchedSymbols {
+					lines = append(lines, "…（其余略）")
+					return renderTouchedSection(lines)
+				}
+			}
+		}
+	}
+	return renderTouchedSection(lines)
+}
+
+func renderTouchedSection(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "以下 %d 个符号的代码行被本次变更触达（代码图索引，可作为审查入口）：\n", len(lines))
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("可用 get_symbol 查定义与签名、get_references 查调用方/使用点。")
+	return plugin.DataFence("变更触达符号（代码图索引）", strings.TrimRight(b.String(), "\n"))
+}
+
+// hasIncludedGoFiles 变更中是否有进入审查文本的 Go 文件。
+func hasIncludedGoFiles(diff *plugin.DiffContext) bool {
+	if diff == nil {
+		return false
+	}
+	for _, f := range diff.Files {
+		if f.Included && strings.HasSuffix(f.Path, ".go") {
+			return true
+		}
+	}
+	return false
 }
 
 // includedPaths diffprep 收进 Text 的文件（OCR delegate rule 的路径入参与

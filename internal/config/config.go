@@ -234,6 +234,11 @@ type Config struct {
 	SASTSemgrepConfig string // ARGUS_SAST_SEMGREP_CONFIG（--config 值）
 	SASTTimeout       time.Duration // ARGUS_SAST_TIMEOUT（0 = 120s）
 
+	// Codegraph Go AST 符号索引（v3.15.0 P0-1）：工作副本上以 go/parser 建
+	// get_symbol/get_references 工具与变更触达符号注入（零 LLM）。
+	// 变更不含 Go 文件或无工作副本池时自动跳过。ARGUS_CODEGRAPH=0 关闭。
+	Codegraph bool
+
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
 	MilvusAddr       string // Milvus 地址，如 "localhost:19530"
 	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
@@ -419,6 +424,7 @@ func Load() *Config {
 		SASTSemgrepBin:         os.Getenv("ARGUS_SAST_SEMGREP_BIN"),
 		SASTSemgrepConfig:      os.Getenv("ARGUS_SAST_SEMGREP_CONFIG"),
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
+		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),

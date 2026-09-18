@@ -17,6 +17,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/codegraph"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
@@ -94,6 +95,9 @@ type Workflow struct {
 	// SASTOutcomes 确定性 SAST 前置产出（v3.15.0：runner 在工作副本上跑
 	// gitleaks/semgrep 后注入；finish 内并入 fan-out outcomes 一起合并）。
 	SASTOutcomes []plugin.Outcome
+	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
+	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
+	CodeGraph *codegraph.Index
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
