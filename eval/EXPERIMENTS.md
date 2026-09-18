@@ -6,8 +6,10 @@
 
 ## 固定 harness
 
-- 评测集：`eval/golden/*.yaml`（24 条，场景标签覆盖 injection / partial /
+- 评测集：`eval/golden/*.yaml`（26 条，场景标签覆盖 injection / partial /
   scope-creep / unverifiable / multilingual / merge / evidence-gate / guard）。
+  真实模式有效分母 = 20（6 条 `skip_real` 夹具不计分：canned persona
+  11/12/25/26、非诚实 R3 前提 16/23——真实模型不会复现打桩前提）。
 - 执行：`make eval-real`（= `ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval`），
   走 `lacus/.env` 的 OPENAI_* 凭证，每条夹具跑完整 runner→R1→R5 链路。
 - 口径：**verdict 命中率**（主）+ 报告 must_find 子串（真实模式不判分，仅供人看）。
@@ -42,9 +44,33 @@ ARGUS_MODEL_R3=mimo-v2.5 ARGUS_REVIEWER_MODEL=mimo-v2.5 make eval-real \
 
 | 日期 | 组 | 模型 | 命中/总数 | 备注 |
 |---|---|---|---|---|
-| 2026-09-18 | B（全局） | mimo-v2.5-pro | **12/26（46%）** | 首轮基线，见下方归因 |
+| 2026-09-18 | B（全局） | mimo-v2.5-pro | 12/26（46%） | 夹具 v1 首轮基线，骨架化失真见下方归因；跨夹具版本不可比 |
+| 2026-09-18 | **A（基线，v2.5 全局）** | mimo-v2.5 | **14/20（70%）** | 夹具 v2；快照 `eval/results/v2-A-v25global.json` |
+| 2026-09-18 | B（pro 全局，v2） | mimo-v2.5-pro | 11/20（55%） | 夹具 v2；快照 `v2-B-proglobal.json` |
+| 2026-09-18 | C（v2.5+R3&Reviewer=pro，v2） | mimo-v2.5 + 阶段 pro | 9/20（45%） | 夹具 v2；快照 `v2-C-v25r3pro.json` |
 
-### 2026-09-18 首轮基线归因（重要——46% 不是模型失守数字）
+### 2026-09-18 夹具 v2 对照矩阵 · 拍板结论（v3.14.0）
+
+三组串行执行（同日同凭证，唯一变量为模型路由；单轮、每条完整 R1→R5 链路）：
+
+1. **拍板：默认路由维持 mimo-v2.5 全局（A 组），不切换。** C 组（R3/Reviewer
+   上 pro）9/20 显著劣于 A（−5 条，「好钢用在刀刃」假设**证伪**）；B 组（pro 全局）
+   11/20 同样劣于 A（−3 条）。pro 在审查域 verdict 上无红利，反而引入额外偏差。
+2. **一票否决线未触发**：三组的 injection 场景（05/06/07/23）全部安全，无一例
+   误升 APPROVE——两档模型的注入防线都由确定性证据门/真值表兜住。
+3. **结构性现象（登记不改期望）**：comment→request_changes 方向的系统性过严
+   是三组共性 miss（A 组 6 条、C 组 9 条、B 组 8 条全部或绝大多数为此方向）；
+   C/B 另出现 2 条反向漏判（20/21 号：期望 rc 判了 comment，即 HIGH/未完成
+   场景漏升级——危险方向，仅出现在 pro 参与 R3/Reviewer 的组）。comment/rc
+   边界的 `real_verdicts` 集合语义标定列为**夹具 v3**动作（补「实现完整+意见
+   非阻塞」正例、给从严合法性建模），本轮不中途改期望（防拟合旧测试）。
+4. **方差控制**：本轮为维持基线拍板（规则只对「切换默认」要求跨两轮复现），
+   单轮即可定论；后续任何「切换默认」提案须按拍板规则以同矩阵两轮复现。
+5. **过程事故留痕**：当日早间一次遗留后台跑与新一轮跑并发互踩
+   `eval/results/latest.json`（单文件单写者），涉案数据作废后全部串行重跑；
+   教训已固化——**同一结果文件任何时刻只允许一个 eval-real 写者**。
+
+### 2026-09-18 首轮基线归因（夹具 v1 · 12/26，历史档）
 
 14 条 miss 中 13 条是 `comment 期望 → 实际 request_changes`，模式高度一致：
 首版 golden 夹具为打桩回归设计，代码侧大量使用**骨架化空函数**（`func login() {}`）

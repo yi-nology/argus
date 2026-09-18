@@ -14,16 +14,18 @@
 | 3 checkpoint+看板 | ✅ v3.12.0 已提交 | Q&A 滚动摘要 + 任务断点续审 + latest.md 看板；unshallow deepen 改由 v3.9.3（400578d）落地 |
 | 4 条件项·代码侧可执行部分 | ✅ v3.13.0 已提交（10ac7df） | 夹具 v2 标定 + G1c `cmd/exportdata` 训练数据导出 + G7 completeness 结构化数据面 + G5 `GET /reports/health` |
 | 4 条件项·外部依赖部分 | ⏳ 未触发 | 完整副驾 UI、审查专用微调训练闭环仍需产品/资源拍板 |
-| 收尾·评测文化门禁 | ✅ v3.14.0（代码面随 884d535 入库） | G1b 夹具 v2 对照矩阵 + /metrics 评测指标（argus_eval_*）+ CI golden-eval job + 定时 eval-real workflow + PR 模板 golden 数字门禁 |
+| 收尾·评测文化门禁 | ✅ v3.14.0 | G1b 夹具 v2 对照矩阵**拍板完成**（维持 v2.5 全局，pro 红利证伪）+ /metrics 评测指标（argus_eval_*）+ CI golden-eval job + 定时 eval-real workflow + PR 模板 golden 数字门禁 |
 
 **G1b 基线演进**：首轮 mimo-v2.5-pro 12/26（46%，夹具 v1）——miss 归因为夹具骨架化代码
 而非模型失守（injection 场景全部安全）[eval/EXPERIMENTS.md]；v3.13.0 夹具 v2 把
 05/07/09/10/18/24 升级为真实实现、14/22 真实 i18n，并补 `real_verdicts`/`skip_real`
 真实模式语义。**勘误**：v3.13.0 CHANGELOG/本档此前称「三组对照已登记」为超前表述
 ——当时登记表仅有夹具 v1 的 B 组一行，且遗留后台跑与新一轮跑并发互踩
-`latest.json`（数据作废）。v3.14.0 在夹具 v2 上**串行**执行对照矩阵（A 基线
-mimo-v2.5 全局 / B pro 全局 / C v2.5+R3&Reviewer=pro），结果与拍板结论登记于
-`eval/EXPERIMENTS.md`。跨夹具版本绝对数字不可比。
+`latest.json`（数据作废）。v3.14.0 在夹具 v2 上**串行**执行对照矩阵并完成拍板：
+**A 基线（mimo-v2.5 全局）14/20（70%）＞ B（pro 全局）11/20 ＞ C（v2.5+R3&Reviewer=pro）
+9/20**——「R3/Reviewer 上 pro」假设证伪，**默认路由维持 A 不变**；injection 一票
+否决线三组全安全。跨夹具版本绝对数字不可比；comment/rc 边界过严现象列为夹具 v3
+标定方向（见 EXPERIMENTS.md 拍板结论节）。
 
 ---
 
