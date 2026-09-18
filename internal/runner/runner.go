@@ -27,6 +27,7 @@ import (
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/reportview"
+	"argus/internal/sastscan"
 	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
@@ -426,6 +427,8 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	}
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
+	// SAST 确定性前置（v3.15.0）：gitleaks/semgrep 工作副本扫描，产出直进 Merger。
+	r.injectSAST(ctx, pr, wf)
 
 	// 仓库级行为配置进 workflow（v3.15.0）：min_severity 过滤在 finish 内执行；
 	// RepoConfig 非 nil 时 workflow 不再重复加载（省一次 API 往返）。
@@ -924,10 +927,40 @@ func (r *Runner) injectOCRDelegateInDir(ctx context.Context, dir string, pr *plu
 	}
 }
 
+// injectSAST 确定性 SAST 前置（v3.15.0 P0-3）：工作副本上跑 gitleaks/semgrep，
+// 产出作为独立 Outcome 注入 workflow（finish 内并入合并，零 LLM、零任务 token）。
+// 未配置 ARGUS_SAST_* 或无工作副本池时静默跳过；扫描失败由 workflow 降级注明。
+func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext, wf *requirement.Workflow) {
+	if !r.Cfg.SASTEnabled() || r.WC == nil {
+		return
+	}
+	key := worktreeKey(pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		// workcopy 错误链可能携带带凭证 clone URL，进日志前统一脱敏
+		r.Log.Warn("argus.sast.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	defer r.WC.Release(key)
+	base := pr.BaseBranch
+	if base == "" {
+		base = pr.DefaultBranch
+	}
+	cfg := sastscan.Config{
+		GitleaksBin:   r.Cfg.SASTGitleaksBin,
+		SemgrepBin:    r.Cfg.SASTSemgrepBin,
+		SemgrepConfig: r.Cfg.SASTSemgrepConfig,
+		Timeout:       r.Cfg.SASTTimeout,
+	}
+	wf.SASTOutcomes = sastscan.Run(ctx, cfg, dir, base, r.Log)
+	if len(wf.SASTOutcomes) > 0 {
+		r.Log.Info("argus.sast.done", "tools", len(wf.SASTOutcomes))
+	}
+}
+
 // includedPaths diffprep 收进 Text 的文件（OCR delegate rule 的路径入参与
 // argus 实际审查范围保持一致）。
-func includedPaths(diff *plugin.DiffContext) []string {
-	if diff == nil {
+func includedPaths(diff *plugin.DiffContext) []string {	if diff == nil {
 		return nil
 	}
 	paths := make([]string, 0, len(diff.Files))

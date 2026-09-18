@@ -226,6 +226,14 @@ type Config struct {
 	// 原文（argus DB 只存合并后 findings）。deploy 挂到持久卷（/data/ocr-history）。
 	OcrHistoryDir string
 
+	// SAST 确定性前置扫描（v3.15.0 P0-3）：gitleaks/semgrep 在工作副本上执行，
+	// findings 直接并入 Merger（零 LLM）。全部来自服务级 env，默认全空 = 关闭
+	// （零依赖部署形态不变）；仓库配置不可启用/替换（§8 供应链红线）。
+	SASTGitleaksBin   string // ARGUS_SAST_GITLEAKS_BIN
+	SASTSemgrepBin    string // ARGUS_SAST_SEMGREP_BIN
+	SASTSemgrepConfig string // ARGUS_SAST_SEMGREP_CONFIG（--config 值）
+	SASTTimeout       time.Duration // ARGUS_SAST_TIMEOUT（0 = 120s）
+
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
 	MilvusAddr       string // Milvus 地址，如 "localhost:19530"
 	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
@@ -343,6 +351,11 @@ func (c *Config) MaxCallInputChars() int {
 	return n
 }
 
+// SASTEnabled SAST 前置是否启用（任一工具 bin 已配置）。
+func (c *Config) SASTEnabled() bool {
+	return c.SASTGitleaksBin != "" || c.SASTSemgrepBin != ""
+}
+
 // GetFileMaxRunes R3 get_file 工具单文件内容上限（rune）：窗口 6% 折算，min 20k。
 func (c *Config) GetFileMaxRunes() int {
 	n := c.contextTokens() * 6 / 100 * 2
@@ -402,6 +415,10 @@ func Load() *Config {
 		OcrBin:                 envStr("ARGUS_OCR_BIN", ""),
 		OcrTimeout:             envDuration("ARGUS_OCR_TIMEOUT", 0),
 		OcrHistoryDir:          envStr("ARGUS_OCR_HISTORY_DIR", ""),
+		SASTGitleaksBin:        os.Getenv("ARGUS_SAST_GITLEAKS_BIN"),
+		SASTSemgrepBin:         os.Getenv("ARGUS_SAST_SEMGREP_BIN"),
+		SASTSemgrepConfig:      os.Getenv("ARGUS_SAST_SEMGREP_CONFIG"),
+		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),

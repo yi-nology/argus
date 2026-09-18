@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
+	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/severity"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
@@ -90,6 +91,9 @@ type Workflow struct {
 	// review 段行为在 finish 内消费）。nil = 未注入（loadRepoConfig 自行加载，
 	// 既有测试路径不受影响）。
 	RepoConfig *plugin.RepoConfig
+	// SASTOutcomes 确定性 SAST 前置产出（v3.15.0：runner 在工作副本上跑
+	// gitleaks/semgrep 后注入；finish 内并入 fan-out outcomes 一起合并）。
+	SASTOutcomes []plugin.Outcome
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -244,6 +248,11 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	for _, sq := range w.Dispatcher.ConsensusSquads(&task.PR, changedFiles) {
 		outcomes = append(outcomes, w.Dispatcher.RunConsensus(ctx, task, sq, budget)...)
 	}
+	// SAST 确定性前置（v3.15.0）：产出并入合并（密钥泄漏等确定性结论可直接驱动
+	// R5.2 一票否决）；零 LLM、不计任务 token 预算。
+	if len(w.SASTOutcomes) > 0 {
+		outcomes = append(w.SASTOutcomes, outcomes...)
+	}
 	// G4 受限补审（opt-in）：执行失败的插件在剩余预算内重试一次（v3.11.0）
 	var retryNotes []string
 	if w.CompletenessRetry {
@@ -356,8 +365,17 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	// R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。skills 词表不匹配/
 	// 插件全被禁用/全数熔断/跳过时，空 findings 是"没人审"而不是"没问题"——
 	// 静默 APPROVE 会把未审查的变更放进主干。降级为 COMMENT + Degraded 注明。
+	// SAST 前置产出不计入 ran（它不是审查 agent，不能把"只有 gitleaks 跑了"
+	// 洗成"有人审过"）。
+	sastNames := make(map[string]bool, len(w.SASTOutcomes))
+	for _, o := range w.SASTOutcomes {
+		sastNames[o.Name] = true
+	}
 	ran := 0
 	for _, o := range outcomes {
+		if sastNames[o.Name] {
+			continue
+		}
 		if o.SkippedReason == "" && o.Err == nil {
 			ran++
 		}
@@ -367,6 +385,13 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 			"无任何审查插件实际产出（全被禁用/熔断/跳过，原因见上方 Degraded）——本结论在未审查状态下给出，仅作参考")
 		if verdict == VerdictApprove {
 			verdict, rule = VerdictComment, "R5.0"
+		}
+	}
+	// SAST 失败降级注明（产出空 ≠ 扫描成功；覆盖事实必须可见）。
+	for _, o := range w.SASTOutcomes {
+		if o.Err != nil {
+			merged.Degraded = append(merged.Degraded,
+				fmt.Sprintf("SAST %s 扫描失败：%s（审查继续）", o.Name, logredact.Redact(o.Err.Error())))
 		}
 	}
 	// G4 降级门（opt-in demote）：完备性检查不过时不允许白给 APPROVE（v3.11.0）。
