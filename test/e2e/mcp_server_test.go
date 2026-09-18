@@ -81,4 +81,25 @@ func TestScenario16_MCPServer(t *testing.T) {
 	if out.Verdict != "approve" {
 		t.Fatalf("verdict=%s", out.Verdict)
 	}
+
+	// ④ 副驾底座（v3.15.0 P2-7）：阶段时间线 / 结构化 findings / 建议取回。
+	// 本场景无 findings（approve），findings 返回空数组、suggestion 未命中走
+	// 明确文本提示——结构化通道本身可用即验证目标。
+	stages := call("get_task_stages", map[string]any{"task_id": out.TaskID})
+	if !strings.Contains(stages, `"task_id"`) || !strings.Contains(stages, `"stages"`) {
+		t.Fatalf("get_task_stages 结构错误:\n%.400s", stages)
+	}
+	for _, stage := range []string{"R1", "R2", "R3", "R4", "R5"} {
+		if !strings.Contains(stages, stage) {
+			t.Fatalf("get_task_stages 缺阶段 %s:\n%.400s", stage, stages)
+		}
+	}
+	findings := call("list_findings", map[string]any{"task_id": out.TaskID})
+	if !strings.Contains(findings, "[") {
+		t.Fatalf("list_findings 应返回数组:\n%.300s", findings)
+	}
+	miss := call("get_suggestion", map[string]any{"task_id": out.TaskID, "fp": "deadbeef1234"})
+	if !strings.Contains(miss, "未命中") {
+		t.Fatalf("get_suggestion 未命中应返回明确提示:\n%.300s", miss)
+	}
 }

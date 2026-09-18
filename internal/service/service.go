@@ -926,6 +926,103 @@ func (s *Service) AnswerAboutReview(ctx context.Context, platform, owner, repo, 
 	return s.qa().AnswerAboutReview(ctx, platform, owner, repo, number, question)
 }
 
+// ---------- MCP 副驾数据面（v3.15.0 P2-7；channel/mcpserver.Copilot 实现）----------
+
+// TaskStages 任务阶段时间线（零 LLM、纯 DB 推导）：
+//   - stage_artifacts 有 checkpoint_r1_spec/r2_summary → R1/R2 done（checkpoint 复用同口径）；
+//   - debug JSON 有 r3_checks/r3_raw → R3 done；
+//   - result_json 非空 → R4/R5 done（合并与裁决已产出）；
+//   - 任务终态 done → 全链 done（覆盖 R3.5/无产物场景）。
+//
+// 无任务返回 false。
+func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any, bool) {
+	task, err := s.Store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, false
+	}
+	stageDone := map[string]bool{}
+	arts := decodeArtifactsMap(task.StageArtifacts)
+	if _, ok := arts[plugin.ArtifactCkptR1Spec]; ok {
+		stageDone["R1"] = true
+	}
+	if _, ok := arts[plugin.ArtifactCkptR2Summary]; ok {
+		stageDone["R2"] = true
+	}
+	debug := decodeArtifactsMap(task.DebugJSON)
+	if _, ok := debug["r3_checks"]; ok {
+		stageDone["R3"] = true
+	}
+	if debug["r3_raw"] != "" {
+		stageDone["R3"] = true
+	}
+	if task.ResultJSON != "" {
+		stageDone["R4"] = true
+	}
+	if task.ResultJSON != "" && task.Verdict != "" {
+		stageDone["R5"] = true
+	}
+	if task.Status == storage.StatusDone {
+		for _, st := range []string{"R1", "R2", "R3", "R35", "R4", "R5"} {
+			stageDone[st] = true
+		}
+	}
+	stages := make([]map[string]any, 0, 6)
+	for _, st := range []string{"R1", "R2", "R3", "R35", "R4", "R5"} {
+		stages = append(stages, map[string]any{"stage": st, "done": stageDone[st]})
+	}
+	return map[string]any{
+		"task_id": task.ID, "status": task.Status, "verdict": task.Verdict,
+		"stages": stages,
+	}, true
+}
+
+// Findings 结构化意见清单（fp/suggested_fix 直出，副驾免解析 markdown）。
+func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any, bool) {
+	task, err := s.Store.GetTask(ctx, taskID)
+	if err != nil || task.ResultJSON == "" {
+		return nil, false
+	}
+	var payload struct {
+		Findings []plugin.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(task.ResultJSON), &payload); err != nil {
+		return nil, false
+	}
+	out := make([]map[string]any, 0, len(payload.Findings))
+	for _, f := range payload.Findings {
+		out = append(out, map[string]any{
+			"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
+			"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,
+		})
+	}
+	return out, true
+}
+
+// Suggestion 按指纹短码取回单条建议（一键回写的数据源；应用动作在客户端侧执行）。
+func (s *Service) Suggestion(ctx context.Context, taskID, fpPrefix string) (map[string]any, bool) {
+	findings, ok := s.Findings(ctx, taskID)
+	if !ok {
+		return nil, false
+	}
+	for _, f := range findings {
+		fp, _ := f["fp"].(string)
+		if fp != "" && strings.HasPrefix(fp, fpPrefix) {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// decodeArtifactsMap JSON 对象解码（坏数据安全返回空表）。
+func decodeArtifactsMap(s string) map[string]string {
+	m := map[string]string{}
+	if s == "" {
+		return m
+	}
+	_ = json.Unmarshal([]byte(s), &m)
+	return m
+}
+
 // qaCommentPayload 解析 issue_comment webhook 原始负载中我们关心的字段。
 // 仅用于从 RawPayload 提取评论正文与 PR 信息，不做全量反序列化。
 type qaCommentPayload struct {

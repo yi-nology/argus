@@ -41,7 +41,7 @@ type ReviewQA interface {
 	AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool)
 }
 
-// New 构造 MCPServer 并注册四工具。
+// New 构造 MCPServer 并注册工具组（副驾三工具 core 实现 Copilot 时挂载）。
 func New(core Core, version string) *server.MCPServer {
 	s := server.NewMCPServer("argus", version,
 		server.WithToolCapabilities(false),
@@ -134,6 +134,7 @@ func New(core Core, version string) *server.MCPServer {
 		}
 		return mcp.NewToolResultText(ans), nil
 	})
+	NewCopilotTools(s, core)
 	return s
 }
 
