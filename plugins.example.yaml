@@ -97,6 +97,15 @@ agents:
   # 未配置或执行失败自动告警降级，审查照常。三通道取舍：delegate（本项，零 LLM）
   # > ocr remote/mcp（上项，OCR 自带审查 agent 的 findings 并入合议）> ocr-cli（回退位）。
 
+  # ---- SAST 确定性前置（v3.15.0，与 OCR delegate 同范式：不经 plugins.yaml，env 启用）----
+  # gitleaks / semgrep 在工作副本上扫描，findings 零 LLM 直进 Merger（密钥泄漏可
+  # 直接驱动 R5.2 一票否决）。供应链纪律同 cli 插件：bin 只来自服务级 env，仓库
+  # 配置不可启用/替换；gitleaks 全程 --redact 且密钥原文绝不进意见。
+  #   ARGUS_SAST_GITLEAKS_BIN=/usr/local/bin/gitleaks    （缺省关）
+  #   ARGUS_SAST_SEMGREP_BIN=/usr/local/bin/semgrep      （需同时配 CONFIG）
+  #   ARGUS_SAST_SEMGREP_CONFIG=p/go                     （--config 值：路径/registry 名）
+  #   ARGUS_SAST_TIMEOUT=120s                            （单工具硬上限，0 = 默认）
+
   # ---- remote：远端 agent（v3.1 实装：mcp = mark3labs/mcp-go streamable http client；
   #      a2a = Agent Card 发现 → message/send → tasks/get 轮询）----
   - name: review-service                # 生产 review-service 的 MCP server（§3.5 对接通道 B）

@@ -104,6 +104,37 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 
 - 发现问题时同时给出具体代码修复建议（suggested_fix）。
 
+### 5.1 仓库级配置面（v3.15.0，对标 .coderabbit.yaml）
+
+仓库默认分支放一份 `.reviewagents.yaml`（只能"选"不能"增"的信任边界不变），除既有
+插件 use/disable/routing 外，新增 `review` 段控制评审行为：
+
+```yaml
+review:
+  exclude_paths: ["**/generated/**", "proto/**"]  # 仓库级路径排除（glob）
+  include_paths: []                               # 非空 = 白名单模式
+  min_severity: medium        # 低于阈值的意见不进报告与裁决（low|medium|high）
+  max_comments: 20            # 行内评论上限（0=不限，超出保留严重度 top N 进总结）
+  extra_instructions: "关注错误包装与并发边界"   # 附加审查指令（与 guidelines.md 合并注入）
+describe:
+  labels:                     # @argus describe 的建议标签词表（可省略）
+    - {name: bug, description: 缺陷修复}
+```
+
+### 5.2 确定性 SAST 前置（v3.15.0，默认关）
+
+配置 `ARGUS_SAST_GITLEAKS_BIN` / `ARGUS_SAST_SEMGREP_BIN`（+
+`ARGUS_SAST_SEMGREP_CONFIG`，`ARGUS_SAST_TIMEOUT` 缺省 120s）后，审查会在工作副本上
+先跑 gitleaks/semgrep，findings **零 LLM** 直进合并——密钥泄漏等确定性结论可直接驱动
+一票否决。供应链纪律与 cli 插件一致：二进制路径只来自服务级 env，仓库配置不可启用；
+gitleaks 全程 `--redact` 且密钥原文绝不进意见。
+
+### 5.3 Go 符号上下文（v3.15.0，`ARGUS_CODEGRAPH` 默认开）
+
+变更含 Go 文件且工作副本可用时，审查 agent 额外获得 `get_symbol`（定义/签名定位）与
+`get_references`（跨文件调用方/使用点）两个工具，并自动注入「本次变更触达的符号」入口
+清单（纯 go/parser 确定性索引，零 LLM；非 Go 变更自动跳过）。
+
 ### 6. 四种接入方式，同一个引擎
 
 | 方式 | 场景 | 说明 |
@@ -120,6 +151,8 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
 - `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
 - `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
+- `@argus describe [补充要求]` —— 生成 PR 变更说明 + 建议标签（v3.15.0，回帖评论不写回 PR body）
+- `@argus testgen [目标路径]` —— 按 diff 生成单元测试骨架（v3.15.0；未经编译验证，需人工核对）
 
 三平台评论事件均接入（v3.5.4 补齐 GitLab）：GitHub `issue_comment`、GitLab `note`
 （仓库 webhook 需勾选 Note events）、Gitea/Forgejo 评论兜底；`setup-webhook.sh` 已含
@@ -272,6 +305,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `list_agents` | 插件清单；三参全传附带仓库配置视图 |
 | `get_report` | 按 taskId 取状态/verdict/完整报告 |
 | `ask_argus` | Q&A：无 question 返回某 PR 最新审查结论（verdict/findings/摘录）；带 question 则基于报告+仓库上下文追问（ReAct，v3.3）|
+| `get_task_stages` | 任务阶段时间线（R1→R5 完成状态，v3.15.0）——「审得全不全」可观测 |
+| `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
+| `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
 
 ### 4. API 一览
 

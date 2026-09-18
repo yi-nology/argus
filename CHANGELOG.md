@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.17.0 (2026-09-18) — 主流差距收口收尾：评测北极星口径 + MCP 副驾底座
+
+差距收口批次（P0-2/P0-3/P0-1/P1-4/P1-5 已随 v3.15.0 落库）的收尾件。对标
+CodeRabbit/Greptile/Qodo 一代主流产品的差距调研结论：评测必须从「verdict 命中率
+单口径」扩成「命中率 + 误报面 + 边界标定」三面；IDE 副驾先补服务端数据面。
+
+### P1-6 · 评测北极星（clean/边界夹具 + FP 聚合）
+
+- 新增夹具 28-32（集合 27→32，真实分母 21→26）：clean×3（纯重构/纯文档/纯测试
+  新增，期望零意见 + APPROVE，真实模式 approve 精确比对——clean 上的 findings
+  全部计误报，不配 `real_verdicts` 宽松化）；boundary×2（31 号「仅 medium×2」
+  钉 comment 不上移、32 号「close 错误被吞」钉 high 如实升级）。
+- `latest.json` 新增 `metrics{clean_total,clean_approve,false_positives,boundary_
+  total,boundary_hits}` 聚合；`/metrics` 新增 `argus_eval_false_positives` /
+  `argus_eval_clean_approve`（旧结果文件缺段零值，属如实反映）。
+- 编号协调：27 号已被 v3.16.0（并行批次夹具 v3）占用，本批顺延 28-32；打桩回归
+  32/32 全绿（clean 3/3 approve、FP=0、boundary 2/2）。真实模式基线待 CI
+  eval-real 首轮，登记见 `eval/EXPERIMENTS.md`（占位勿凭印象填数）。
+
+### P2-7 · MCP 副驾服务端底座（只读数据面，零 LLM）
+
+- `/mcp` 新增三工具（可选接口 `Copilot`，core 未实现时不注册）：
+  `get_task_stages`（R1→R5 阶段时间线，stage_artifacts/debug/终态确定性推导，
+  「审得全不全」可观测）；`list_findings`（结构化意见直出，含 fp 短码与
+  suggested_fix，客户端免解析 markdown）；`get_suggestion`（按指纹短码取回单条
+  建议内容——一键回写由 IDE/客户端执行，服务端只读不落盘）。
+- IDE 追问复用既有 `ask_argus`；阶段进度流复用 `/events` SSE。本版不含 IDE 插件
+  客户端（批次 4 条件项的服务端前置已就绪）。
+
 ## v3.16.0 (2026-09-18) — 夹具 v3：comment/rc 边界按「从严合法性」标定
 
 - **根因与修法**：v2 三组共性 comment→rc 过严 miss 的根因是夹具前提-内容错位
@@ -19,6 +48,63 @@
   6 条 miss 全部回收，注入红线（05/06/07）全安全。残留 3 条 miss（10/13/03）
   为真实过严信号与轮次方差（toy login 对诚实 reviewer 的 HIGH 磁铁），登记见
   `eval/EXPERIMENTS.md`；夹具 v4 方向：comment 类夹具代码换无安全面实现。
+
+## v3.15.0 (2026-09-18) — 主流差距收口：仓库级配置面 / SAST 前置 / Go AST 上下文 / describe·testgen
+
+对标 CodeRabbit（仓库级 YAML + 安全集成）、Greptile（代码图）、Qodo（/describe、
+/generate_tests）一代主流产品差距调研的 P0/P1 落地。全程遵守既有红线：路由/裁决/
+合并不走 LLM；仓库配置只从默认分支读、按敌对输入对待；锁定插件仓库配置关不掉。
+
+### P0-2 · 仓库级配置面（.reviewagents.yaml review 段）
+
+- `review.exclude_paths` / `include_paths`：仓库级路径过滤（glob，.gitignore 语义，
+  复用 plugin.GlobMatch），命中文件不进 diff 文本、不进截断清单、报告降级注明；
+  include 非空 = 白名单模式。diffprep 以 `PrepareOptions` 变参向后兼容。
+- `review.min_severity`（low|medium|high）：低于阈值的意见不进报告、不参与 R5 裁决
+  （确定性过滤，词表严格校验，非法值整份拒绝→降级无配置+告警）。
+- `review.max_comments`（0=不限，钳 ≤500）：行内评论按严重度保留 top N，超出部分
+  仅在总结评论列出并注明（`Report.MaxInlineComments`，poster 钳制）。
+- `review.extra_instructions`（≤4000 runes 截断）：与 .argus/review-guidelines.md
+  合并注入 R4 提示词（对标 Copilot custom instructions）。
+- runner 侧单次加载仓库配置注入 workflow（省一次 API 往返）；describe 标签词表
+  `describe.labels` 同文件（见下）。
+
+### P0-3 · 确定性 SAST 前置（gitleaks/semgrep，默认关）
+
+- 新包 internal/sastscan：工作副本上执行 gitleaks（baseRef 非空走
+  `--log-opts origin/<base>..HEAD` 范围扫描）/ semgrep（需 ARGUS_SAST_SEMGREP_CONFIG），
+  findings 归一为独立 Outcome 直进 Merger——零 LLM、不计任务 token，密钥泄漏类
+  确定性结论可直接驱动 R5.2 一票否决。
+- 供应链与防泄漏纪律：bin 只来自服务级 env（`ARGUS_SAST_GITLEAKS_BIN`/
+  `ARGUS_SAST_SEMGREP_BIN`/`ARGUS_SAST_SEMGREP_CONFIG`/`ARGUS_SAST_TIMEOUT`），
+  仓库配置不可启用/替换；gitleaks 全程 `--redact` 且 Secret 字段绝不进 Finding
+  （PR 评论是比日志更广的分发面）；子进程最小环境不继承密钥。
+- R5.0 守门语义澄清：SAST 产出不计入「有插件实际产出」——只有 gitleaks 跑了不算
+  「有人审过」；单工具 findings 封顶 50 条留痕，扫描失败降级注明审查继续。
+- 未配置任何 bin = 功能整体关闭，零依赖部署形态不变（OCR delegate 同款前置范式）。
+
+### P0-1 · Go AST 符号上下文（internal/codegraph，ARGUS_CODEGRAPH 默认开）
+
+- 工作副本上以 go/parser/go/scanner（纯 stdlib，CGO_ENABLED=0 兼容——tree-sitter
+  cgo 方案出局）建符号定义表（func/method/type/var/const，含签名与行段）与标识符
+  出现位置；跳过 vendor/node_modules/testdata 等，坏语法文件跳过计数，maxFiles 封顶。
+- R3/R4 工具表新增 `get_symbol`（定义定位）/`get_references`（跨文件影响面，
+  精确大小写、定义行不计、50 条封顶），toolprior Core 档 + 数据区围栏。
+- 变更触达符号：解析 diff hunk 行区间与符号定义的交集（封顶 30 个），渲染为提示词
+  section 注入 R3 instruction 与 R4 guidelinesPrompt——审查者直接拿到入口清单。
+- 边界如实声明：v1 只覆盖 Go、词法级「定义/出现」索引，不做类型解析级精确调用图；
+  非 Go 变更/无工作副本池自动跳过，行为与 v3.14 完全一致。
+
+### P1-4 / P1-5 · @argus describe 与 testgen 评论命令
+
+- `@argus describe [补充要求]`：清洗后 diff → 单次 LLM 生成 PR 变更说明 +
+  建议标签（仓库 `describe.labels` 词表非空时只从词表选），回帖评论、不写回
+  PR body（对标 PR-Agent /describe，复用 diffprep 清洗管线与反注入纪律）。
+- `@argus testgen [目标路径]`：按 diff 生成单元测试骨架（每个目标文件一个小节 +
+  代码块），尾部固定「未经编译验证」声明——浅克隆工作副本无模块缓存，go test
+  不可靠，沙箱验证列入 IMPROVEMENT-PLAN 后续项。
+- 两者均走评论轻量路径（不建 task），显式命令免意图路由，与 Q&A 同享 per-PR 30s
+  节流与 delivery 幂等。
 
 ## v3.14.0 (2026-09-18) — 评测文化门禁：G1b 夹具 v2 对照矩阵拍板 + eval 指标进 /metrics + CI 评测门禁
 

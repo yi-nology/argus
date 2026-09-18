@@ -195,3 +195,32 @@ flowchart LR
 - v3.11.0 出口：完备性检查五项全落地且有 e2e 证据；健康报告在试点仓库跑过 ≥1 个周期。
 - v3.12.0 出口：断点续审 + Q&A 摘要落地；回归看板可见；评估变更门禁生效。
 - 终局北极星：**误报率与漏报率有公开、可复现的数字**——这是 REPORT 指出的 Argus 与 MiMo 在「质量评估文化」上的最后一层差距，也是全部批次共同的出口。
+
+---
+
+## 8. 差距收口批次落地记录（2026-09-18，v3.15.0–v3.17.0）
+
+对标主流 AI 评审产品（CodeRabbit / Qodo PR-Agent / Greptile / Copilot / Gemini /
+Graphite Diamond）差距调研后拍板的 P0/P1/P2-7 全部落地：
+
+| 项 | 版本 | 落点 |
+|---|---|---|
+| P0-2 仓库级配置面 | v3.15.0 | `.reviewagents.yaml` review 段：exclude/include 路径过滤、min_severity、max_comments、extra_instructions；describe.labels 词表 |
+| P0-3 确定性 SAST 前置 | v3.15.0 | internal/sastscan：gitleaks/semgrep 工作副本扫描直进 Merger（零 LLM，默认关，`--redact` 防二次泄漏） |
+| P0-1 Go AST 符号上下文 | v3.15.0 | internal/codegraph：get_symbol/get_references 进 R3/R4 工具表 + 变更触达符号注入（纯 go/parser，CGO_ENABLED=0 兼容） |
+| P1-4 describe | v3.15.0 | `@argus describe` 评论命令：PR 变更说明 + 建议标签（词表约束） |
+| P1-5 testgen | v3.15.0 | `@argus testgen` 评论命令：测试骨架生成（未验证声明如实透出） |
+| P1-6 评测北极星 | v3.17.0 | 夹具 28-32（clean×3/边界×2）+ FP/clean/boundary 聚合口径 + `argus_eval_false_positives` 等指标（编号让位并行批次 v3.16.0） |
+| P2-7 MCP 副驾底座 | v3.17.0 | `get_task_stages` / `list_findings` / `get_suggestion`（只读数据面，IDE 客户端另立项） |
+
+**出口缺口更新**（对照 §7 终局北极星）：误报面口径已落地（clean 夹具 FP 计数），
+真实模式基线待 CI eval-real 首轮填数——「公开、可复现的数字」还差这一步。
+
+**遗留项（不阻塞版本）**：
+
+- testgen 沙箱编译验证（浅克隆工作副本无模块缓存，需可用的 go module proxy 或
+  vendored 仓前提）；
+- codegraph v2：JS/TS 多语言扩展与类型解析级精确调用图（评估 LSIF/SCIP 导入）；
+- SAST diff 聚焦增强：semgrep 按变更文件过滤 + gitleaks 无 merge-base 时的大仓
+  全量扫描成本上限；
+- 副驾 IDE 客户端（消费 MCP 三工具 + SSE），维持批次 4 条件项定位。
