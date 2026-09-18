@@ -1,13 +1,14 @@
 # 场景：medium 意见 → R5.4 COMMENT（不驱动一票否决）
-# v2 标定：代码为真实完整实现；真实模式下 reviewer 是否报 doc comment 意见有
-# 合理方差，comment/approve 均计通过（request_changes 仍为 miss）。
+# v3 标定：需求句按 02 口径精确收窄（v2 模糊句下诚实模型可判 partial → R5.1 rc，
+# 属夹具自身噪声）；实现完整 + 意见非阻塞的正例——真实模式 comment/approve 均
+# 计通过，request_changes 为过严 miss 信号。
 name: 09-medium-finding-comment
 scenario: [code-review]
 kind: 0
 pr:
   title: 添加登录功能
   body: |
-    实现账号密码登录，见 issue #12
+    实现账号密码登录：提供 login(password) 校验函数，空口令报错。见 issue #12
 changed_files:
   - path: main.go
     diff: |

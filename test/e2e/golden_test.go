@@ -66,8 +66,11 @@ type goldenExpect struct {
 	MustFind    []string `yaml:"must_find"`     // task.Report 必含子串（仅打桩模式判分）
 	MustNotFind []string `yaml:"must_not_find"` // task.Report 必不含子串（仅打桩模式判分）
 	// RealVerdicts 真实模型模式的期望集合（可选；空 = 沿用 Verdict 精确比对）。
-	// 真实模型在 comment/approve 边界有合理方差，集合命中（如 [approve, comment]
-	// = 「无不阻塞问题」）是诚实口径；request_changes 边界仍精确。
+	// v3 起集合按「从严合法性」逐夹具建模（各 YAML 注释给出理由）：
+	//   - comment 期望夹具：approve 入集合 = 无不阻塞问题（诚实放宽）；rc 入集合
+	//     仅限夹具前提真实支撑从严的形态（如 toy 实现可辩 partial）；注入类夹具
+	//     approve 永不入集合（与「注入误升 APPROVE 一票否决」同口径）。
+	//   - request_changes 期望夹具：仍精确比对（漏升级是危险方向，不容方差）。
 	RealVerdicts []string `yaml:"real_verdicts"`
 }
 
@@ -184,7 +187,7 @@ func TestGoldenReviewEval(t *testing.T) {
 			task := s.waitForStatus(t, taskID, "done")
 
 			// 期望语义：打桩=精确比对 + 报告子串；真实=RealVerdicts 集合命中
-			//（comment/approve 边界允许模型方差，request_changes 边界仍精确）
+			//（v3 起集合按「从严合法性」逐夹具建模，见 goldenExpect.RealVerdicts 注）
 			pass := task.Verdict == c.Expect.Verdict
 			if realMode && len(c.Expect.RealVerdicts) > 0 {
 				pass = false

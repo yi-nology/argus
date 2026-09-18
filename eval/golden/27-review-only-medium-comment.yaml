@@ -1,0 +1,49 @@
+# 场景：code_review 任务 + medium 意见 → R5.4 COMMENT（review-only 真值表第三档，
+# 补齐 19 approve / 20 rc 之后的 comment 档）
+# v3 新增正例：实现完整（无安全面的纯工具函数）+ 意见非阻塞 → comment；真实模式
+# approve（真实 reviewer 无意见）同计通过，rc（对完整工具函数报 HIGH）为过严
+# miss 信号。
+name: 27-review-only-medium-comment
+scenario: [code-review]
+kind: 1
+pr:
+  title: 添加求和工具函数
+  body: |
+    提供 Sum(numbers []int) int 工具函数
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,9 @@
+       package main
+      +
+      +func Sum(numbers []int) int {
+      +	total := 0
+      +	for _, n := range numbers {
+      +		total += n
+      +	}
+      +	return total
+      +}
+    additions: 8
+repo_files:
+  main.go: |
+    package main
+
+    func Sum(numbers []int) int {
+    	total := 0
+    	for _, n := range numbers {
+    		total += n
+    	}
+    	return total
+    }
+stub:
+  reviewer: |
+    {"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"Sum 缺少 doc comment"}],"notes":""}
+expect:
+  verdict: comment
+  # v3：真实模式 {comment, approve}——完整工具函数上诚实 reviewer 只会报
+  # 非阻塞意见或无意见；HIGH → rc 属过严，作为 miss 信号保留
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

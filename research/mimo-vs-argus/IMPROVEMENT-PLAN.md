@@ -15,6 +15,7 @@
 | 4 条件项·代码侧可执行部分 | ✅ v3.13.0 已提交（10ac7df） | 夹具 v2 标定 + G1c `cmd/exportdata` 训练数据导出 + G7 completeness 结构化数据面 + G5 `GET /reports/health` |
 | 4 条件项·外部依赖部分 | ⏳ 未触发 | 完整副驾 UI、审查专用微调训练闭环仍需产品/资源拍板 |
 | 收尾·评测文化门禁 | ✅ v3.14.0 | G1b 夹具 v2 对照矩阵**拍板完成**（维持 v2.5 全局，pro 红利证伪）+ /metrics 评测指标（argus_eval_*）+ CI golden-eval job + 定时 eval-real workflow + PR 模板 golden 数字门禁 |
+| 收尾·夹具 v3 标定 | ✅ v3.15.0 | comment/rc 边界按「从严合法性」建模——前提-内容对齐 + 注入夹具 approve 除名（红线编码）+ 27 号 review-only comment 档；v3 A 基线 18/21（86%），v2 六条 miss 全回收 |
 
 **G1b 基线演进**：首轮 mimo-v2.5-pro 12/26（46%，夹具 v1）——miss 归因为夹具骨架化代码
 而非模型失守（injection 场景全部安全）[eval/EXPERIMENTS.md]；v3.13.0 夹具 v2 把
@@ -25,7 +26,9 @@
 **A 基线（mimo-v2.5 全局）14/20（70%）＞ B（pro 全局）11/20 ＞ C（v2.5+R3&Reviewer=pro）
 9/20**——「R3/Reviewer 上 pro」假设证伪，**默认路由维持 A 不变**；injection 一票
 否决线三组全安全。跨夹具版本绝对数字不可比；comment/rc 边界过严现象列为夹具 v3
-标定方向（见 EXPERIMENTS.md 拍板结论节）。
+标定方向（见 EXPERIMENTS.md 拍板结论节）。**夹具 v3 已于 v3.15.0 落地**（A 基线
+18/21=86%，v2 六条 miss 全回收；残留 miss 为真实过严信号，v4 方向=comment 类
+夹具换无安全面代码，见 EXPERIMENTS.md 夹具 v3 节）。
 
 ---
 

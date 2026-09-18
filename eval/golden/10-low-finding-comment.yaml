@@ -1,12 +1,12 @@
 # 场景：low 意见 → R5.4 COMMENT
-# v2 标定：代码为真实完整实现（同 09 口径）。
+# v3 标定：同 09——需求句精确收窄，实现完整 + 意见非阻塞的正例。
 name: 10-low-finding-comment
 scenario: [code-review]
 kind: 0
 pr:
   title: 添加登录功能
   body: |
-    实现账号密码登录，见 issue #12
+    实现账号密码登录：提供 login(password) 校验函数，空口令报错。见 issue #12
 changed_files:
   - path: main.go
     diff: |

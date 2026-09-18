@@ -1,12 +1,12 @@
 # 场景：真值表优先级——unverifiable（R5.3）与 medium 意见（R5.4）同时存在 → R5.3 先命中
-# v2 标定：同 14（JS 真实 i18n 实现）。
+# v3 标定：同 14——需求句精确收窄（切换 UI 明示不在范围），rc 不入真实集合。
 name: 22-unverifiable-plus-medium-comment
 scenario: [unverifiable, code-review]
 kind: 0
 pr:
   title: 登录页多语言
   body: |
-    登录页支持中英文切换，见 issue #12
+    提供前端中英文案字典与取词函数 t(lang,key)，语言切换 UI 交互不在本次范围。见 issue #12
 changed_files:
   - path: web/app.js
     diff: |
@@ -39,13 +39,14 @@ repo_files:
     app.t = t
 stub:
   r1: |
-    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"登录页展示中英文切换"}],"ambiguous":[]}
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"提供中英文案字典与取词函数 t(lang,key)"}],"ambiguous":[]}
   r3: |
-    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"UI 渲染需人工在预览环境确认"}],"scope_creep":[],"summary":"无法完全验证"}
+    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"文案渲染需人工在预览环境确认"}],"scope_creep":[],"summary":"无法完全验证"}
   reviewer: |
     {"findings":[{"file":"web/app.js","line":2,"severity":"medium","comment":"i18n 对象缺少 fallback 语言"}],"notes":""}
 expect:
   verdict: comment
+  # v3：rc 不入集合（同 14 口径——需求已收窄到代码实际内容）
   real_verdicts: [comment, approve]
   must_find: ["R5.3"]
   must_not_find: ["R5.4"]

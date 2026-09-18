@@ -1,12 +1,12 @@
 # 场景：中文评语渲染完整性（多字节文本经 HTML 转义后原样可见）
-# v2 标定：代码为真实完整实现（同 09 口径）。
+# v3 标定：同 09——需求句精确收窄，实现完整 + 意见非阻塞的正例（rc = 过严信号）。
 name: 24-cjk-finding-comment
 scenario: [multilingual, code-review]
 kind: 0
 pr:
   title: 添加登录功能
   body: |
-    实现账号密码登录，见 issue #12
+    实现账号密码登录：提供 login(password) 校验函数，空口令报错。见 issue #12
 changed_files:
   - path: main.go
     diff: |
