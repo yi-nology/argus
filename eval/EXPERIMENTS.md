@@ -71,7 +71,7 @@ ARGUS_MODEL_R3=mimo-v2.5 ARGUS_REVIEWER_MODEL=mimo-v2.5 make eval-real \
    `eval/results/latest.json`（单文件单写者），涉案数据作废后全部串行重跑；
    教训已固化——**同一结果文件任何时刻只允许一个 eval-real 写者**。
 
-### 2026-09-18 夹具 v3 标定（comment/rc 边界，v3.15.0）
+### 2026-09-18 夹具 v3 标定（comment/rc 边界，v3.16.0）
 
 **动机**：v2 三组共性 miss 全部或绝大多数是 comment→request_changes 方向
 （A 6 / C 9 / B 8 条），登记为夹具 v3 标定动作。
