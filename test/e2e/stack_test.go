@@ -332,6 +332,12 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 			r = `{"route":"ask","confidence":0.9,"reason":"default"}`
 		}
 		m.reply(w, r)
+	case strings.Contains(text, "【Argus DESCRIBE】"):
+		// v3.15.0 describe 命令：固定变更说明回复
+		m.reply(w, "## 📝 PR 变更说明\n\n添加账号密码登录。\n\n### 建议标签\n\n- feature")
+	case strings.Contains(text, "【Argus TESTGEN】"):
+		// v3.15.0 testgen 命令：固定测试骨架回复
+		m.reply(w, "### internal/api/user_test.go\n\n```go\nfunc TestHandle(t *testing.T) { }\n```")
 	default:
 		if m.personaReply(w, text) {
 			return

@@ -1149,6 +1149,17 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 	platform := string(ev.Source)
 
+	// @argus describe / testgen（v3.15.0）：显式命令免意图路由，与 Q&A 同享
+	// 节流与 delivery 幂等（节流已在上一步取得）。
+	if hint, ok := extractDescribe(question); ok {
+		s.handleDescribe(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
+		return
+	}
+	if target, ok := extractTestGen(question); ok {
+		s.handleTestGen(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, target, delivery)
+		return
+	}
+
 	// 意图路由（v3.4）：ARGUS_COMMENT_ROUTER=1 时先分类再分派——review 建全量
 	// 复审任务，其余一律 Q&A（Fallback 也是 Q&A）。关闭时行为与 v3.3 完全一致。
 	if !s.Cfg.CommentRouter {
