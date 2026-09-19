@@ -57,8 +57,10 @@ const maxFindingsPerTool = 50
 // Run 执行全部已配置工具，每工具产出一个 Outcome（失败置 Err，不 panic 不中断）。
 // dir 为工作副本根；baseRef 非空时 gitleaks 按 origin/<base>..HEAD 提交范围扫描
 // （工作副本已 deepen 到 merge-base），为空退化为全仓 --no-git 扫描。
+// paths 为本次审查实际覆盖的变更文件清单（diffprep Included，v3.21.0 起传给
+// semgrep 做聚焦扫描——全仓扫描在大仓上既慢又淹没信噪比；nil/空 = 全仓）。
 // 未配置 config 的 semgrep 不产 Outcome（不算覆盖缺口，只告警）。
-func Run(ctx context.Context, cfg Config, dir, baseRef string, log Logger) []plugin.Outcome {
+func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, log Logger) []plugin.Outcome {
 	if !cfg.Enabled() {
 		return nil
 	}
@@ -72,7 +74,7 @@ func Run(ctx context.Context, cfg Config, dir, baseRef string, log Logger) []plu
 			log.Warn("argus.sast.semgrep_no_config",
 				"hint", "ARGUS_SAST_SEMGREP_BIN 已配但 ARGUS_SAST_SEMGREP_CONFIG 为空，semgrep 跳过")
 		} else {
-			outcomes = append(outcomes, runSemgrep(ctx, cfg, dir, timeout, log))
+			outcomes = append(outcomes, runSemgrep(ctx, cfg, dir, paths, timeout, log))
 		}
 	}
 	return outcomes
@@ -154,12 +156,23 @@ func gitleaksArgs(dir, logOpts string) []string {
 	return args
 }
 
-// runSemgrep semgrep scan --json（dir 为扫描根）。
-func runSemgrep(ctx context.Context, cfg Config, dir string, timeout time.Duration, log Logger) plugin.Outcome {
+// semgrepMaxPaths 聚焦扫描的文件数上限（防巨型 PR 撑爆 argv；超出回退全仓——
+// 变更面已经足够大，聚焦收益归零）。
+const semgrepMaxPaths = 100
+
+// runSemgrep semgrep scan --json（dir 为扫描根；paths 非空时聚焦变更文件）。
+func runSemgrep(ctx context.Context, cfg Config, dir string, paths []string,
+	timeout time.Duration, log Logger) plugin.Outcome {
+
 	o := plugin.Outcome{Name: "semgrep", Manifest: manifest("semgrep", timeout)}
 	o.Manifest.Kind = plugin.KindCLI
-	cmd := exec.CommandContext(ctx, cfg.SemgrepBin, "scan", "--json", "--quiet",
-		"--config", cfg.SemgrepConfig, ".")
+	args := []string{"scan", "--json", "--quiet", "--config", cfg.SemgrepConfig}
+	if focused := semgrepPaths(paths); len(focused) > 0 {
+		args = append(args, focused...)
+	} else {
+		args = append(args, ".")
+	}
+	cmd := exec.CommandContext(ctx, cfg.SemgrepBin, args...)
 	cmd.Dir = dir
 	cmd.Env = minimalEnv()
 	out, err := combinedOutput(cmd, timeout)
@@ -199,6 +212,28 @@ func runSemgrep(ctx context.Context, cfg Config, dir string, timeout time.Durati
 	}
 	log.Info("argus.sast.semgrep_done", "findings", len(o.Result.Findings), "errors", len(parsed.Errors))
 	return o
+}
+
+// semgrepPaths 聚焦文件清单整形（存在性不做校验——以 diff 清单为准，缺失文件
+// semgrep 自行忽略；>semgrepMaxPaths 回退 nil = 全仓）。
+func semgrepPaths(paths []string) []string {
+	if len(paths) == 0 || len(paths) > semgrepMaxPaths {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] || strings.Contains(p, "..") { // 防路径穿越出工作副本
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // semgrepSeverity semgrep 三档 → argus 词表。

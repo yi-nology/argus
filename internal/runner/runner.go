@@ -431,7 +431,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
 	// SAST 确定性前置（v3.15.0）：gitleaks/semgrep 工作副本扫描，产出直进 Merger。
-	r.injectSAST(ctx, pr, wf)
+	r.injectSAST(ctx, pr, diff, wf)
 	// Go 符号索引（v3.15.0 P0-1）：get_symbol/get_references 工具 + 触达符号注入。
 	r.injectCodeGraph(ctx, pr, diff, &ptask, wf)
 
@@ -935,7 +935,8 @@ func (r *Runner) injectOCRDelegateInDir(ctx context.Context, dir string, pr *plu
 // injectSAST 确定性 SAST 前置（v3.15.0 P0-3）：工作副本上跑 gitleaks/semgrep，
 // 产出作为独立 Outcome 注入 workflow（finish 内并入合并，零 LLM、零任务 token）。
 // 未配置 ARGUS_SAST_* 或无工作副本池时静默跳过；扫描失败由 workflow 降级注明。
-func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext, wf *requirement.Workflow) {
+func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext,
+	diff *plugin.DiffContext, wf *requirement.Workflow) {
 	if !r.Cfg.SASTEnabled() || r.WC == nil {
 		return
 	}
@@ -957,7 +958,9 @@ func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext, wf *requi
 		SemgrepConfig: r.Cfg.SASTSemgrepConfig,
 		Timeout:       r.Cfg.SASTTimeout,
 	}
-	wf.SASTOutcomes = sastscan.Run(ctx, cfg, dir, base, r.Log)
+	// semgrep 聚焦扫描（v3.21.0）：只扫 diffprep 纳入审查的变更文件——与实际
+	// 审查范围一致，避免全仓扫描的时长与信噪比劣化。
+	wf.SASTOutcomes = sastscan.Run(ctx, cfg, dir, base, includedPaths(diff), r.Log)
 	if len(wf.SASTOutcomes) > 0 {
 		r.Log.Info("argus.sast.done", "tools", len(wf.SASTOutcomes))
 	}

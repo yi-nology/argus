@@ -50,7 +50,7 @@ done
 exit 0
 `)
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nopLogger{})
+		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
 	if len(outcomes) != 1 {
 		t.Fatalf("应产出 1 个 outcome: %d", len(outcomes))
 	}
@@ -79,7 +79,8 @@ func TestSemgrepScan(t *testing.T) {
 	dir := t.TempDir()
 	bin := fakeBin(t, dir, "semgrep", `printf '%s' '{"results":[{"check_id":"go.lang.correct","path":"internal/x/a.go","start":{"line":7,"col":1},"extra":{"severity":"WARNING","message":"err not checked"}}]}'`)
 	outcomes := Run(context.Background(),
-		Config{SemgrepBin: bin, SemgrepConfig: "p/go", Timeout: 30 * time.Second}, dir, "", nopLogger{})
+		Config{SemgrepBin: bin, SemgrepConfig: "p/go", Timeout: 30 * time.Second},
+		dir, "", []string{"internal/x/a.go", "internal/x/b.go"}, nopLogger{})
 	if len(outcomes) != 1 || outcomes[0].Err != nil {
 		t.Fatalf("outcomes = %+v", outcomes)
 	}
@@ -92,12 +93,30 @@ func TestSemgrepScan(t *testing.T) {
 	}
 }
 
+// semgrep 聚焦路径整形（v3.21.0）：去重/去空/防路径穿越/超限回退全仓。
+func TestSemgrepPaths(t *testing.T) {
+	focused := semgrepPaths([]string{"a.go", " a.go ", "", "b.go", "../escape.go"})
+	if len(focused) != 2 || focused[0] != "a.go" || focused[1] != "b.go" {
+		t.Fatalf("整形错误: %v", focused)
+	}
+	if semgrepPaths(nil) != nil {
+		t.Fatal("空清单应回退全仓")
+	}
+	many := make([]string, semgrepMaxPaths+1)
+	for i := range many {
+		many[i] = "f.go"
+	}
+	if semgrepPaths(many) != nil {
+		t.Fatal("超限应回退全仓")
+	}
+}
+
 // semgrep bin 配了但 config 未配：不产 outcome（不算覆盖缺口），只告警。
 func TestSemgrepNoConfigSkipped(t *testing.T) {
 	dir := t.TempDir()
 	bin := fakeBin(t, dir, "semgrep", `exit 0`)
 	outcomes := Run(context.Background(),
-		Config{SemgrepBin: bin, Timeout: 30 * time.Second}, dir, "", nopLogger{})
+		Config{SemgrepBin: bin, Timeout: 30 * time.Second}, dir, "", nil, nopLogger{})
 	if len(outcomes) != 0 {
 		t.Fatalf("未配 config 不应产出 outcome: %+v", outcomes)
 	}
@@ -107,7 +126,7 @@ func TestToolFailureOutcome(t *testing.T) {
 	dir := t.TempDir()
 	bin := fakeBin(t, dir, "gitleaks", `echo "boom" >&2; exit 1`)
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nopLogger{})
+		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
 	if len(outcomes) != 1 || outcomes[0].Err == nil {
 		t.Fatalf("失败应产出带 Err 的 outcome: %+v", outcomes)
 	}
@@ -129,7 +148,7 @@ done
 exit 0
 `, "@JSON@", json))
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "", nopLogger{})
+		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "", nil, nopLogger{})
 	if len(outcomes) != 1 {
 		t.Fatalf("outcomes = %d", len(outcomes))
 	}
@@ -167,7 +186,7 @@ done
 exit 0
 `)
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "", nopLogger{})
+		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "", nil, nopLogger{})
 	if len(outcomes) != 1 || outcomes[0].Err != nil || len(outcomes[0].Result.Findings) != 0 {
 		t.Fatalf("干净报告应产出空 findings: %+v", outcomes)
 	}
