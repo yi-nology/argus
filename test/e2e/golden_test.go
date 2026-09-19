@@ -231,7 +231,7 @@ func TestGoldenReviewEval(t *testing.T) {
 				if realMode && len(c.Expect.RealVerdicts) > 0 {
 					want = strings.Join(c.Expect.RealVerdicts, "|")
 				}
-				t.Errorf("verdict=%s，want %s", task.Verdict, want)
+				t.Errorf("verdict=%s，want %s\n报告（截断）:\n%s", task.Verdict, want, truncReport(task.Report))
 			}
 			results = append(results, caseResult{
 				Name: c.Name, Scenario: c.Scenario,
@@ -310,6 +310,21 @@ func resultFindingsCount(resultJSON string) int {
 		return 0
 	}
 	return len(p.Findings)
+}
+
+// maxReportErrRunes 失败信息携带的报告截断上限（归因够用、不刷爆测试日志）。
+const maxReportErrRunes = 1500
+
+// truncReport 失败时附报告片段（AC 判定/意见列表是 verdict miss 的归因依据）。
+func truncReport(report string) string {
+	if report == "" {
+		return "（无报告）"
+	}
+	r := []rune(report)
+	if len(r) <= maxReportErrRunes {
+		return report
+	}
+	return string(r[:maxReportErrRunes]) + "…"
 }
 
 func orStubDefault(v, def string) string {

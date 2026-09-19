@@ -166,3 +166,29 @@ comment 档，「实现完整+意见非阻塞」正例，Sum 纯工具函数无�
   的边界标定互补不重叠（v3.16.0 管既有夹具期望集合标定，本批管 clean 误报面）。
 - **状态**：打桩回归 32/32 全绿；真实模式基线待 CI eval-real 首轮（预计 FP 基线
   与 clean approve 率将首次可得，登记占位勿凭印象填数）。
+
+### v3.17.0 · 北极星口径首轮 A/B（夹具 v3.5 · 真实模式，2026-09-19）
+
+夹具 28-32 首轮真实模式两组（单轮串行，mimo 同源 .env；快照 `eval/results/v35-{A,B}-*.json`）：
+
+- **A 基线（mimo-v2.5 全局）：22/26（85%）**，clean 2/3 approve、**FP=0**、boundary 1/2。
+- **B（mimo-v2.5-pro 全局）：19/26（73%）**，clean 0/3、FP=1（30 号 clean-tests 报 1 条意见）、boundary 1/2。
+  pro 无红利的结论在 v3.5 夹具上第三次复现（v2: 55% / v3: 与 A 持平偏弱 / v3.5: 73% vs 85%）；
+  且 clean FP 只出现在 B 组——pro 在「无问题 diff」上更容易制造意见，与 v2 拍板一致。
+
+逐条归因（A 组 4 条 miss）：
+
+- **03/13**（既有夹具）：comment→rc 过严方向复发，v3 基线同位置轮次方差，非新增回归。
+- **29-clean-docs**：非误报（findings=0）——R1 把「补充用法文档」拆出 2 条 AC
+  （示例/参数说明），R3 判其一 partial → R5.1。属 R1 改写颗粒度问题，归入 v4
+  「前提-内容对齐」同族（clean 文档类夹具需求句需收敛为单一可判定条目）。
+- **31-medium-only**：comment→rc 过严（本夹具钉住的目标方向），与 v2 三组共性一致，
+  维持 real_verdicts=[comment] 不放宽，继续作为 v4 标定锚点。
+
+**32-high-boundary 通过（A 组）**：「close 错误被吞」类需理解控制流的 high 被如实升级
+rc——边界标定正面样本；B 组该条 miss（comment）叠加 31 号反向 miss，pro 的
+comment/rc 边界双向都更不稳。
+
+**口径备注**：本轮树含 v3.15.0–v3.17.0 全部特性（codegraph 默认开注入 R3/R4，
+仓库配置/SAST 未配置不影响分母——夹具无 .reviewagents.yaml、无 SAST bin）。
+夹具集合 32 条、真实分母 26（6 条 skip_real）；打桩回归 32/32 同步全绿。
