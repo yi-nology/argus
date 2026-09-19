@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.23.0 (2026-09-19) — 夹具 v8：R3 噪声排除文件纪律 + 扩容 42-44
+
+- **R3 提示词新增纪律 3**（41 号夹具暴露的管线缺陷）：lockfile/二进制/生成物等
+  噪声排除文件不进 diff 文本是正常清洗行为——判定相关条目时须先 get_file 核实
+  实际状态，禁止仅因「diff 中不可见」判 missing/partial。与既有纪律 1
+  （diff 里找不到 ≠ 没实现）同族，把适用面显式扩展到被清洗文件。
+- **41 号双重验证 + 重定位**：v7 轮真实 miss 是 R5.1（对 go.sum/logo 判 2 项
+  未达标）——v8 提示词后复验该误判消除（findings=0）。残余落点 R5.3 来自 R1
+  空清单（v5 元声明契约对「依赖升级+logo」型 PR 的正确行为），据此把 41 重定位
+  为「元声明型 PR 不白给 approve」标定（改名 41-binary-lockfile-comment，
+  stub R3 同步 unverifiable，real [comment, approve]；退出 clean 家族进
+  meta-declaration 场景）。
+- **扩容 42-44（集合 41→44 条）**：锁定插件红线（42，仓库 disable security 仍
+  必须参与）、回滚 diff clean（43）、多文件 AC 只完成其一 rc（44，real 精确）。
+  打桩 44/44 全绿。
+- **v8 全量真实 A 组基线**：**34/37（91.9%）**（主段 34 例 + 增量 3/3；90m
+  timeout 硬杀在 34 例，Makefile 已提至 150m）。clean 2/4、FP=1（29 号现形，
+  口径正常）；v7 的 41 号 R5.1 误判消除（纪律 3 生效验证）；42 锁定红线 approve
+  精确、43 落放宽集合、44 多文件 AC 精确 rc。3 miss 归因：13 首次过宽方向方差、
+  21 过严方差、29 FP 现形。轨迹详见 `eval/EXPERIMENTS.md`（v8 段）。
+
 ## v3.22.0 (2026-09-19) — 条件项降档落地：testgen 沙箱验证 / codegraph v1.5 / 副驾 CLI
 
 三项「留档不排期」条件项在各自约束内的诚实落地：

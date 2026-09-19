@@ -304,3 +304,33 @@ v1 12/26 → v2 14/20（70%）→ v3 18/21（86%）→ v3.5 22/26（85%）→ v4
 （40 放宽后单例）。三特性同批落地：SAST semgrep 变更文件聚焦、Gitee 平台接线
 （生产实例实测待试点环境）、遗留项复核（testgen 沙箱明确不做：执行待审代码
 违反沙箱纪律；codegraph v2 留档不排期）。
+
+### v8 · R3 噪声排除文件纪律 + 扩容 42-44（v3.23.0，2026-09-19）
+
+管线修复轮：R3 提示词新增纪律 3——噪声排除文件（lockfile/二进制/生成物）不进
+diff 文本是正常清洗行为，判定相关条目须先 get_file 核实，禁止仅因不可见判
+missing/partial。按拍板纪律（prompt 默认变更须附全量 golden 数字）跑了全量
+真实 A 组。
+
+**A 组（mimo-v2.5 全局）：34/37（91.9%）**——主段 34 例（90m timeout 硬杀于
+34/37，Makefile 已提至 150m）+ 增量 3/3。快照 `v8-A-main-34.json`（主段，含
+逐例 findings 可手工复核）+ `v8-additions-42-44.json`。clean 2/4 approve、
+FP=1（29 号 clean 上 1 条意见现形）。
+
+- **v7 的 41 号 miss 修复验证**：v7 真实落 R5.1（对 go.sum/logo 判 2 项未达标）
+  → v8 单例复验 R5.1 消除（findings=0）——纪律 3 生效。残余落点 R5.3 来自 R1
+  空清单（v5 元声明契约对元声明型 PR 的正确行为），41 据此重定位为
+  「元声明型 PR 不白给 approve」（改名 -comment，退出 clean 家族，real
+  [comment, approve]），本轮计入 pass。
+- **扩容 42-44 全过**：42 锁定插件红线（disable security 被拒、security 仍审）
+  approve 精确；43 回滚 diff 落 comment（在 [approve, comment] 放宽集合）；
+  44 多文件 AC 精确 rc（R1 正确拆双条、R3 判接线 missing → R5.1）。
+- **3 条 miss 归因**：13（comment→approve，**首次过宽方向方差**——真实 reviewer
+  本轮未报越界 high；该夹具依赖意见产出，连续观察）、21（rc→comment 过严，
+  v3 基线同位置）、29（clean 上 1 条意见 FP 现形 + comment，v4 同根因轮次
+  方向回归——FP 口径正常工作）。
+- **口径备注**：真实分母 33→37（41 转正 + 42/43/44）；41 退出 clean 家族后
+  clean 分母 4。增量快照 harness 缺陷已修（超时硬杀时 metrics 不再空壳，
+  本轮主段快照即为旧缺陷实例，指标已手工复核）。轨迹：v2 70% → v3 86% →
+  v3.5 85% → v4 88.5% → v5 100% → v6/v7 增量全过 → v8 91.9%（集合扩至 44 条，
+  miss 构成从「夹具错位」全面转向「意见产出方差」，评测体系进入稳态运营期）。
