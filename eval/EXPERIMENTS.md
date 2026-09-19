@@ -373,3 +373,49 @@ FP=1（29 号 clean 上 1 条意见现形）。
 - 轨迹补记：v6/v7 增量全过 → v8 91.9% → **v9 增量 3/3**。距 ≥100 条微调门槛
   还差 52 条（集合 48）；管线侧本轮修复 1 项（scope 闸门 RepoExcluded），无在办
   缺陷。
+
+### v10 · 扩容第四批 49/51/52 + max_comments 测试层改道（v3.26.0，2026-09-20）
+
+集合 48→51 条、真实分母 37→40。三条件质与登记：
+
+- **49-include-whitelist-comment（repo-config,scope-gate）**：白名单模式
+  （include_paths 非空 = 未命中者排除）首次入册——47 号的黑名单对侧分支；
+  白名单外文件上的 canned high 经 scope 闸门降级（机制同 47，分支覆盖补全）。
+- **51-reviewn-partial-degraded（best-of-n）**：部分采样失败降级首次入册——
+  k=2/3 →「[审查降级] best-of-N：2/3 采样成功」注记 + 复现 2/3 确定性升级。
+  **归因在案（48 号教训的二次应用）**：garbage 槽位被 agentrun 回喂重试"救活"
+  的前提是该槽位后面还有 valid 槽位可消费——garbage 必须放序列末位（重试钳制
+  回同一 garbage），恰好 k=2 才确定成立。
+- **52-dependency-bump-approve（change-shape,dependency）**：依赖升级 PR（真实
+  世界高频形态）首次入册——go.mod 可见可判（AC 证据一行即得），go.sum 噪声
+  排除不进文本；change-shape 家族诚实放宽 [approve, comment]（40 号先例）。
+
+**改道与放弃（登记）**：
+
+- **50 号（max_comments）golden 夹具退场 → poster 层单测**：钳制发生在 poster
+  评论体（`clampInlineByMaxComments`，已抽纯函数），不在 task.Report 断言面——
+  golden harness 够不到该层。补 `TestClampInlineByMaxComments`（top N 保留/超限
+  注明/0=不限/未超限不注明四分支）。此前该语义零覆盖。
+- **R2 失效降级（候选放弃）**：R2 输出为自由文本，persona garbage 仍是"成功
+  响应"，无失败路径可钉。
+- **R3 失效降级（候选暂缓）**：stages.go 有优雅降级（全部 AC → unverifiable →
+  R5.3，Summary「R3 判定失败…已全部降级为需人工确认」）但 mockLLM 的命名
+  marker case 优先于 personaReply——R3 无法用 persona 打成失败，需 harness 扩展
+  （garbleR3 开关）方可入册；且该路径**单测覆盖亦为空**，列为后续 harness/单测
+  小批的方向。
+
+**v10 真实模式增量（mimo-v2.5 全局，`-run` 过滤，2026-09-20）**：首轮 2/3
+（快照遗失于 49 单例复跑覆盖，数字见下），49 修正后单例复验通过
+（快照 `eval/results/v10-49-fixed-single.json`）：
+
+- **51 comment 精确**——部分采样降级全链路真实复现（k=2/3 注记 + 复现 2/3
+  升级）；**52 comment**（在 [approve, comment] 集合）——真实 reviewer 对依赖型
+  diff 报非阻塞意见落 R5.4，与 40 号同形态。
+- **49 首轮 MISS（R5.1）= 夹具自身 body-内容矛盾，非模型失守**：body 写「在
+  main 包实现 Add」而代码在 pkg 包——真实 R1 忠实改写出「在 main 包中实现
+  Add」→ 真实 R3 诚实判 missing。stub 的 canned R1/R3 掩盖了该矛盾（打桩全绿），
+  真实模式抓出——**双模式 harness 价值的现场案例**。修正 body 为「在 pkg 包
+  提供」（与 stub AC 对齐）后单例复验通过（真实 reviewer 报整数溢出 medium →
+  comment 在集合内）。
+- 轨迹补记：v9 增量 3/3 → **v10 首轮 2/3 + 修正单例过**。距 ≥100 条微调门槛
+  还差 49 条（集合 51）。

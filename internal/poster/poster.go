@@ -96,15 +96,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
 		return reportutil.Rank(inlineFindings[i].Severity) > reportutil.Rank(inlineFindings[j].Severity)
 	})
-	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限）：按严重度保留
-	// top N，其余仅在总结评论列出（Findings 段完整，透明可查）。
-	if rep.MaxInlineComments > 0 && len(inlineFindings) > rep.MaxInlineComments {
-		dropped := len(inlineFindings) - rep.MaxInlineComments
-		inlineFindings = inlineFindings[:rep.MaxInlineComments]
-		rep.Degraded = append(rep.Degraded, fmt.Sprintf(
-			"仓库配置 review.max_comments=%d：%d 条行内意见超出上限，仅在总结评论列出",
-			rep.MaxInlineComments, dropped))
-	}
+	inlineFindings = clampInlineByMaxComments(inlineFindings, &rep)
 	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
 	for _, f := range inlineFindings {
 		comments = append(comments, provider.ReviewComment{
@@ -311,3 +303,17 @@ const suggestionMaxRunes = 1200
 // summaryScanTimeout 总结评论定位（扫描既有评论）步的时间上限：
 // 该步若卡死会阻塞整个 worker，宁可降级新建评论也不能挂起队列。
 const summaryScanTimeout = 60 * time.Second
+
+// clampInlineByMaxComments 仓库级行内评论上限（v3.15.0 review.max_comments；
+// 0 = 不限）：调用方已按严重度降序排好，这里保留 top N，其余仅在总结评论列出
+// （Findings 段完整，透明可查），超限事实以降级注明写入报告。
+func clampInlineByMaxComments(inlineFindings []plugin.Finding, rep *reportview.Report) []plugin.Finding {
+	if rep.MaxInlineComments <= 0 || len(inlineFindings) <= rep.MaxInlineComments {
+		return inlineFindings
+	}
+	dropped := len(inlineFindings) - rep.MaxInlineComments
+	rep.Degraded = append(rep.Degraded, fmt.Sprintf(
+		"仓库配置 review.max_comments=%d：%d 条行内意见超出上限，仅在总结评论列出",
+		rep.MaxInlineComments, dropped))
+	return inlineFindings[:rep.MaxInlineComments]
+}

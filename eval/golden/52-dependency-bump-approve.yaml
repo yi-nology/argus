@@ -1,0 +1,56 @@
+# 场景（v10 扩容）：依赖升级 PR——真实世界高频形态首次入册。go.mod 变更可见
+# 可判（R3 据此判 implemented），go.sum 为噪声排除文件不进文本（与 41/糖衣
+# 纪律 3 的区别：本条 AC 是「升级版本」，go.mod 一行即证据，无需读排除文件）。
+name: 52-dependency-bump-approve
+scenario: [change-shape, dependency]
+kind: 0
+pr:
+  title: 升级 foo/bar 依赖
+  body: |
+    将 github.com/foo/bar 从 v1.2.0 升级到 v1.3.0，go.mod 与 go.sum 同步更新。见 issue #52
+changed_files:
+  - path: go.mod
+    diff: |
+      diff --git a/go.mod b/go.mod
+      --- a/go.mod
+      +++ b/go.mod
+      @@ -14,4 +14,4 @@ require (
+      -	github.com/foo/bar v1.2.0
+      +	github.com/foo/bar v1.3.0
+       git.example.com/enjoydream/ekit v0.27.2
+    additions: 1
+    deletions: 1
+  - path: go.sum
+    diff: |
+      diff --git a/go.sum b/go.sum
+      --- a/go.sum
+      +++ b/go.sum
+      @@ -2,3 +2,4 @@
+       github.com/foo/bar v1.2.0 h1:aaa=
+      +github.com/foo/bar v1.3.0 h1:bbb=
+       github.com/foo/baz v0.1.0 h1:ccc=
+    additions: 1
+repo_files:
+  go.mod: |
+    module acme/app
+
+    go 1.22
+
+    require github.com/foo/bar v1.3.0
+  go.sum: |
+    github.com/foo/bar v1.2.0 h1:aaa=
+    github.com/foo/bar v1.3.0 h1:bbb=
+    github.com/foo/baz v0.1.0 h1:ccc=
+stub:
+  r1: |
+    {"source":"issue #52","acceptance_criteria":[{"id":"AC-1","text":"github.com/foo/bar 升级到 v1.3.0"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"go.mod:6"}],"scope_creep":[],"summary":"依赖版本已升级"}
+  reviewer: |
+    {"findings":[],"notes":""}
+expect:
+  verdict: approve
+  # change-shape 家族诚实放宽（40 号先例：reviewer 对依赖型 diff 的意见产出
+  # 不可控——无意见 → approve、非阻塞意见 → comment）；rc 属过严 miss 信号
+  real_verdicts: [approve, comment]
+  must_find: ["R5.5"]

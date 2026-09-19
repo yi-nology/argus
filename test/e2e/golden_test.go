@@ -97,7 +97,7 @@ type goldenExpect struct {
 
 type goldenCase struct {
 	Name          string              `yaml:"name"`
-	Scenario      []string            `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render|repo-config|best-of-n|meta-declaration|change-shape|verdict-priority|edge|i18n
+	Scenario      []string            `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render|repo-config|best-of-n|meta-declaration|change-shape|verdict-priority|edge|i18n|dependency
 	Kind          int                 `yaml:"kind"`     // 0=requirement_compliance 1=code_review
 	PR            goldenPR            `yaml:"pr"`
 	ChangedFiles  []goldenFile        `yaml:"changed_files"`

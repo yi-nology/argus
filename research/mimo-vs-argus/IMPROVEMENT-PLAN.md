@@ -18,6 +18,7 @@
 | 收尾·夹具 v3 标定 | ✅ v3.16.0 | comment/rc 边界按「从严合法性」建模——前提-内容对齐 + 注入夹具 approve 除名（红线编码）+ 27 号 review-only comment 档；v3 A 基线 18/21（86%），v2 六条 miss 全回收 |
 | 演进·夹具 v4-v8 | ✅ v3.18.0-v3.23.0 | 无安全面代码替换/元声明契约/扩容 33-44 + R3 噪声排除纪律；v8 全量 34/37（91.9%），miss 构成转向「意见产出方差」=稳态运营（EXPERIMENTS 逐轮在案） |
 | 演进·夹具 v9 扩容 | ✅ v3.24.0 | 45-48 入册（reviewN/min_severity/exclude_paths/completeness_retry 首次覆盖，集合 48 条真实分母 40）+ **scope 闸门 RepoExcluded 缺口修复**（排除文件上的 high 不再一票否决）；增量 3/3 命中 |
+| 演进·夹具 v10 扩容 | ✅ v3.26.0 | 49/51/52 入册（include 白名单/部分采样降级/依赖升级 PR，集合 51 条真实分母 40）+ max_comments 改道 poster 单测（钳制语义此前零覆盖）；49 号 body-内容矛盾由真实模式抓出并修正 |
 
 **G1b 基线演进**：首轮 mimo-v2.5-pro 12/26（46%，夹具 v1）——miss 归因为夹具骨架化代码
 而非模型失守（injection 场景全部安全）[eval/EXPERIMENTS.md]；v3.13.0 夹具 v2 把

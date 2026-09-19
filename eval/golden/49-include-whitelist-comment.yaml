@@ -1,0 +1,60 @@
+# 场景（v10 扩容）：仓库主权配置 review.include_paths 白名单模式（v3.15.0 P0-2）
+# 首次入册——47 号钉的是 exclude 黑名单侧，本条钉白名单侧：未命中白名单的文件
+# 一律排除出审查视野，其上的 high 经 scope 闸门降级注明（与 47 同机制异分支）。
+name: 49-include-whitelist-comment
+scenario: [repo-config, scope-gate]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 pkg 包提供 Add(a, b int) int，返回两数之和（连同辅助入口文件一并提交）。见 issue #49
+changed_files:
+  - path: pkg/add.go
+    diff: |
+      diff --git a/pkg/add.go b/pkg/add.go
+      --- /dev/null
+      +++ b/pkg/add.go
+      @@ -0,0 +1,5 @@
+      +package pkg
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 5
+  - path: cmd/cli.go
+    diff: |
+      diff --git a/cmd/cli.go b/cmd/cli.go
+      --- /dev/null
+      +++ b/cmd/cli.go
+      @@ -0,0 +1,5 @@
+      +package main
+      +
+      +// 顺带改的辅助入口
+      +var apiToken = "sk-hardcoded-secret-token"
+      +
+    additions: 5
+repo_files:
+  .reviewagents.yaml: |
+    review:
+      include_paths: ["pkg/**"]
+  pkg/add.go: |
+    package pkg
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+stub:
+  r1: |
+    {"source":"issue #49","acceptance_criteria":[{"id":"AC-1","text":"在 pkg 包提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"pkg/add.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"cmd/cli.go","line":4,"severity":"high","comment":"白名单外文件中疑似硬编码令牌"}],"notes":""}
+expect:
+  verdict: comment
+  # 白名单外的 cmd/cli.go 不进 diff → scope 闸门判越界 → high 降 COMMENT 级；
+  # must_not_find 钉住「白名单文件意见不驱动 R5.2」。真实模式 reviewer 只看得到
+  # pkg/add.go：无意见 → approve、非阻塞意见 → comment（同 42/47 家族）
+  real_verdicts: [approve, comment]
+  must_find: ["未计入高危裁决"]
+  must_not_find: ["R5.2"]

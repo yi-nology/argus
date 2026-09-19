@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.26.0 (2026-09-20) — 夹具 v10：扩容 49/51/52 + max_comments 测试层改道
+
+- **扩容（集合 48→51 条，真实分母 37→40）**，三个语义缺口入册：
+  - 49 include_paths 白名单（repo-config 黑名单对侧分支，机制同 47）；
+  - 51 best-of-N 部分采样失败降级（k=2/3 注记 + 复现 2/3 确定性升级；归因在案：
+    garbage 须放 persona 序列末位，否则被 agentrun 回喂重试"救活"）；
+  - 52 依赖升级 PR（真实世界高频形态；go.mod 可见可判、go.sum 噪声排除；
+    change-shape 家族诚实放宽）。
+- **max_comments 测试层改道**：钳制发生在 poster 评论体而非 task.Report——golden
+  harness 不可达，50 号夹具退场，钳制逻辑抽纯函数 `clampInlineByMaxComments`
+  并补 `TestClampInlineByMaxComments` 四分支单测（此前该语义零覆盖）。
+- **49 号首轮 MISS 归因（双模式 harness 价值案例）**：夹具 body 写「main 包」
+  而代码在 pkg 包——真实 R1 忠实改写 → 真实 R3 诚实判 missing → R5.1；stub 的
+  canned R1/R3 掩盖矛盾（打桩全绿）。修正 body 对齐后单例复验通过。
+- **候选登记**：R2 失效无失败路径可钉（自由文本输出）；R3 失效降级路径存在
+  （全部 AC → unverifiable → R5.3）但 harness 不可达（命名 marker 优先于
+  persona）且单测覆盖为空——列为后续 harness/单测小批方向。
+- 打桩 51/51（clean 5/5、FP=0、boundary 2/2）；真实模式增量（49/51/52，
+  mimo-v2.5 全局）登记见 `eval/EXPERIMENTS.md` 夹具 v10 节。
+
 ## v3.25.1 (2026-09-20) — 基准立尺 + diffprep 热路径削峰 + 门禁补漏（零行为变更）
 
 - **首批热路径基准入库**（全仓此前零基准）：diffprep Prepare（大 diff/截断两形态）、

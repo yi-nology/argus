@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"argus/internal/plugin"
+	"argus/internal/reportview"
 )
 
 // 行内评论正文：严重级大写 + 不可信评语中和 + by 锚点。
@@ -72,5 +73,33 @@ func TestReportHeaderStrictMatch(t *testing.T) {
 		if reportHeaderRe.MatchString(h) {
 			t.Fatalf("非法形态不应命中（防劫持）: %q", h)
 		}
+	}
+}
+
+// v3.25.1：max_comments 钳制语义单测（该语义发生在 poster 评论体，不在
+// task.Report 断言面——golden 夹具不可达，见 eval/EXPERIMENTS.md 夹具 v10 节）。
+func TestClampInlineByMaxComments(t *testing.T) {
+	mk := func(sev, comment string) plugin.Finding {
+		return plugin.Finding{File: "a.go", Line: 3, Severity: sev, Comment: comment, By: "correctness"}
+	}
+	rep := reportview.Report{MaxInlineComments: 1}
+	in := []plugin.Finding{mk("high", "高危"), mk("medium", "中危"), mk("low", "低危")}
+	out := clampInlineByMaxComments(in, &rep)
+	if len(out) != 1 || out[0].Comment != "高危" {
+		t.Fatalf("应按已排序序保留 top1（高危）: %+v", out)
+	}
+	if len(rep.Degraded) != 1 || !strings.Contains(rep.Degraded[0], "max_comments=1") ||
+		!strings.Contains(rep.Degraded[0], "2 条行内意见超出上限") {
+		t.Fatalf("应降级注明超限事实: %v", rep.Degraded)
+	}
+
+	// 0 = 不限；未超限不注明
+	rep0 := reportview.Report{}
+	if got := clampInlineByMaxComments(in, &rep0); len(got) != 3 || len(rep0.Degraded) != 0 {
+		t.Fatalf("max_comments=0 应不限: %+v", got)
+	}
+	rep2 := reportview.Report{MaxInlineComments: 3}
+	if got := clampInlineByMaxComments(in, &rep2); len(got) != 3 || len(rep2.Degraded) != 0 {
+		t.Fatalf("未超限不应钳制: %+v", got)
 	}
 }
