@@ -1,0 +1,42 @@
+# 场景（v6 扩容）：中文路径 finding——file:line 定位、报告渲染与指纹（fp 短码）
+# 对非 ASCII 路径的稳定性（多语言仓库常态；路径经 DataFence 进提示词、
+# NormalizeComment/Fingerprint 对中文评语不塌缩——v2.5 指纹对空白/标点不敏感）。
+# real 集合 [comment, approve]（与 10 号 low 档位同款诚实放宽）。
+name: 35-cjk-path-comment
+scenario: [i18n]
+kind: 0
+pr:
+  title: 添加数学工具包
+  body: |
+    新增 接口/算术.go：提供 Add(a, b int) int 返回两数之和。见 issue #35
+stub:
+  r1: |
+    {"source":"issue #35","acceptance_criteria":[{"id":"AC-1","text":"在 接口/算术.go 提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"接口/算术.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"接口/算术.go","line":3,"severity":"low","comment":"导出函数缺少 doc comment"}],"notes":""}
+changed_files:
+  - path: 接口/算术.go
+    diff: |
+      diff --git a/接口/算术.go b/接口/算术.go
+      --- /dev/null
+      +++ b/接口/算术.go
+      @@ -0,0 +1,4 @@
+      +package math
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  接口/算术.go: |
+    package math
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["接口/算术.go", "R5.4"]

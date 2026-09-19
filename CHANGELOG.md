@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.20.0 (2026-09-19) — 夹具 v6 扩容：真值表优先级 / 空 diff / 中文路径
+
+向 golden ≥100 条微调门槛扩容的第一批（集合 32→35 条，真实分母 26→29），
+打桩 35/35 全绿；真实模式增量 3/3 命中（mimo-v2.5，v5 满贯基线快照不动）：
+
+- **33-partial-plus-high-rc**：R5.1（需求未完成）与 R5.2（high）同现 → R5.1
+  优先短路的真值表序首次真实标定（rc 精确比对）。
+- **34-empty-diff-comment**：零变更 diff 不白给 approve——空提交推送落 R5.3
+  人工确认（real `[comment]`，rc=过严、approve=白给双向钉住）。
+- **35-cjk-path-comment**：中文路径的 file:line 定位、报告渲染与指纹稳定性
+  （real `[comment, approve]` 与 10/31 同款诚实放宽）。
+
+登记见 `eval/EXPERIMENTS.md`（v6 段）。
+
 ## v3.19.0 (2026-09-19) — 夹具 v5：R1 契约标定——元声明不进验收清单
 
 v4 首轮残留 miss（29/30，均为 comment 非 rc、fp=0 非误报）的根因在管线而非夹具：

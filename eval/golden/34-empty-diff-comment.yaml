@@ -1,0 +1,23 @@
+# 场景（v6 扩容）：零变更 diff——changed_files 为空（如仅元数据改动/空提交推送）
+# 不允许白给 APPROVE：诚实 R3 对无 diff 可核的 AC 判 unverifiable → R5.3 人工
+# 确认。real 集合 [comment]：rc（过严方向）与 approve（零审查白给，危险方向）
+# 均记 miss。
+name: 34-empty-diff-comment
+scenario: [edge]
+kind: 0
+pr:
+  title: 空提交（CI 配置重跑触发）
+  body: |
+    重新触发 CI 的空提交，无实质代码变更。见 issue #34
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"变更不引入功能回归"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"diff 为空，无可核实内容"}],"scope_creep":[],"summary":"空变更"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files: []
+repo_files: {}
+expect:
+  verdict: comment
+  must_find: ["R5.3"]

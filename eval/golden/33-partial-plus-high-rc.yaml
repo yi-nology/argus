@@ -1,0 +1,41 @@
+# 场景（v6 扩容）：R5.1 优先级短路——partial（需求未完成）与 high 意见同现 →
+# R5.1 一票否决先于 R5.2 命中（真值表按序求值，首条命中即短路）。
+# rc 期望精确比对（漏升级/错位 rule 都是 miss）。
+name: 33-partial-plus-high-rc
+scenario: [verdict-priority]
+kind: 0
+pr:
+  title: 实现 Add 与乘法功能
+  body: |
+    实现 Add(a, b int) int 与 Mul(a, b int) int 两个函数。见 issue #33
+stub:
+  r1: |
+    {"source":"issue #33","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int"},{"id":"AC-2","text":"提供 Mul(a, b int) int"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"math.go:3"},{"id":"AC-2","status":"missing","detail":"diff 中未出现 Mul 实现"}],"scope_creep":[],"summary":"Mul 未实现"}
+  reviewer: |
+    {"findings":[{"file":"math.go","line":4,"severity":"high","comment":"Add 对极端输入未做溢出防护，静默回绕"}],"notes":""}
+changed_files:
+  - path: math.go
+    diff: |
+      diff --git a/math.go b/math.go
+      --- a/math.go
+      +++ b/math.go
+      @@ -0,0 +1,4 @@
+      +package math
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  math.go: |
+    package math
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+expect:
+  verdict: request_changes
+  must_find: ["R5.1"]
+  must_not_find: ["R5.2"]
