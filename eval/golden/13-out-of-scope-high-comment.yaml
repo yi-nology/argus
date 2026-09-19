@@ -1,11 +1,13 @@
 # 场景：scope 闸门（v3.8.0）——专家对未变更文件报 high → 不触发 R5.2，降计 COMMENT
+# v4 标定：变更侧 toy login 换 Add 无安全面实现——真实模式下诚实 reviewer 不再对
+# 变更内代码报 HIGH，R5.2 不会先短路；scope 闸门语义由打桩 reviewer 钉死。
 name: 13-out-of-scope-high-comment
 scenario: [scope-gate, code-review]
 kind: 0
 pr:
-  title: 添加登录功能
+  title: 添加 Add 函数
   body: |
-    实现账号密码登录，见 issue #12
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #12
 changed_files:
   - path: main.go
     diff: |
@@ -15,20 +17,20 @@ changed_files:
       @@ -1,3 +1,5 @@
        package main
       +
-      +func login() {}
+      +func Add(a, b int) int { return a + b }
     additions: 2
 repo_files:
   main.go: |
     package main
 
-    func login() {}
+    func Add(a, b int) int { return a + b }
   legacy.go: |
     package main
 
     func legacy() {}
 stub:
   r1: |
-    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
   r3: |
     {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
   reviewer: |

@@ -1,15 +1,18 @@
 # 场景（v3，P1-6 北极星）：clean 文档变更 → 无意见 → R5.5 APPROVE
 # 同 27：clean 夹具不配 real_verdicts，approve 精确比对；findings 即 FP。
+# v4 标定：需求句「用法示例与参数说明」收敛为「用法示例」单一可判定条目——
+# v3.5 首轮 R1 把两件事拆成两条 AC、R3 判其一 partial → R5.1（R1 改写颗粒度
+# 根因，非误报）；文档内容同步换 mathutil 语境（与夹具家族一致）。
 name: 29-clean-docs-approve
 scenario: [clean]
 kind: 0
 pr:
-  title: 更新 README 登录用法说明
+  title: 更新 README Add 用法说明
   body: |
-    文档变更：README 补充 loginWithPassword 的用法示例与参数说明。无代码变更。
+    文档变更：README 补充 mathutil.Add 的用法示例。无代码变更。
 stub:
   r1: |
-    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"补充 loginWithPassword 的用法文档"}],"ambiguous":[]}
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"README 补充 mathutil.Add 的用法示例"}],"ambiguous":[]}
   r3: |
     {"checks":[{"id":"AC-1","status":"implemented","evidence":"README.md:3"}],"scope_creep":[],"summary":"纯文档补充"}
   reviewer: |
@@ -21,21 +24,21 @@ changed_files:
       --- a/README.md
       +++ b/README.md
       @@ -1,2 +1,6 @@
-       # auth
+       # mathutil
        
       +## 用法
       +
-      +调用 `auth.loginWithPassword(password)` 校验口令；空口令返回
-      +`empty password` 错误。
+      +调用 `mathutil.Add(a, b)` 求两数之和；例如 `Add(1, 2)`
+      +返回 `3`。
     additions: 4
 repo_files:
   README.md: |
-    # auth
+    # mathutil
 
     ## 用法
 
-    调用 `auth.loginWithPassword(password)` 校验口令；空口令返回
-    `empty password` 错误。
+    调用 `mathutil.Add(a, b)` 求两数之和；例如 `Add(1, 2)`
+    返回 `3`。
 expect:
   verdict: approve
   must_find: ["R5.5"]

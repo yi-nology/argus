@@ -1,49 +1,41 @@
 # 场景：low 意见 → R5.4 COMMENT
 # v3 标定：同 09——需求句精确收窄，实现完整 + 意见非阻塞的正例。
+# v4 标定：toy login 换 Add 无安全面实现（password 处理是诚实 reviewer 的 HIGH
+# 磁铁，low 档位标定被安全噪声淹没）；意见措辞随语境自洽。
 name: 10-low-finding-comment
 scenario: [code-review]
 kind: 0
 pr:
-  title: 添加登录功能
+  title: 添加 Add 函数
   body: |
-    实现账号密码登录：提供 login(password) 校验函数，空口令报错。见 issue #12
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #12
 changed_files:
   - path: main.go
     diff: |
       diff --git a/main.go b/main.go
       --- a/main.go
       +++ b/main.go
-      @@ -1,3 +1,10 @@
+      @@ -1,3 +1,6 @@
        package main
       +
-      +import "errors"
-      +
-      +func login(password string) error {
-      +	if password == "" {
-      +		return errors.New("empty password")
-      +	}
-      +	return nil
+      +func Add(a, b int) int {
+      +	return a + b
       +}
-    additions: 8
+    additions: 4
 repo_files:
   main.go: |
     package main
 
-    import "errors"
-
-    func login(password string) error {
-    	if password == "" {
-    		return errors.New("empty password")
-    	}
-    	return nil
+    func Add(a, b int) int {
+    	return a + b
     }
 stub:
   r1: |
-    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"支持账号密码登录"}],"ambiguous":[]}
+    {"source":"issue #12","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
   r3: |
-    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:5"}],"scope_creep":[],"summary":"完成"}
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
   reviewer: |
-    {"findings":[{"file":"main.go","line":5,"severity":"low","comment":"函数名建议动词开头"}],"notes":""}
+    {"findings":[{"file":"main.go","line":3,"severity":"low","comment":"导出函数缺少 doc comment"}],"notes":""}
 expect:
   verdict: comment
   real_verdicts: [comment, approve]
