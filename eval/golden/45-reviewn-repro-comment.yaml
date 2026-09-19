@@ -1,0 +1,57 @@
+# 场景（v9 扩容）：best-of-N 同质采样（v3.10.0 G3）首次入册——同一插件 reviewN:3
+# 三份采样报同一 low 意见 → 复现 3/3 标注 + 确定性升一级（low→medium）→ R5.4。
+# 复现计数/严重度升级是纯确定性代码（agentkit sampling 聚簇 + bestofn 聚合），
+# 不经任何模型——与「裁决不走 LLM」铁律一致。
+name: 45-reviewn-repro-comment
+scenario: [best-of-n, code-review]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #45
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,6 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+extra_agents:
+  - name: deep-review
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+    reviewN: 3
+persona_seq:
+  # 单条序列：三次并发采样均取该条（i 越界钳制到末位）→ 三份同指纹采样
+  "【Argus deep-review】":
+    - '{"findings":[{"file":"main.go","line":3,"severity":"low","comment":"Add 缺少 doc comment"}],"notes":""}'
+stub:
+  r1: |
+    {"source":"issue #45","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+expect:
+  verdict: comment
+  # 升级后的 medium 由复现驱动，属确定性结论 → comment 精确；真实模式 reviewer
+  # 意见产出不可控（可能全无意见）→ [approve, comment] 诚实放宽；clean Add 上
+  # HIGH → rc 属过严 miss 信号（同 10/31/42 家族）
+  real_verdicts: [approve, comment]
+  must_find: ["采样复现 3/3", "R5.4"]

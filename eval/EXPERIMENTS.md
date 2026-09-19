@@ -334,3 +334,42 @@ FP=1（29 号 clean 上 1 条意见现形）。
   本轮主段快照即为旧缺陷实例，指标已手工复核）。轨迹：v2 70% → v3 86% →
   v3.5 85% → v4 88.5% → v5 100% → v6/v7 增量全过 → v8 91.9%（集合扩至 44 条，
   miss 构成从「夹具错位」全面转向「意见产出方差」，评测体系进入稳态运营期）。
+
+### v9 · 扩容第三批 45-48 + scope 闸门 RepoExcluded 缺口修复（v3.24.0，2026-09-20）
+
+集合 44→48 条、真实分母 37→40。四个既有能力首次 golden 入册（「真实语义缺口
+优先、不造凑数夹具」节奏的延续）：
+
+- **45-reviewn-repro-comment（best-of-n）**：G3 reviewN 采样 v3.10.0 落地以来
+  首次入册——同插件 reviewN:3 三份采样报同一 low 意见 → 复现 3/3 标注 +
+  确定性升级（low→medium）→ R5.4 comment。复现计数/升级是纯确定性代码，本轮
+  打桩钉住编排语义；real 集合 [approve, comment]（clean Add 家族）。
+- **46-repo-min-severity-approve（repo-config）**：仓库主权阈值 review.min_severity
+  首次入册——low 意见被确定性剔除出报告与裁决（降级注明），零意见落 R5.5。
+  「high 任何阈值下保留」的红线由 42/08 家族另侧钉住。
+- **47-repo-exclude-paths-comment（repo-config,scope-gate）**：路径排除首次入册，
+  **暴露并修复管线缺口（v3.24.0 fix(workflow)）**——scope 闸门此前把
+  RepoExcluded 文件当在域内：排除文件上的 high 可一票否决 R5.2，「排除文件不进
+  审查视野」的仓库主权语义被裁决层架空。修复 = scope 构建跳过 RepoExcluded
+  文件，与 v3.8.0 越界降级同一哲学（未审查的文件不能驱动否决）。修复后打桩
+  comment 精确 + 「未计入高危裁决」注记可见。
+- **48-completeness-retry-approve（guard，skip_real 同 25）**：受限补审首次入册
+  ——插件级失败 → 补审成功**替换**原 outcome → 完备性裁判无失败注记。
+  **归因在案（勿重探）**：适配器内 ReAct 失败回喂重试一次（agentrun）会消化
+  单条 garbage 的 persona 序列——工作流级补审的触发前提是插件级失败，即连续
+  garbage 耗尽内部重试（夹具用 3 条序列：garbage×2 + 合法响应）。
+- **harness**：must_find/must_not_find 失败信息携带报告截断（与 verdict 失败
+  路径对齐；47/48 归因即受益于此，单例定位免重跑）。
+
+打桩 48/48 全绿（clean 5/5、FP=0、boundary 2/2）；build/vet/test 全绿。
+
+**v9 真实模式增量（mimo-v2.5 全局，`-run` 过滤 45-47，2026-09-20）**：**3/3 命中**，
+快照 `eval/results/v9-additions-45-47.json`（latest.json 已被增量覆盖，v8 全量
+基线快照 `v8-A-main-34.json` 不受影响）：
+
+- 45 comment 精确——真实 3 采样产出复现意见，「采样复现」标注与确定性升级照常
+  工作；46 approve 精确——仓库阈值语义在真实管线下同样成立；47 comment 精确——
+  scope 修复后真实管线落点与打桩一致（真实 reviewer 看不到排除文件）。
+- 轨迹补记：v6/v7 增量全过 → v8 91.9% → **v9 增量 3/3**。距 ≥100 条微调门槛
+  还差 52 条（集合 48）；管线侧本轮修复 1 项（scope 闸门 RepoExcluded），无在办
+  缺陷。

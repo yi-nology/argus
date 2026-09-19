@@ -51,8 +51,9 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
 - **best-of-N 同质采样（v3.10.0，高危路径 opt-in）**：插件声明 `reviewN: 3` 即对同一审查者并发
   采样 3 次，复现 ≥2 的发现确定性升级严重度并标注「采样复现 k/n」——指纹匹配投票，不经任何模型，
   与「裁决不走 LLM」铁律一致；单次出现的 low 意见标注「单次采样」。成本 ×N，`/usage` 可见。
-- **审查域评测集（v3.10.0）**：`eval/golden/` 27 条 golden PR 夹具（injection/partial/scope-creep/
-  unverifiable/merge/guard 等场景）双模式回归——`make eval` 打桩固化编排语义；`make eval-real`
+- **审查域评测集（v3.10.0）**：`eval/golden/` 48 条 golden PR 夹具（injection/partial/scope-creep/
+  unverifiable/merge/guard/repo-config/best-of-n 等场景）双模式回归——`make eval` 打桩固化编排语义；
+  `make eval-real`
   换真实模型测 verdict 命中率（模型 A/B 固定 harness，见 eval/EXPERIMENTS.md）。真实模式期望
   集合按「从严合法性」逐夹具建模（v3.16.0）：注入类夹具 approve 永不计通过，rc 期望精确比对。
 - **评测指标面（v3.14.0）**：eval-real 每轮落盘 `eval/results/latest.json`，服务侧周期加载后在

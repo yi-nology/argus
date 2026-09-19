@@ -97,7 +97,7 @@ type goldenExpect struct {
 
 type goldenCase struct {
 	Name          string              `yaml:"name"`
-	Scenario      []string            `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render
+	Scenario      []string            `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render|repo-config|best-of-n|meta-declaration|change-shape|verdict-priority|edge|i18n
 	Kind          int                 `yaml:"kind"`     // 0=requirement_compliance 1=code_review
 	PR            goldenPR            `yaml:"pr"`
 	ChangedFiles  []goldenFile        `yaml:"changed_files"`
@@ -223,7 +223,7 @@ func TestGoldenReviewEval(t *testing.T) {
 				for _, want := range c.Expect.MustFind {
 					if !strings.Contains(task.Report, want) {
 						pass = false
-						t.Errorf("报告缺 %q", want)
+						t.Errorf("报告缺 %q\n报告（截断）:\n%s", want, truncReport(task.Report))
 					}
 				}
 				for _, banned := range c.Expect.MustNotFind {

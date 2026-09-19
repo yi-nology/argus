@@ -1,0 +1,60 @@
+# 场景（v9 扩容）：G4 受限补审（v3.11.0 completeness_retry）首次入册——插件首次
+# 执行失败（garbage 响应）→ 剩余预算内重试一次 → 成功**替换**原 outcome（不叠加
+# findings/不产生双重指纹）→ 完备性裁判看到的是补审后的干净结果，无失败注记。
+name: 48-completeness-retry-approve
+# 真实模式跳过：doomed 首采 garbage 依赖打桩前提，真实模型不会复现（同 25）
+skip_real: true
+scenario: [guard]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #48
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,6 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+extra_agents:
+  - name: doomed
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+persona_seq:
+  # 适配器内 ReAct 失败回喂重试一次（agentrun）：插件级失败须耗尽其内部重试——
+  # 首次调用消耗前两条（均 garbage）→ 插件级失败 → 工作流受限补审第二次调用
+  # 消耗第三条（合法空 findings）→ 重试成功。单条 garbage 会被内部重试+钳制消化，
+  # 工作流级补审不触发（v9 归因在案）。
+  "【Argus doomed】":
+    - 'not-json-garbage'
+    - 'not-json-garbage'
+    - '{"findings":[],"notes":""}'
+completeness_retry: true
+stub:
+  r1: |
+    {"source":"issue #48","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+expect:
+  verdict: approve
+  must_find: ["受限补审：doomed 重试成功"]
+  must_not_find: ["完备性检查", "R5.C"]

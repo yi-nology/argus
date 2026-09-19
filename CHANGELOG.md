@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.24.0 (2026-09-20) — 夹具 v9：扩容 45-48 + scope 闸门 RepoExcluded 缺口修复
+
+- **fix(workflow)**：R5 scope 闸门此前把仓库级排除文件（`.reviewagents.yaml`
+  exclude/include_paths，`RepoExcluded=true`）当作在域内——其上的 high 意见可
+  一票否决 R5.2，与「排除文件不进审查视野」的仓库主权语义矛盾（排除形同虚设）。
+  修复 = scope 构建跳过 RepoExcluded 文件，与 v3.8.0「get_file 读到的未变更文件
+  越界降级」同一哲学：未审查的文件不能驱动否决。由 47 号夹具暴露并钉住。
+- **扩容 45-48（集合 44→48 条，真实分母 37→40）**，四个既有能力首次 golden 入册：
+  - 45 reviewN best-of-N（v3.10.0 G3）：同插件 3 采样复现 3/3 → low 确定性升
+    medium → R5.4 comment；复现计数/升级是纯确定性代码，集合语义 [approve, comment]。
+  - 46 review.min_severity（v3.15.0 P0-2）：仓库阈值剔除 low → approve + 降级注明。
+  - 47 review.exclude_paths（v3.15.0 P0-2）：生成物出审查视野，其上的 high 经
+    scope 闸门降级注明（依赖本版 scope 修复）。
+  - 48 completeness_retry（v3.11.0 G4）：插件级失败 → 受限补审成功替换 → 无完备性
+    注记。skip_real（garbage 前提，同 25）。**归因在案**：适配器内 ReAct 失败回喂
+    重试一次会消化单条 garbage 的 persona 序列——插件级失败须以连续 garbage 耗尽
+    其内部重试，工作流级补审方可触发。
+- **harness**：must_find/must_not_find 失败信息现携带报告截断（与 verdict 失败
+  路径对齐，单例归因免重跑）。
+- 打桩 48/48（clean 5/5、FP=0、boundary 2/2）；build/vet/test 全绿。真实模式
+  增量（45-47，mimo-v2.5 全局）登记见 `eval/EXPERIMENTS.md` 夹具 v9 节。
+
 ## v3.23.0 (2026-09-19) — 夹具 v8：R3 噪声排除文件纪律 + 扩容 42-44
 
 - **R3 提示词新增纪律 3**（41 号夹具暴露的管线缺陷）：lockfile/二进制/生成物等

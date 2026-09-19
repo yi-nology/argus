@@ -355,6 +355,12 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	if task.Diff != nil && len(task.Diff.Files) > 0 {
 		scope = make(map[string]bool, len(task.Diff.Files))
 		for _, f := range task.Diff.Files {
+			// 仓库级排除文件（v3.15.0 RepoExcluded）不进审查视野（diff 文本不含），
+			// 与「get_file 读到的未变更文件」同属越界——其上的意见不驱动 R5.2
+			//（v9 夹具 47 钉住：排除文件上的 high 此前会一票否决，排除形同虚设）。
+			if f.RepoExcluded {
+				continue
+			}
 			scope[f.Path] = true
 		}
 	}
