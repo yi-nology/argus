@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.24.1 (2026-09-20) — 卫生与性能批：格式清零 + 热点分配消除（零行为变更）
+
+- **gofmt 清零**：10 个自有文件（codegraph/testgen/sastscan_test/config/runner/
+  workflow 等，多为并行批次带入的 import 排序与字段对齐）恢复 gofmt-clean；
+  vendor/ 不在治理面。
+- **rune 计数零拷贝**：`len([]rune(s))` → `utf8.RuneCountInString(s)` 全量替换
+  （22 处，6 文件，语义等价含非法 UTF-8 口径）——diffprep 每 PR 对每文件
+  最多 3 次全文本快照分配消除，大 diff 场景省去 4× 文本体积的临时分配。
+- **GitHub App 换 token 共享 Client**：`(&http.Client{...}).Do(req)` 每次新建
+  → 包级共享（连接池/TLS 会话复用；token 每小时刷新一次的调用形态正合适）。
+- **codegraph GoCallers 提速**：查询名正则按名缓存（sync.Map，LLM 对同一符号
+  连问免重编译）+ 全文子串预筛（正则要求名字面出现，不含者整文件跳过，免去
+  大仓逐行正则回溯）。
+- 全门禁绿：build/vet/staticcheck/gofmt/test/黄金打桩 48/48（clean 5/5、FP=0、
+  boundary 2/2）/e2e 集成。无行为变更，无依赖增减。
+
 ## v3.24.0 (2026-09-20) — 夹具 v9：扩容 45-48 + scope 闸门 RepoExcluded 缺口修复
 
 - **fix(workflow)**：R5 scope 闸门此前把仓库级排除文件（`.reviewagents.yaml`
