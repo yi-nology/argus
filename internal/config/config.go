@@ -497,7 +497,7 @@ func Load() *Config {
 			LLMResilienceBaseDelay: envDuration("ARGUS_LLM_RESILIENCE_BASE_DELAY", 2*time.Second),
 		},
 	}
-	for _, p := range []string{"gitea", "github", "gitlab"} {
+	for _, p := range []string{"gitea", "github", "gitlab", "gitee"} {
 		prefix := "ARGUS_" + strings.ToUpper(p) + "_"
 		cfg.Platforms[p] = PlatformConfig{
 			BaseURL:    os.Getenv(prefix + "URL"),
@@ -659,7 +659,7 @@ func (c *Config) Validate() error {
 		}
 	}
 	if enabled == 0 {
-		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN 至少一项，或配置 GitHub App）")
+		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN / ARGUS_GITEE_TOKEN 至少一项，或配置 GitHub App）")
 	}
 	return nil
 }

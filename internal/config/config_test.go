@@ -155,3 +155,30 @@ func TestWarnOnlyPartialConfig(t *testing.T) {
 type stubWarner struct{ fn func(msg string, kv ...any) }
 
 func (s *stubWarner) Warn(msg string, kv ...any) { s.fn(msg, kv...) }
+
+// v3.21.0 Gitee 接线：ARGUS_GITEE_* 四件套进 Platforms；未配置时键存在但 token 空
+//（EnabledPlatforms 不计、Validate 不误报）。
+func TestLoadGiteePlatform(t *testing.T) {
+	t.Setenv("ARGUS_GITEE_URL", "https://gitee.com")
+	t.Setenv("ARGUS_GITEE_TOKEN", "tok")
+	cfg := Load()
+	pc, ok := cfg.Platforms["gitee"]
+	if !ok || pc.BaseURL != "https://gitee.com" || pc.Token != "tok" {
+		t.Fatalf("gitee 平台配置错误: %+v ok=%v", pc, ok)
+	}
+	found := false
+	for _, name := range cfg.EnabledPlatforms() {
+		if name == "gitee" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("EnabledPlatforms 应含 gitee")
+	}
+	// 未配置 token：键在但不启用
+	t.Setenv("ARGUS_GITEE_TOKEN", "")
+	cfg2 := Load()
+	if cfg2.Platforms["gitee"].Token != "" {
+		t.Fatal("未配置应空 token")
+	}
+}

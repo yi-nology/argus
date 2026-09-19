@@ -139,7 +139,7 @@ gitleaks 全程 `--redact` 且密钥原文绝不进意见。
 
 | 方式 | 场景 | 说明 |
 |---|---|---|
-| **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
+| **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
 | **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等五工具，可同步等待终态 |
@@ -268,7 +268,7 @@ export ARGUS_ADDR=:8899
 export ARGUS_APITOKEN=change-me               # 🔒 路由凭证，不配则拒绝服务
 export ARGUS_BOT_USERNAME=argus-bot           # webhook bot 自审保护
 export ARGUS_GITEA_URL=https://git.example.com
-export ARGUS_GITEA_TOKEN=<token>              # GitHub/GitLab 同构：ARGUS_GITHUB_* / ARGUS_GITLAB_*
+export ARGUS_GITEA_TOKEN=<token>              # GitHub/GitLab/Gitee 同构：ARGUS_GITHUB_* / ARGUS_GITLAB_* / ARGUS_GITEE_*
 export ARGUS_GITEA_SECRET=webhook-secret
 # LLM 走 OpenAI 兼容协议：OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL（复用 lacus/.env 即可）
 make run                                      # 编译并启动，自动加载 lacus/.env 与 ./.env
