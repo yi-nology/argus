@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.22.0 (2026-09-19) — 条件项降档落地：testgen 沙箱验证 / codegraph v1.5 / 副驾 CLI
+
+三项「留档不排期」条件项在各自约束内的诚实落地：
+
+- **testgen 沙箱验证（包装命令范式）**：argus 自身仍绝不执行待审代码——部署方经
+  `ARGUS_TESTGEN_VERIFY_CMD` 声明隔离执行包装命令（模板含 {dir}，如
+  `docker run --rm -v {dir}:/w -w /w golang:1.24 go test ./...`），隔离责任在包装
+  命令侧（§8 与 cli 插件同构）。配置后 testgen 产物写入工作副本（只写 _test.go、
+  不覆盖既有文件、失败即清理）→ 调用包装命令 → 回帖附「沙箱验证结果」段 +
+  `argus_testgen_verify_total` 指标；未配置保持「未经编译验证」声明。
+- **codegraph v1.5 多语言 + get_callers**：Python/JS/TS 词法函数表（正则锚定
+  def/function/const 箭头，零 cgo 零新依赖）进新工具 `get_poly_symbol`；Go 词法
+  调用形态（pkg.F( / F( ）进 `get_callers`（定义行不计、50 条封顶）。词法级边界
+  在工具描述中向 agent 声明（须回 get_file 核实）。`ARGUS_CODEGRAPH` 开关沿用。
+- **argus-copilot CLI 参考客户端**（cmd/argus-copilot）：MCP 客户端消费副驾四工具
+  （stages/findings/suggest/ask），只读——IDE GUI 另立项，本 CLI 即集成参考与联调
+  工具，批次 4 条件项降档完成。
+- 配套：`ARGUS_TESTGEN_VERIFY_TIMEOUT`（默认 5m）、obs 新增
+  `argus_testgen_verify_total{passed,failed}`。
+
 ## v3.21.0 (2026-09-19) — 收尾批：SAST 聚焦扫描 / Gitee 接线 / 夹具 v7 扩容
 
 v7 首轮真实增量 4/4 有效命中（36 approve 入集合 / 37、38 comment 精确 / 40 两轮

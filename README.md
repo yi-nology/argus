@@ -135,6 +135,27 @@ gitleaks 全程 `--redact` 且密钥原文绝不进意见。
 `get_references`（跨文件调用方/使用点）两个工具，并自动注入「本次变更触达的符号」入口
 清单（纯 go/parser 确定性索引，零 LLM；非 Go 变更自动跳过）。
 
+### 5.4 testgen 沙箱验证（v3.22.0，默认关）
+
+`ARGUS_TESTGEN_VERIFY_CMD='docker run --rm -v {dir}:/w -w /w golang:1.24 go test ./...'` 配置后，
+@argus testgen 的产物会写入工作副本（只写 _test.go、不覆盖既有文件、失败即清理）并经你声明的
+隔离命令执行，回帖附确定性「沙箱验证结果」。隔离责任（网络/文件系统/资源）在包装命令侧——
+argus 自身永不执行待审代码。`ARGUS_TESTGEN_VERIFY_TIMEOUT` 缺省 5m。
+
+### 5.5 多语言符号上下文（v3.22.0）
+
+codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`）与 Go 调用形态索引
+（`get_callers`）——词法级（非类型解析），工具描述已声明核实纪律。零新增依赖，`ARGUS_CODEGRAPH` 开关沿用。
+
+### 5.6 副驾参考客户端（v3.22.0）
+
+`cmd/argus-copilot`：MCP 只读客户端（stages/findings/suggest/ask 四命令），IDE 插件与脚本
+集成的参考实现：
+
+```bash
+go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -task <id>
+```
+
 ### 6. 四种接入方式，同一个引擎
 
 | 方式 | 场景 | 说明 |
