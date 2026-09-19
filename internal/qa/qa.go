@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -200,7 +201,7 @@ func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []c
 	if s == "" {
 		return old
 	}
-	if rc := len([]rune(s)); rc > summaryMaxRunes {
+	if rc := utf8.RuneCountInString(s); rc > summaryMaxRunes {
 		var trunc string
 		trunc, _ = textutil.TruncRunes(s, summaryMaxRunes)
 		s = trunc + "…"
@@ -234,7 +235,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			if md != nil {
 				text = md.RawDiff
 			}
-			if rc := len([]rune(text)); rc > 30_000 {
+			if rc := utf8.RuneCountInString(text); rc > 30_000 {
 				var trunc string
 				trunc, _ = textutil.TruncRunes(text, 30_000)
 				text = trunc + "…（截断）"
@@ -259,7 +260,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
 			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
 			content = numberLines(content)
-			if rc := len([]rune(content)); rc > 20_000 {
+			if rc := utf8.RuneCountInString(content); rc > 20_000 {
 				var trunc string
 				trunc, _ = textutil.TruncRunes(content, 20_000)
 				content = trunc + "\n…（截断）"
@@ -372,7 +373,7 @@ func (e *Engine) LatestReview(ctx context.Context, platform, owner, repo, number
 	}
 	if t.Report != "" {
 		r := t.Report
-		if rc := len([]rune(r)); rc > 6000 {
+		if rc := utf8.RuneCountInString(r); rc > 6000 {
 			var trunc string
 			trunc, _ = textutil.TruncRunes(r, 6000)
 			r = trunc + "\n…（报告截断，完整版见 MR 评论）"

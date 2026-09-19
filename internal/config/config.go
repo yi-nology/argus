@@ -229,9 +229,9 @@ type Config struct {
 	// SAST 确定性前置扫描（v3.15.0 P0-3）：gitleaks/semgrep 在工作副本上执行，
 	// findings 直接并入 Merger（零 LLM）。全部来自服务级 env，默认全空 = 关闭
 	// （零依赖部署形态不变）；仓库配置不可启用/替换（§8 供应链红线）。
-	SASTGitleaksBin   string // ARGUS_SAST_GITLEAKS_BIN
-	SASTSemgrepBin    string // ARGUS_SAST_SEMGREP_BIN
-	SASTSemgrepConfig string // ARGUS_SAST_SEMGREP_CONFIG（--config 值）
+	SASTGitleaksBin   string        // ARGUS_SAST_GITLEAKS_BIN
+	SASTSemgrepBin    string        // ARGUS_SAST_SEMGREP_BIN
+	SASTSemgrepConfig string        // ARGUS_SAST_SEMGREP_CONFIG（--config 值）
 	SASTTimeout       time.Duration // ARGUS_SAST_TIMEOUT（0 = 120s）
 
 	// Codegraph Go AST 符号索引（v3.15.0 P0-1）：工作副本上以 go/parser 建

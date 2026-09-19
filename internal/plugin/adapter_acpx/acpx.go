@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/severity"
@@ -23,6 +24,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
+
 	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
@@ -96,7 +98,7 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 
 	prompt := buildPrompt(task, workDir != "")
 	p.log.Info("argus.acpx.run.start", "plugin", p.manifest.Name, "agent", p.agent.Name(),
-		"prompt_chars", len([]rune(prompt)), "workdir", workDir != "")
+		"prompt_chars", utf8.RuneCountInString(prompt), "workdir", workDir != "")
 	start := time.Now()
 	res, err := p.agent.Run(ctx, acpx.RunRequest{
 		Prompt:  prompt,
@@ -125,7 +127,7 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		// 失败 + Outcome 降级注明。此前返回 nil findings 记 Success，坏 agent
 		// 永不熔断、每轮假装干净（深挖 P0）。
 		p.log.Warn("argus.acpx.parse_failed", "plugin", p.manifest.Name, "agent", p.agent.Name(),
-			"text_chars", len([]rune(res.Text)), "error", perr.Error())
+			"text_chars", utf8.RuneCountInString(res.Text), "error", perr.Error())
 		return plugin.Result{}, fmt.Errorf("acpx agent %s 输出不可解析: %w", p.agent.Name(), perr)
 	}
 	for i := range findings {
@@ -133,7 +135,7 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	}
 	p.log.Info("argus.acpx.run.end", "plugin", p.manifest.Name, "agent", p.agent.Name(),
 		"duration_ms", time.Since(start).Milliseconds(),
-		"findings", len(findings), "text_chars", len([]rune(res.Text)),
+		"findings", len(findings), "text_chars", utf8.RuneCountInString(res.Text),
 		"prompt_tokens", res.Usage.InputTokens, "completion_tokens", res.Usage.OutputTokens,
 		"cost_usd", res.Usage.CostUSD, "session_id", res.SessionID)
 	return plugin.Result{Findings: findings, Notes: fmt.Sprintf("%s(%s) 完成", p.manifest.Name, p.agent.Name())}, nil

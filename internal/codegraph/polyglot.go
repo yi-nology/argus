@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // skipExts 索引的语言扩展（v1.5 起 JS/TS/Python 与 Go 并列）。
@@ -25,12 +26,12 @@ var goCallRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z_][A-Za-z0-9_
 
 // PolySymbol 非 Go 语言的词法符号。
 type PolySymbol struct {
-	Name  string
-	Lang  string // py | js
-	File  string // 相对索引根
-	Line  int
-	Args  string // 参数表原文（≤120 runes）
-	Doc   string // 前置 docstring/注释首行（≤120 runes，可空）
+	Name string
+	Lang string // py | js
+	File string // 相对索引根
+	Line int
+	Args string // 参数表原文（≤120 runes）
+	Doc  string // 前置 docstring/注释首行（≤120 runes，可空）
 }
 
 // scanPolyFiles 扫描 dir 下 .py/.js/.ts/.tsx 文件建词法符号表（上限与 Go 共享
@@ -133,6 +134,10 @@ func (x *Index) PolyDefinitions(name string) []PolySymbol {
 	return x.poly[strings.ToLower(name)]
 }
 
+// goCallersRes 单次查询的调用形态正则缓存（pattern 依赖查询名，按名复用编译
+// 结果——LLM 对同一符号可能连问多次）。
+var goCallersRes sync.Map // name → *regexp.Regexp
+
 // GoCallers 惰性扫描 Go 标识符的调用形态出现位置（pkg.F( 与 F( 两种形态，
 // 定义行不计；与 References 的差异：只收调用形态行，并注明词法级）。
 func (x *Index) GoCallers(name string, limit int) []Ref {
@@ -148,14 +153,18 @@ func (x *Index) GoCallers(name string, limit int) []Ref {
 	}
 	var out []Ref
 	seen := map[string]bool{}
-	callRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*\(`)
+	callRe, _ := goCallersRes.LoadOrStore(name, regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\s*\(`))
+	re := callRe.(*regexp.Regexp)
 	for _, f := range x.files {
+		if !strings.Contains(string(f.src), name) {
+			continue // 子串预筛：正则要求名字面出现，不含者整文件跳过
+		}
 		for i, line := range strings.Split(string(f.src), "\n") {
 			key := f.rel + ":" + itoa(i+1)
 			if defLines[key] || seen[key] {
 				continue
 			}
-			if callRe.MatchString(line) && goCallRe.MatchString(line) {
+			if re.MatchString(line) && goCallRe.MatchString(line) {
 				seen[key] = true
 				out = append(out, Ref{File: f.rel, Line: i + 1})
 				if len(out) >= limit {

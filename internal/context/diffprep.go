@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yi-nology/git-platform-sdk/provider"
 
@@ -170,17 +171,17 @@ func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *pl
 			continue
 		}
 		text := f.Diff
-		if rc := len([]rune(text)); rc > singleMax {
+		if rc := utf8.RuneCountInString(text); rc > singleMax {
 			text, _ = textutil.TruncRunes(text, singleMax)
 			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
 		}
 		if totalLimit > 0 {
-			if rc := len([]rune(text)); rc > remaining {
+			if rc := utf8.RuneCountInString(text); rc > remaining {
 				text, _ = textutil.TruncRunes(text, remaining)
 				text += "\n…（总量截断）"
 				dc.Truncated = true
 			}
-			remaining -= len([]rune(text))
+			remaining -= utf8.RuneCountInString(text)
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -274,17 +275,17 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 			continue
 		}
 		text := f.Diff
-		if rc := len([]rune(text)); rc > singleMax {
+		if rc := utf8.RuneCountInString(text); rc > singleMax {
 			text, _ = textutil.TruncRunes(text, singleMax)
 			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
 		}
 		if totalLimit > 0 {
-			if rc := len([]rune(text)); rc > remaining {
+			if rc := utf8.RuneCountInString(text); rc > remaining {
 				text, _ = textutil.TruncRunes(text, remaining)
 				text += "\n…（总量截断）"
 				dc.Truncated = true
 			}
-			remaining -= len([]rune(text))
+			remaining -= utf8.RuneCountInString(text)
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -298,7 +299,7 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 	appendTruncationNote(dc)
 
 	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
-	if hasChanges && len([]rune(dc.Text)) < minIncrementalChars {
+	if hasChanges && utf8.RuneCountInString(dc.Text) < minIncrementalChars {
 		return Prepare(md, totalLimit, opts...)
 	}
 

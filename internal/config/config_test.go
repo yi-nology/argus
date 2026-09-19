@@ -157,7 +157,7 @@ type stubWarner struct{ fn func(msg string, kv ...any) }
 func (s *stubWarner) Warn(msg string, kv ...any) { s.fn(msg, kv...) }
 
 // v3.21.0 Gitee 接线：ARGUS_GITEE_* 四件套进 Platforms；未配置时键存在但 token 空
-//（EnabledPlatforms 不计、Validate 不误报）。
+// （EnabledPlatforms 不计、Validate 不误报）。
 func TestLoadGiteePlatform(t *testing.T) {
 	t.Setenv("ARGUS_GITEE_URL", "https://gitee.com")
 	t.Setenv("ARGUS_GITEE_TOKEN", "tok")

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/protocol"
 
@@ -133,7 +134,7 @@ func renderMarkdown(e TaskEvent) string {
 	case "failed":
 		// v3.8.0：FailReason 可能含上游错误串（端点/URL 细节），IM 推送截断防泄露长串
 		reason := e.FailReason
-		if rc := len([]rune(reason)); rc > 300 {
+		if rc := utf8.RuneCountInString(reason); rc > 300 {
 			r := []rune(reason)
 			reason = string(r[:300]) + "…"
 		}

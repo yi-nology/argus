@@ -24,6 +24,10 @@ import (
 	"argus/internal/config"
 )
 
+// githubAppHTTPClient GitHub API 调用共享客户端（包级复用连接池——每次换 token
+// 新建 Client 会丢弃 TLS 连接池，installation token 每小时刷新一次即可复用）。
+var githubAppHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // generateInstallationToken 用 GitHub App 凭证换取 installation access token。
 // https://docs.github.com/en/rest/apps/apps?apiVersion=2022-11-28#create-an-installation-access-token-for-an-app
 func generateInstallationToken(appID int64, privateKeyPEM string, installationID int64) (string, time.Time, error) {
@@ -71,7 +75,7 @@ func generateInstallationToken(appID int64, privateKeyPEM string, installationID
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	resp, err := githubAppHTTPClient.Do(req)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("请求 GitHub API 失败: %w", err)
 	}

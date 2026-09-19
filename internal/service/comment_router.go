@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/model"
 
@@ -56,7 +57,7 @@ var questionMarkers = []string{"吗", "？", "?", "为什么", "怎么", "怎样
 // 拉丁词走词边界（rerun 不误命中 rerunning 内部构式外的更长词）；
 // 疑问标记守门（问句交 LLM 分类）。
 func matchReviewKeyword(question string) bool {
-	if len([]rune(question)) > reviewKeywordMaxRunes {
+	if utf8.RuneCountInString(question) > reviewKeywordMaxRunes {
 		return false
 	}
 	lower := strings.ToLower(question)

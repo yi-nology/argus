@@ -31,7 +31,7 @@ func TestExtractGoTestFiles(t *testing.T) {
 
 func TestSanitizeTestPath(t *testing.T) {
 	cases := map[string]string{
-		"internal/x/a_test.go": "internal/x/a_test.go",
+		"internal/x/a_test.go":   "internal/x/a_test.go",
 		"`internal/x/a_test.go`": "internal/x/a_test.go",
 		"- internal/x/a_test.go": "internal/x/a_test.go",
 		"../evil_test.go":        "",

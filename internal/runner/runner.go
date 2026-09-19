@@ -21,9 +21,9 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
 
+	"argus/internal/codegraph"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
-	"argus/internal/codegraph"
 	"argus/internal/notify"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
@@ -1088,7 +1088,8 @@ func hasIncludedGoFiles(diff *plugin.DiffContext) bool {
 
 // includedPaths diffprep 收进 Text 的文件（OCR delegate rule 的路径入参与
 // argus 实际审查范围保持一致）。
-func includedPaths(diff *plugin.DiffContext) []string {	if diff == nil {
+func includedPaths(diff *plugin.DiffContext) []string {
+	if diff == nil {
 		return nil
 	}
 	paths := make([]string, 0, len(diff.Files))

@@ -13,8 +13,8 @@ import (
 
 type nopLogger struct{}
 
-func (nopLogger) Info(string, ...any)  {}
-func (nopLogger) Warn(string, ...any)  {}
+func (nopLogger) Info(string, ...any) {}
+func (nopLogger) Warn(string, ...any) {}
 
 // fakeBin 写一个可执行 shell 脚本（测试专用 fake 工具）。
 func fakeBin(t *testing.T, dir, name, body string) string {

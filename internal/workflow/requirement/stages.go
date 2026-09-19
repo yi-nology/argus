@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -17,6 +18,7 @@ import (
 	"git.example.com/enjoydream/agentkit/toolprior"
 
 	"argus/internal/plugin"
+
 	"git.example.com/enjoydream/agentkit/llmjson"
 )
 
@@ -73,7 +75,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	var truncNotes []string
 	segments := make([]reqSegment, 0, 6)
 	if s := strings.TrimSpace(pr.Body); s != "" {
-		seg := reqSegment{label: "PR 描述", content: s, rawChars: len([]rune(s))}
+		seg := reqSegment{label: "PR 描述", content: s, rawChars: utf8.RuneCountInString(s)}
 		if t, truncated := textutil.TruncRunes(s, digestMax); truncated {
 			seg.content, seg.truncated = t, true
 			truncNotes = append(truncNotes, fmt.Sprintf("PR 描述超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", seg.rawChars, digestMax))
@@ -93,7 +95,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 			continue
 		}
 		raw := issue.Title + "\n" + issue.Body // 标题同样攻击者可控，一起进数据区
-		seg := reqSegment{label: "issue #" + num, content: raw, rawChars: len([]rune(raw))}
+		seg := reqSegment{label: "issue #" + num, content: raw, rawChars: utf8.RuneCountInString(raw)}
 		if t, truncated := textutil.TruncRunes(raw, issueMax*8); truncated {
 			seg.content, seg.truncated = t, true
 			truncNotes = append(truncNotes, fmt.Sprintf("issue #%s 正文超长已截断（原 %d 字符，保留前 %d），请人工核对完整性", num, seg.rawChars, issueMax*8))
@@ -103,7 +105,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 
 	total := 0
 	for _, seg := range segments {
-		total += len([]rune(seg.content))
+		total += utf8.RuneCountInString(seg.content)
 	}
 	if total == 0 && strings.TrimSpace(pr.HeadBranch) == "" {
 		// 需求源全缺：task 照走，R1 产出空清单 + Ambiguous=[原文] → R5.3 → COMMENT（§10.2）
@@ -432,7 +434,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
 			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
 			content = numberLines(content)
-			if rc := len([]rune(content)); rc > fileMax {
+			if rc := utf8.RuneCountInString(content); rc > fileMax {
 				content, _ = textutil.TruncRunes(content, fileMax)
 				content += "\n…（截断）"
 			}
@@ -451,7 +453,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 				return &getIssueOut{Error: err.Error()}, nil
 			}
 			body := issue.Body
-			if rc := len([]rune(body)); rc > issueMax {
+			if rc := utf8.RuneCountInString(body); rc > issueMax {
 				body, _ = textutil.TruncRunes(body, issueMax)
 				body += "…（截断）"
 			}
@@ -467,7 +469,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 		func(ctx context.Context, _ *emptyIn) (*getDiffOut, error) {
 			if task.Diff != nil {
 				text := task.Diff.Text
-				if rc := len([]rune(text)); rc > diffMax {
+				if rc := utf8.RuneCountInString(text); rc > diffMax {
 					text, _ = textutil.TruncRunes(text, diffMax)
 					text += "…（截断）"
 				}

@@ -22,12 +22,12 @@ import (
 
 // Symbol 一个顶层符号定义。
 type Symbol struct {
-	Name string // 原名（查询大小写不敏感）
-	Kind string // func | type | var | const
-	Recv string // 方法 receiver 类型文本（普通函数为空）
-	File string // 相对索引根的路径
-	Line int
-	EndLine int
+	Name      string // 原名（查询大小写不敏感）
+	Kind      string // func | type | var | const
+	Recv      string // 方法 receiver 类型文本（普通函数为空）
+	File      string // 相对索引根的路径
+	Line      int
+	EndLine   int
 	Signature string // 声明源码片段（≤200 runes）
 }
 
@@ -47,11 +47,11 @@ type fileEntry struct {
 // Index 代码图索引（只读；多 goroutine 并发查询安全——References 惰性扫描
 // 只读 fileEntry，无共享可变状态）。
 type Index struct {
-	defs   map[string][]Symbol // 小写名 → 定义
-	poly   map[string][]PolySymbol
-	files  []fileEntry
-	skip   int // 解析失败文件数（坏语法）
-	idxed  int
+	defs  map[string][]Symbol // 小写名 → 定义
+	poly  map[string][]PolySymbol
+	files []fileEntry
+	skip  int // 解析失败文件数（坏语法）
+	idxed int
 }
 
 // skipDirs 索引跳过的目录名（与 diffprep 噪声表同哲学，Go 侧最小集）。
