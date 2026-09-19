@@ -16,7 +16,8 @@ import (
 	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llmjson"
+
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。
@@ -154,7 +155,7 @@ func parseFindings(text string) (plugin.Result, error) {
 		Findings []plugin.Finding `json:"findings"`
 		Notes    string           `json:"notes"`
 	}
-	if err := llmjson.Unmarshal(text, &out); err != nil {
+	if err := jsonrepair.Unmarshal(text, &out); err != nil {
 		return plugin.Result{}, fmt.Errorf("remote 响应解析失败: %w（原文 %.200s）", err, text)
 	}
 	for i := range out.Findings {

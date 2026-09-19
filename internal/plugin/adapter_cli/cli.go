@@ -1,5 +1,5 @@
 // Package adapter_cli cli 形态适配器（design §3.2）：包装外部命令行（首个实战对象是
-// alibaba/open-code-review）。子进程托管整体委托 agentkit/acpx.RunProcess（v0.7.1 起）——
+// alibaba/open-code-review）。子进程托管整体委托 agentkit/procx.Run（v0.7.1 起）——
 // 进程组（Setpgid）→ 超时/取消 TERM 整组 → 3s grace 后 KILL、环境白名单、stdout 限容、
 // ErrTimeout/ErrCanceled sentinel 全部由底座提供；本包只保留 OCR JSON 容错解析。
 // 供应链信任（§8）：cmd 只能来自 Hub plugins.yaml 白名单，仓库配置无权声明（§3.4 红线 2）。
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/procx"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
@@ -62,7 +62,7 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 
 	// 进程托管委托 agentkit/acpx（env 白名单按 plugins.yaml env 声明按名透传；
 	// MaxStdout 维持 1MB 上限防异常 cli 刷屏）
-	stdout, _, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+	stdout, _, _, err := procx.Run(ctx, procx.RunRequest{
 		Argv:      p.Cmd,
 		Dir:       dir,
 		Env:       p.Env,
@@ -72,9 +72,9 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	if err != nil {
 		// v0.7.0 sentinel：超时与取消可程序化区分（观测/告警不再靠文案猜）
 		switch {
-		case errors.Is(err, acpx.ErrTimeout):
+		case errors.Is(err, procx.ErrTimeout):
 			return plugin.Result{}, fmt.Errorf("cli 执行超时（%s）", p.manifest.Name)
-		case errors.Is(err, acpx.ErrCanceled):
+		case errors.Is(err, procx.ErrCanceled):
 			return plugin.Result{}, fmt.Errorf("cli 执行被取消（%s）: %w", p.manifest.Name, err)
 		}
 		return plugin.Result{}, fmt.Errorf("cli 执行失败: %w", err)
@@ -116,9 +116,9 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 		line, _ := strconv.Atoi(strings.TrimSpace(firstString(obj, "line", "Line", "Line_number", "line_number")))
 		comment := firstString(obj, "comment", "Comment", "message", "Message", "body", "Body", "description", "Description")
 		rawSev := firstString(obj, "level", "Level", "severity", "Severity", "priority", "Priority")
-		sev, ok := severity.Normalize(rawSev)
+		sev, ok := reportutil.Normalize(rawSev)
 		if !ok {
-			sev = severity.Low // 越界归 low（Merger 亦会兜底告警）
+			sev = reportutil.Low // 越界归 low（Merger 亦会兜底告警）
 		}
 		if comment == "" {
 			continue

@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_cli"
@@ -53,7 +53,7 @@ func normalizeFindings(stdout string) ([]plugin.Finding, error) {
 		if line == 0 {
 			line = c.EndLine
 		}
-		sev, _ := severity.Normalize(c.Severity) // critical→high；越界归 low（Merger 兜底告警）
+		sev, _ := reportutil.Normalize(c.Severity) // critical→high；越界归 low（Merger 兜底告警）
 		out = append(out, plugin.Finding{
 			File:         c.Path,
 			Line:         line,

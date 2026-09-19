@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 )
 
 type nopLogger struct{}
@@ -62,7 +62,7 @@ exit 0
 		t.Fatalf("findings = %+v", o.Result.Findings)
 	}
 	f := o.Result.Findings[0]
-	if f.By != "gitleaks" || f.Severity != severity.High ||
+	if f.By != "gitleaks" || f.Severity != reportutil.High ||
 		f.File != "cmd/main.go" || f.Line != 42 {
 		t.Fatalf("归一错误: %+v", f)
 	}
@@ -85,7 +85,7 @@ func TestSemgrepScan(t *testing.T) {
 		t.Fatalf("outcomes = %+v", outcomes)
 	}
 	f := outcomes[0].Result.Findings[0]
-	if f.File != "internal/x/a.go" || f.Line != 7 || f.Severity != severity.Medium {
+	if f.File != "internal/x/a.go" || f.Line != 7 || f.Severity != reportutil.Medium {
 		t.Fatalf("归一错误: %+v", f)
 	}
 	if !strings.Contains(f.Comment, "err not checked") {

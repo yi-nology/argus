@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
+	"git.example.com/enjoydream/agentkit/procx"
 	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/gitdeepen"
@@ -140,7 +140,7 @@ func Rules(ctx context.Context, cfg Config, dir string, paths []string) ([]RuleG
 // run 在工作副本目录执行 delegate 子命令，返回 stdout。Env 留零值（acpx 最小环境，
 // 绝不继承宿主变量）——delegate 子命令无 LLM 往返，不需要任何凭证。
 func run(ctx context.Context, cfg Config, dir string, argv []string) (string, error) {
-	stdout, stderr, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+	stdout, stderr, _, err := procx.Run(ctx, procx.RunRequest{
 		Argv:      argv,
 		Dir:       dir,
 		Timeout:   cfg.timeout(),

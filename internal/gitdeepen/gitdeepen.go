@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/logredact"
+	"git.example.com/enjoydream/agentkit/procx"
 )
 
 // fullRefspec 显式全量 refspec（--single-branch 克隆下唯一可靠的补全入口）。
@@ -67,7 +67,7 @@ func EnsureMergeBase(ctx context.Context, dir, baseBranch string, timeout time.D
 		if remaining <= 0 {
 			break
 		}
-		if _, stderr, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+		if _, stderr, _, err := procx.Run(ctx, procx.RunRequest{
 			Argv: []string{
 				"git", "-C", dir, "fetch",
 				"--deepen=" + strconv.Itoa(deepenStart<<i),
@@ -90,7 +90,7 @@ func EnsureMergeBase(ctx context.Context, dir, baseBranch string, timeout time.D
 // probeMergeBase 本地探测 merge-base 可达（无网络 IO，秒级）。exit 非零一律视为
 // 不可达（含 base 远端引用不存在——由后续 deepen 轮经全量 refspec 创建）。
 func probeMergeBase(ctx context.Context, dir, base string) bool {
-	_, _, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+	_, _, _, err := procx.Run(ctx, procx.RunRequest{
 		Argv:    []string{"git", "-C", dir, "merge-base", base, "HEAD"},
 		Timeout: probeTimeout,
 	})

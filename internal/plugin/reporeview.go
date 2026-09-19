@@ -1,7 +1,7 @@
 package plugin
 
 import (
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 )
 
 // 仓库级评审行为过滤（v3.15.0 P0-2：.reviewagents.yaml review 段的运行时消费）。
@@ -44,10 +44,10 @@ func FilterByMinSeverity(fs []Finding, min string) (kept []Finding, dropped int)
 	if min == "" || len(fs) == 0 {
 		return fs, 0
 	}
-	floor := severity.Rank(min)
+	floor := reportutil.Rank(min)
 	out := make([]Finding, 0, len(fs))
 	for _, f := range fs {
-		if severity.Rank(f.Severity) < floor {
+		if reportutil.Rank(f.Severity) < floor {
 			dropped++
 			continue
 		}

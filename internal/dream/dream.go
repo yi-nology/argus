@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/safejson"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
@@ -196,7 +196,7 @@ func renderKnowledge(r storage.RepoRef, low []plugin.PatternState, at time.Time)
 			sample = p.Pattern
 		}
 		fmt.Fprintf(&b, "%d. **[%s]** %s\n   - 置信度 %.2f（samples=%d；regret=%d suppress=%d）\n",
-			i+1, p.Plugin, safejson.EscapeUntrusted(sample), p.Confidence, p.Samples, p.Regret, p.Suppress)
+			i+1, p.Plugin, fence.EscapeUntrusted(sample), p.Confidence, p.Samples, p.Regret, p.Suppress)
 	}
 	return b.String()
 }

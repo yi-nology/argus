@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
@@ -65,7 +65,7 @@ func TestInvokeParseFindings(t *testing.T) {
 		t.Fatalf("应解析出 2 条 finding，得到 %d", len(res.Findings))
 	}
 	// severity 归一化：CRITICAL → high
-	if res.Findings[0].Severity != severity.High {
+	if res.Findings[0].Severity != reportutil.High {
 		t.Fatalf("severity 应归一为 high，得到 %q", res.Findings[0].Severity)
 	}
 	// By 标注插件名
@@ -149,4 +149,10 @@ func TestPromptWithoutDiff(t *testing.T) {
 	if !strings.Contains(got, "diff 为空") {
 		t.Fatal("无 diff 时 prompt 应有占位说明")
 	}
+}
+
+// Capabilities v0.10.11 接口契约：测试桩全量声明支持（与真实 CLI agent 语义对齐，
+// 桩消费所有控制面字段）。
+func (s *stubAgent) Capabilities() acpx.Capability {
+	return acpx.Capability{Model: true, Session: true, MaxTurns: true, AllowedTools: true, Sandbox: true}
 }

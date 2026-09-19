@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	akseverity "git.example.com/enjoydream/agentkit/severity"
+	akseverity "git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/plugin"
 )

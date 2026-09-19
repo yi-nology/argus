@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/safejson"
+	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
@@ -161,14 +161,14 @@ func Render(rep *Report, learning plugin.LearningConfig) string {
 			b.WriteString("- 🧹 噪声处置建议（置信度低于 HardFloor，系统已自动降权；请人工复核 suppress/restore）：\n")
 			for i, tip := range rh.Noisy {
 				fmt.Fprintf(&b, "  %d. [%s] %s（置信度 %.2f，suppress=%d regret=%d）\n",
-					i+1, tip.Plugin, safejson.EscapeUntrusted(tip.Sample), tip.Confidence, tip.Suppress, tip.Regret)
+					i+1, tip.Plugin, fence.EscapeUntrusted(tip.Sample), tip.Confidence, tip.Suppress, tip.Regret)
 			}
 		}
 		if len(rh.Guideline) > 0 {
 			b.WriteString("- 📌 guidelines 增量建议（同类意见反复出现且无误报史；确认后人工加入 `.argus/review-guidelines.md`，系统绝不自动改仓库文件）：\n")
 			for i, tip := range rh.Guideline {
 				fmt.Fprintf(&b, "  %d. [%s] %s（posted %d）\n",
-					i+1, tip.Plugin, safejson.EscapeUntrusted(tip.Sample), tip.Posted)
+					i+1, tip.Plugin, fence.EscapeUntrusted(tip.Sample), tip.Posted)
 			}
 		}
 	}

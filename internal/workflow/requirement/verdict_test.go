@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // acSpec 构造 R1/R3 用例数据：每个 acStatus 生成一条 AC 与对应 check。
@@ -191,10 +191,10 @@ func TestEnforceEvidence(t *testing.T) {
 // TestExtractJSON JSON 提取容错。
 func TestExtractJSON(t *testing.T) {
 	in := "好的，以下是结果：\n```json\n{\"a\":1}\n```"
-	if got := llm.ExtractJSON(in); got != `{"a":1}` {
+	if got := jsonrepair.ExtractJSON(in); got != `{"a":1}` {
 		t.Fatalf("got %q", got)
 	}
-	if got := llm.ExtractJSON(`前缀 {"a":{"b":2}} 后缀`); got != `{"a":{"b":2}}` {
+	if got := jsonrepair.ExtractJSON(`前缀 {"a":{"b":2}} 后缀`); got != `{"a":{"b":2}}` {
 		t.Fatalf("got %q", got)
 	}
 }

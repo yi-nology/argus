@@ -22,7 +22,8 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llmjson"
+
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // CompliancePlugin requirement-compliance 插件：workflow 的 L4 外壳。
@@ -305,7 +306,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		Findings []plugin.Finding `json:"findings"`
 		Notes    string           `json:"notes"`
 	}
-	if e := llmjson.Unmarshal(final, &out); e != nil {
+	if e := jsonrepair.Unmarshal(final, &out); e != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 输出解析失败: %w", e)
 	}
 	for i := range out.Findings {

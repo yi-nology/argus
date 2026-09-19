@@ -21,10 +21,11 @@ import (
 	"strings"
 
 	"git.example.com/enjoydream/agentkit/reflection"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llmjson"
+
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // ReflectSummary R3.5 反思结果（Output.Reflect；nil = 未启用或无 findings）。
@@ -151,7 +152,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 
 	// 解析末稿并按 id 回写：只认原列表已有 id（防新增幻觉），逐字段校验回退（防篡改越界）。
 	var revised []reflectFindingWire
-	if llmjson.Unmarshal(res.Output, &revised) != nil {
+	if jsonrepair.Unmarshal(res.Text, &revised) != nil {
 		w.Log.Warn("argus.r35.parse_failed", "hint", "输出不可解析，保留原 findings")
 		return nil
 	}
@@ -182,7 +183,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 			f.Line = rv.Line
 			adjusted = true
 		}
-		if sev, ok := severity.Normalize(rv.Severity); ok && sev != f.Severity {
+		if sev, ok := reportutil.Normalize(rv.Severity); ok && sev != f.Severity {
 			f.Severity = sev
 			adjusted = true
 		}
@@ -209,8 +210,8 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 					continue
 				}
 				// soft：强制 low + 标注，不记 regret
-				if f.Severity != severity.Low {
-					f.Severity = severity.Low
+				if f.Severity != reportutil.Low {
+					f.Severity = reportutil.Low
 					adjusted = true
 				}
 				mark := "（证据门：未提供可核对的证据引用）"

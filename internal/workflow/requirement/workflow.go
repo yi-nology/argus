@@ -13,13 +13,14 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/codegraph"
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
+
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
 )
@@ -525,7 +526,7 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 	var high, midLow, unverifiable int
 	for _, f := range findings {
 		switch f.Severity {
-		case severity.High:
+		case reportutil.High:
 			// scope 闸门：越界 high 不进 R5.2 计数，但保留为 COMMENT 级意见
 			if inScope != nil && f.File != "" && !inScope[f.File] {
 				outOfScope++
@@ -533,7 +534,7 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 				continue
 			}
 			high++
-		case severity.Medium, severity.Low:
+		case reportutil.Medium, reportutil.Low:
 			midLow++
 		}
 	}

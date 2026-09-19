@@ -18,8 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/sampling"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 )
 
 // MaxReviewN reviewN 配置上限（与 MiMo Max Mode N≈5 同量级；防配置滥用放大成本）。
@@ -51,7 +50,7 @@ func BumpSeverity(s string) string {
 
 // aggregateSamples 聚合 N 份**成功**采样结果（results 由调用方按采样序过滤，
 // k=成功数由调用方统计——失败/取消采样不产生 Result）。v3.13.0：聚簇核心下沉
-// agentkit sampling.Aggregate（双通道签名=精确指纹 + file|规范化评语，eq=行号
+// agentkit reportutil.Aggregate（双通道签名=精确指纹 + file|规范化评语，eq=行号
 // 相容——同文件两处不同位置是两个问题）；严重度合并与复现升级语义留在本包
 // （审查域词表，不属于通用原语）。部分失败（k<n）时追加降级注记行。
 func aggregateSamples(n, k int, results []Result) Result {
@@ -81,11 +80,11 @@ func aggregateSamples(n, k int, results []Result) Result {
 		findings = append(findings, r.Findings...)
 	}
 
-	groups := sampling.Aggregate(findings,
+	groups := reportutil.Aggregate(findings,
 		func(f Finding) []string {
 			return []string{
 				"fp:" + Fingerprint(f.File, f.Comment, f.Line),
-				"nc:" + f.File + "|" + severity.NormalizeComment(f.Comment),
+				"nc:" + f.File + "|" + reportutil.NormalizeComment(f.Comment),
 			}
 		},
 		func(a, b Finding) bool { return linesCompatible(a.Line, b.Line) },

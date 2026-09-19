@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 )
 
@@ -315,7 +315,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 				continue
 			}
 			// 同文件 + 规范化评语相同 + 行号相容 → 同一问题（v1 容差语义的承接）
-			ncKey := f.File + "|" + severity.NormalizeComment(f.Comment)
+			ncKey := f.File + "|" + reportutil.NormalizeComment(f.Comment)
 			if a, dup := byNC[ncKey]; dup && linesCompatible(a.finding.Line, f.Line) {
 				mergeInto(a, f)
 				continue

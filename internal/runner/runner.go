@@ -243,7 +243,11 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		r3Chat = r.LLM.RawModel()
 	}
 	if r3Chat != nil && r.FallbackModel != nil {
-		fm := llm.NewFailoverModel(r3Chat, r.FallbackModel, r.ModelName, r.FallbackName)
+		// v0.10.11：链节结构化（ChainLink{Model,Name}），消平行切片错位
+		fm := llm.NewFailoverModel(
+			llm.ChainLink{Model: r3Chat, Name: r.ModelName},
+			llm.ChainLink{Model: r.FallbackModel, Name: r.FallbackName},
+		)
 		if r.Log != nil {
 			fm.OnFailover = func(from, to, reason string) {
 				r.Log.Warn("argus.llm.failover", "from", from, "to", to,

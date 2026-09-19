@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 )
 
 func TestParseRepoConfigReviewSection(t *testing.T) {
@@ -74,16 +74,16 @@ func TestParseRepoConfigReviewDefaults(t *testing.T) {
 
 func TestFilterByMinSeverity(t *testing.T) {
 	fs := []Finding{
-		{Severity: severity.Low},
-		{Severity: severity.High},
-		{Severity: severity.Medium},
-		{Severity: severity.Low},
+		{Severity: reportutil.Low},
+		{Severity: reportutil.High},
+		{Severity: reportutil.Medium},
+		{Severity: reportutil.Low},
 	}
-	kept, dropped := FilterByMinSeverity(fs, severity.Medium)
+	kept, dropped := FilterByMinSeverity(fs, reportutil.Medium)
 	if len(kept) != 2 || dropped != 2 {
 		t.Fatalf("kept=%d dropped=%d, want 2/2", len(kept), dropped)
 	}
-	if kept[0].Severity != severity.High || kept[1].Severity != severity.Medium {
+	if kept[0].Severity != reportutil.High || kept[1].Severity != reportutil.Medium {
 		t.Fatalf("保留项顺序错乱: %+v", kept)
 	}
 	// 无阈值 / 阈值最低：原样返回
@@ -91,7 +91,7 @@ func TestFilterByMinSeverity(t *testing.T) {
 	if len(kept2) != 4 || dropped2 != 0 {
 		t.Fatalf("空阈值应原样返回: %d/%d", len(kept2), dropped2)
 	}
-	kept3, _ := FilterByMinSeverity(fs, severity.Low)
+	kept3, _ := FilterByMinSeverity(fs, reportutil.Low)
 	if len(kept3) != 4 {
 		t.Fatalf("low 阈值不应滤任何词表级: %d", len(kept3))
 	}

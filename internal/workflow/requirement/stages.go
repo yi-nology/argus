@@ -19,7 +19,7 @@ import (
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/llmjson"
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // issueRefRe 从分支名/PR 描述中提取关联 issue（需求源三入口之一）。
@@ -145,7 +145,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	// R5.3 强制 COMMENT——最贵的失败模式。R3/R3.5 已迁移，R1 补齐。
 	resp, err := w.LLM.Generate(ctx, "R1", msgs)
 	if err == nil {
-		if e := llmjson.Unmarshal(resp.Content, &spec); e != nil {
+		if e := jsonrepair.Unmarshal(resp.Content, &spec); e != nil {
 			err = e
 		}
 	}
@@ -321,7 +321,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		w.Log.Warn("argus.r3.agent_failed", "error", err.Error())
 	} else {
 		var report plugin.ComplianceReport
-		if e := llmjson.Unmarshal(final, &report); e == nil {
+		if e := jsonrepair.Unmarshal(final, &report); e == nil {
 			dropped, fixed := alignChecksToSpec(spec, &report) // 双向对齐（防发明条目放大 R5.1，也防漏报缩水成 APPROVE）
 			if dropped > 0 {
 				w.Log.Warn("argus.r3.checks_dropped", "count", dropped)
@@ -343,7 +343,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 			w.Log.Warn("argus.r3.retry_skipped_budget", "reason", "任务 token 预算耗尽，跳过重试")
 		} else if final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs))); e2 == nil {
 			var report2 plugin.ComplianceReport
-			if e := llmjson.Unmarshal(final2, &report2); e == nil {
+			if e := jsonrepair.Unmarshal(final2, &report2); e == nil {
 				alignChecksToSpec(spec, &report2)
 				EnforceEvidenceScoped(&report2, changedPaths)
 				return &report2, final2, nil

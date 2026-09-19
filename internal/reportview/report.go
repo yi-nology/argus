@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/safejson"
+	"git.example.com/enjoydream/agentkit/fence"
 
 	"argus/internal/plugin"
 )
@@ -21,9 +21,9 @@ func ReportHeaderHTML(taskID, headSHA, version string) string {
 	return fmt.Sprintf("<!-- argus:report task_id=%s head=%s ver=%s -->", taskID, headSHA, version)
 }
 
-// EscapeUntrusted 委托给 agentkit/safejson.EscapeUntrusted。
+// EscapeUntrusted 委托给 agentkit/fence.EscapeUntrusted。
 func EscapeUntrusted(s string) string {
-	return safejson.EscapeUntrusted(s)
+	return fence.EscapeUntrusted(s)
 }
 
 // ACCheckView 单条验收清单渲染条目。

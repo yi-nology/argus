@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"gopkg.in/yaml.v3"
 )
@@ -226,10 +226,10 @@ func sanitizeReviewSettings(r ReviewSettings, maxList int) (ReviewSettings, erro
 		}
 	}
 	if r.MinSeverity != "" {
-		// 只收规范词表（比 severity.Normalize 严格）：别名宽容会让 "critcal" 类
+		// 只收规范词表（比 reportutil.Normalize 严格）：别名宽容会让 "critcal" 类
 		// 笔误静默落到意外档位，配置卫生优先
 		switch strings.ToLower(strings.TrimSpace(r.MinSeverity)) {
-		case severity.Low, severity.Medium, severity.High:
+		case reportutil.Low, reportutil.Medium, reportutil.High:
 			r.MinSeverity = strings.ToLower(strings.TrimSpace(r.MinSeverity))
 		default:
 			return r, fmt.Errorf(".reviewagents.yaml review.min_severity=%q 非法（合法词表 low|medium|high）", r.MinSeverity)

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
+	"git.example.com/enjoydream/agentkit/procx"
 )
 
 // 干净 PR 的合法"零意见"输出（[] 或 {"comments":[]}）不再是错误——
@@ -43,7 +43,7 @@ func TestInvokeEnvWhitelistEndToEnd(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"$OPENAI_API_KEY\"; echo \"$ARGUS_GITEA_TOKEN\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stdout, _, _, err := acpx.RunProcess(context.Background(), acpx.ProcessRequest{
+	stdout, _, _, err := procx.Run(context.Background(), procx.RunRequest{
 		Argv:    []string{script},
 		Env:     []string{"OPENAI_API_KEY"}, // plugins.yaml env 声明形态
 		Timeout: 30 * time.Second,

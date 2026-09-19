@@ -14,7 +14,7 @@ import (
 
 	"gorm.io/gorm"
 
-	akseverity "git.example.com/enjoydream/agentkit/severity"
+	akreportutil "git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
@@ -48,7 +48,7 @@ const nearSimilarityThreshold = 0.6
 // textutil.Jaccard（并集分母，更严）——本层阈值 0.6 按短侧重叠率校准，
 // 换 Jaccard 会漏掉合法的措辞漂移匹配（测试钉死该行为）。
 func commentNear(a, b string) bool {
-	na, nb := akseverity.NormalizeComment(a), akseverity.NormalizeComment(b)
+	na, nb := akreportutil.NormalizeComment(a), akreportutil.NormalizeComment(b)
 	if na == "" || nb == "" {
 		return false
 	}
@@ -104,10 +104,10 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f plugin.F
 		Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
 		return nil, false, err
 	}
-	nc := akseverity.NormalizeComment(f.Comment)
+	nc := akreportutil.NormalizeComment(f.Comment)
 	var exact, near *FindingPrint
 	for i := range rows {
-		if nc != "" && akseverity.NormalizeComment(rows[i].Comment) == nc {
+		if nc != "" && akreportutil.NormalizeComment(rows[i].Comment) == nc {
 			// 完全同评语：行号相容者优先，否则取最新（rows 已按 last_seen_at DESC）
 			if exact == nil || (linesClose(rows[i].Line, f.Line) && !linesClose(exact.Line, f.Line)) {
 				exact = &rows[i]

@@ -19,13 +19,14 @@ import (
 	"unicode/utf8"
 
 	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/procx"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/llmjson"
+	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // ErrBinaryMissing agent 可执行文件不存在（插件停用而非报错启动）。
@@ -111,9 +112,9 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		// 插件自身超时到——此前两者在日志里无法区分）
 		kind := "error"
 		switch {
-		case errors.Is(err, acpx.ErrTimeout):
+		case errors.Is(err, procx.ErrTimeout):
 			kind = "timeout"
-		case errors.Is(err, acpx.ErrCanceled):
+		case errors.Is(err, procx.ErrCanceled):
 			kind = "canceled"
 		}
 		p.log.Warn("argus.acpx.run.error", "plugin", p.manifest.Name, "agent", p.agent.Name(),
@@ -204,7 +205,7 @@ type rawFinding struct {
 // 熔断）；(空切片, nil) = 合法解析出的空数组 = 真零 findings。
 func parseFindings(text string) ([]plugin.Finding, error) {
 	var items []rawFinding
-	if err := llmjson.Unmarshal(text, &items); err != nil {
+	if err := jsonrepair.Unmarshal(text, &items); err != nil {
 		return nil, err
 	}
 	out := make([]plugin.Finding, 0, len(items))
@@ -212,7 +213,7 @@ func parseFindings(text string) ([]plugin.Finding, error) {
 		if it.File == "" || it.Comment == "" {
 			continue
 		}
-		sev, _ := severity.Normalize(it.Severity)
+		sev, _ := reportutil.Normalize(it.Severity)
 		out = append(out, plugin.Finding{
 			File: it.File, Line: it.Line, Severity: sev, Comment: it.Comment,
 		})

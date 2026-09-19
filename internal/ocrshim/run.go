@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"git.example.com/enjoydream/agentkit/acpx"
 	"git.example.com/enjoydream/agentkit/logredact"
+	"git.example.com/enjoydream/agentkit/procx"
 )
 
 // runOCR 在工作副本目录执行 OCR range 审查，返回 stdout（JSON）。
@@ -24,7 +24,7 @@ func runOCR(ctx context.Context, cfg Config, dir string, p shimPayload) (string,
 		// PR 标题作为业务上下文（--background）；正文攻击者可控且可能超长，不下发
 		argv = append(argv, "--background", t)
 	}
-	stdout, stderr, _, err := acpx.RunProcess(ctx, acpx.ProcessRequest{
+	stdout, stderr, _, err := procx.Run(ctx, procx.RunRequest{
 		Argv:      argv,
 		Dir:       dir,
 		Env:       cfg.OcrEnv,

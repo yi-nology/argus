@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/plugin"
 )
@@ -133,7 +133,7 @@ func runGitleaks(ctx context.Context, cfg Config, dir, baseRef string,
 			break
 		}
 		o.Result.Findings = append(o.Result.Findings, plugin.Finding{
-			File: e.File, Line: e.StartLine, Severity: severity.High, By: "gitleaks",
+			File: e.File, Line: e.StartLine, Severity: reportutil.High, By: "gitleaks",
 			Comment: fmt.Sprintf("疑似硬编码敏感信息（gitleaks 规则 %s）：请将凭证移出源码并轮换已泄漏密钥。",
 				e.RuleID),
 		})
@@ -240,11 +240,11 @@ func semgrepPaths(paths []string) []string {
 func semgrepSeverity(s string) string {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "ERROR":
-		return severity.High
+		return reportutil.High
 	case "WARNING":
-		return severity.Medium
+		return reportutil.Medium
 	default:
-		return severity.Low
+		return reportutil.Low
 	}
 }
 

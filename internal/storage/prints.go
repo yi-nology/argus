@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/plugin"
 )
@@ -96,7 +96,7 @@ func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, 
 		p.LastTaskID = taskID
 		p.LastSeenAt = at
 		p.TimesSeen++
-		p.Severity = severity.Higher(p.Severity, f.Severity)
+		p.Severity = reportutil.Higher(p.Severity, f.Severity)
 		if p.Plugin == "" {
 			p.Plugin = firstBy(f.By)
 		}

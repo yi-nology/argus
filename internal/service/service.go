@@ -32,9 +32,10 @@ import (
 	"argus/internal/progress"
 	"argus/internal/qa"
 	"argus/internal/storage"
+
 	"git.example.com/enjoydream/agentkit/audit"
+	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/safejson"
 )
 
 // Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).
@@ -895,7 +896,7 @@ func (s *Service) recordFalsePositiveKnowledge(ctx context.Context, platform, ow
 	var b strings.Builder
 	b.WriteString("## 历史误报记录（开发者反馈）\n\n")
 	b.WriteString(fmt.Sprintf("- 仓库：%s/%s#%s\n- 文件：%s\n- 指纹：%s\n\n", owner, repo, number, file, fp))
-	b.WriteString("原审查意见：\n\n> " + safejson.EscapeUntrusted(comment) + "\n\n")
+	b.WriteString("原审查意见：\n\n> " + fence.EscapeUntrusted(comment) + "\n\n")
 	b.WriteString("开发者判定：以上意见为**误报**，同型问题在本仓库语境下不成立；检索到本条时请下调该类问题的置信度并核对历史语境。")
 	if err := ms.Index(ctx, fmt.Sprintf("feedback/%s/%s#%s/%s", owner, repo, number, fp[:8]), b.String()); err != nil {
 		s.log().Warn("argus.feedback.knowledge_failed", "fp", fp[:8], "error", err.Error())

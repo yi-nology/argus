@@ -303,7 +303,10 @@ func wrapReactFailoverFn(cfg *config.Config, fallbackBM model.BaseChatModel,
 		if primary == nil {
 			return nil
 		}
-		fm := llm.NewFailoverModel(primary, fallbackBM, cfg.LLM.Model, cfg.LLM.FallbackModel)
+		fm := llm.NewFailoverModel(
+			llm.ChainLink{Model: primary, Name: cfg.LLM.Model},
+			llm.ChainLink{Model: fallbackBM, Name: cfg.LLM.FallbackModel},
+		)
 		fm.OnFailover = func(from, to, reason string) {
 			log.Warn("argus.llm.failover", "from", from, "to", to,
 				"stage", stage, "reason", reason)

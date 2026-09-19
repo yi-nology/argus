@@ -1,5 +1,32 @@
 # Changelog
 
+## v3.25.0 (2026-09-20) — 双依赖升级深入结合：agentkit v0.10.11 + ekit v0.29.0
+
+- **agentkit v0.10.5 → v0.10.11（四轮包收敛迁移，消除 argus 侧全部旧包依赖）**：
+  - `severity`/`sampling` → `reportutil`（级别词表/Normalize/Rank/Higher/
+    Fingerprint/NormalizeComment/Aggregate 单源；14 文件迁移）；
+  - `llmjson` → `jsonrepair`（宽松解析入口，5 文件）；`safejson` → `fence`
+    （EscapeUntrusted 归注入卫生，4 文件）；
+  - **进程纪律收敛 procx**：gitdeepen（浅克隆探测式 deepen）、ocrshim、ocrdeleg、
+    adapter_cli 四处 `acpx.RunProcess/ProcessRequest` → `procx.Run/RunRequest`，
+    超时/取消哨兵改 `procx.ErrTimeout/ErrCanceled`（acpx 内部经 procx 执行，
+    errors.Is 穿透成立）；
+  - llm failover 链节结构化 `ChainLink{Model,Name}`（runner/bootstrap 两处，
+    消平行切片错位）；adapter_acpx 测试桩补 `Capabilities()` 声明（新接口契约：
+    控制面字段支持度编译期强制）。
+- **ekit v0.27.2 → v0.29.0**：logx/concurrency/config/data 兼容零改动；
+  `network/httpx` v0.29 移除 `OnBeforeRequest` 且无默认请求头注入口——notify 的
+  X-User-Id 机器账号语义（octopus AuthMiddleware 建账号）不可丢，**回退本包
+  专用 octopus 客户端**（行为等价：进程级共享连接池/10s 超时/可选 Bearer/
+  非 2xx 归 send_rejected）。go.sum 瘦身 467 行（kitex/sentinel 等 httpx 旧
+  间接依赖随之退场）。
+- **拍板留痕**：agentkit 新包 `httpx` 评估后**不采纳**——githubapp 换 token 已是
+  干净的包级共享 stdlib 客户端，避免 httpx 双源（ekit/agentkit）并存；
+  `reportutil` stats（WilsonCI/McNemarExact）留档为评测置信区间的候选素材。
+- 全门禁绿：build/vet/staticcheck/gofmt/test/golden 打桩 48/48（clean 5/5、
+  FP=0、boundary 2/2）/e2e 集成。vendor 全量同步（replace 指向本地兄弟仓
+  v0.10.11，vendor 与 go.mod 版本面一致）。
+
 ## v3.24.1 (2026-09-20) — 卫生与性能批：格式清零 + 热点分配消除（零行为变更）
 
 - **gofmt 清零**：10 个自有文件（codegraph/testgen/sastscan_test/config/runner/
