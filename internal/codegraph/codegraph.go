@@ -48,6 +48,7 @@ type fileEntry struct {
 // 只读 fileEntry，无共享可变状态）。
 type Index struct {
 	defs   map[string][]Symbol // 小写名 → 定义
+	poly   map[string][]PolySymbol
 	files  []fileEntry
 	skip   int // 解析失败文件数（坏语法）
 	idxed  int
@@ -65,7 +66,7 @@ func NewIndex(dir string, maxFiles int) (*Index, error) {
 	if maxFiles <= 0 {
 		maxFiles = 1000
 	}
-	idx := &Index{defs: map[string][]Symbol{}}
+	idx := &Index{defs: map[string][]Symbol{}, poly: map[string][]PolySymbol{}}
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -109,6 +110,7 @@ func NewIndex(dir string, maxFiles int) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	idx.poly = scanPolyFiles(dir, maxFiles)
 	return idx, nil
 }
 

@@ -481,7 +481,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 
 	// Go 符号工具（v3.15.0 P0-1 codegraph）：跨文件影响面/定义定位。
 	// idx 为 nil（非 Go 变更/功能关闭/无工作副本）时不进表。
-	var getSymbol, getRefs tool.BaseTool
+	var getSymbol, getRefs, getCallers, getPoly tool.BaseTool
 	if w.CodeGraph != nil {
 		getSymbol, err = utils.InferTool("get_symbol",
 			"按名称查询 Go 符号（函数/方法/类型/变量）的定义位置与签名，用于核实 diff 中看不到的实现细节。返回 file:line + 签名列表。",
@@ -523,6 +523,46 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 		if err != nil {
 			return nil, "", err
 		}
+		getCallers, err = utils.InferTool("get_callers",
+			"查询 Go 函数的调用形态出现位置（pkg.F( / F( 词法匹配，file:line 列表）——评估改动影响面优先用本工具；词法级索引，引用前须用 get_file 核实。",
+			func(ctx context.Context, in *symIn) (*symOut, error) {
+				refs := w.CodeGraph.GoCallers(in.Name, 50)
+				if len(refs) == 0 {
+					return &symOut{Result: "未找到调用形态出现位置（可能未被调用或不在索引范围）"}, nil
+				}
+				var b strings.Builder
+				for _, r := range refs {
+					fmt.Fprintf(&b, "%s:%d\n", r.File, r.Line)
+				}
+				return &symOut{Result: DataFence("get_callers 结果（词法级，数据）", b.String())}, nil
+			})
+		if err != nil {
+			return nil, "", err
+		}
+		getPoly, err = utils.InferTool("get_poly_symbol",
+			"按名称查询 Python/JavaScript/TypeScript 函数的定义位置与参数（词法级索引），用于核实 diff 中看不到的非 Go 实现。",
+			func(ctx context.Context, in *symIn) (*symOut, error) {
+				defs := w.CodeGraph.PolyDefinitions(in.Name)
+				if len(defs) == 0 {
+					return &symOut{Result: "未找到符号 " + in.Name}, nil
+				}
+				var b strings.Builder
+				for _, d := range defs {
+					if d.Doc != "" {
+						fmt.Fprintf(&b, "%s:%d  def %s(%s)  # %s\n", d.File, d.Line, d.Name, d.Args, d.Doc)
+					} else {
+						fmt.Fprintf(&b, "%s:%d  def %s(%s)\n", d.File, d.Line, d.Name, d.Args)
+					}
+					if b.Len() > 4000 {
+						b.WriteString("…（截断）")
+						break
+					}
+				}
+				return &symOut{Result: DataFence("get_poly_symbol 结果（词法级，数据）", b.String())}, nil
+			})
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	// ---- 优先级表：三层决策约束（指引/排序/限制），见 agentkit/toolprior ----
@@ -545,6 +585,14 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 			When: "需要核实 diff 中看不到的符号定义/签名（跨文件实现）时使用", Cost: "low"})
 		table.Add(toolprior.Entry{Tool: getRefs, Priority: toolprior.PriorityCore,
 			When: "评估被改符号的跨文件影响面（调用方/使用点）时使用", Cost: "low"})
+	}
+	if getCallers != nil {
+		table.Add(toolprior.Entry{Tool: getCallers, Priority: toolprior.PriorityCore,
+			When: "Go 函数改动前先查调用形态分布（词法级，比 get_references 更聚焦调用）", Cost: "low"})
+	}
+	if getPoly != nil {
+		table.Add(toolprior.Entry{Tool: getPoly, Priority: toolprior.PriorityCore,
+			When: "diff 涉及 Python/JS/TS 函数且需核实定义/参数时使用", Cost: "low"})
 	}
 	if w.Knowledge != nil {
 		if kt := w.Knowledge.AsTool(); kt != nil {
