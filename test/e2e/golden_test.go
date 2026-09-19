@@ -245,8 +245,10 @@ func TestGoldenReviewEval(t *testing.T) {
 				Findings: resultFindingsCount(task.ResultJSON),
 			})
 			// 逐用例增量落盘：真实模型单条 ~2 分钟，中途超时/中断也保留已完成数据
+			//（v3.23.0：增量快照同样带聚合口径——全量跑被 timeout 硬杀时
+			// latest.json 的 metrics 不再是空壳）
 			if realMode {
-				writeGoldenResults(t, results, -1, goldenStats{})
+				writeGoldenResults(t, results, -1, aggregateGoldenStats(results))
 			}
 		})
 	}

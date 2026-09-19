@@ -1,13 +1,15 @@
 # 场景（v7 扩容）：二进制 + lockfile 噪声混合 → 噪声排除路径 + R5.5 APPROVE。
 # is_binary 首次入册：logo.png 不进 diff 文本；go.sum 命中内置噪声表。clean 家族
 # 扩展（噪声文件上不应产生意见）。
-# skip_real：v7 首轮真实 R1 把「go.sum 同步」拆成 AC、R3 对噪声排除文件（不进
-# diff 文本）判未达标 → R5.1——暴露「R3 对排除文件应优先 get_file 核实」的
-# 管线改进方向（登记留案），但夹具语义依赖 R1 拆粒度前提，真实模式不计分。
-name: 41-binary-lockfile-approve
-scenario: [change-shape, clean]
+# v8 双重标定：① R3 纪律 3（噪声排除文件 get_file 核实）生效——v7 轮真实模式
+# 的 R5.1 误判（2 项未达标）已消除（findings=0）；② 重新定位为「元声明型 PR
+# 不白给 approve」：依赖升级/logo 替换无实质交付条目，R1 空清单（元声明契约的
+# 正确行为）→ R5.3 人工确认。打桩 R3 同步 unverifiable。退出 clean 家族
+# （FP 统计），进 meta-declaration 场景。real 集合 [comment, approve]（R1 若
+# 改写出实质条目并核实通过则 approve 属诚实落点），rc 不入集合（过严）。
+name: 41-binary-lockfile-comment
+scenario: [change-shape, meta-declaration]
 kind: 0
-skip_real: true
 pr:
   title: 更新依赖与 logo
   body: |
@@ -16,7 +18,7 @@ stub:
   r1: |
     {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"依赖升级与 logo 替换，不引入源码回归"}],"ambiguous":[]}
   r3: |
-    {"checks":[{"id":"AC-1","status":"implemented","evidence":"go.mod:3"}],"scope_creep":[],"summary":"依赖与资源变更"}
+    {"checks":[{"id":"AC-1","status":"unverifiable","detail":"go.sum/logo 为噪声排除文件，get_file 核实不可得"}],"scope_creep":[],"summary":"依赖与资源变更，实质状态不可核"}
   reviewer: |
     {"findings":[],"notes":""}
 changed_files:
@@ -52,5 +54,6 @@ repo_files:
 
     require new.dep v2.0.0
 expect:
-  verdict: approve
-  must_find: ["R5.5"]
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.3"]

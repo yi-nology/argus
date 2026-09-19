@@ -1,0 +1,44 @@
+# 场景（v8 扩容）：锁定插件红线——仓库 .reviewagents.yaml disable security →
+# lockRepoConfig 插件无视仓库配置照常参与（§3.4 红线 3）。报告插件行必须含
+# security（correctness,security），即"禁用被拒绝、插件仍审过"。real 集合
+# [approve, comment]（reviewer 对干净代码的意见产出不可控，同 10/31 家族）。
+name: 42-lock-plugin-redline-approve
+scenario: [repo-config, guard]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #42
+repo_files:
+  .reviewagents.yaml: |
+    disable: [security]
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+stub:
+  r1: |
+    {"source":"issue #42","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,6 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+expect:
+  verdict: approve
+  real_verdicts: [approve, comment]
+  must_find: ["correctness,security"]

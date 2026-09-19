@@ -1,0 +1,53 @@
+# 场景（v8 扩容）：多文件 AC——需求明确两个交付点（util 包 + 调用方接线），
+# 只完成其一 → R5.1 REQUEST_CHANGES。real 模式精确比对（漏升级不容方差；
+# 需求句用编号明确列举两个交付点，R1 拆条行为在 36/44 号已验证可靠）。
+name: 44-multi-file-ac-rc
+scenario: [multi-file]
+kind: 0
+pr:
+  title: 实现 Mul 函数并接入 main
+  body: |
+    见 issue #44。需求两条：1) math 包提供 Mul(a, b int) int；2) main.go 的 run() 中调用 Mul 并输出结果。
+issues:
+  "44": |
+    需求两条：
+    1. math 包提供 Mul(a, b int) int 函数；
+    2. main.go 的 run() 中调用 Mul(2, 3) 并打印结果。
+stub:
+  r1: |
+    {"source":"issue #44","issue_refs":["44"],"acceptance_criteria":[{"id":"AC-1","text":"math 包提供 Mul(a, b int) int"},{"id":"AC-2","text":"main.go 的 run() 调用 Mul 并输出结果"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"math/mul.go:3"},{"id":"AC-2","status":"missing","detail":"run() 未出现，调用未接线"}],"scope_creep":[],"summary":"接线未完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: math/mul.go
+    diff: |
+      diff --git a/math/mul.go b/math/mul.go
+      --- /dev/null
+      +++ b/math/mul.go
+      @@ -0,0 +1,4 @@
+      +package math
+      +
+      +func Mul(a, b int) int {
+      +	return a * b
+      +}
+    additions: 4
+repo_files:
+  math/mul.go: |
+    package math
+
+    func Mul(a, b int) int {
+    	return a * b
+    }
+  main.go: |
+    package main
+
+    import "fmt"
+
+    func main() {
+    	fmt.Println("hello")
+    }
+expect:
+  verdict: request_changes
+  must_find: ["R5.1"]

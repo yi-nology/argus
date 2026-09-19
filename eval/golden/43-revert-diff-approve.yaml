@@ -1,0 +1,35 @@
+# 场景（v8 扩容）：回滚 diff（纯删除恢复旧行为）→ 无意见 → R5.5 APPROVE。
+# change-shape 家族：删除块为主的 diff（与 39 号"删除仍被引用 rc"互补——回滚
+# 引用已同步时不应制造意见）。real 集合 [approve, comment]。
+name: 43-revert-diff-approve
+scenario: [change-shape, clean]
+kind: 0
+pr:
+  title: 回滚实验性功能 featureFlag
+  body: |
+    回滚实验性 featureFlag 函数（恢复到未引入状态），调用方已同步移除。无新增逻辑。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"移除实验性 featureFlag 函数"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"flag.go:1"}],"scope_creep":[],"summary":"纯回滚"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: flag.go
+    is_deleted: true
+    diff: |
+      diff --git a/flag.go b/flag.go
+      --- a/flag.go
+      +++ /dev/null
+      @@ -1,3 +0,0 @@
+      -package main
+      -
+      -func featureFlag() bool { return false }
+    deletions: 3
+repo_files:
+  flag.go: ""
+expect:
+  verdict: approve
+  real_verdicts: [approve, comment]
+  must_find: ["R5.5"]

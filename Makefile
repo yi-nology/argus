@@ -44,7 +44,7 @@ eval:
 	go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v
 
 eval-real:
-	ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v -timeout 90m
+	ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v -timeout 150m
 
 vet:
 	go vet ./...
