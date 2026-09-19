@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/severity"
+	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/git-platform-sdk/provider"
@@ -94,7 +94,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		inlineFindings = kept
 	}
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
-		return severity.Rank(inlineFindings[i].Severity) > severity.Rank(inlineFindings[j].Severity)
+		return reportutil.Rank(inlineFindings[i].Severity) > reportutil.Rank(inlineFindings[j].Severity)
 	})
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限）：按严重度保留
 	// top N，其余仅在总结评论列出（Findings 段完整，透明可查）。
