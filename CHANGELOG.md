@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.25.1 (2026-09-20) — 基准立尺 + diffprep 热路径削峰 + 门禁补漏（零行为变更）
+
+- **首批热路径基准入库**（全仓此前零基准）：diffprep Prepare（大 diff/截断两形态）、
+  codegraph 索引构建与 GoCallers 查询、指纹派生与 best-of-N 聚簇——后续优化有
+  可复现口径，不靠体感。
+- **diffprep 削峰（profile 实证：RuneCountInString 占 ~25%、noise 占 ~23%）**：
+  - rune 计数由每文件最多 3 遍全文改为 1 遍 + 截断时算术推导（TruncRunes 精确
+    切到 n，remaining 语义逐位一致），Prepare 与 PrepareIncremental 双路同步；
+  - noise() 模式分类 hoist 到 init + 目录段边界扫描免 `strings.Split` 分配
+    （分类三态语义与原逐模式判定逐位一致）。
+  实测（50 iters）：PrepareLarge 588μs→464μs（−21%，allocs 1059→59）、
+  PrepareTruncated 2861μs→858μs（−70%）。
+- **门禁补漏**：`make lint` 增加 gofmt 检查步（此前 staticcheck 不查格式，10 个
+  自有文件曾带病入库）；`make fmt` 范围从 `find .` 收窄到 internal/cmd/test
+  （旧写法会误格式化 vendor/ 第三方代码——地雷拆除）。
+- **体检结论（留痕勿重查）**：`deadcode -test ./...` 全清（Verdict/EnforceEvidence/
+  NewSDKCtxStubbed/Models.Ready 四个为测试 API 门面，非死代码）；govulncheck
+  0 命中；存储热路径无 N+1 明证不动。
+- 全门禁绿：build/vet/staticcheck+gofmt/test/golden 打桩 48/48（clean 5/5、
+  FP=0、boundary 2/2）/e2e 集成。
+
 ## v3.25.0 (2026-09-20) — 双依赖升级深入结合：agentkit v0.10.11 + ekit v0.29.0
 
 - **agentkit v0.10.5 → v0.10.11（四轮包收敛迁移，消除 argus 侧全部旧包依赖）**：

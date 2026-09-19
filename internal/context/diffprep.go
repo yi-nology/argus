@@ -26,6 +26,9 @@ var noisePatterns = []string{
 // 实际生效值随总量缩放：max(下限, 总量/50)——大窗口模型下大文件不提前腰斩。
 const SingleFileMaxChars = 8000
 
+// totalTruncNote 总量预算触顶时的行内截断注记（Prepare 与 PrepareIncremental 共用）。
+const totalTruncNote = "\n…（总量截断）"
+
 // singleFileLimit 按总量推导单文件上限：总量/50，不低于全局下限。
 func singleFileLimit(totalLimit int) int {
 	if totalLimit <= 0 {
@@ -38,31 +41,81 @@ func singleFileLimit(totalLimit int) int {
 	return n
 }
 
-// noise 判定路径是否为噪声。
-// 目录模式按路径段精确匹配（深挖修复）：旧实现 strings.Contains 无边界，
-// "cargo-build/"、"ui-dist/"、"myvendor/" 下的合法源码会被 "build/"、"dist/"、
-// "vendor/" 误伤静默剔除出审查文本。
-func noise(path string) bool {
-	p := strings.ToLower(filepath.ToSlash(path))
-	base := filepath.Base(p)
+// noisePatKind 预分类后的噪声模式类别（init 一次，免每次调用重新分派）。
+type noisePatKind byte
+
+const (
+	noiseDir    noisePatKind = 'd' // 目录段（词表带尾斜杠）
+	noiseSuffix noisePatKind = 's' // 后缀（. 开头 / .go / .py 结尾）
+	noiseBase   noisePatKind = 'b' // 精确文件名
+)
+
+var noisePre []struct {
+	kind noisePatKind
+	val  string
+}
+
+func init() {
 	for _, pat := range noisePatterns {
 		switch {
 		case strings.HasSuffix(pat, "/"):
-			dir := strings.TrimSuffix(pat, "/")
-			for _, seg := range strings.Split(p, "/") {
-				if seg == dir {
-					return true
-				}
-			}
+			noisePre = append(noisePre, struct {
+				kind noisePatKind
+				val  string
+			}{noiseDir, strings.TrimSuffix(pat, "/")})
 		case strings.HasPrefix(pat, ".") || strings.HasSuffix(pat, ".go") || strings.HasSuffix(pat, ".py"):
-			if strings.HasSuffix(base, pat) {
+			noisePre = append(noisePre, struct {
+				kind noisePatKind
+				val  string
+			}{noiseSuffix, pat})
+		default:
+			noisePre = append(noisePre, struct {
+				kind noisePatKind
+				val  string
+			}{noiseBase, pat})
+		}
+	}
+}
+
+// noise 判定路径是否为噪声。
+// 目录模式按路径段精确匹配（深挖修复）：旧实现 strings.Contains 无边界，
+// "cargo-build/"、"ui-dist/"、"myvendor/" 下的合法源码会被 "build/"、"dist/"、
+// "vendor/" 误伤静默剔除出审查文本。v3.25.1：模式分类 hoist 到 init + 目录段
+// 边界扫描免 Split 分配（profile 显示本函数占 Prepare CPU ~23%）。
+func noise(path string) bool {
+	p := strings.ToLower(filepath.ToSlash(path))
+	base := filepath.Base(p)
+	for _, np := range noisePre {
+		switch np.kind {
+		case noiseSuffix:
+			if strings.HasSuffix(base, np.val) {
 				return true
 			}
-		default:
-			if base == pat {
+		case noiseBase:
+			if base == np.val {
+				return true
+			}
+		default: // noiseDir：段边界扫描（等价逐段比对，免 Split 分配）
+			if segInPath(p, np.val) {
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// segInPath seg 是否作为完整路径段出现（左侧为开头或 '/'，右侧为结尾或 '/'）。
+func segInPath(p, seg string) bool {
+	for i := 0; i+len(seg) <= len(p); {
+		j := strings.Index(p[i:], seg)
+		if j < 0 {
+			return false
+		}
+		i += j
+		if (i == 0 || p[i-1] == '/') && (i+len(seg) == len(p) || p[i+len(seg)] == '/') {
+			return true
+		}
+		i++
 	}
 	return false
 }
@@ -171,17 +224,24 @@ func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *pl
 			continue
 		}
 		text := f.Diff
-		if rc := utf8.RuneCountInString(text); rc > singleMax {
+		// rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占
+		// Prepare CPU ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再
+		// 重数全文——remaining 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
+		rc := utf8.RuneCountInString(text)
+		if rc > singleMax {
 			text, _ = textutil.TruncRunes(text, singleMax)
-			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+			note := fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+			text += note
+			rc = singleMax + utf8.RuneCountInString(note)
 		}
 		if totalLimit > 0 {
-			if rc := utf8.RuneCountInString(text); rc > remaining {
+			if rc > remaining {
 				text, _ = textutil.TruncRunes(text, remaining)
-				text += "\n…（总量截断）"
+				text += totalTruncNote
+				rc = remaining + utf8.RuneCountInString(totalTruncNote)
 				dc.Truncated = true
 			}
-			remaining -= utf8.RuneCountInString(text)
+			remaining -= rc
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -275,17 +335,24 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 			continue
 		}
 		text := f.Diff
-		if rc := utf8.RuneCountInString(text); rc > singleMax {
+		// rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占
+		// Prepare CPU ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再
+		// 重数全文——remaining 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
+		rc := utf8.RuneCountInString(text)
+		if rc > singleMax {
 			text, _ = textutil.TruncRunes(text, singleMax)
-			text += fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+			note := fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+			text += note
+			rc = singleMax + utf8.RuneCountInString(note)
 		}
 		if totalLimit > 0 {
-			if rc := utf8.RuneCountInString(text); rc > remaining {
+			if rc > remaining {
 				text, _ = textutil.TruncRunes(text, remaining)
-				text += "\n…（总量截断）"
+				text += totalTruncNote
+				rc = remaining + utf8.RuneCountInString(totalTruncNote)
 				dc.Truncated = true
 			}
-			remaining -= utf8.RuneCountInString(text)
+			remaining -= rc
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")

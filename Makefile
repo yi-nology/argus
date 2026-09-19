@@ -52,9 +52,11 @@ vet:
 lint:
 	@command -v staticcheck >/dev/null 2>&1 || go install honnef.co/go/tools/cmd/staticcheck@latest
 	staticcheck $$(go list ./... | grep -v '/biz/model/')
+	@unformatted=$$(gofmt -l internal cmd test 2>/dev/null); \
+		if [ -n "$$unformatted" ]; then echo "gofmt 未格式化:"; echo "$$unformatted"; exit 1; fi
 
 fmt:
-	gofmt -l -w $(shell find . -name "*.go" -not -path "./biz/model/*")
+	gofmt -l -w $(shell find internal cmd test -name "*.go" 2>/dev/null)
 
 check:
 	@command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest
