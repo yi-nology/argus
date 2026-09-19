@@ -239,6 +239,16 @@ type Config struct {
 	// 变更不含 Go 文件或无工作副本池时自动跳过。ARGUS_CODEGRAPH=0 关闭。
 	Codegraph bool
 
+	// TestGen 沙箱验证（v3.22.0）：@argus testgen 产物的工作副本编译验证。
+	// 纪律：argus 自身绝不直接执行待审代码——VerifyCmd 是部署方声明的隔离执行
+	// 包装命令（模板含 {dir} 占位符，如
+	//   "docker run --rm -v {dir}:/w -w /w golang:1.24 go test ./..."
+	// ），隔离责任（网络/文件系统/资源限制）在包装命令侧，与 cli 插件 §8 供应链
+	// 同构。空 = 关闭（缺省），testgen 回帖保持「未经编译验证」声明。
+	TestGenVerifyCmd string
+	// TestGenVerifyTimeout 包装命令硬上限（ARGUS_TESTGEN_VERIFY_TIMEOUT，0 = 5m）。
+	TestGenVerifyTimeout time.Duration
+
 	// Milvus 向量检索配置（ARGUS_MILVUS_ADDR 非空时启用）。
 	MilvusAddr       string // Milvus 地址，如 "localhost:19530"
 	MilvusCollection string // 集合名，默认 "agentkit_knowledge"
@@ -425,6 +435,8 @@ func Load() *Config {
 		SASTSemgrepConfig:      os.Getenv("ARGUS_SAST_SEMGREP_CONFIG"),
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
+		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
+		TestGenVerifyTimeout:   envDuration("ARGUS_TESTGEN_VERIFY_TIMEOUT", 0),
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:              os.Getenv("ARGUS_POLL_REPOS"),

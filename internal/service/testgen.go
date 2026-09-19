@@ -10,8 +10,10 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
+	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/textutil"
+	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"argus/internal/obs"
 	"argus/internal/plugin"
@@ -43,6 +45,8 @@ func extractTestGen(question string) (string, bool) {
 }
 
 // handleTestGen 执行 testgen 命令：拉 diff（target 非空时只留命中文件）→ 单次 LLM → 回帖。
+// 配置了沙箱验证包装命令（ARGUS_TESTGEN_VERIFY_CMD）且工作副本可用时，产物经
+// 隔离执行编译验证并把结果段附进回帖；未配置保持「未经编译验证」声明。
 func (s *Service) handleTestGen(ctx context.Context, platform, owner, repo, number, prRef,
 	target, delivery string) {
 
@@ -82,9 +86,62 @@ func (s *Service) handleTestGen(ctx context.Context, platform, owner, repo, numb
 	if t, truncated := textutil.TruncRunes(out, testgenMaxRunes); truncated {
 		out = t + "\n…（截断）"
 	}
-	out += testgenFooter
+	// 沙箱验证（v3.22.0）：配置了包装命令且工作副本可用才执行，结果段替代
+	// 「未经编译验证」声明；未配置/降级时声明保持（任何失败只降级，不阻断回帖）。
+	if section := s.sandboxVerify(ctx, platform, owner, repo, number, out); section != "" {
+		out += section
+	} else {
+		out += testgenFooter
+	}
 	body := out + "\n\n<!-- argus:testgen delivery=" + delivery + " -->"
 	s.postCommentReply(ctx, platform, owner, repo, number, prRef, body, "testgen", len(out))
+}
+
+// sandboxVerify testgen 产物的隔离执行验证。返回附加到回帖的验证结果段
+// （空 = 未验证，调用方保持「未经编译验证」声明）。
+func (s *Service) sandboxVerify(ctx context.Context, platform, owner, repo, number, generated string) string {
+	cfg := s.Cfg
+	if cfg == nil || strings.TrimSpace(cfg.TestGenVerifyCmd) == "" || s.WC == nil {
+		return ""
+	}
+	files := extractGoTestFiles(generated)
+	if len(files) == 0 {
+		return ""
+	}
+	headSHA := ""
+	if cr, err := s.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
+		headSHA = cr.HeadSHA
+	}
+	key := workcopy.WorktreeKey{
+		Platform: platform, Owner: owner, Repo: repo, Number: number,
+		HeadSHA: headSHA,
+	}
+	dir, err := s.WC.Ensure(ctx, key)
+	if err != nil {
+		s.log().Warn("argus.testgen.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return ""
+	}
+	defer s.WC.Release(key)
+	vcfg := VerifyConfig{Cmd: cfg.TestGenVerifyCmd, Timeout: cfg.TestGenVerifyTimeout}
+	results := VerifyGenerated(ctx, vcfg, dir, files)
+	if len(results) == 0 {
+		return ""
+	}
+	section := renderVerifySection(results)
+	obs.IncrTestGenVerify(sectionVerified(results))
+	s.log().Info("argus.testgen.verified", "files", len(files),
+		"ok", sectionVerified(results))
+	return section
+}
+
+// sectionVerified 全部文件验证通过返回 true（指标面用）。
+func sectionVerified(results []VerifyResult) bool {
+	for _, r := range results {
+		if !r.OK {
+			return false
+		}
+	}
+	return len(results) > 0
 }
 
 // filterDiffByPath 按 "diff --git" 块过滤：保留含 target 子串的文件块

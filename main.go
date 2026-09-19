@@ -318,6 +318,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
 		Model: sys.Models.React, QAModel: sys.Models.QA,
 		RouterModel: sys.Models.Router,
+		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
 		Audit:       audit.New(log, "argus-audit"), Version: version}
 	// 评论链路停机排水（v3.8.0）：HTTP 已停（不再进新事件）后等在途 Q&A 收尾，
 	// 此前进程退出直接杀在途 ReAct——用户永无回复。放 worker 停机之前。

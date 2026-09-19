@@ -117,6 +117,11 @@ var (
 		Name: "argus_qa_failures_total", Help: "评论链路处理失败分布（llm/reject/…）",
 	}, []string{"reason"})
 
+	// testGenVerify testgen 沙箱验证结果计数（v3.22.0）。
+	testGenVerify = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_testgen_verify_total", Help: "testgen 沙箱验证结果分布（passed/failed）",
+	}, []string{"result"})
+
 	// pollerFailures 轮询兜底链路失败计数（v3.9.2：轮询是 webhook 不可达环境的
 	// 主力任务源，此前失败仅 Warn 日志，API 故障率/截断率无法聚合告警）。
 	pollerFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -158,7 +163,7 @@ func Init() {
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
-		webhookSkipped, webhookRejected, llmFailovers, qaFailures,
+		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
@@ -253,6 +258,15 @@ func IncrPollerFailure(reason string) {
 // IncrCommentBusy 评论并发闸满载拒绝计数（service 层调用）。
 func IncrCommentBusy() {
 	commentBusy.Inc()
+}
+
+// IncrTestGenVerify testgen 沙箱验证结果计数（v3.22.0；passed/failed）。
+func IncrTestGenVerify(passed bool) {
+	if passed {
+		testGenVerify.WithLabelValues("passed").Inc()
+		return
+	}
+	testGenVerify.WithLabelValues("failed").Inc()
 }
 
 // IncrCommentPostFailure 评论回帖失败计数（service 层调用）。

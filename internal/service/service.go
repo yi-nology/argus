@@ -22,6 +22,7 @@ import (
 
 	"git.example.com/enjoydream/ekit/concurrency/async"
 	mw "git.example.com/enjoydream/ekit/middleware"
+	"git.example.com/enjoydream/agentkit/workcopy"
 
 	api "argus/biz/model/api"
 	"argus/internal/config"
@@ -58,6 +59,9 @@ type Service struct {
 	// RouterModel 评论意图路由分类模型（v3.4 ARGUS_ROUTER_MODEL 覆盖；nil = QAModel → Model）。
 	// 仅 ARGUS_COMMENT_ROUTER=1 时消费。
 	RouterModel model.BaseChatModel
+
+	// WC 工作副本池（v3.22.0 testgen 沙箱验证；nil = 验证不可用）。
+	WC *workcopy.Pool
 
 	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
 	qaThrottleMu sync.Mutex
