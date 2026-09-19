@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.21.0 (2026-09-19) — 收尾批：SAST 聚焦扫描 / Gitee 接线 / 夹具 v7 扩容
+
+v7 首轮真实增量 4/4 有效命中（36 approve 入集合 / 37、38 comment 精确 / 40 两轮
+落放宽集合）；39/41 skip_real 登记在案，41 暴露的「R3 对噪声排除文件应优先
+get_file 核实」列为 v8 管线方向。
+
+- **SAST semgrep 变更文件聚焦**：`sastscan.Run` 接收 diffprep 审查范围清单，
+  semgrep 只扫变更文件（>100 文件回退全仓、防路径穿越、与审查范围一致）——
+  大仓全仓扫描的时长与信噪比劣化收口；gitleaks 维持 baseRef 范围扫描。
+- **Gitee 平台接线**：`ARGUS_GITEE_URL/TOKEN/SECRET/SKIP_TLS` 四件套进平台
+  循环（SDK gitee backend 原已注册，接线前 argus 侧无法启用）。生产 Gitee
+  实例实测待试点环境（接线≠验证）。
+- **夹具 v7 扩容（36-41，集合 35→41 条、真实分母 29→33）**：issue 需求源
+  （36）、英文需求源（37）、非 Go 变更 codegraph 跳过路径（38）、删除文件
+  仍被引用 rc（39，skip_real——意见产出不可控）、纯重命名 clean（40）、
+  二进制+lockfile 噪声 clean（41，skip_real——暴露 R3 对排除文件的核实改进
+  方向，登记为 v8 管线项）。harness 支持 `is_binary`/`is_renamed`/`is_deleted`
+  变更形态标记。打桩 41/41 全绿（clean 5/5）；真实模式有效增量 4/4。
+- **遗留复核留档**（IMPROVEMENT-PLAN）：testgen 沙箱验证明确不做（执行待审
+  代码违反沙箱纪律，需容器级隔离立项）；codegraph v2 留档不排期（cgo 冲突 +
+  收益不足）；SAST 聚焦落地。
+
 ## v3.20.0 (2026-09-19) — 夹具 v6 扩容：真值表优先级 / 空 diff / 中文路径
 
 向 golden ≥100 条微调门槛扩容的第一批（集合 32→35 条，真实分母 26→29），

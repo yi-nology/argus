@@ -218,9 +218,18 @@ Graphite Diamond）差距调研后拍板的 P0/P1/P2-7 全部落地：
 
 **遗留项（不阻塞版本）**：
 
-- testgen 沙箱编译验证（浅克隆工作副本无模块缓存，需可用的 go module proxy 或
-  vendored 仓前提）；
-- codegraph v2：JS/TS 多语言扩展与类型解析级精确调用图（评估 LSIF/SCIP 导入）；
-- SAST diff 聚焦增强：semgrep 按变更文件过滤 + gitleaks 无 merge-base 时的大仓
-  全量扫描成本上限；
+- testgen 沙箱编译验证——**复核后明确不做（2026-09-19）**：验证即要在工作副本
+  执行 `go test`，而工作副本是敌对代码——执行待审代码直接违反 §8 沙箱纪律
+  （审查必须只读）；可行前提是容器级执行隔离（gVisor/独立沙箱容器），属独立
+  立项而非本计划顺手项。v3.21.0 起回帖固定「未经编译验证」声明的形态即为终态
+  （除非隔离执行立项）。
+- codegraph v2：JS/TS 多语言扩展与类型解析级精确调用图（评估 LSIF/SCIP 导入）
+  ——**留档不排期**：tree-sitter 依赖 cgo 与 CGO_ENABLED=0 构建门禁冲突；纯 Go
+  的多语言解析器/类型图收益不足以抵新增依赖与维护面，等真实多语言仓诉求。
+- SAST diff 聚焦增强——semgrep 按变更文件过滤 **已落地（v3.21.0，
+  internal/sastscan，>100 文件回退全仓、防路径穿越）**；gitleaks 无 merge-base
+  时的全量扫描成本上限维持 `--no-git` + 超时兜底现状（工作副本 deepen 在案优化）。
 - 副驾 IDE 客户端（消费 MCP 三工具 + SSE），维持批次 4 条件项定位。
+- Gitee 平台接线 **已落地（v3.21.0）**：ARGUS_GITEE_* 四件套进 config 平台循环
+  （SDK backend 原已注册）；生产 Gitee 实例实测仍待试点环境（接线≠验证，如实
+  登记）。

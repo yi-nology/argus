@@ -277,3 +277,30 @@ v1 12/26 → v2 14/20（70%）→ v3 18/21（86%）→ v3.5 22/26（85%）→ v4
 **登记口径**：v5 满贯基线保持有效（老夹具未动）；v6 增量三条件质与数量均
 独立成段。距 ≥100 条门槛还差 65 条，后续按「真实语义缺口优先、不造凑数夹具」
 节奏扩容。
+
+### v7 · 扩容第二批（夹具 36-41，v3.21.0，2026-09-19）
+
+集合 35→41 条（is_binary/is_renamed/is_deleted 变更形态入册），打桩 41/41 全绿
+（clean 5/5）。真实模式增量（mimo-v2.5）**4/4 有效命中**：
+
+- **36-issue-source**：approve（在 [comment, approve] 集合）——R1 从关联 issue
+  改写需求，需求源入口覆盖 ✅。
+- **37-english-requirement**：comment 精确——英文需求源解析 ✅。
+- **38-python-change**：comment 精确——非 Go 变更（codegraph 跳过路径）✅。
+- **40-renamed**：首轮 comment、单例复跑 approve——两轮均落 [approve, comment]
+  放宽集合（change-shape 场景 reviewer 意见产出不可控的诚实放宽）。
+
+**两条 skip_real（登记）**：
+
+- **39-deleted-file-rc**：真实落 comment（期望 rc）——「reviewer 是否发现跨文件
+  引用破坏」是召回能力而非 verdict 口径，意见由 stub 提供的打桩语义照常钉 R5.2。
+- **41-binary-lockfile**：真实落 **request_changes（R5.1，2 项未达标）**——真实
+  发现：R1 把「go.sum 同步」拆成 AC，R3 对噪声排除文件（go.sum/logo 不进 diff
+  文本）判未达标。**v8 方向（管线）：R3 提示词补「被排除文件用 get_file 核实，
+  禁止因不可见判 missing」**；夹具语义依赖 R1 拆粒度前提，暂 skip_real。
+
+**口径备注**：真实分母 29→33（41 集合中 skip_real 8 条）。v7 增量快照
+`eval/results/v7-additions-36-41.json`（打桩终态）+ `v7-40-renamed-relaxed.json`
+（40 放宽后单例）。三特性同批落地：SAST semgrep 变更文件聚焦、Gitee 平台接线
+（生产实例实测待试点环境）、遗留项复核（testgen 沙箱明确不做：执行待审代码
+违反沙箱纪律；codegraph v2 留档不排期）。
