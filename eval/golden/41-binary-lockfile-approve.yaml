@@ -1,0 +1,56 @@
+# 场景（v7 扩容）：二进制 + lockfile 噪声混合 → 噪声排除路径 + R5.5 APPROVE。
+# is_binary 首次入册：logo.png 不进 diff 文本；go.sum 命中内置噪声表。clean 家族
+# 扩展（噪声文件上不应产生意见）。
+# skip_real：v7 首轮真实 R1 把「go.sum 同步」拆成 AC、R3 对噪声排除文件（不进
+# diff 文本）判未达标 → R5.1——暴露「R3 对排除文件应优先 get_file 核实」的
+# 管线改进方向（登记留案），但夹具语义依赖 R1 拆粒度前提，真实模式不计分。
+name: 41-binary-lockfile-approve
+scenario: [change-shape, clean]
+kind: 0
+skip_real: true
+pr:
+  title: 更新依赖与 logo
+  body: |
+    go.mod 依赖升级（go.sum 同步）与 logo 图片替换。无源码变更。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"依赖升级与 logo 替换，不引入源码回归"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"go.mod:3"}],"scope_creep":[],"summary":"依赖与资源变更"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: go.mod
+    diff: |
+      diff --git a/go.mod b/go.mod
+      --- a/go.mod
+      +++ b/go.mod
+      @@ -1,3 +1,4 @@
+       module app
+       
+      -require old.dep v1.0.0
+      +require new.dep v2.0.0
+    additions: 1
+    deletions: 1
+  - path: go.sum
+    diff: |
+      diff --git a/go.sum b/go.sum
+      --- a/go.sum
+      +++ b/go.sum
+      @@ -1,2 +1,3 @@
+      +new.dep v2.0.0 h1:aaa=
+      +new.dep v2.0.0/go.mod h1:bbb=
+    additions: 2
+  - path: assets/logo.png
+    is_binary: true
+    diff: |
+      binary file changed
+    additions: 0
+repo_files:
+  go.mod: |
+    module app
+
+    require new.dep v2.0.0
+expect:
+  verdict: approve
+  must_find: ["R5.5"]

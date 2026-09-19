@@ -1,0 +1,39 @@
+# 场景（v7 扩容）：删除文件仍被引用 → R5.2 REQUEST_CHANGES（rc 精确比对，漏升级
+# 不容方差）。变更形态 is_deleted 首次入册；diff 只显示删除块（diffprep 元信息）。
+# skip_real：该场景钉的是 R5.2 真值表语义（意见由 stub 提供）；真实模式下
+# 「reviewer 是否发现跨文件引用破坏」是召回能力而非 verdict 口径（v4 31 号同款
+# 教训：意见产出不可控的夹具不精确比对意见驱动 verdict），真实模式不计分。
+name: 39-deleted-file-rc
+scenario: [change-shape]
+kind: 0
+skip_real: true
+pr:
+  title: 移除旧的连接实现
+  body: |
+    删除 db.go 中不再使用的 Connect 函数。见 issue #39
+stub:
+  r1: |
+    {"source":"issue #39","acceptance_criteria":[{"id":"AC-1","text":"删除不再使用的 Connect 函数且不影响现有调用"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"db.go:1"}],"scope_creep":[],"summary":"已删除"}
+  reviewer: |
+    {"findings":[{"file":"db.go","line":2,"severity":"high","comment":"Connect 仍被 main.go:7 调用，删除将导致编译失败"}],"notes":""}
+changed_files:
+  - path: db.go
+    is_deleted: true
+    diff: |
+      diff --git a/db.go b/db.go
+      --- a/db.go
+      +++ /dev/null
+      @@ -1,4 +0,0 @@
+      -package db
+      -
+      -func Connect(dsn string) error {
+      -	return nil
+      -}
+    deletions: 4
+repo_files:
+  db.go: ""
+expect:
+  verdict: request_changes
+  must_find: ["R5.2", "main.go:7"]

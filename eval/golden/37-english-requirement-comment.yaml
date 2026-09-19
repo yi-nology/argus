@@ -1,0 +1,40 @@
+# 场景（v7 扩容）：全英文需求——R1 从英文 PR 描述改写中文验收清单（跨语言解析，
+# 24 号是 CJK 意见、需求仍是中文；英文需求源未覆盖）。real 集合 [comment, approve]。
+name: 37-english-requirement-comment
+scenario: [multilingual]
+kind: 0
+pr:
+  title: Implement Add helper
+  body: |
+    Implement a helper `Add(a, b int) int` in package main that returns the sum of two integers. See issue #37
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"add.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"add.go","line":3,"severity":"low","comment":"导出函数缺少 doc comment"}],"notes":""}
+changed_files:
+  - path: add.go
+    diff: |
+      diff --git a/add.go b/add.go
+      --- /dev/null
+      +++ b/add.go
+      @@ -0,0 +1,4 @@
+      +package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  add.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

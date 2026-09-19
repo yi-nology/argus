@@ -1,0 +1,35 @@
+# 场景（v7 扩容）：非 Go 语言变更（Python）——codegraph 跳过路径 + reviewer 跨语言
+# 审查能力。real 集合 [comment, approve]（reviewer 对简单 Python 函数的意见产出
+# 不可控，诚实放宽同 10 号）。
+name: 38-python-change-comment
+scenario: [polyglot]
+kind: 0
+pr:
+  title: 添加 Python 工具函数
+  body: |
+    在 utils.py 提供 add(a, b) 函数返回两数之和。见 issue #38
+stub:
+  r1: |
+    {"source":"issue #38","acceptance_criteria":[{"id":"AC-1","text":"在 utils.py 提供 add(a, b) 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"utils.py:2"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"utils.py","line":2,"severity":"low","comment":"函数缺少 docstring"}],"notes":""}
+changed_files:
+  - path: utils.py
+    diff: |
+      diff --git a/utils.py b/utils.py
+      --- /dev/null
+      +++ b/utils.py
+      @@ -0,0 +1,2 @@
+      +def add(a, b):
+      +    return a + b
+    additions: 2
+repo_files:
+  utils.py: |
+    def add(a, b):
+        return a + b
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

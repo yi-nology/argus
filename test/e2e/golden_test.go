@@ -69,6 +69,11 @@ type goldenFile struct {
 	Diff      string `yaml:"diff"`
 	Additions int    `yaml:"additions"`
 	Deletions int    `yaml:"deletions"`
+	// IsBinary/IsRenamed/IsDeleted 变更形态标记（v3.21.0 扩容：二进制/重命名/
+	// 删除场景夹具直接驱动 diffprep 元信息路径）。
+	IsBinary  bool `yaml:"is_binary"`
+	IsRenamed bool `yaml:"is_renamed"`
+	IsDeleted bool `yaml:"is_deleted"`
 }
 
 type goldenStub struct {
@@ -174,6 +179,7 @@ func TestGoldenReviewEval(t *testing.T) {
 			for _, f := range c.ChangedFiles {
 				opts.diffFiles = append(opts.diffFiles, provider.ChangedFile{
 					NewPath: f.Path, Diff: f.Diff, Additions: f.Additions, Deletions: f.Deletions,
+					IsBinary: f.IsBinary, IsRenamed: f.IsRenamed, IsDeleted: f.IsDeleted,
 				})
 			}
 			opts.repoFiles = c.RepoFiles

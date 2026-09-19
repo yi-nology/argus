@@ -1,0 +1,38 @@
+# 场景（v7 扩容）：纯重命名（内容零变更）→ R5.5 APPROVE。变更形态 is_renamed
+# 首次入册；clean 家族扩展——重命名若无引用破坏不应制造意见。real 集合
+# [approve, comment]：v7 首轮真实 reviewer 对 rename 报了谨慎意见落 R5.4，
+# 属诚实人工确认路径非过严（change-shape 场景意见产出不可控，同 35/38 放宽）。
+name: 40-renamed-file-approve
+scenario: [change-shape, clean]
+kind: 0
+pr:
+  title: 重命名 math.go 为 arith.go
+  body: |
+    文件重命名 math.go → arith.go，内容零变更。无功能改动。
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"完成 math.go → arith.go 重命名且内容不变"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"arith.go:3"}],"scope_creep":[],"summary":"纯重命名"}
+  reviewer: |
+    {"findings":[],"notes":""}
+changed_files:
+  - path: arith.go
+    is_renamed: true
+    diff: |
+      diff --git a/math.go b/arith.go
+      similarity index 100%
+      rename from math.go
+      rename to arith.go
+    additions: 0
+repo_files:
+  arith.go: |
+    package math
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+expect:
+  verdict: approve
+  real_verdicts: [approve, comment]
+  must_find: ["R5.5"]
