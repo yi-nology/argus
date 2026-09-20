@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.29.2 (2026-09-20) — SDK 深度结合：子进程生成全量收敛 procx（零行为变更）
+
+- **进程纪律单源收口**：argus 全仓剩余三处手写 `exec.CommandContext` 全部迁移
+  `procx.Run`（v0.10.14 深度结合）——sastscan 的 gitleaks/semgrep 两处（删除
+  手写 `combinedOutput` 超时杀 + `minimalEnv` 拼装，环境白名单改 procx 按名
+  透传）+ service 沙箱验证的 `sh -c` 包装命令。此后 argus 子进程生成 100% 走
+  procx（进程组托管/超时宽限 TERM→SIGKILL/输出上限/环境白名单全继承 SDK 纪律）；
+  仅余 `exec.LookPath` 两处二进制存在性检查（非生成，合法保留）。
+- ekit 已在最新 v0.29.0（v0.3.x 为旧线，语义排序在 v0.27 前），无需 bump。
+- 语义保真：非零退出仍判失败（gitleaks `--exit-code 0` 钉住不变）、超时错误
+  文本由 "signal: killed" 变为 procx.ErrTimeout「执行超时」（回帖更可读）。
+- 评估不换：requirement 测试桩 fakeChatModel（内容分支 R1a/分块 digest 与
+  llmtest 有序脚本模型不匹配，迁移触碰 ~10 用例零生产收益）——登记缓办。
+- 全门禁绿：build/vet/staticcheck+gofmt/test/golden 57/57（clean 5/5、FP=0、
+  boundary 2/2）/e2e。
+
 ## v3.29.1 (2026-09-20) — agentkit v0.10.11 → v0.10.14
 
 - **v0.10.12 记账单源化迁移（破坏性）**：`obsx.Options.OnUsage` 退役（obsx 回归

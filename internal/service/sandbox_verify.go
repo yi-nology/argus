@@ -11,12 +11,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"git.example.com/enjoydream/agentkit/logredact"
+	"git.example.com/enjoydream/agentkit/procx"
 
 	"argus/internal/plugin"
 )
@@ -156,17 +156,25 @@ func VerifyGenerated(ctx context.Context, cfg VerifyConfig, dir string,
 
 // runVerifyCmd 执行 {dir} 替换后的包装命令（shell -c，与 cli 插件 argv 白名单
 // 不同：模板本身就是部署方声明的一段 shell，argus 只注入工作副本路径）。
+// v0.10.14 深度结合：进程纪律单源 procx（进程组托管/超时宽限/输出上限）。
 func runVerifyCmd(ctx context.Context, cfg VerifyConfig, dir string) (bool, string) {
 	cmdline := strings.ReplaceAll(cfg.Cmd, "{dir}", dir)
-	cctx, cancel := context.WithTimeout(ctx, cfg.verifyTimeoutResolved())
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "sh", "-c", cmdline)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, string(out) + "\n" + err.Error()
+	stdout, stderr, code, err := procx.Run(ctx, procx.RunRequest{
+		Argv:    []string{"sh", "-c", cmdline},
+		Dir:     dir,
+		Timeout: cfg.verifyTimeoutResolved(),
+	})
+	combined := strings.TrimSpace(stdout)
+	if stderr != "" {
+		combined = strings.TrimSpace(combined + "\n" + stderr)
 	}
-	return true, string(out)
+	switch {
+	case err != nil:
+		return false, combined + "\n" + err.Error()
+	case code != 0:
+		return false, combined + fmt.Sprintf("\nexit status %d", code)
+	}
+	return true, combined
 }
 
 // truncVerify 失败输出截断（回帖可见，防刷屏）。

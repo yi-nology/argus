@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
+
+	"git.example.com/enjoydream/agentkit/procx"
 	"strings"
 	"time"
 
@@ -102,11 +102,20 @@ func runGitleaks(ctx context.Context, cfg Config, dir, baseRef string,
 	}
 	args := gitleaksArgs(dir, logOpts)
 	args = append(args, "--report-path", reportPath)
-	cmd := exec.CommandContext(ctx, cfg.GitleaksBin, args...)
-	cmd.Dir = dir
-	cmd.Env = minimalEnv()
-	if out, err := combinedOutput(cmd, timeout); err != nil {
-		o.Err = fmt.Errorf("gitleaks 执行失败: %v: %s", err, truncLine(out, 300))
+	// v0.10.14 深度结合：进程纪律单源 procx（进程组托管/超时宽限/输出上限，
+	// 取代手写 combinedOutput + timer kill）
+	stdout, stderr, code, err := procx.Run(ctx, procx.RunRequest{
+		Argv:    append([]string{cfg.GitleaksBin}, args...),
+		Dir:     dir,
+		Env:     sastEnvAllow,
+		Timeout: timeout,
+	})
+	if err != nil {
+		o.Err = fmt.Errorf("gitleaks 执行失败: %v: %s", err, truncLine(stderr, 300))
+		return o
+	}
+	if code != 0 {
+		o.Err = fmt.Errorf("gitleaks 退出码 %d: %s", code, truncLine(stdout+"\n"+stderr, 300))
 		return o
 	}
 	data, err := os.ReadFile(reportPath)
@@ -172,12 +181,14 @@ func runSemgrep(ctx context.Context, cfg Config, dir string, paths []string,
 	} else {
 		args = append(args, ".")
 	}
-	cmd := exec.CommandContext(ctx, cfg.SemgrepBin, args...)
-	cmd.Dir = dir
-	cmd.Env = minimalEnv()
-	out, err := combinedOutput(cmd, timeout)
-	if err != nil {
-		o.Err = fmt.Errorf("semgrep 执行失败: %v: %s", err, truncLine(out, 300))
+	stdout, stderr, code, err := procx.Run(ctx, procx.RunRequest{
+		Argv:    append([]string{cfg.SemgrepBin}, args...),
+		Dir:     dir,
+		Env:     sastEnvAllow,
+		Timeout: timeout,
+	})
+	if err != nil || code != 0 {
+		o.Err = fmt.Errorf("semgrep 执行失败: exit=%d err=%v: %s", code, err, truncLine(stdout+"\n"+stderr, 300))
 		return o
 	}
 	var parsed struct {
@@ -194,7 +205,7 @@ func runSemgrep(ctx context.Context, cfg Config, dir string, paths []string,
 		} `json:"results"`
 		Errors []any `json:"errors"`
 	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
 		o.Err = fmt.Errorf("semgrep 输出解析失败: %w", err)
 		return o
 	}
@@ -257,37 +268,10 @@ func manifest(name string, timeout time.Duration) plugin.AgentManifest {
 }
 
 // minimalEnv cli 子进程最小环境（与插件 cli 同纪律：绝不继承密钥）。
-func minimalEnv() []string {
-	var env []string
-	for _, k := range []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
-		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
-		if v, ok := os.LookupEnv(k); ok {
-			env = append(env, k+"="+v)
-		}
-	}
-	return env
-}
-
-// combinedOutput 带超时的命令执行（stdout+stderr 合并，semgrep 直接解析 stdout）。
-func combinedOutput(cmd *exec.Cmd, timeout time.Duration) (string, error) {
-	done := make(chan error, 1)
-	var buf strings.Builder
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	go func() { done <- cmd.Wait() }()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		return buf.String(), err
-	case <-timer.C:
-		_ = cmd.Process.Kill()
-		return buf.String(), fmt.Errorf("超时（>%s）", strconv.Itoa(int(timeout.Seconds()))+"s")
-	}
-}
+// sastEnvAllow SAST 子进程环境白名单（按名透传当前进程变量，叠加在 procx
+// 基础集之上）——取代手写 minimalEnv 拼装。
+var sastEnvAllow = []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"}
 
 // truncLine 错误输出截断（进 Err 链，最终上报告警）。
 func truncLine(s string, n int) string {
