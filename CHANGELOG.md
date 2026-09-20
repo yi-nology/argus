@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.29.1 (2026-09-20) — agentkit v0.10.11 → v0.10.14
+
+- **v0.10.12 记账单源化迁移（破坏性）**：`obsx.Options.OnUsage` 退役（obsx 回归
+  纯 trace）——runner 任务级成本记账改经 `llm.NewUsageHandler`（callbacks 侧
+  单出口），trace（`NewTracingHandler`）与 usage 两个 handler 一次
+  `InitCallbacks` 并注入。UsageHandler 只补 ReAct/RawModel 旁路（Generate 直连
+  已由 `llm.Client.OnUsage` 记账，防重护栏内置，两侧不双计）；旁路无 stage
+  语义（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
+- **toolprior 改名迁移（破坏性）**：`WithCallLimit` → `LimitCalls`（工具装饰器
+  不再占用 With* 前缀）。
+- v0.10.13/14：agentrun PlanAndExecute Replanner 修复、lineage refs_changed
+  清理（argus 未消费面）；procx 三版本间零改动。
+- 全门禁绿：build/vet/staticcheck+gofmt/golden 57/57（clean 5/5、FP=0、
+  boundary 2/2）/e2e。全量单测中 gitdeepen/ocrdeleg 两例 procx 超时为外部并行
+  负载所致（隔离复跑双绿、procx 零改动，非升级回归）。
+
 ## v3.29.0 (2026-09-20) — 夹具 v13：R3.5 报告反思入册（critique-fail + 修订草稿双注入）
 
 - **harness 双注入**：`r35_critique_fail`（critique 打回，agentkit reflection
