@@ -1,0 +1,53 @@
+# 场景（v13 扩容）：R3.5 报告反思（批次 2，v3.4）首次入册——critique 打回 +
+# 修订草稿按 id 剔除一条意见 → 报告「R3.5 报告反思」注记（剔除 1 条误报嫌疑）
+# + 仅剩意见落 R5.4。剔除的原始身份计入 regret（学习环误报信号）。
+# 契约：agentkit reflection critique {"pass","issues"}；修订草稿为
+# reflectFindingWire 锚定列表（只认原列表已有 id，省略即剔除）。
+name: 58-r35-reflect-comment
+# 真实模式跳过：critique-fail 与草稿剔陠除都是打桩前提，真实反思行为不可钉
+skip_real: true
+reflect_rounds: 1
+r35_critique_fail: true
+# 修订草稿（wire 锚定列表）：只保留 id 0（medium）——id 1 被剔除，计入 regret
+r35_drafts:
+  - '[{"id":0,"file":"main.go","line":3,"severity":"medium","comment":"Add 缺少 doc comment"}]'
+scenario: [guard, render]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #58
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,6 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+stub:
+  r1: |
+    {"source":"issue #58","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"Add 缺少 doc comment"},{"file":"main.go","line":4,"severity":"low","comment":"函数名建议动词开头"}],"notes":""}
+expect:
+  verdict: comment
+  # 修订草稿只保留 id 0（medium）→ id 1 被剔除 → 注记「剔除 1 条误报嫌疑」；
+  # 剩 1 条 medium → R5.4 comment
+  real_verdicts: [comment]
+  must_find: ["R3.5 报告反思", "剔除 1 条误报嫌疑", "Add 缺少 doc comment", "R5.4"]
+  must_not_find: ["函数名建议动词开头"]

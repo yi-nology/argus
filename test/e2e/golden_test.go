@@ -96,15 +96,15 @@ type goldenExpect struct {
 }
 
 type goldenCase struct {
-	Name          string              `yaml:"name"`
-	Scenario      []string            `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render|repo-config|best-of-n|meta-declaration|change-shape|verdict-priority|edge|i18n|dependency
-	Kind          int                 `yaml:"kind"`     // 0=requirement_compliance 1=code_review
-	PR            goldenPR            `yaml:"pr"`
-	ChangedFiles  []goldenFile        `yaml:"changed_files"`
-	RepoFiles     map[string]string   `yaml:"repo_files"`
-	Issues        map[string]string   `yaml:"issues"` // number → 正文
-	StripDefaults bool                `yaml:"strip_defaults"`
-	ExtraAgents   []plugin.AgentDecl  `yaml:"extra_agents"`
+	Name          string             `yaml:"name"`
+	Scenario      []string           `yaml:"scenario"` // partial|complete|injection|scope-creep|unverifiable|multilingual|merge|scope-gate|evidence-gate|guard|render|repo-config|best-of-n|meta-declaration|change-shape|verdict-priority|edge|i18n|dependency
+	Kind          int                `yaml:"kind"`     // 0=requirement_compliance 1=code_review
+	PR            goldenPR           `yaml:"pr"`
+	ChangedFiles  []goldenFile       `yaml:"changed_files"`
+	RepoFiles     map[string]string  `yaml:"repo_files"`
+	Issues        map[string]string  `yaml:"issues"` // number → 正文
+	StripDefaults bool               `yaml:"strip_defaults"`
+	ExtraAgents   []plugin.AgentDecl `yaml:"extra_agents"`
 	// ExtraSquads 编队声明（v3.27.0：consensus/互盲交叉标注夹具；须带 paths 或
 	// labels 触发条件，空条件不命中）
 	ExtraSquads []plugin.SquadDecl  `yaml:"extra_squads"`
@@ -117,9 +117,14 @@ type goldenCase struct {
 	CompletenessRetry  bool   `yaml:"completeness_retry"`
 	// GarbleR3 R3 完成度判定恒返回不可解析文本（v3.27.0：R3 失效降级路径夹具 53；
 	// 命名 marker case 优先于 persona，故以开关而非 persona 实现）
-	GarbleR3 bool         `yaml:"garble_r3"`
-	Stub     goldenStub   `yaml:"stub"`
-	Expect   goldenExpect `yaml:"expect"`
+	GarbleR3 bool `yaml:"garble_r3"`
+	// ReflectRounds/R35CritiqueFail/R35Drafts R3.5 报告反思（v3.28.0 夹具 58：
+	// 批判打回 + 修订草稿按 id 剔除 → 报告注记断言面；草稿为 wire 锚定列表）
+	ReflectRounds   int          `yaml:"reflect_rounds"`
+	R35CritiqueFail bool         `yaml:"r35_critique_fail"`
+	R35Drafts       []string     `yaml:"r35_drafts"`
+	Stub            goldenStub   `yaml:"stub"`
+	Expect          goldenExpect `yaml:"expect"`
 }
 
 func loadGoldenCases(t TestingT) []goldenCase {
@@ -208,6 +213,9 @@ func TestGoldenReviewEval(t *testing.T) {
 			opts.completenessRetry = c.CompletenessRetry
 			opts.garbleR3 = c.GarbleR3
 			opts.squads = c.ExtraSquads
+			opts.reflectRounds = c.ReflectRounds
+			opts.r35CritiqueFail = c.R35CritiqueFail
+			opts.r35Drafts = c.R35Drafts
 
 			s := newStack(t, opts)
 			taskID := s.createTaskViaAPI(t, c.Kind)

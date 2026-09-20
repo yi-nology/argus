@@ -21,6 +21,7 @@
 | 演进·夹具 v10 扩容 | ✅ v3.26.0 | 49/51/52 入册（include 白名单/部分采样降级/依赖升级 PR，集合 51 条真实分母 40）+ max_comments 改道 poster 单测（钳制语义此前零覆盖）；49 号 body-内容矛盾由真实模式抓出并修正 |
 | 演进·夹具 v11 | ✅ v3.27.0 | R3 失效降级补覆盖（TestCheckComplianceDegraded 单测 + harness garble_r3 开关 + 53 号端到端，此前双零覆盖）+ 54 号 JS 变更入册（集合 53 条）；54 真实模式 comment 精确命中 |
 | 演进·夹具 v12 | ✅ v3.28.0 | 编队语义首次入册（55 consensus 黑板共识 / 56 互盲交叉审查标注，harness 暴露 extra_squads）+ 57 号 TS 侧补齐（polyglot 三块齐）；集合 56 条真实分母 43，真实增量 3/3；R3.5 反思登记缓办（需 critique-fail 注入） |
+| 演进·夹具 v13 | ✅ v3.29.0 | R3.5 报告反思入册（harness r35_critique_fail + r35_drafts 双注入，58 号钉剔除注记 + regret 计账）；至此批次 2/3/4 编排语义 golden 全闭环；集合 57 条 |
 
 **G1b 基线演进**：首轮 mimo-v2.5-pro 12/26（46%，夹具 v1）——miss 归因为夹具骨架化代码
 而非模型失守（injection 场景全部安全）[eval/EXPERIMENTS.md]；v3.13.0 夹具 v2 把

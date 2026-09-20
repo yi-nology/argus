@@ -464,3 +464,18 @@ WithSquads 管线 v3.12 起即在，从未被夹具消费）：
 `eval/results/v12-additions-55-57.json`）：55 consensus comment 精确（共识
 全链路真实复现）；56 approve（真实成员未报意见，落 [approve, comment] 放宽
 集合）；57 comment 精确。距 ≥100 条微调门槛还差 44 条（集合 56）。
+
+### v13 · R3.5 报告反思入册（v3.29.0，2026-09-20）
+
+v12 登记的 critique 注入方向落地，集合 56→57 条（58 skip_real，分母不变 43）：
+
+- **harness 双注入**：`r35_critique_fail`（critique 打回，agentkit reflection
+  契约 `{"pass","issues"}`）+ `r35_drafts`（修订草稿，reflectFindingWire 锚定
+  列表，只认原列表已有 id、省略即剔除）。
+- **58-r35-reflect-comment（guard,render）**：critique 打回 → 修订稿仅留 id 0 →
+  「R3.5 报告反思：1 轮…剔除 1 条误报嫌疑」注记 + 剩 1 条 medium 落 R5.4；
+  被剔原始身份计入 regret（学习环误报信号，断言面在报告注记与意见段）。
+  **首轮失误在案**：给了 critique-fail 未给草稿 → opt.r35Drafts 空 → mock 回
+  `[]` → 全剔落 R5.5——「critique 打回」必须与「草稿内容」成对注入。
+- 至此批次 2/3/4 的编排语义在 golden 面全闭环：编队（共识/互盲）、反思、完备性
+  三裁判、降级路径（R2 除外——无失败路径可钉）。距 ≥100 门槛差 43 条。

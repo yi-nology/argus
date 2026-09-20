@@ -250,6 +250,8 @@ type mockLLM struct {
 	// GarbleR3 R3 完成度判定恒返回不可解析文本（降级路径驱动，夹具 53）。
 	// 命名 marker case 优先于 personaReply，故以开关而非 persona 实现。
 	GarbleR3 bool
+	// R35CritiqueFail R3.5 批判轮返回不通过（反思修订/剔除路径驱动，夹具 58）。
+	R35CritiqueFail bool
 }
 
 func newMockLLM(r1, r3, correctness string) *mockLLM {
@@ -314,7 +316,12 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(text, "【Argus R2 变更理解】"):
 		m.reply(w, "本 PR 添加了账号密码登录功能。")
 	case strings.Contains(text, "苛刻但公正的评审"):
-		// R3.5 critique：首轮即通过（draft 已由测试脚本钉死）
+		// R3.5 critique：默认首轮即通过；critique-fail 注入时打回，驱动修订/
+		// 剔除路径（agentkit reflection 契约 {"pass","issues"}）
+		if m.R35CritiqueFail {
+			m.reply(w, `{"pass":false,"issues":["id 0 之外的意见在 diff 中缺少证据支撑，建议剔除"]}`)
+			return
+		}
 		m.reply(w, `{"pass":true,"issues":[]}`)
 	case strings.Contains(text, "【Argus R3.5 报告反思】"):
 		m.mu.Lock()
@@ -417,6 +424,7 @@ type stackOpts struct {
 	reflectEvidence string // off|soft|strict
 	regretLearning  bool   // 模式级后悔学习环
 	r35Drafts       []string
+	r35CritiqueFail bool
 	commentRouter   bool                // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
 	squads          []plugin.SquadDecl  // 编队声明（共识/互盲场景）
 	routerReply     string              // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
@@ -473,6 +481,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	if !opt.realLLM {
 		llmMock = newMockLLM(opt.r1, opt.r3, opt.correctness)
 		llmMock.R35Drafts = opt.r35Drafts
+		llmMock.R35CritiqueFail = opt.r35CritiqueFail
 		llmMock.RouterReply = opt.routerReply
 		llmMock.routerMark = opt.routerMark
 		llmMock.PersonaSeq = opt.personaSeq

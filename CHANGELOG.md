@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.29.0 (2026-09-20) — 夹具 v13：R3.5 报告反思入册（critique-fail + 修订草稿双注入）
+
+- **harness 双注入**：`r35_critique_fail`（critique 打回，agentkit reflection
+  契约 `{"pass","issues"}`）+ `r35_drafts`（修订草稿，reflectFindingWire 锚定
+  列表——只认原列表已有 id，省略即剔除）。
+- **58-r35-reflect-comment（guard,render，skip_real）**：critique 打回 → 修订稿
+  仅留 id 0 → 报告「R3.5 报告反思：1 轮…剔除 1 条误报嫌疑」注记 + 剩 1 条
+  medium 落 R5.4；被剔原始身份计入 regret（学习环误报信号）。**首轮失误在案**：
+  critique-fail 未配草稿 → mock 回 `[]` → 全剔落 R5.5——「打回」必须与「草稿」
+  成对注入。
+- 至此批次 2/3/4 编排语义在 golden 面全闭环：编队（共识/互盲）、反思、完备性
+  三裁判、降级路径（R2 除外——自由文本输出无失败路径可钉）。
+- 集合 56→57 条（skip_real，分母 43）；距 ≥100 门槛差 43 条。打桩 57/57
+  （clean 5/5、FP=0、boundary 2/2）；全量单测绿（ocrdeleg 一例环境性超时抖动，
+  单跑 1s 过非回归）。
+
 ## v3.28.0 (2026-09-20) — 夹具 v12：编队语义入册（共识/互盲交叉标注）+ TS 补齐
 
 - **harness**：golden 夹具面暴露 `extra_squads`（opt.squads → plugins.yaml →
