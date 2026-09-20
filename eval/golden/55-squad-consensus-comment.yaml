@@ -1,0 +1,67 @@
+# 场景（v12 扩容）：consensus 编队（批次 2 异构编队的黑板共识形态）首次入册——
+# 成员不进 fan-out，由 RunConsensus 单独召集（黑板种子 → 轮转互看 → 收敛）；
+# beta 在黑板上见到 alpha 已收的同一发现不重复收集 → 共识产出单条，R5.4。
+# consensus 编队必须带 paths/labels 触发条件（空条件不命中）。
+name: 55-squad-consensus-comment
+scenario: [squad, code-review]
+kind: 0
+pr:
+  title: 添加 Add 函数
+  body: |
+    在 main 包实现 Add(a, b int) int，返回两数之和。见 issue #55
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,6 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    additions: 4
+repo_files:
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+extra_agents:
+  - name: alpha
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+  - name: beta
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+extra_squads:
+  - name: pair-consensus
+    mode: consensus
+    paths: ["*.go"]
+    members: [alpha, beta]
+persona_seq:
+  "【Argus alpha】":
+    - '{"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"Add 缺少 doc comment"}],"notes":""}'
+  "【Argus beta】":
+    - '{"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"Add 缺少 doc comment"}],"notes":""}'
+stub:
+  r1: |
+    {"source":"issue #55","acceptance_criteria":[{"id":"AC-1","text":"提供 Add(a, b int) int 返回两数之和"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+expect:
+  verdict: comment
+  # 黑板去重：beta 不重复收 alpha 已收的同一发现 → 单条进 Merger → R5.4。
+  # 真实模式成员意见产出不可控（共识后 0~N 条）→ [approve, comment] 诚实放宽
+  real_verdicts: [approve, comment]
+  must_find: ["Add 缺少 doc comment", "R5.4"]

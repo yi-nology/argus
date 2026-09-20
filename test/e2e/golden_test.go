@@ -105,7 +105,10 @@ type goldenCase struct {
 	Issues        map[string]string   `yaml:"issues"` // number → 正文
 	StripDefaults bool                `yaml:"strip_defaults"`
 	ExtraAgents   []plugin.AgentDecl  `yaml:"extra_agents"`
-	PersonaSeq    map[string][]string `yaml:"persona_seq"` // 额外 reviewer 的逐采样响应
+	// ExtraSquads 编队声明（v3.27.0：consensus/互盲交叉标注夹具；须带 paths 或
+	// labels 触发条件，空条件不命中）
+	ExtraSquads []plugin.SquadDecl  `yaml:"extra_squads"`
+	PersonaSeq  map[string][]string `yaml:"persona_seq"` // 额外 reviewer 的逐采样响应
 	// SkipReal 真实模式跳过：夹具语义依赖打桩前提（canned persona/非诚实 R3），
 	// 真实模型不会复现该前提（如「R3 被注入诱骗全标 implemented」）。
 	SkipReal bool `yaml:"skip_real"`
@@ -204,6 +207,7 @@ func TestGoldenReviewEval(t *testing.T) {
 			opts.completenessPolicy = c.CompletenessPolicy
 			opts.completenessRetry = c.CompletenessRetry
 			opts.garbleR3 = c.GarbleR3
+			opts.squads = c.ExtraSquads
 
 			s := newStack(t, opts)
 			taskID := s.createTaskViaAPI(t, c.Kind)

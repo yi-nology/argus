@@ -438,3 +438,29 @@ v10 登记的「R3 失效 harness/单测小批」落地，集合 51→53 条、�
 **v11 真实模式增量（mimo-v2.5 全局，单例）**：**54 comment 精确命中**（快照
 `eval/results/v11-additions-54.json`）——真实 reviewer 报非阻塞意见落 R5.4。
 距 ≥100 条微调门槛还差 47 条（集合 53）。
+
+### v12 · 编队语义入册（共识/互盲）+ TS 侧补齐（v3.28.0，2026-09-20）
+
+批次 2 的异构编队编排语义首次 golden 入册，集合 53→56 条、真实分母 40→43。
+harness 仅需暴露 `extra_squads` 字段（opt.squads/marshalPluginsFile/
+WithSquads 管线 v3.12 起即在，从未被夹具消费）：
+
+- **55-squad-consensus-comment（squad）**：consensus 黑板共识首次入册——成员
+  不进 fan-out，由 RunConsensus 单独召集（黑板种子 → 轮转互看 → 收敛）；beta
+  见黑板已有 alpha 所收同一发现不重复收集 → 共识产出单条 R5.4。consensus 编队
+  必须带 paths/labels 触发条件（空条件不命中）。
+- **56-squad-crossreview-comment（squad）**：互盲交叉审查标注首次入册——异
+  文件意见互未复现 → 各打「编队另一专家未复现此问题」降权标注 + CrossReview
+  汇总行。**首轮设计失误在案**：replicated 判定是「同文件 ±5 行内互现」——
+  两意见放同文件 6/9 行（相距 3 行）被判互现不标注；异文件才恒为未复现。
+- **57-ts-change-comment（polyglot）**：TS 侧入册，polyglot 三块拼图
+  （Python/JS/TS）齐了。
+
+**登记缓办**：R3.5 反思入册——mockLLM critique 恒 pass（`{"pass":true}` 硬编码）
+→ 反思首轮即收敛零剔除，报告无注记可断言；需 opts 级 critique-fail 注入方可
+入册（v13 harness 方向）。
+
+**v12 真实模式增量（mimo-v2.5 全局，`-run` 过滤）**：**3/3 命中**（快照
+`eval/results/v12-additions-55-57.json`）：55 consensus comment 精确（共识
+全链路真实复现）；56 approve（真实成员未报意见，落 [approve, comment] 放宽
+集合）；57 comment 精确。距 ≥100 条微调门槛还差 44 条（集合 56）。

@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.28.0 (2026-09-20) — 夹具 v12：编队语义入册（共识/互盲交叉标注）+ TS 补齐
+
+- **harness**：golden 夹具面暴露 `extra_squads`（opt.squads → plugins.yaml →
+  WithSquads 管线 v3.12 起即在，此前从未被夹具消费）。
+- **55-squad-consensus-comment**：consensus 黑板共识首次入册——成员不进
+  fan-out，RunConsensus 单独召集；beta 见黑板已有 alpha 所收发现不重复收集 →
+  共识单条 R5.4。真实模式 comment 精确（共识全链路复现）。
+- **56-squad-crossreview-comment**：互盲交叉审查标注首次入册——异文件意见互
+  未复现 →「编队另一专家未复现此问题」降权标注 + CrossReview 汇总行。首轮设计
+  失误在案：replicated 判定是同文件 ±5 行内互现（6/9 行相距 3 行被判互现），
+  异文件才恒为未复现。真实模式 approve（落放宽集合）。
+- **57-ts-change-comment（polyglot）**：TS 侧入册，Python/JS/TS 三块齐了；
+  真实模式 comment 精确。
+- **登记缓办**：R3.5 反思入册需 opts 级 critique-fail 注入（mockLLM critique
+  恒 pass，反思首轮即收敛零剔除，无注记可断言）——v13 harness 方向。
+- 集合 53→56 条（真实分母 40→43）；距 ≥100 门槛差 44 条。打桩 56/56
+  （clean 5/5、FP=0、boundary 2/2）；真实增量 3/3（快照
+  v12-additions-55-57.json）。
+
 ## v3.27.0 (2026-09-20) — 夹具 v11：R3 失效降级补覆盖（单测 + harness 开关）+ JS 变更入册
 
 - **R3 降级路径单测补齐**（此前单测与 golden 双零覆盖）：
