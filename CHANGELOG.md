@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.27.0 (2026-09-20) — 夹具 v11：R3 失效降级补覆盖（单测 + harness 开关）+ JS 变更入册
+
+- **R3 降级路径单测补齐**（此前单测与 golden 双零覆盖）：
+  `TestCheckComplianceDegradedOnUnparseable`——垃圾模型直驱 CheckCompliance，
+  断言降级报告（全部 AC → unverifiable、Summary「R3 判定失败…已全部降级为需
+  人工确认」、不报错、结果不丢）+ 真值表落 R5.3 不许 APPROVE。
+- **harness `garble_r3` 开关**：mockLLM 命名 marker case（R1/R2/R3）优先于
+  personaReply，R3 失效以开关实现（恒返回不可解析文本，重试后仍败走降级）；
+  53-r3-degraded-comment 端到端钉 R5.3 + 逐 AC unverifiable（skip_real：恒垃圾
+  是打桩前提）。53 号收紧 must_not_find R5.5——降级绝不白给 approve。
+- **54-js-change-comment（polyglot）**：JS 侧首次入册（38 号 Python 对侧），
+  clamp 纯函数精确收窄 + low 非阻塞意见 → comment 正例；真实模式 comment 精确
+  命中（快照 v11-additions-54.json）。
+- 集合 51→53 条（真实分母 40，53 skip_real、54 计入）；距 ≥100 门槛差 47 条。
+- 全门禁绿：build/vet/staticcheck+gofmt（新门禁首次拦截自身未格式化编辑，生效
+  验证）/test/golden 打桩 53/53（clean 5/5、FP=0、boundary 2/2）。
+
 ## v3.26.0 (2026-09-20) — 夹具 v10：扩容 49/51/52 + max_comments 测试层改道
 
 - **扩容（集合 48→51 条，真实分母 37→40）**，三个语义缺口入册：

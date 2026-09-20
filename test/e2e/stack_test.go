@@ -247,6 +247,9 @@ type mockLLM struct {
 	// 可变的 reviewer 输出（复现计数依赖两次同题 + 一次不同）。
 	PersonaSeq   map[string][]string
 	personaCalls map[string]int
+	// GarbleR3 R3 完成度判定恒返回不可解析文本（降级路径驱动，夹具 53）。
+	// 命名 marker case 优先于 personaReply，故以开关而非 persona 实现。
+	GarbleR3 bool
 }
 
 func newMockLLM(r1, r3, correctness string) *mockLLM {
@@ -298,6 +301,10 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		m.reply(w, m.R1JSON)
 	case strings.Contains(text, "【Argus R3 完成度判定】"):
+		if m.GarbleR3 {
+			m.reply(w, "not-json-garbage") // 恒不可解析 → 重试后仍败 → 全 AC 降级 unverifiable
+			return
+		}
 		m.reply(w, m.R3JSON)
 	case strings.Contains(text, "【Argus correctness】"):
 		m.mu.Lock()
@@ -428,6 +435,7 @@ type stackOpts struct {
 	// G4 完备性裁判（golden 夹具用）
 	completenessPolicy string // annotate | demote（空 = annotate）
 	completenessRetry  bool   // 受限补审开关
+	garbleR3           bool   // R3 恒返回不可解析文本（降级路径夹具）
 }
 
 func defaultOpts() stackOpts {
@@ -468,6 +476,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		llmMock.RouterReply = opt.routerReply
 		llmMock.routerMark = opt.routerMark
 		llmMock.PersonaSeq = opt.personaSeq
+		llmMock.GarbleR3 = opt.garbleR3
 		t.Cleanup(llmMock.srv.Close)
 		llmCfg.BaseURL = llmMock.srv.URL
 	} else {

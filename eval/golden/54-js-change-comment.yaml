@@ -1,0 +1,45 @@
+# 场景（v11 扩容）：JS 变更——codegraph v1.5 多语言符号表的 JS 侧首次入册
+#（38 号钉 Python 侧）。需求句精确收窄（02 口径），实现完整 + 非阻塞意见 →
+# comment 正例；真实模式 approve（无意见）同计通过。
+name: 54-js-change-comment
+scenario: [polyglot, code-review]
+kind: 0
+pr:
+  title: 添加 clamp 函数
+  body: |
+    在 web/util.js 提供 clamp(v, lo, hi) 函数，返回限定在 [lo, hi] 区间内的数值。见 issue #54
+changed_files:
+  - path: web/util.js
+    diff: |
+      diff --git a/web/util.js b/web/util.js
+      --- /dev/null
+      +++ b/web/util.js
+      @@ -0,0 +1,6 @@
+      +function clamp(v, lo, hi) {
+      +  if (v < lo) return lo
+      +  if (v > hi) return hi
+      +  return v
+      +}
+      +module.exports = { clamp }
+    additions: 6
+repo_files:
+  web/util.js: |
+    function clamp(v, lo, hi) {
+      if (v < lo) return lo
+      if (v > hi) return hi
+      return v
+    }
+    module.exports = { clamp }
+stub:
+  r1: |
+    {"source":"issue #54","acceptance_criteria":[{"id":"AC-1","text":"在 web/util.js 提供 clamp(v, lo, hi) 函数，返回限定在 [lo, hi] 区间内的数值"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"web/util.js:1"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"web/util.js","line":1,"severity":"low","comment":"clamp 缺少 JSDoc 注释"}],"notes":""}
+expect:
+  verdict: comment
+  # 真实模式 reviewer 意见产出不可控：无意见 → approve、非阻塞意见 → comment；
+  # rc 属过严 miss 信号（同 09/10/42 家族）
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

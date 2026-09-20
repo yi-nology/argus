@@ -110,10 +110,13 @@ type goldenCase struct {
 	// 真实模型不会复现该前提（如「R3 被注入诱骗全标 implemented」）。
 	SkipReal bool `yaml:"skip_real"`
 	// G4 完备性裁判（空 = annotate 默认）
-	CompletenessPolicy string       `yaml:"completeness_policy"`
-	CompletenessRetry  bool         `yaml:"completeness_retry"`
-	Stub               goldenStub   `yaml:"stub"`
-	Expect             goldenExpect `yaml:"expect"`
+	CompletenessPolicy string `yaml:"completeness_policy"`
+	CompletenessRetry  bool   `yaml:"completeness_retry"`
+	// GarbleR3 R3 完成度判定恒返回不可解析文本（v3.27.0：R3 失效降级路径夹具 53；
+	// 命名 marker case 优先于 persona，故以开关而非 persona 实现）
+	GarbleR3 bool         `yaml:"garble_r3"`
+	Stub     goldenStub   `yaml:"stub"`
+	Expect   goldenExpect `yaml:"expect"`
 }
 
 func loadGoldenCases(t TestingT) []goldenCase {
@@ -200,6 +203,7 @@ func TestGoldenReviewEval(t *testing.T) {
 			opts.personaSeq = c.PersonaSeq
 			opts.completenessPolicy = c.CompletenessPolicy
 			opts.completenessRetry = c.CompletenessRetry
+			opts.garbleR3 = c.GarbleR3
 
 			s := newStack(t, opts)
 			taskID := s.createTaskViaAPI(t, c.Kind)

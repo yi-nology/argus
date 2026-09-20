@@ -419,3 +419,22 @@ FP=1（29 号 clean 上 1 条意见现形）。
   comment 在集合内）。
 - 轨迹补记：v9 增量 3/3 → **v10 首轮 2/3 + 修正单例过**。距 ≥100 条微调门槛
   还差 49 条（集合 51）。
+
+### v11 · R3 失效降级补覆盖 + JS 变更入册（v3.27.0，2026-09-20）
+
+v10 登记的「R3 失效 harness/单测小批」落地，集合 51→53 条、真实分母 40→40
+（53/54 中 53 为 skip_real，54 计入分母）：
+
+- **R3 降级路径单测补齐**：`TestCheckComplianceDegradedOnUnparseable`——垃圾
+  模型直驱 CheckCompliance，断言降级报告（全部 AC → unverifiable、Summary
+  「已全部降级为需人工确认」、final 空、不报错）+ 真值表落 R5.3 不许 APPROVE。
+  此前该路径单测与 golden 双零覆盖。
+- **harness `garble_r3` 开关**：mockLLM 的命名 marker case（R1/R2/R3）优先于
+  personaReply——R3 失效以开关实现（恒返回不可解析文本），53-r3-degraded-comment
+  端到端钉 R5.3 + 逐 AC unverifiable（skip_real：恒垃圾是打桩前提）。
+- **54-js-change-comment（polyglot）**：JS 侧首次入册（38 号的 Python 对侧），
+  clamp 纯函数精确收窄需求句 + low 非阻塞意见 → comment 正例。
+
+**v11 真实模式增量（mimo-v2.5 全局，单例）**：**54 comment 精确命中**（快照
+`eval/results/v11-additions-54.json`）——真实 reviewer 报非阻塞意见落 R5.4。
+距 ≥100 条微调门槛还差 47 条（集合 53）。
