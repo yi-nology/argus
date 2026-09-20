@@ -621,7 +621,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 				}
 				// 外部工具：每次调用有网络/进程开销 → External 档 + 调用上限 5 次（硬止损）
 				table.Add(toolprior.Entry{
-					Tool:     toolprior.WithCallLimit(asInvokable(t), 5),
+					Tool:     toolprior.LimitCalls(asInvokable(t), 5),
 					Priority: toolprior.PriorityExternal,
 					When:     fmt.Sprintf("外部系统工具（%s）：本地证据穷尽后再用", info.Name),
 					Cost:     "high",

@@ -37,6 +37,8 @@ import (
 	"argus/internal/workflow/requirement"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/cloudwego/eino/callbacks"
+
 	"git.example.com/enjoydream/agentkit/obsx"
 	"git.example.com/enjoydream/agentkit/skill"
 	"git.example.com/enjoydream/agentkit/textutil"
@@ -284,18 +286,22 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
-	// 任务级成本记账（P0）：obsx OnUsage 回收全部 eino 模型调用的真实 usage——
-	// 覆盖 Generate 直连路径与 ReAct agent 的 RawModel 旁路（llm.Client.OnUsage
-	// 只覆盖前者）。PreviewLen 刻意留 0（不落消息内容），勿"调观测"时误设。
+	// 任务级成本记账（P0）：回收全部 eino 模型调用的真实 usage。v0.10.12 记账
+	// 单源化——obsx OnUsage 退役，trace 与 usage 两个 handler 一次 InitCallbacks
+	// 并注入；UsageHandler 只补 ReAct/RawModel 旁路（Generate 直连已由
+	// llm.Client.OnUsage 记账，handler 内防重跳过，两侧不双计）。旁路无 stage
+	// 语义（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
+	// PreviewLen 刻意留 0（不落消息内容），勿"调观测"时误设。
 	taskCost := llm.NewCostTracker()
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
+	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
-		obsOpt.OnUsage = func(component, mdl, stage string, prompt, completion int) {
-			taskCost.Record(mdl, stage, prompt, completion, r.costRate(mdl))
-			r.Cost.Record(mdl, stage, prompt, completion, r.costRate(mdl))
-		}
+		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
+			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
+			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
+		}))
 	}
-	ctx = obsx.InitLLMObservability(ctx, r.Log, obsOpt)
+	ctx = callbacks.InitCallbacks(ctx, nil, handlers...)
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
