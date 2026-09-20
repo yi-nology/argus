@@ -1,0 +1,102 @@
+# 场景（v14 扩容）：编队 Labels 触发分支首次入册——55/56 走的是 paths 匹配，
+# 本条钉 labels 匹配（matchAnyLabel 零覆盖）：PR 标签 hotfix 命中编队触发条件
+# → 互盲编队生效 → 异文件双意见互未复现 → 交叉标注 + 汇总行。
+# 注意：交叉标注要求 ≥2 条编队成员意见（recs<2 直接返回，"另一专家静默"形态
+# 不产生标注——annotateCross 的分歧语义如此）。
+name: 59-squad-label-trigger-comment
+scenario: [squad, code-review]
+kind: 0
+pr:
+  title: 热修 Add 与 Clamp
+  labels: [hotfix]
+  body: |
+    在 main 包实现 Add(a, b int) int，在 util 包提供 Clamp(v, lo, hi int) int。见 issue #59
+changed_files:
+  - path: main.go
+    diff: |
+      diff --git a/main.go b/main.go
+      --- a/main.go
+      +++ b/main.go
+      @@ -1,3 +1,7 @@
+       package main
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+      +
+       func main() {}
+    additions: 5
+  - path: util/clamp.go
+    diff: |
+      diff --git a/util/clamp.go b/util/clamp.go
+      --- /dev/null
+      +++ b/util/clamp.go
+      @@ -0,0 +1,7 @@
+      +package util
+      +
+      +func Clamp(v, lo, hi int) int {
+      +	if v < lo {
+      +		return lo
+      +	}
+      +	if v > hi {
+      +		return hi
+      +	}
+      +	return v
+      +}
+    additions: 11
+repo_files:
+  main.go: |
+    package main
+
+    func Add(a, b int) int {
+    	return a + b
+    }
+
+    func main() {}
+  util/clamp.go: |
+    package util
+
+    func Clamp(v, lo, hi int) int {
+    	if v < lo {
+    		return lo
+    	}
+    	if v > hi {
+    		return hi
+    	}
+    	return v
+    }
+extra_agents:
+  - name: epsilon
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+  - name: zeta
+    kind: builtin
+    skills: [code-review]
+    needs: [diff]
+    cost: standard
+    timeout: 60s
+extra_squads:
+  - name: oncall
+    labels: [hotfix]
+    members: [epsilon, zeta]
+persona_seq:
+  "【Argus epsilon】":
+    - '{"findings":[{"file":"main.go","line":3,"severity":"medium","comment":"Add 缺少边界注释"}],"notes":""}'
+  "【Argus zeta】":
+    - '{"findings":[{"file":"util/clamp.go","line":4,"severity":"medium","comment":"Clamp 缺少 doc comment"}],"notes":""}'
+stub:
+  r1: |
+    {"source":"issue #59","acceptance_criteria":[{"id":"AC-1","text":"在 main 包提供 Add(a, b int) int 返回两数之和"},{"id":"AC-2","text":"在 util 包提供 Clamp(v, lo, hi int) int"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"main.go:3"},{"id":"AC-2","status":"implemented","evidence":"util/clamp.go:4"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[],"notes":""}
+expect:
+  verdict: comment
+  # 标签触发链路成立（无 hotfix 标签则编队不生效、无交叉标注）；异文件双意见
+  # 互未复现 → 各打标注；真实模式成员意见产出不可控 → [approve, comment] 放宽
+  real_verdicts: [approve, comment]
+  must_find: ["编队另一专家未复现", "交叉审查", "R5.4"]

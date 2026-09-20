@@ -1,0 +1,44 @@
+# 场景（v14 扩容）：SQL 迁移变更——真实世界高频形态。建表 + 索引的迁移文件
+# diff 即证据；.sql 不在噪声词表（源码化变更可审）。非阻塞意见 → comment 正例；
+# 真实模式 approve（无意见）同计通过。
+name: 61-sql-migration-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增 user 表迁移
+  body: |
+    新增迁移：创建 user 表（id、email 唯一约束）并建立 email 索引。见 issue #61
+changed_files:
+  - path: migrations/001_create_user.sql
+    diff: |
+      diff --git a/migrations/001_create_user.sql b/migrations/001_create_user.sql
+      --- /dev/null
+      +++ b/migrations/001_create_user.sql
+      @@ -0,0 +1,7 @@
+      +CREATE TABLE user (
+      +  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      +  email VARCHAR(255) NOT NULL UNIQUE
+      +);
+      +
+      +CREATE INDEX idx_user_email ON user (email);
+    additions: 7
+repo_files:
+  migrations/001_create_user.sql: |
+    CREATE TABLE user (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      email VARCHAR(255) NOT NULL UNIQUE
+    );
+
+    CREATE INDEX idx_user_email ON user (email);
+stub:
+  r1: |
+    {"source":"issue #61","acceptance_criteria":[{"id":"AC-1","text":"创建 user 表（id、email 唯一约束）并建立 email 索引"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"migrations/001_create_user.sql:1"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"migrations/001_create_user.sql","line":2,"severity":"low","comment":"BIGINT 主键建议显式 UNSIGNED"}],"notes":""}
+expect:
+  verdict: comment
+  # change-shape 家族诚实放宽（40 号先例）；rc 属过严 miss 信号
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

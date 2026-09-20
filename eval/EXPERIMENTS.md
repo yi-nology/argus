@@ -479,3 +479,30 @@ v12 登记的 critique 注入方向落地，集合 56→57 条（58 skip_real，
   `[]` → 全剔落 R5.5——「critique 打回」必须与「草稿内容」成对注入。
 - 至此批次 2/3/4 的编排语义在 golden 面全闭环：编队（共识/互盲）、反思、完备性
   三裁判、降级路径（R2 除外——无失败路径可钉）。距 ≥100 门槛差 43 条。
+
+### v14 · Labels 触发编队 + 真实世界形态两则（v3.30.0，2026-09-20）
+
+集合 57→60 条、真实分母 43→46。无需 harness 改动（pr.labels 面早已在）：
+
+- **59-squad-label-trigger-comment（squad）**：编队 Labels 触发分支首次入册
+  （55/56 走 paths，matchAnyLabel 零覆盖）——PR 标签 hotfix 命中互盲编队 →
+  异文件双意见互未复现 → 交叉标注 + 汇总行。**归因在案**：annotateCross 要求
+  recs ≥ 2 条编队成员意见（recs<2 直接返回）——「另一专家静默」形态不产生
+  标注，交叉标注的语义是「分歧」而非「缺度」；夹具从单意见形态改双文件双意见。
+- **60-config-yaml-change-comment（change-shape）**：纯配置值调整 PR（真实
+  世界高频形态）——diff 即证据（R3 对照实现），change-shape 家族诚实放宽。
+- **61-sql-migration-comment（change-shape）**：SQL 迁移 PR（建表+索引）——
+  .sql 非噪声词表，源码化变更可审；同家族放宽。
+
+**v14 真实模式增量（mimo-v2.5 全局，`-run` 过滤）**：首轮 2/3（快照
+`v14-additions-59-61-first.json`），59 修正后单例复验通过（快照
+`v14-59-fixed-single.json`）：
+
+- 60 approve（真实 reviewer 对纯配置值调整无意见，落 [comment, approve] 放宽
+  集合）；61 comment 精确（真实 reviewer 对迁移文件报非阻塞意见落 R5.4）。
+- **59 首轮 MISS（rc）= 夹具代码自身坏实现，49 号教训重演**：util/clamp.go 的
+  Clamp 写成 `return v`（没收口）——body 承诺 clamp 语义，诚实 R3/reviewer
+  判 partial/HIGH → rc；stub 模式被 canned R1/R3 掩盖。修正为真实收口实现后
+  单例复验通过。**夹具编写纪律强化：正文承诺的能力必须在代码里真实成立，
+  「留给 stub 专家去发现」的坏实现会被全部真实 reviewer 如实上报。**
+- 距 ≥100 条微调门槛还差 40 条（集合 60）。

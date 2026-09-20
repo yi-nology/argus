@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.30.0 (2026-09-20) — 夹具 v14：Labels 触发编队 + 真实世界形态两则
+
+- **59-squad-label-trigger-comment（squad）**：编队 Labels 触发分支首次入册
+  （matchAnyLabel 此前零覆盖）——PR 标签 hotfix 命中互盲编队 → 异文件双意见
+  互未复现 → 交叉标注 + 汇总行。归因在案：annotateCross 要求 recs ≥ 2 条成员
+  意见（「另一专家静默」不产生标注，交叉标注的语义是分歧而非缺度）；首轮 MISS
+  为夹具自身坏实现（Clamp 写成 return v），修正后单例复验通过（49 号教训重演：
+  正文承诺的能力必须在代码里真实成立）。
+- **60-config-yaml-change-comment / 61-sql-migration-comment（change-shape）**：
+  配置值调整、SQL 迁移两个真实世界高频形态入册（diff 即证据，change-shape
+  家族诚实放宽）；真实模式 approve / comment 精确各一。
+- 集合 57→60 条（真实分母 43→46）；距 ≥100 门槛差 40 条。打桩 60/60
+  （clean 5/5、FP=0、boundary 2/2）；真实增量首轮 2/3 + 59 修正单例过
+  （快照 v14-additions-59-61-first.json / v14-59-fixed-single.json）。
+
 ## v3.29.2 (2026-09-20) — SDK 深度结合：子进程生成全量收敛 procx（零行为变更）
 
 - **进程纪律单源收口**：argus 全仓剩余三处手写 `exec.CommandContext` 全部迁移

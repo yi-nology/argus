@@ -1,0 +1,39 @@
+# 场景（v14 扩容）：配置文件变更——真实世界高频形态。纯值调整（非结构变更）
+# 的 diff 即证据（R3 直接对照实现），非阻塞意见 → comment 正例；真实模式
+# approve（无意见）同计通过。
+name: 60-config-yaml-change-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 调整服务超时配置
+  body: |
+    将服务 HTTP 读超时从 30 秒调整为 60 秒（config.yaml）。见 issue #60
+changed_files:
+  - path: config.yaml
+    diff: |
+      diff --git a/config.yaml b/config.yaml
+      --- a/config.yaml
+      +++ b/config.yaml
+      @@ -4,4 +4,4 @@ server:
+      -  read_timeout_seconds: 30
+      +  read_timeout_seconds: 60
+       port: 8080
+    additions: 1
+    deletions: 1
+repo_files:
+  config.yaml: |
+    server:
+      read_timeout_seconds: 60
+      port: 8080
+stub:
+  r1: |
+    {"source":"issue #60","acceptance_criteria":[{"id":"AC-1","text":"HTTP 读超时调整为 60 秒"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"config.yaml:5"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"config.yaml","line":5,"severity":"low","comment":"配置项建议注明单位（秒）"}],"notes":""}
+expect:
+  verdict: comment
+  # change-shape 家族诚实放宽（40 号先例）；rc 属过严 miss 信号
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]
