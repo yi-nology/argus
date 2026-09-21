@@ -326,6 +326,10 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 				"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
 			reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
 			_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0)
+			// 预算路径不重试（刻意）→ 直接终态告知（v3.30.1）
+			r.setStartMarker(ctx, task, fmt.Sprintf(
+				"❌ Argus 审查失败：%s——下月预算重置后 push 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
+				reason, task.ID))
 			r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
 			plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 			return nil
@@ -343,7 +347,8 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 			"action", "保持 running，待心跳过期重置回 pending")
 		return nil
 	}
-	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志，不在 PR 评论
+	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志 + PR 侧告知（v3.30.1：
+	// 此前「不在 PR 评论」导致 MR 作者只见「审查中」挂死——失败必须显式告之）。
 	// 错误链可能携带平台 SDK/工作副本侧的带凭据 URL（https://user:token@host/...），
 	// 日志、入库、IM 推送三路消费统一先脱敏（agentkit logredact）。
 	errMsg := logredact.Redact(err.Error())
@@ -355,9 +360,35 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		r.Log.Warn("argus.runner.finish_fenced", "task", taskID,
 			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
 	}
+	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：未超重试上限=「中断，
+	// 将自动重试」（failed-retry 扫 5m×3^n 退避后重排）；超限/禁用=「最终失败，
+	// push 新提交可重新触发」。
+	if cur, gerr := r.Store.GetTask(ctx, task.ID); gerr == nil {
+		var body string
+		switch {
+		case r.Cfg.TaskMaxRetries > 0 && cur.Attempt < r.Cfg.TaskMaxRetries:
+			body = fmt.Sprintf("⚠️ Argus 审查中断（第 %d 次尝试失败），数分钟后将自动重试。\n> %s\n\n<!-- argus:start task_id=%s -->",
+				cur.Attempt, truncRunes(errMsg, 300), task.ID)
+		default:
+			body = fmt.Sprintf("❌ Argus 审查失败（已尝试 %d 次）：\n> %s\n\npush 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
+				cur.Attempt, truncRunes(errMsg, 300), task.ID)
+		}
+		r.setStartMarker(ctx, task, body)
+	} else {
+		r.Log.Warn("argus.runner.fail_notify_skip", "task", taskID, "error", gerr.Error())
+	}
 	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
+}
+
+// truncRunes rune 安全截断（失败告知正文限长防刷屏）。
+func truncRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
@@ -546,6 +577,14 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		}
 		r.Sink.Report(sink.BuildPayload(task.ID, pr, merged, out.Verdict,
 			out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
+	}
+	// start marker 收口（v3.30.1）：成功路径把「审查中」更新为完成态（此前
+	// marker 发布后永不更新，PR 上一直挂着「审查中」）。stale=不回帖由新执行体
+	// 接管，marker 保持审查中由其收口。
+	if status == storage.StatusDone {
+		r.setStartMarker(ctx, task, fmt.Sprintf(
+			"✅ Argus 审查完成，结论：**%s**（%s）——报告见下方总结评论。\n\n<!-- argus:start task_id=%s -->",
+			strings.ToUpper(out.Verdict), out.Rule, task.ID))
 	}
 	r.announceTerminal(ctx, task, status, out.Verdict, out, "")
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
@@ -790,15 +829,20 @@ func (r *Runner) publish(typ string, task *storage.Task, status, verdict string)
 // 幂等复用（v3.8.0）：先找最近的 start-marker 评论，存在则原地更新其 task_id
 // 而不是新建——此前每次重跑（发布打断→重置→重跑）都留一条孤儿"审查中"。
 func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
+	r.setStartMarker(ctx, task, fmt.Sprintf(
+		"🔍 Argus 正在审查中，请稍候…\n\n<!-- argus:start task_id=%s -->",
+		task.ID,
+	))
+}
+
+// setStartMarker 复用/新建 start marker（生命周期：审查中→完成/重试中/最终失败，
+// 三态更新——此前 marker 发布后永不更新，失败后 MR 作者只见「审查中」挂死）。
+// 复用最近一条 start marker（含历史任务的）：ListIssueComments 平台侧通常
+// 按时间正序，取末尾几条扫描；找不到锚点才新建。
+func (r *Runner) setStartMarker(ctx context.Context, task *storage.Task, body string) {
 	if r.SDK == nil {
 		return
 	}
-	body := fmt.Sprintf(
-		"🔍 Argus 正在审查中，请稍候…\n\n<!-- argus:start task_id=%s -->",
-		task.ID,
-	)
-	// 复用最近一条 start marker（含历史任务的）：ListIssueComments 平台侧通常
-	// 按时间正序，取末尾几条扫描；找不到锚点才新建。
 	if comments, err := r.SDK.ListIssueComments(ctx, task.Platform, task.Owner, task.Repo, task.Number); err == nil {
 		for i := len(comments) - 1; i >= 0 && i >= len(comments)-50; i-- {
 			c := comments[i]

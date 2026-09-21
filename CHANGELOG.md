@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.30.1 (2026-09-21) — 重启恢复与失败告知：中断任务秒级重排 + start marker 三态生命周期
+
+- **启动即复位**：main 启动时把上一进程被打断的 running 任务立即重排 pending
+  （`ResetRunningToPending(0)`）——重部署恢复从「90s 心跳扫 + 5m 重试退避」的
+  分钟级缩到秒级。单实例部署前提（旧进程先退出）；多副本须改租约感知复位。
+- **start marker 三态生命周期**（此前 marker 发布后永不更新——失败后 MR 作者
+  只见「审查中」挂死，成功后也一直挂着）：
+  - 审查中：`🔍 正在审查中`（复用最近一条 marker，不新增评论）；
+  - 成功：`✅ 审查完成，结论：<VERDICT>（规则）——报告见下方总结评论`；
+  - 失败：按 attempt 分流——未超 `ARGUS_TASK_MAX_RETRIES`（默认 2）=
+    `⚠️ 审查中断（第 N 次尝试失败），数分钟后自动重试`；超限/禁用=
+    `❌ 审查失败（已尝试 N 次）…push 新提交可重新触发`。
+  PR 侧告知为 best-effort（平台不可达时静默放弃，仅告警）。预算耗尽路径
+  （刻意不重试）同样终态告知。
+- 修复链路闭环：重启 → 秒级重排 → 失败自动重试（既有 failed-retry 扫）→
+  重试中/最终失败均有 PR 侧状态可见（runbook「MR 阻塞」场景同步覆盖）。
+- 全门禁绿：build/vet/staticcheck+gofmt/test/golden 60/60（clean 5/5、FP=0、
+  boundary 2/2）/e2e。
+
 ## v3.30.0 (2026-09-20) — 夹具 v14：Labels 触发编队 + 真实世界形态两则
 
 - **59-squad-label-trigger-comment（squad）**：编队 Labels 触发分支首次入册
