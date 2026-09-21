@@ -687,3 +687,45 @@ grep "argus.ocrdeleg" /var/log/argus.log | tail -5
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道，v3.9.0） |
 | `ARGUS_REACT_MAX_ITERATIONS` | `12` | builtin ReAct 迭代上限 |
 | `ARGUS_REGRET_LEARNING` | `false` | 模式级 regret 学习环（SoftFloor/HardFloor 闸门与低置信标注；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go） |
+
+---
+
+## N. MR 阻塞（重部署后 / 长期运行后 MR 不再被审）
+
+### 症状
+
+- 开着的 MR 没有机器人评论，push 后也不触发审查
+- tasks 表出现 failed 滞留，或 pending 长期不被认领
+
+### 诊断
+
+```bash
+# 1. webhook 健康度（GitLab 侧连续失败会禁用 hook：alert_status=disabled）
+curl -s -H "PRIVATE-TOKEN: $TOK" "$GITLAB/api/v4/projects/:id/hooks" | jq '.[] | {url, alert_status, disabled_until}'
+
+# 2. 任务面：卡住的 pending/running 与重试耗尽的 failed
+sqlite3 /data/argus.db "SELECT id,status,attempt,datetime(created_at,'unixepoch') FROM tasks WHERE status IN ('pending','running');"
+sqlite3 /data/argus.db "SELECT id,attempt,next_retry_at FROM tasks WHERE status='failed' ORDER BY updated_at DESC LIMIT 10;"
+
+# 3. 队列与并发：worker 数（默认 2，大 MR 占满即排队）+ 深度指标
+curl -s localhost:8899/metrics | grep -E "argus_task_total|queue"
+docker logs argus 2>&1 | grep -E "agentkit.worker.started|argus.poller.started"
+```
+
+### 解决
+
+- **webhook 被禁用/丢失**：启用轮询兜底自愈——`ARGUS_POLL_REPOS=gitlab:owner/repo,…` +
+  `ARGUS_POLL_INTERVAL=2m`（与 webhook 任务同语义、同 last_head_sha 去重，幂等）；
+  GitLab 侧手动 re-enable hook。
+- **failed 滞留**：确认 `ARGUS_TASK_MAX_RETRIES`（默认 2，指数退避 5m×3^n 封顶 1h，
+  `failed-retry` ticker 每分钟扫）；attempt 耗尽或 next_retry_at 为 NULL（旧版失败）
+  的按 runbook 方案 C 手工复位 pending。注意：预算耗尽路径刻意不重试。
+- **并发不足**：`ARGUS_MAX_CONCURRENT_TASKS`（默认 2）按 LLM 配额调大——大 MR
+  单个 10-15 分钟，2 并发时两个大 MR 即占满全部工人。
+
+### 预防
+
+- **每次重启都会打断在途评审并产生 webhook 失败计数**：轮询兜底必须常开
+  （重启/webhook 禁用/网络抖动三类缺口全覆盖）；重启前 `docker stop -t 60`
+  给在途任务优雅收尾。
+- 定期巡检 GitLab hook 的 `alert_status` 与 tasks 表 failed 计数（接 /metrics 告警）。
