@@ -21,6 +21,7 @@ import (
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"argus/internal/memory"
 	"argus/internal/plugin"
 	"argus/internal/storage"
 )
@@ -43,6 +44,9 @@ type Dream struct {
 	Knowledge rag.KnowledgeService // nil/Noop = 只写本地 markdown
 	// KnowledgeDir 本地知识目录（Milvus 不可用时落盘，下次启动索引）。
 	KnowledgeDir string
+	// MemoryDir repo 评审记忆目录（v3.35.0；空 = 不写记忆面）。低置信模式
+	// 同源双写事实文件（一文件一事实），R3 提示词注入索引。
+	MemoryDir string
 	// Learning 学习环阈值（复用 config 派生）。
 	Learning plugin.LearningConfig
 	// ExportTopN 每仓库导出条数上限。
@@ -162,6 +166,12 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 				return false, err
 			}
 		}
+		// 记忆面同步退场（v3.8.0 只增不删教训的记忆侧同款修复）
+		if d.MemoryDir != "" {
+			if err := memory.ClearRepo(d.MemoryDir, memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}); err != nil {
+				d.warn("argus.dream.memory_clear_failed", "error", err.Error())
+			}
+		}
 		return false, nil
 	}
 	body := renderKnowledge(r, low, at)
@@ -181,7 +191,44 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 	if err := writeLocalKnowledge(d.KnowledgeDir, r, body); err != nil {
 		return false, err
 	}
+	// 记忆面双写（v3.35.0）：逐事实落 repo 记忆目录（索引注入 R3，感知面）；
+	// 与知识聚合文档（search_knowledge，检索面）互补。
+	if d.MemoryDir != "" {
+		if err := writeMemory(d.MemoryDir, r, low, at); err != nil {
+			d.warn("argus.dream.memory_failed", "error", err.Error())
+		}
+	}
 	return true, nil
+}
+
+// writeMemory 逐事实写记忆文件（幂等：先清后写——模式集变化后旧文件不留场）。
+func writeMemory(dir string, r storage.RepoRef, low []plugin.PatternState, at time.Time) error {
+	ref := memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
+	if err := memory.ClearRepo(dir, ref); err != nil {
+		return err
+	}
+	for i, p := range low {
+		sample := p.PatternText
+		if sample == "" {
+			sample = p.Pattern
+		}
+		desc := fmt.Sprintf("[%s] %s（置信度 %.2f，samples=%d）",
+			p.Plugin, singleLine(truncateRunes(sample, 80)), p.Confidence, p.Samples)
+		body := fmt.Sprintf("命中类似表述请提高举证标准，无具体行与影响则不要输出。\n\n"+
+			"样本（已消毒）：%s\n\n来源：plugin=%s regret=%d suppress=%d\n",
+			fence.EscapeUntrusted(sample), p.Plugin, p.Regret, p.Suppress)
+		if err := memory.Save(dir, ref, fmt.Sprintf("pattern-%02d", i+1), "pattern", desc, body, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// singleLine 压平换行（description 进单行 frontmatter）。
+func singleLine(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
 }
 
 // renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。

@@ -262,6 +262,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			Store:        store,
 			Knowledge:    sys.Knowledge,
 			KnowledgeDir: cfg.KnowledgeDir,
+			MemoryDir:    cfg.MemoryDir,
 			Learning: plugin.LearningConfig{
 				Enabled:     true,
 				MinSamples:  cfg.RegretMinSamples,

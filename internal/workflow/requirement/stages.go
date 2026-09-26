@@ -284,6 +284,11 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 			instruction += "\n\n===【审查方法论（skill 注入）】===\n" + s
 		}
 	}
+	if w.MemoryIndex != "" {
+		// 本仓历史评审记忆索引（v3.35.0）：前置感知——命中类似模式请提高举证
+		// 标准；细节全文经 search_knowledge 检索（dream 聚合文档）
+		instruction += "\n\n===【本仓历史评审记忆（dream 导出）】===\n" + w.MemoryIndex
+	}
 
 	user := strings.Builder{}
 	user.WriteString(DataFence("验收清单", renderACs(spec)))

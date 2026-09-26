@@ -56,6 +56,11 @@ type Workflow struct {
 	ToolSpecs   []toolpool.ToolSpec
 	Knowledge   rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
 	SkillText   func(ctx context.Context) string // R3 方法论注入（runner 装配；nil = 无）
+
+	// MemoryIndex 本仓历史评审记忆索引（v3.35.0，dream 周期导出 + runner 每任务
+	// 装载；空 = 无记忆或功能未启用）。感知面：细节全文走 search_knowledge 检索。
+	MemoryIndex string
+
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool

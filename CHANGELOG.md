@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.35.0 (2026-09-26) — repo 级评审记忆：一文件一事实 + R3 索引注入 + dream 同源合流
+
+- **internal/memory 包**（对标 ZCode memory 系统）：事实文件形态
+  `<MemoryDir>/<platform>-<owner>-<repo>/<slug>.md`（frontmatter name/type/
+  description/updated + 正文），API Save/ClearRepo/LoadIndex；索引渲染确定性
+  （文件名序，"- description" 行），超 2000 rune 截断注明（感知面不是检索面）；
+  路径各段消毒（GitLab 嵌套组 "/" 噪声不落盘为子目录）。
+- **dream 同源合流**：低置信模式导出时逐事实双写记忆文件（先清后写——模式集
+  变化后旧文件不留场，v3.8.0 只增不删教训的记忆侧同款修复）；仓库不再有低置信
+  模式时记忆同步退场。双写非重复：知识聚合文档=search_knowledge 检索面，记忆
+  文件=R3 索引注入感知面。
+- **R3 注入**：runner 每任务装载 `wf.MemoryIndex`（目录缺失=空串零开销），
+  系统提示词追加「本仓历史评审记忆」段——命中历史高误报模式时提高举证标准。
+- **抽取器拍板**：ZCode 的后台 LLM 抽取子代理不移植——argus 抽取源是确定性
+  信号（regret/suppress 计数），dream 即抽取器，零额外 LLM 成本；ZCode 需要
+  LLM 抽取是因为其记忆源是对话文本。
+- **配置**：ARGUS_MEMORY_DIR（默认 "memory"）；dream 未启用（RegretLearning/
+  DreamInterval 关）时目录保持为空 = 无注入零开销。
+- 门禁：memory 单测 5 项 + dream 双写/退场集成测试 + 全量测试 + lint 绿。
+
 ## v3.34.0 (2026-09-26) — 容错恢复：输出截断续写（length→续写 ≤3 轮）+ 两项恢复面核实达标
 
 - **ContinueModel 续写装饰器**（internal/context，对标 ZCode 

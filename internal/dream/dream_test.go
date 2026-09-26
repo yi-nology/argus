@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"argus/internal/memory"
 	"argus/internal/plugin"
 	"argus/internal/storage"
 )
@@ -129,5 +130,45 @@ func TestBetterKeepStable(t *testing.T) {
 	}
 	if betterKeep(b, a) {
 		t.Fatal("样本相同时应保留更小 ID")
+	}
+}
+
+// 记忆面双写（v3.35.0）：低置信模式逐事实落 MemoryDir（一文件一事实），
+// 澄清路径同步退场——与知识导出同源同生命周期。
+func TestExportRepoWritesMemoryFacts(t *testing.T) {
+	kdir := t.TempDir()
+	mdir := t.TempDir()
+	st := &fakeStore{
+		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
+		low: map[string][]plugin.PatternState{
+			"acme/app": {
+				{Plugin: "style", Pattern: "p1", PatternText: "建议提取魔法数字\n第二行应压平",
+					Confidence: 0.2, Samples: 5, Regret: 2, Suppress: 1},
+				{Plugin: "robust", Pattern: "p2", PatternText: "错误未上抛",
+					Confidence: 0.3, Samples: 4, Regret: 1, Suppress: 0},
+			},
+		},
+	}
+	d := &Dream{Store: st, KnowledgeDir: kdir, MemoryDir: mdir, Learning: plugin.LearningConfig{
+		Enabled: true, MinSamples: 3, SoftFloor: 0.35,
+	}}
+	if _, exported, err := d.RunOnce(context.Background()); err != nil || exported != 1 {
+		t.Fatalf("exported=%d err=%v", exported, err)
+	}
+	ref := memory.Ref{Platform: "gitea", Owner: "acme", Repo: "app"}
+	idx := memory.LoadIndex(mdir, ref, 0)
+	if !strings.Contains(idx, "魔法数字") || !strings.Contains(idx, "错误未上抛") {
+		t.Fatalf("记忆索引应含两条事实，got %q", idx)
+	}
+	if strings.Contains(idx, "魔法数字\n第二行") {
+		t.Fatal("description 内换行应压平（单行 frontmatter）")
+	}
+	// 澄清路径：记忆同步清空（不留场）
+	st.low = map[string][]plugin.PatternState{}
+	if _, _, err := d.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := memory.LoadIndex(mdir, ref, 0); got != "" {
+		t.Fatalf("无低置信后记忆应退场，got %q", got)
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"argus/internal/codegraph"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/memory"
 	"argus/internal/notify"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
@@ -319,6 +320,11 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	start := time.Now()
 	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	wf := r.buildWorkflow(budget)
+	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
+	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
+	wf.MemoryIndex = memory.LoadIndex(r.Cfg.MemoryDir, memory.Ref{
+		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
+	}, 0)
 	r.publish("task.running", task, "", "")
 
 	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
