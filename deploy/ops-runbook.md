@@ -52,6 +52,15 @@ sqlite3 /data/argus.db "UPDATE tasks SET status='pending', runner_id='', heartbe
 mysql -u argus -p argus_db -e "UPDATE tasks SET status='pending', runner_id='', heartbeat_at=NULL WHERE status='running' AND (heartbeat_at IS NULL OR heartbeat_at < DATE_SUB(NOW(), INTERVAL 90 SECOND));"
 ```
 
+**复位 failed（重试耗尽）任务**——只复位同 MR 的**最新**一条，且同样清 runner_id/heartbeat_at：
+
+```bash
+# 旧 head 的历史 failed 任务若被复位，poster 会因「存在同 PR 更新创建的非 failed
+# 任务」按 superseded 语义跳过发帖并把任务记 stale——评审照跑但不回帖，白耗一次
+# LLM。2026-09-26 实测案例在案（复位错位 #142 旧任务 → argus.poster.stale_skip）。
+sqlite3 /data/argus.db "UPDATE tasks SET status='pending', fail_reason=NULL, next_retry_at=NULL, runner_id='', heartbeat_at=NULL WHERE id='<最新任务ID>';"
+```
+
 ### 预防
 
 - 确保 `terminationGracePeriodSeconds`（K8s）大于 worker 优雅停机 grace（默认 60 秒），推荐 90 秒
