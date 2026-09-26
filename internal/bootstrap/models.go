@@ -275,9 +275,10 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		m.ReviewerReact = m.React
 	}
 
-	// ---- 上下文窗口拟合（v3.33.0，对标 ZCode compact/microcompact）：全部直调
-	// 出口统一两级拟合（L1 清旧工具结果 → L2/L3 截断留痕），超限才动作、未超限
-	// 零拷贝直通；Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
+	// ---- 上下文窗口拟合 + 输出续写（v3.33/v3.34，对标 ZCode compact 与
+	// turn-output-token-continuation）：直调出口统一包 FitModel（输入两级拟合，
+	// 超限才动作、未超限零拷贝直通）与 ContinueModel（length 截断续写 ≤3 轮）。
+	// Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
 	// 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
 	fitOnEvent := func(stage string, res argusctx.FitResult) {
 		obs.IncrCtxFit(stage, string(res.Action))
@@ -285,37 +286,42 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 			"before_runes", res.Before, "after_runes", res.After, "limit_runes", res.Limit,
 			"cleared_tools", res.Cleared)
 	}
+	continueOnEvent := func(stage string, round, addedRunes int) {
+		obs.IncrLLMContinued(stage)
+		log.Warn("argus.llm.continued", "stage", stage, "round", round, "added_runes", addedRunes)
+	}
 	stageWindow := func(so *config.StageOverride) int {
 		if so != nil && so.ContextTokens > 0 {
 			return so.ContextTokens
 		}
 		return cfg.LLM.ContextToken
 	}
-	wrapFit := func(bm model.BaseChatModel, stage string, window int) model.BaseChatModel {
-		if bm == nil || window <= 0 {
-			return bm
+	wrapStage := func(bm model.BaseChatModel, stage string, window int) model.BaseChatModel {
+		if bm == nil {
+			return nil
 		}
-		return argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
+		bm = argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
+		return argusctx.NewContinueModel(bm, stage, continueOnEvent)
 	}
-	m.React = wrapFit(m.React, "chat", cfg.LLM.ContextToken)
+	m.React = wrapStage(m.React, "chat", cfg.LLM.ContextToken)
 	if m.ReviewerGen == nil {
-		m.ReviewerReact = m.React // 无 Reviewer 覆盖：与主 React 同源（含拟合）
+		m.ReviewerReact = m.React // 无 Reviewer 覆盖：与主 React 同源（含包装）
 	}
 	if m.R3 != nil {
-		m.R3 = wrapFit(m.R3, "R3", stageWindow(cfg.StageModelR3))
+		m.R3 = wrapStage(m.R3, "R3", stageWindow(cfg.StageModelR3))
 	}
 	if m.Reflect != nil {
-		m.Reflect = wrapFit(m.Reflect, "R35", stageWindow(cfg.StageModelR35))
+		m.Reflect = wrapStage(m.Reflect, "R35", stageWindow(cfg.StageModelR35))
 	}
 	if m.QA != nil {
-		m.QA = wrapFit(m.QA, "qa", stageWindow(cfg.StageModelQA))
+		m.QA = wrapStage(m.QA, "qa", stageWindow(cfg.StageModelQA))
 	}
 	if m.Router != nil {
-		m.Router = wrapFit(m.Router, "router", stageWindow(cfg.StageModelRouter))
+		m.Router = wrapStage(m.Router, "router", stageWindow(cfg.StageModelRouter))
 	}
-	// Reviewer ReAct 出口仅在有独立覆盖链时另包（否则与 m.React 同源，已拟合）
+	// Reviewer ReAct 出口仅在有独立覆盖链时另包（否则与 m.React 同源，已包装）
 	if m.ReviewerGen != nil && m.ReviewerReact != nil {
-		m.ReviewerReact = wrapFit(m.ReviewerReact, "reviewer", stageWindow(cfg.StageModelReviewer))
+		m.ReviewerReact = wrapStage(m.ReviewerReact, "reviewer", stageWindow(cfg.StageModelReviewer))
 	}
 	return m, nil
 }

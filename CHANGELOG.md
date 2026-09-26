@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.34.0 (2026-09-26) — 容错恢复：输出截断续写（length→续写 ≤3 轮）+ 两项恢复面核实达标
+
+- **ContinueModel 续写装饰器**（internal/context，对标 ZCode 
+  turn-output-token-continuation）：finish reason 为 length/max_tokens 且消息
+  无工具调用时，保留部分输出并以续写指令再调，内容顺序拼接，最多 3 轮——被
+  截断的评审结论不再整体作废重跑（续写成本远低于整轮重跑，拼接补全 JSON 还是
+  jsonrepair 的前置救济）。纪律：带 ToolCalls 的截断不续写（防污染 ReAct 工具
+  状态）；续写失败返回已得部分；WithTools 绑定产物再包一层（拟合/续写不因绑定
+  失效）。包装链序：Continue→Fit→Failover→原始模型，续写请求重走拟合与降级。
+- **接入面**：全部直调出口（chat/R3/R35/QA/ROUTER/reviewer）；观测
+  argus_llm_continued_total{stage} + argus.llm.continued 结构化日志。单测 5 项
+  （拼接/轮次上限/工具调用不续写/失败保部分/正常直通）。
+- **核实达标（不造轮子）**：可暂停工具 deadline 的 ZCode 语义（排队等待不计入
+  超时）在 argus 两处信号量本就成立——dispatcher.go 插件超时在取得并发槽位后
+  才起算、service.go Q&A CommentTimeout 在取得 commentSlots 后才包；LLM 限速
+  等待亦在请求超时之外。
+- **不适用（如实记录）**：流中断锚点重放（ZCode streaming-recovery）——argus
+  全链非流式 Generate（仓内零 Stream 消费），无 SSE 可断；瞬态错误恢复已由
+  RunWithEventsAndRetry / Resilient 重试 / Retry-After（v3.32.0 起捕获）覆盖。
+
 ## v3.33.0 (2026-09-26) — 上下文窗口治理：ctxfit 两级拟合（microcompact→截断留痕）+ 真实 usage 校准
 
 - **ctxfit 装饰器**（internal/context，对标 ZCode compact/microcompact + 

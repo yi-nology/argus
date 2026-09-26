@@ -62,6 +62,10 @@ var (
 		Name: "argus_ctxfit_total", Help: "上下文窗口拟合计数（stage×action；passthrough 占绝对多数为常态）",
 	}, []string{"stage", "action"})
 
+	llmContinued = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_llm_continued_total", Help: "输出截断续写轮次（stage；length 截断的续写救济）",
+	}, []string{"stage"})
+
 	// layerExec 分层活检：层被真正走到的次数。increase()==0 且 tasks_total{done}>0
 	// → 该层静默失效（配置关掉的层不注册/不打点，不误报）。
 	layerExec = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -166,7 +170,7 @@ func Init() {
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
-		ctxFit,
+		ctxFit, llmContinued,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
@@ -253,6 +257,11 @@ func IncrLLMFailover(stage string) {
 // IncrCtxFit 上下文窗口拟合事件（ctxfit 装饰器回调；仅非 passthrough 上报）。
 func IncrCtxFit(stage, action string) {
 	ctxFit.WithLabelValues(stage, action).Inc()
+}
+
+// IncrLLMContinued 输出截断续写轮次（ContinueModel 回调）。
+func IncrLLMContinued(stage string) {
+	llmContinued.WithLabelValues(stage).Inc()
 }
 
 // IncrQAFailure 评论链路处理失败计数（service 层调用）。
