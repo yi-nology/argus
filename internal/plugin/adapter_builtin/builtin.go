@@ -225,8 +225,9 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 }
 
 // invokeReAct ReAct 模式：工具表（toolprior 三层约束）+ agentrun 运行样板。
-// 注意：RawModel 旁路绕过 llm 预算注入——token 成本经 obsx OnUsage 回流记账
-// （agentkit v0.7.2），预算硬截断暂不覆盖此路径（与 R3 同语义）。
+// 注意：RawModel 旁路绕过 llm 预算注入——token 成本经 UsageHandler 记账并回灌
+// 任务预算（v3.36.0，旁路消耗会计入 Remaining）；预算耗尽可能在下一步 Generate
+// 侧短路，ReAct 循环本身不中途打断。
 func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Result, error) {
 	tools, strategy, err := r.toolsHook(ctx, task, task.Budget)
 	if err != nil {

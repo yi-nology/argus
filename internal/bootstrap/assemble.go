@@ -171,16 +171,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	// ---- LLM 成本记账（obsx OnUsage 回流，覆盖直连与 ReAct RawModel 两条路径）----
 	costTracker := llm.NewCostTracker()
 	costRates := cfg.CostPer1K()
+	// v3.36.0：未知模型（阶段覆盖）按主费率近似记账——此前恒按 0，成本行系统性
+	// 低估（v3.8.0 告警在案解除）；同厂兼容端点近似同价，误差远小于 0。
 	costPer1K := func(mdl string) [2]float64 {
-		if mdl == cfg.LLM.Model || mdl == cfg.LLM.FallbackModel {
-			return costRates // 备用模型按同一费率近似（百炼兼容端点同价）
-		}
-		// 阶段覆盖模型无费率匹配 → 恒按 0 记账，成本行系统性低估（v3.8.0 告警）
-		if len(costRates) > 0 && (costRates[0] > 0 || costRates[1] > 0) {
-			log.Warn("argus.boot.cost_rate_missing", "model", mdl,
-				"hint", "该阶段覆盖模型无 ARGUS_LLM_COST_* 费率，token 成本按 0 记账")
-		}
-		return [2]float64{}
+		return costRates
 	}
 
 	// ---- 裁决/合并/回帖/执行编排 ----

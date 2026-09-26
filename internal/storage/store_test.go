@@ -624,3 +624,24 @@ func TestMergeTaskStageArtifacts(t *testing.T) {
 		t.Fatalf("合并结果不符: %+v", got)
 	}
 }
+
+// MarkReviewPosted + Task.ReviewPosted 回读（v3.36.0 poster 库标记短路的数据面）。
+func TestMarkReviewPosted(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	tk := &Task{ID: "t-rp", Kind: "review", Platform: "gitea", Owner: "acme", Repo: "app", Number: "1", Status: "running"}
+	if err := s.CreateTask(ctx, tk); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, "t-rp")
+	if err != nil || got.ReviewPosted {
+		t.Fatalf("初始应为 false，err=%v posted=%v", err, got.ReviewPosted)
+	}
+	if err := s.MarkReviewPosted(ctx, "t-rp"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, "t-rp")
+	if err != nil || !got.ReviewPosted {
+		t.Fatalf("标记后应为 true，err=%v posted=%v", err, got.ReviewPosted)
+	}
+}

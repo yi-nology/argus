@@ -49,6 +49,9 @@ type Task struct {
 	// SummaryCommentID 最近一次成功回帖的总结评论 ID（任务结束回填，供观测）。
 	SummaryCommentID int64  `gorm:"column:summary_comment_id"`
 	ArtifactsJSON    string `gorm:"column:artifacts_json;type:text"`
+	// ReviewPosted 完整评审已发成功标记（v3.36.0）：poster 重跑据此短路
+	// ListReviews 平台查询（查库代替查平台，大 PR 提速；AutoMigrate 增量加列）。
+	ReviewPosted bool `gorm:"column:review_posted;default:false"`
 	// DebugJSON 调试产物（ARGUS_DEBUG=1 时留存 R1 spec/R2 摘要/R3 原始输出）
 	DebugJSON string `gorm:"column:debug_json;type:text"`
 	// StageArtifacts 阶段产物 checkpoint（v3.12.0 G2 任务级断点续审）：R1 spec/
@@ -623,6 +626,15 @@ func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
 	defer s.writeMu.Unlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("debug_json", debugJSON).Error
+}
+
+// MarkReviewPosted 完整评审发成功落标记（v3.36.0）：重跑任务据此跳过
+// ListReviews 平台锚点查询（总结评论更新不受影响，照常执行）。
+func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+		Update("review_posted", true).Error
 }
 
 // MergeTaskStageArtifacts 合并写入任务阶段产物 checkpoint（v3.12.0 G2 断点续审）。

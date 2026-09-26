@@ -116,10 +116,16 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	// 评审幂等锚点：任务模型 at-least-once（崩溃/硬取消落在发评审与落终态之间 → 重跑），
 	// 重跑会再发一条完整评审（行内评论重复）。锚点只写不查等于没有——发前按 task_id 查一次；
 	// 查询失败不阻断正常路径（宁多查一次 API，不因兜底接口缺失丢评审）。
-	// 性能注意：ListReviews 拉取该 PR 全部评审（break 早退），大 PR（50+ review）有延迟；
-	// 若后续需要优化，可在 tasks 表加 review_posted bool 列跳过此 API 调用。
+	// v3.36.0：review_posted 库标记短路——重跑任务大多不再走 ListReviews 平台查询。
+	// v3.36.0：review_posted 库标记短路——此前重跑任务必 ListReviews 拉全量
+	// 评审（大 PR 有延迟）。查库失败/未标记时回退平台锚点查询（宁多查一次）。
 	alreadyPosted := false
-	if posted, err := p.SDK.ListReviews(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil {
+	if t, gerr := p.Store.GetTask(ctx, rep.TaskID); gerr == nil && t != nil && t.ReviewPosted {
+		alreadyPosted = true
+		p.Log.Info("argus.poster.review_skip_by_flag", "task", rep.TaskID,
+			"action", "跳过重复评审（review_posted；总结评论照常更新）")
+	}
+	if posted, err := p.SDK.ListReviews(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); err == nil && !alreadyPosted {
 		for _, r := range posted {
 			if strings.Contains(r.Body, "argus:review task_id="+rep.TaskID+" ") {
 				alreadyPosted = true
@@ -130,6 +136,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		}
 	}
 	if !alreadyPosted {
+		reviewSent := false
 		if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			provider.CreateReviewOptions{
 				CommitID: pr.HeadSHA,
@@ -164,10 +171,22 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 					}); err3 != nil {
 					p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
 					plugin.ReportPluginFailure("poster:review")
+				} else {
+					reviewSent = true
 				}
+			} else {
+				reviewSent = true
 			}
 		} else {
 			inline = len(inlineFindings)
+			reviewSent = true
+		}
+		if reviewSent {
+			// 发成功落库标记（v3.36.0）：重跑短路平台锚点查询
+			if merr := p.Store.MarkReviewPosted(ctx, rep.TaskID); merr != nil {
+				p.Log.Warn("argus.poster.mark_posted_failed", "error", merr.Error(),
+					"hint", "未落库标记：重跑回退 ListReviews 锚点查询（幂等不丢）")
+			}
 		}
 	}
 

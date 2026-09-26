@@ -129,15 +129,16 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		return err
 	}
 
-	// ---- 启动即复位（v3.30.1）：上一进程被打断的 running 任务立即重排 pending，
-	// 不再等 90s 心跳过期扫——重部署恢复路径从「分钟级」缩到「秒级」。单实例
-	// 部署前提（restart=always/手动 docker 均满足旧进程先退出时序）；多副本
-	// 部署须改为租约感知的复位（staleAfter=0 会误复位其他存活副本的在途任务）。
-	if n, err := store.ResetRunningToPending(ctx, 0); err != nil {
+	// ---- 启动即复位（v3.30.1 引入，v3.36.0 租约化）：上一进程被打断的 running
+	// 任务立即重排 pending，不再等 90s 心跳过期扫。阈值 30s = 一个心跳周期
+	//（agentkit worker 20s）+ 余量——本实例死任务的最后心跳必然更旧，立即复位；
+	// 多副本部署下其他存活副本的在途任务心跳新鲜（≤20s），不会被误复位。
+	if n, err := store.ResetRunningToPending(ctx, 30*time.Second); err != nil {
 		log.Warn("argus.boot.running_reset_failed", "error", err.Error())
 	} else if n > 0 {
 		log.Info("argus.boot.running_reset", "requeued", n,
-			"hint", "上次进程中断的在途任务已重新发起")
+			"stale_after", "30s",
+			"hint", "上次进程中断的在途任务已重新发起（租约感知：存活副本在途任务不受影响）")
 	}
 
 	// ---- 多副本控制面选主（agentkit/worker.LeaderElector）----

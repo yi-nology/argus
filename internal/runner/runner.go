@@ -295,12 +295,17 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// llm.Client.OnUsage 记账，handler 内防重跳过，两侧不双计）。旁路无 stage
 	// 语义（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
 	// PreviewLen 刻意留 0（不落消息内容），勿"调观测"时误设。
+	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	taskCost := llm.NewCostTracker()
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
 			argusctx.RecordUsage(rec.Model, rec.PromptTokens) // ctxfit 真实 usage 校准回灌
+			// 旁路用量回灌任务预算（v3.36.0）：ReAct/RawModel 直调不经 Client
+			// 预算注入，硬截断此前对其失效。callbacks 侧只收旁路调用（Client
+			// 记账调用被防重跳过），恰好无双计。
+			budget.Add(rec.PromptTokens + rec.CompletionTokens)
 			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 		}))
@@ -318,7 +323,6 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		"mr":      task.Number,
 	})
 	start := time.Now()
-	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	wf := r.buildWorkflow(budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
 	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
@@ -701,7 +705,7 @@ func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plug
 	return rc
 }
 
-// costRate 模型单价（主/备模型按配置费率，其余按 0 计）。
+// costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。
 func (r *Runner) costRate(mdl string) [2]float64 {
 	if r.CostPer1K != nil {
 		return r.CostPer1K(mdl)

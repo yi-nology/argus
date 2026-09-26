@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.36.0 (2026-09-26) — 幂等与卫生收口：review_posted 库标记 + 启动复位租约化 + ReAct 旁路治理 + 阶段成本近似
+
+- **评审发布 exactly-once 提速**（poster.go:120 在案项落地）：tasks 表加
+  `review_posted` 列（AutoMigrate 增量），发成功（正常/COMMENT 降级/无行内
+  三条路径）即打标；重跑任务先查库短路，ListReviews 平台锚点查询降为回退
+  （查库失败/未标记才走）——大 PR 不再每次重跑拉全量评审。幂等语义不变：
+  总结评论四级降级照常，标记丢失只多查一次平台。
+- **启动复位租约化**（main.go 在案项落地）：ResetRunningToPending 阈值 0→30s
+  （= agentkit worker 心跳周期 20s + 余量）——本实例死任务（心跳必然更旧）仍
+  秒级重排，多副本部署不再误复位其他存活副本的在途任务；单实例行为不变。
+- **ReAct 旁路限速缺口闭合**（models.go:75 在案项落地）：新增 ctxrate.RateModel
+  装饰器进直调包装链最内层——ARGUS_LLM_RATE_LIMIT 此前只覆盖 Generator 链，
+  ReAct/RawModel 直调绕过；现与 Generator 链同桶真全局。
+- **ReAct 旁路预算回灌**（builtin.go:229 在案项落地）：runner UsageHandler 把
+  旁路调用用量 Add 进任务预算——callbacks 侧只收旁路调用（Client 记账调用被
+  防重跳过）恰好无双计，预算硬截断从此覆盖 ReAct 消耗（ReAct 循环本身不中途
+  打断，耗尽可能在下一步 Generate 侧短路）。
+- **阶段成本按 0 记账修正**（assemble.go:167 在案项落地）：未知模型（阶段覆盖）
+  按主费率近似——同厂兼容端点近似同价，误差远小于恒 0 的系统性低估；v3.8.0
+  告警解除。
+- 门禁：storage/context 新增单测（标记回读、限速取消传播/绑定保持）+ 全量
+  测试 + lint 绿。
+
 ## v3.35.0 (2026-09-26) — repo 级评审记忆：一文件一事实 + R3 索引注入 + dream 同源合流
 
 - **internal/memory 包**（对标 ZCode memory 系统）：事实文件形态
