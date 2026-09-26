@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.31.0 (2026-09-26) — agentkit v0.10.14→v0.10.22：vendor 快照对齐，八版本新面真正入编译
+
+- **deps**：go.mod v0.10.14→v0.10.22 + `go mod vendor`。关键背景：vendor/ 快照
+  此前停在 v0.10.14——默认 vendor 模式下 `replace => ../agentkit` 不生效，本地
+  agentkit 虽已前进到 v0.10.22，v0.10.15~22 的全部新面（Retry-After 捕获消费、
+  MCP isError 观察降级/调用期自愈/工具目录缓存/RequestMeta/探活预算/OAuth2、
+  skill 两级预算、httpx StatusError、logredact 裸 token/JWT）**均不在编译面**。
+  本次同步后被动生效项逐项验收拍板：
+  - **MCP 工具目录静态快照**（语义变化最大）：tools/list 每连接一次缓存，server
+    工具面变更需重启 argus 或等传输层断开重连才可见。plugins.yaml 本就无热重载
+    （进程启动装配一次），语义对齐，拍板接受。
+  - **isError→观察降级**：MCP 工具业务失败不再炸整个 ReAct 步骤，错误文本回喂
+    模型自纠；全仓排查零「按错误文本匹配」的消费逻辑，报表 degraded 计数无关联。
+  - **调用期自愈**：传输层死亡自动摘连接重连重试一次；错误文案新增「自愈」轨迹
+    前缀，同上无文本匹配消费者。
+  - **skill 全文 100KB 截断缺省生效**：现役技能库（ocr-grading）远小于上限，
+    拍板接受缺省（与 ZCode 100KB 加载上限同语义）。
+  - **logredact 裸 token/JWT 规则**：错误链脱敏命中面变宽，上游自带防误伤用例。
+- 全门禁绿：build + 全量单测一次通过（workflow/requirement、e2e、procx 类均无
+  满负载假超时），lint/staticcheck/gofmt 通过。
+- v0.10.13/14 的 PlanAndExecute/lineage 维持未消费面不接（上游零提交）。
+
 ## v3.30.1 (2026-09-21) — 重启恢复与失败告知：中断任务秒级重排 + start marker 三态生命周期
 
 - **启动即复位**：main 启动时把上一进程被打断的 running 任务立即重排 pending
