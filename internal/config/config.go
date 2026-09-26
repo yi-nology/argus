@@ -97,10 +97,10 @@ type Config struct {
 	LLMCostCompletionPer1K float64
 
 	// 阶段模型覆盖（P6 分阶段路由）：ARGUS_MODEL_<STAGE> 配模型名，
-	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口（fitInput 按阶段窗口裁剪）。
-	// ⚠️ 窗口裁剪仅对走 Generator 链的阶段（R1/R2/REVIEWER）生效；R3/R35/QA/ROUTER
-	// 为 BaseChatModel 直调（ReAct/RawModel，无裁剪点），配置的窗口会被忽略并在
-	// 启动期告警（v3.8.0 如实化——此前静默无效）。
+	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口。
+	// v3.33.0 起窗口对全部阶段生效：Generator 链（R1/R2/REVIEWER）走 Client
+	// fitInput；直调阶段（R3/R35/QA/ROUTER）走 ctxfit 两级拟合（此前直调路径
+	// 窗口被忽略并启动期告警——v3.8.0 如实化，现已闭环）。
 	// 覆盖阶段继承主 BaseURL/APIKey 与全局降级链（fallback 模型不覆盖）；
 	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, R35, REVIEWER, QA, ROUTER}。
 	StageModelR1       *StageOverride

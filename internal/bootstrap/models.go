@@ -11,6 +11,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/config"
+	argusctx "argus/internal/context"
 	"argus/internal/obs"
 	"git.example.com/enjoydream/agentkit/llm"
 )
@@ -162,13 +163,12 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 
 	// ---- P6 分阶段模型路由 ----
 	buildStageModel := func(so *config.StageOverride) (model.BaseChatModel, error) {
-		// v3.8.0 诚实化：BaseChatModel 直调阶段（R3/R35/QA/Router，多为 ReAct/RawModel）
-		// 没有 fitInput 裁剪点——阶段窗口配置此前静默无效，运维会被 config 注释误导
-		//（"配了窗口就不超窗"，实际仍按主窗口塞输入）。显式告警 + 配置注释如实化。
+		// v3.33.0 ctxfit：直调阶段窗口拟合生效（此前 CONTEXT_TOKENS 对直调路径
+		// 静默无效——v3.8.0 的「配置误导」告警随之解除）
 		if so.ContextTokens > 0 && so.ContextTokens != cfg.LLM.ContextToken {
-			log.Warn("argus.boot.stage_context_tokens_ignored", "model", so.Model,
-				"configured_ctx", so.ContextTokens, "effective_ctx", cfg.LLM.ContextToken,
-				"hint", "该阶段为 BaseChatModel 直调（无输入裁剪点），CONTEXT_TOKENS 不生效；如需窗口裁剪请使用 Generator 链阶段（R1/R2/Reviewer）")
+			log.Info("argus.boot.stage_window", "model", so.Model,
+				"configured_ctx", so.ContextTokens, "main_ctx", cfg.LLM.ContextToken,
+				"hint", "直调阶段窗口拟合已生效（ctxfit 两级拟合，超限才动作）")
 		}
 		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
@@ -273,6 +273,49 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	}
 	if m.ReviewerReact == nil {
 		m.ReviewerReact = m.React
+	}
+
+	// ---- 上下文窗口拟合（v3.33.0，对标 ZCode compact/microcompact）：全部直调
+	// 出口统一两级拟合（L1 清旧工具结果 → L2/L3 截断留痕），超限才动作、未超限
+	// 零拷贝直通；Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
+	// 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
+	fitOnEvent := func(stage string, res argusctx.FitResult) {
+		obs.IncrCtxFit(stage, string(res.Action))
+		log.Warn("argus.ctxfit", "stage", stage, "action", string(res.Action),
+			"before_runes", res.Before, "after_runes", res.After, "limit_runes", res.Limit,
+			"cleared_tools", res.Cleared)
+	}
+	stageWindow := func(so *config.StageOverride) int {
+		if so != nil && so.ContextTokens > 0 {
+			return so.ContextTokens
+		}
+		return cfg.LLM.ContextToken
+	}
+	wrapFit := func(bm model.BaseChatModel, stage string, window int) model.BaseChatModel {
+		if bm == nil || window <= 0 {
+			return bm
+		}
+		return argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
+	}
+	m.React = wrapFit(m.React, "chat", cfg.LLM.ContextToken)
+	if m.ReviewerGen == nil {
+		m.ReviewerReact = m.React // 无 Reviewer 覆盖：与主 React 同源（含拟合）
+	}
+	if m.R3 != nil {
+		m.R3 = wrapFit(m.R3, "R3", stageWindow(cfg.StageModelR3))
+	}
+	if m.Reflect != nil {
+		m.Reflect = wrapFit(m.Reflect, "R35", stageWindow(cfg.StageModelR35))
+	}
+	if m.QA != nil {
+		m.QA = wrapFit(m.QA, "qa", stageWindow(cfg.StageModelQA))
+	}
+	if m.Router != nil {
+		m.Router = wrapFit(m.Router, "router", stageWindow(cfg.StageModelRouter))
+	}
+	// Reviewer ReAct 出口仅在有独立覆盖链时另包（否则与 m.React 同源，已拟合）
+	if m.ReviewerGen != nil && m.ReviewerReact != nil {
+		m.ReviewerReact = wrapFit(m.ReviewerReact, "reviewer", stageWindow(cfg.StageModelReviewer))
 	}
 	return m, nil
 }

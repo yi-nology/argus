@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.33.0 (2026-09-26) — 上下文窗口治理：ctxfit 两级拟合（microcompact→截断留痕）+ 真实 usage 校准
+
+- **ctxfit 装饰器**（internal/context，对标 ZCode compact/microcompact + 
+  context-usage-breakdown）：全部 BaseChatModel 直调出口（chat/R3/R35/QA/ROUTER/
+  reviewer）统一输入自守恒，三级递进——L1 清更早工具结果占位（保最近 5 条、
+  消息条数与 tool_call/tool_result 配对不动，语法安全；清理量 <512 rune 放弃）；
+  L2 截最长 user 消息（agentkit fitInput 同款 TruncNote 留痕，补扣注记余量）；
+  L3 病理态迭代截最大工具结果。超限才动作，未超限零拷贝直通；浅拷贝克隆纪律
+  由测试钉死（直改共享消息结构会污染 ReAct 历史）。
+- **阶段窗口配置闭环**：ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 此前对直调阶段静默
+  无效（v3.8.0 告警在案），现全部生效；告警解除改 info，config 注释如实化。
+  主 React 出口按 OPENAI_CONTEXT_TOKEN 拟合——直调路径首次有窗口防线（Generator
+  链原有 Client.fitInput，重叠路径双重拟合无副作用）。
+- **真实 usage 校准**（对标 ZCode tokenSource=provider_usage）：runner 的
+  UsageHandler 回灌最近一次真实 prompt tokens，与发送 rune 数配对出 tokens/char
+  系数（全局单槽——callbacks 侧 Model 是组件类型无法按模型分桶；clamp 0.02~4
+  防脏样本），中文等估算系统性偏低的场景自动收紧有效预算。
+- **观测**：argus_ctxfit_total{stage,action} 计数（passthrough 应占绝对多数）+
+  argus.ctxfit 结构化日志（before/after/limit/cleared_tools）。
+- 门禁：ctxfit 单测 9 项（直通/microcompact/门槛放弃/L2/L3/校准/装饰器绑定）+
+  全量测试 + lint 绿。
+
 ## v3.32.0 (2026-09-26) — agentkit v0.10.15~22 新面主动接入：Retry-After/技能预算/探活预算/调用元数据/闲置回收
 
 - **CaptureRetryAfter（v0.10.16）**：三处 `llm.NewOpenAIProvider`（主/备/阶段覆盖）

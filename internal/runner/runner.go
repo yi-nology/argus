@@ -299,6 +299,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
+			argusctx.RecordUsage(rec.Model, rec.PromptTokens) // ctxfit 真实 usage 校准回灌
 			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 		}))
