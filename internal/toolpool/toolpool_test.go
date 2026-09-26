@@ -1,6 +1,7 @@
 package toolpool
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -63,6 +64,30 @@ func TestNewRealPoolInvalidDeclSkipped(t *testing.T) {
 	servers := p.Servers()
 	if len(servers) != 1 || servers[0] != "ok" {
 		t.Fatalf("无效声明应被跳过，得到 %v", servers)
+	}
+	p.Close()
+}
+
+func TestCallMetaRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	if got := CallMeta(ctx); got != nil {
+		t.Fatal("无注入的 ctx 应返回 nil（metaClient 对空不注入 _meta）")
+	}
+	meta := map[string]any{"task_id": "t1", "repo": "o/r"}
+	ctx = WithCallMeta(ctx, meta)
+	got := CallMeta(ctx)
+	if got == nil || got["task_id"] != "t1" || got["repo"] != "o/r" {
+		t.Fatalf("CallMeta 取回值不符: %v", got)
+	}
+}
+
+func TestNewRealPoolInvalidProbeTimeout(t *testing.T) {
+	// probeTimeout 解析失败不致命——落回 agentkit 缺省 5s
+	p := NewRealPool([]plugin.MCPServerDecl{
+		{Name: "ok", URL: "http://mcp.test", ProbeTimeout: "not-a-duration"},
+	}, logx.NewSlogLogger("test"))
+	if p == nil {
+		t.Fatal("应返回非 nil")
 	}
 	p.Close()
 }

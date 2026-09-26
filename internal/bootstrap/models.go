@@ -106,13 +106,17 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
 			ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
 			Timeout: cfg.LLM.Timeout,
+			// v0.10.16：429 响应捕获 Retry-After，重试环按服务端建议退避（限流窗口
+			// 还剩多久只有端点知道；mimo 并发限流下比本地指数曲线更准）
+			CaptureRetryAfter: true,
 		})
 		if e != nil {
 			return nil, fmt.Errorf("构造主 LLM Provider 失败: %w", e)
 		}
 		fb, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 			BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
-			ContextTokens: cfg.LLM.FallbackContextToken,
+			ContextTokens:     cfg.LLM.FallbackContextToken,
+			CaptureRetryAfter: true,
 		})
 		if e != nil {
 			return nil, fmt.Errorf("构造降级 LLM Provider 失败: %w", e)
@@ -175,7 +179,8 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		p, err := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
 			ContextTokens: so.ContextTokens, MaxOutputTokens: cfg.MaxTokensParam(),
-			Timeout: cfg.LLM.Timeout,
+			Timeout:           cfg.LLM.Timeout,
+			CaptureRetryAfter: true,
 		})
 		if err != nil {
 			return nil, err

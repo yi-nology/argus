@@ -214,6 +214,11 @@ type Config struct {
 	//                   R3 agent 经 use_skill 工具按需加载全文（skill 多/大时用）。
 	SkillMode string
 
+	// MCP 闲置连接回收（v0.10.18 连接租约面；默认关闭）。闲置时钟 = 建连/
+	// 取工具/探活成功。MaxIdle 必须 ≫ 最大工具超时，否则在飞调用被误回收。
+	MCPIdleReapInterval time.Duration // ARGUS_MCP_IDLE_REAP_INTERVAL，检查周期（启用时缺省 5m）
+	MCPIdleReapMaxIdle  time.Duration // ARGUS_MCP_IDLE_REAP_MAX_IDLE，闲置阈值（0 = 关闭）
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -484,6 +489,8 @@ func Load() *Config {
 		OctopusToken:           os.Getenv("ARGUS_OCTOPUS_TOKEN"),
 		Debug:                  envBool("ARGUS_DEBUG", false),
 		SkillMode:              envStr("ARGUS_SKILL_MODE", "inject"),
+		MCPIdleReapInterval:    envDuration("ARGUS_MCP_IDLE_REAP_INTERVAL", 5*time.Minute),
+		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		// Milvus 向量检索
 		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
 		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),

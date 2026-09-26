@@ -46,12 +46,13 @@ type SquadDecl struct {
 
 // MCPServerDecl 单个 MCP server 连接声明。
 type MCPServerDecl struct {
-	Name    string            `yaml:"name"`
-	Command []string          `yaml:"command"` // stdio 传输
-	Env     []string          `yaml:"env"`     // stdio 子进程环境白名单
-	URL     string            `yaml:"url"`     // streamable http 传输
-	Headers map[string]string `yaml:"headers"` // 请求头（值支持 ${VAR} 环境引用，如 Bearer token）
-	Timeout string            `yaml:"timeout"` // "30s" 写法
+	Name         string            `yaml:"name"`
+	Command      []string          `yaml:"command"`      // stdio 传输
+	Env          []string          `yaml:"env"`          // stdio 子进程环境白名单
+	URL          string            `yaml:"url"`          // streamable http 传输
+	Headers      map[string]string `yaml:"headers"`      // 请求头（值支持 ${VAR} 环境引用，如 Bearer token）
+	Timeout      string            `yaml:"timeout"`      // "30s" 写法
+	ProbeTimeout string            `yaml:"probeTimeout"` // 探活独立预算（"5s" 写法；缺省 5s，不误吃连接级 timeout）
 }
 
 // ToolSpecDecl 工具白名单条目：tools: [{server: docs, allow: [search_docs]}]。

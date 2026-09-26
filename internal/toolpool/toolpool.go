@@ -47,20 +47,43 @@ func NewRealPool(decls []plugin.MCPServerDecl, log logx.Logger) *mcp.Pool {
 		if err != nil {
 			timeout = 0 // agentkit 缺省 30s
 		}
+		probe, err := time.ParseDuration(d.ProbeTimeout)
+		if err != nil {
+			probe = 0 // agentkit 缺省 5s（v0.10.20 探活独立预算，不误吃连接级 30s）
+		}
 		cfgs = append(cfgs, mcp.ServerConfig{
-			Name:    d.Name,
-			Command: d.Command,
-			Env:     d.Env,
-			URL:     d.URL,
-			Headers: expandHeaders(d.Headers, log),
-			Timeout: timeout,
+			Name:         d.Name,
+			Command:      d.Command,
+			Env:          d.Env,
+			URL:          d.URL,
+			Headers:      expandHeaders(d.Headers, log),
+			Timeout:      timeout,
+			ProbeTimeout: probe,
 		})
 	}
 	pool := mcp.NewPool(cfgs...)
 	pool.OnError = func(server string, err error) {
 		log.Warn("argus.mcp.server_error", "server", server, "error", err.Error())
 	}
+	// 请求侧上下文透传（v0.10.20）：任务级元数据随每笔 CallTool 注入 JSON-RPC
+	// _meta，server 侧可关联「哪次评审在调我」；无任务上下文（Q&A 等）不注入。
+	pool.RequestMeta = CallMeta
 	return pool
+}
+
+// callMetaKey 任务级 MCP 调用元数据的 ctx 键。
+type callMetaKey struct{}
+
+// WithCallMeta 注入任务级调用元数据（runner.Execute 在任务 ctx 上挂一次，
+// 随 ctx 流入该任务全部 MCP 工具调用）。
+func WithCallMeta(ctx context.Context, meta map[string]any) context.Context {
+	return context.WithValue(ctx, callMetaKey{}, meta)
+}
+
+// CallMeta 从 ctx 取调用元数据；无注入返回 nil（metaClient 对空不注入 _meta）。
+func CallMeta(ctx context.Context) map[string]any {
+	meta, _ := ctx.Value(callMetaKey{}).(map[string]any)
+	return meta
 }
 
 // SpecsFromDecls 汇总 plugins.yaml tools 白名单段为 runner 形态。

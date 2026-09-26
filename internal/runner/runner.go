@@ -152,7 +152,9 @@ func (r *Runner) skillText(_ context.Context) string {
 				filtered = append(filtered, m)
 			}
 		}
-		r.skillCache = skill.ListPrompt(filtered)
+		// 两级预算降级（v0.10.18，对标 ZCode skills 注入预算）：清单超 20K 字节
+		// 先降纯名单、仍超再截断注明；预算内渲染与 ListPrompt 完全一致。
+		r.skillCache = skill.RenderList(filtered, skill.DefaultListBudget)
 		// tool 模式同样吃 10 分钟刷新周期（v3.9.1：此前不设 loaded/refresh，
 		// 缓存条件永假，每任务每次 R3 都重拉 ListSkills）
 		r.skillLoaded = true
@@ -306,6 +308,13 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
 	}
+	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
+	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
+	ctx = toolpool.WithCallMeta(ctx, map[string]any{
+		"task_id": taskID,
+		"repo":    task.Owner + "/" + task.Repo,
+		"mr":      task.Number,
+	})
 	start := time.Now()
 	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	wf := r.buildWorkflow(budget)

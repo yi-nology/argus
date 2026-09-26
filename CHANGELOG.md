@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.32.0 (2026-09-26) — agentkit v0.10.15~22 新面主动接入：Retry-After/技能预算/探活预算/调用元数据/闲置回收
+
+- **CaptureRetryAfter（v0.10.16）**：三处 `llm.NewOpenAIProvider`（主/备/阶段覆盖）
+  开启 429 Retry-After 捕获——重试环按服务端建议退避（≤5min 钳制，比本地指数
+  曲线准；mimo 并发限流对症）。诚实边界：单模型模式（未配 OPENAI_FALLBACK_*）
+  无 Provider 传输层，捕获不生效；ReAct 直调走 eino ChatModel 亦不经 Provider，
+  两者维持原状（agentkit 侧限制，待上游）。
+- **skill.RenderList 两级预算（v0.10.18）**：tool 模式清单渲染从 `ListPrompt` 迁
+  `RenderList(filtered, DefaultListBudget)`——超 20K 字节先降纯名单、仍超截断
+  注明；预算内渲染与 ListPrompt 完全一致（golden 零噪声）。
+- **MCP 探活独立预算（v0.10.20）**：plugins.yaml mcpServers 新增 `probeTimeout`
+  字段透传 `ServerConfig.ProbeTimeout`（缺省 5s），探活不再误吃连接级 timeout。
+- **RequestMeta 调用元数据（v0.10.20）**：toolpool 池挂 `pool.RequestMeta`，
+  runner.Execute 在任务 ctx 注入 `task_id/repo/mr`——每笔 MCP CallTool 的
+  JSON-RPC `_meta` 可关联调用来源；Q&A 等非任务路径不注入（metaClient 空值
+  不装饰）。配套 `toolpool.WithCallMeta/CallMeta` 单测。
+- **MCP 闲置连接回收（v0.10.18，默认关闭）**：`ARGUS_MCP_IDLE_REAP_MAX_IDLE`
+  > 0 启用长驻池闲置回收（检查周期 `ARGUS_MCP_IDLE_REAP_INTERVAL`，缺省 5m）；
+  约束：MaxIdle ≫ 最大工具超时，否则在飞调用被误回收。
+- 门禁：build/lint/staticcheck/gofmt + 受影响包（toolpool/runner/bootstrap/
+  config/plugin）单测全绿。
+
 ## v3.31.0 (2026-09-26) — agentkit v0.10.14→v0.10.22：vendor 快照对齐，八版本新面真正入编译
 
 - **deps**：go.mod v0.10.14→v0.10.22 + `go mod vendor`。关键背景：vendor/ 快照

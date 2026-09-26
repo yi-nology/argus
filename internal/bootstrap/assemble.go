@@ -152,6 +152,13 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	var squads []plugin.SquadDecl
 	if len(pf.MCPServers) > 0 {
 		if rp := toolpool.NewRealPool(pf.MCPServers, log); rp != nil {
+			// 闲置连接回收（ARGUS_MCP_IDLE_REAP_MAX_IDLE > 0 启用）：长驻池的
+			// 闲置 stdio/HTTP 连接周期性摘除，重连在下次取工具时按需发生。
+			if cfg.MCPIdleReapMaxIdle > 0 {
+				rp.StartIdleReaper(cfg.MCPIdleReapInterval, cfg.MCPIdleReapMaxIdle)
+				log.Info("argus.boot.mcp_idle_reaper", "interval", cfg.MCPIdleReapInterval.String(),
+					"max_idle", cfg.MCPIdleReapMaxIdle.String())
+			}
 			toolPool = &toolpool.RealAdapter{Pool: rp}
 			toolSpecs = toolpool.SpecsFromDecls(pf.Tools)
 			log.Info("argus.boot.mcp_ready", "servers", strings.Join(rp.Servers(), ","),
