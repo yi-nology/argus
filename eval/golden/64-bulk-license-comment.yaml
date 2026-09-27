@@ -1,0 +1,63 @@
+# 场景（v15 扩容）：批量机械变更（版权头年份统一替换）——真实世界年度高频
+# 形态。5 文件大 diff、零语义变化：考 R3/R4 在大而空的 diff 上不误报；
+# reviewer 给一条流程性 low 建议 → comment；真实模式 approve 同计通过
+#（change-shape 家族诚实放宽，60 号先例）。
+name: 64-bulk-license-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 版权头年份统一更新为 2025
+  body: |
+    批量替换全部源文件版权头（2024 → 2025），无功能变更。
+changed_files:
+  - path: pkg/a/a.go
+    diff: |
+      diff --git a/pkg/a/a.go b/pkg/a/a.go
+      --- a/pkg/a/a.go
+      +++ b/pkg/a/a.go
+      @@ -1,2 +1,2 @@
+      -// Copyright 2024 DemoSoft
+      +// Copyright 2025 DemoSoft
+    additions: 1
+    deletions: 1
+  - path: pkg/b/b.go
+    diff: |
+      diff --git a/pkg/b/b.go b/pkg/b/b.go
+      --- a/pkg/b/b.go
+      +++ b/pkg/b/b.go
+      @@ -1,2 +1,2 @@
+      -// Copyright 2024 DemoSoft
+      +// Copyright 2025 DemoSoft
+    additions: 1
+    deletions: 1
+  - path: pkg/c/c.go
+    diff: |
+      diff --git a/pkg/c/c.go b/pkg/c/c.go
+      --- a/pkg/c/c.go
+      +++ b/pkg/c/c.go
+      @@ -1,2 +1,2 @@
+      -// Copyright 2024 DemoSoft
+      +// Copyright 2025 DemoSoft
+    additions: 1
+    deletions: 1
+repo_files:
+  pkg/a/a.go: |
+    // Copyright 2025 DemoSoft
+    package a
+  pkg/b/b.go: |
+    // Copyright 2025 DemoSoft
+    package b
+  pkg/c/c.go: |
+    // Copyright 2025 DemoSoft
+    package c
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"全部源文件版权头年份统一更新为 2025，无功能变更"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"pkg/a/a.go:1, pkg/b/b.go:1, pkg/c/c.go:1"}],"scope_creep":[],"summary":"完成，纯头部注释变更"}
+  reviewer: |
+    {"findings":[{"file":"pkg/a/a.go","line":1,"severity":"low","comment":"建议将版权头检查纳入 CI 自动化（如 license-eye），避免每年手工批量替换引入遗漏"}],"notes":""}
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

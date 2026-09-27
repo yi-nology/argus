@@ -265,6 +265,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	stageStart := time.Now()
 	changedFiles := diffPaths(task.Diff)
 	skills := skillsForKind(task.Kind)
+	w.onStage("R4")
 
 	// R4：确定性路由 → 预算裁剪 → fan-out
 	sel := w.Dispatcher.Select(&task.PR, changedFiles, skills, rc)

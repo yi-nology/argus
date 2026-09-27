@@ -1,0 +1,60 @@
+# 场景（v15 扩容）：debug 输出残留——真实世界高频缺陷形态。新增接口内残留
+# fmt.Println 打印用户数据：信息泄露风险 → comment 说明：词表为 {high,medium,low} → R5.1 request_changes。
+# rc 期望精确比对（漏升级是危险方向，不容方差；01 号先例）。
+name: 63-debug-print-rc
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增管理员导出用户列表接口
+  body: |
+    支持管理员按条件导出用户列表为 CSV。
+changed_files:
+  - path: handler/export.go
+    diff: |
+      diff --git a/handler/export.go b/handler/export.go
+      --- /dev/null
+      +++ b/handler/export.go
+      @@ -0,0 +1,14 @@
+      +package handler
+      +
+      +import (
+      +	"fmt"
+      +	"net/http"
+      +)
+      +
+      +func ExportUsers(w http.ResponseWriter, r *http.Request) {
+      +	users := listUsers(r)
+      +	fmt.Println("exporting users", users)
+      +	for _, u := range users {
+      +		writeCSVRow(w, u)
+      +	}
+      +}
+    additions: 14
+    deletions: 0
+repo_files:
+  handler/export.go: |
+    package handler
+
+    import (
+    	"fmt"
+    	"net/http"
+    )
+
+    func ExportUsers(w http.ResponseWriter, r *http.Request) {
+    	users := listUsers(r)
+    	fmt.Println("exporting users", users)
+    	for _, u := range users {
+    		writeCSVRow(w, u)
+    	}
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"支持管理员按条件导出用户列表为 CSV"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"handler/export.go:10"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"handler/export.go","line":12,"severity":"high","comment":"debug 输出残留：fmt.Println 向 stdout 打印完整用户数据，存在信息泄露风险；请删除或改为结构化调试日志（受日志级别控制且脱敏）"}],"notes":""}
+expect:
+  verdict: request_changes
+  must_find: ["R5.2"]
+  must_not_find: ["R5.5"]

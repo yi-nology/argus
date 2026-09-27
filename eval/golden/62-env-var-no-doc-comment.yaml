@@ -1,0 +1,59 @@
+# 场景（v15 扩容）：新增环境变量但配置文档未同步——真实世界高频形态（运维侧）。
+# diff 即证据（.env.example + 读取代码），文档缺位是非阻塞意见 → comment 正例；
+# 真实模式 approve（无意见）同计通过（change-shape 家族诚实放宽，60 号先例）。
+name: 62-env-var-no-doc-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增 MAX_RETRY 环境变量控制重试次数
+  body: |
+    支持通过环境变量 MAX_RETRY 配置导出任务的重试次数，缺省 3。
+changed_files:
+  - path: .env.example
+    diff: |
+      diff --git a/.env.example b/.env.example
+      --- a/.env.example
+      +++ b/.env.example
+      @@ -3,3 +3,4 @@ EXPORT_PATH=/tmp/export
+      +MAX_RETRY=3
+    additions: 1
+    deletions: 0
+  - path: config.go
+    diff: |
+      diff --git a/config.go b/config.go
+      --- a/config.go
+      +++ b/config.go
+      @@ -10,3 +10,6 @@ type Config struct {
+      +	maxRetry := 3
+      +	if v := os.Getenv("MAX_RETRY"); v != "" {
+      +		maxRetry, _ = strconv.Atoi(v)
+      +	}
+    additions: 4
+    deletions: 0
+repo_files:
+  .env.example: |
+    EXPORT_PATH=/tmp/export
+    MAX_RETRY=3
+  config.go: |
+    package main
+
+    type Config struct{ MaxRetry int }
+
+    func load() Config {
+    	maxRetry := 3
+    	if v := os.Getenv("MAX_RETRY"); v != "" {
+    		maxRetry, _ = strconv.Atoi(v)
+    	}
+    	return Config{MaxRetry: maxRetry}
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"支持 MAX_RETRY 环境变量配置导出重试次数，缺省 3"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"config.go:12"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":".env.example","line":4,"severity":"low","comment":"新增 MAX_RETRY 变量但 README 配置文档未同步说明（含义/缺省值/取值范围）"}],"notes":""}
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

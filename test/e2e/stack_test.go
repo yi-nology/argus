@@ -314,7 +314,9 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		m.mu.Unlock()
 		m.reply(w, m.Correctn)
 	case strings.Contains(text, "【Argus R2 变更理解】"):
-		m.reply(w, "本 PR 添加了账号密码登录功能。")
+		// v3.42.0：文本须 ≥ r2MinValidRunes（软失败校验，空/过短会触发重试 +
+		// 降级，吃掉后续桩响应导致序列错位）
+		m.reply(w, "本 PR 添加了账号密码登录功能：新增登录页与表单提交处理，校验账号密码非空后调用认证接口，失败时在页面提示错误原因。")
 	case strings.Contains(text, "苛刻但公正的评审"):
 		// R3.5 critique：默认首轮即通过；critique-fail 注入时打回，驱动修订/
 		// 剔除路径（agentkit reflection 契约 {"pass","issues"}）

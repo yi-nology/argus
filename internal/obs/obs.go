@@ -74,6 +74,10 @@ var (
 		Name: "argus_ctx_breakdown_runes_total", Help: "上下文构成分解（stage×role 的 rune 累计量；FitModel 发送路径顺手分桶）",
 	}, []string{"stage", "role"})
 
+	r2SoftFailure = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_r2_soft_failures_total", Help: "R2 变更摘要软失败计数（输出空/过短，重试后仍无效走降级）",
+	})
+
 	// layerExec 分层活检：层被真正走到的次数。increase()==0 且 tasks_total{done}>0
 	// → 该层静默失效（配置关掉的层不注册/不打点，不误报）。
 	layerExec = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -178,7 +182,7 @@ func Init() {
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
-		ctxFit, llmContinued, toolAnomaly, ctxBreakdown,
+		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
@@ -280,6 +284,11 @@ func IncrToolAnomaly(tool string) {
 // AddCtxBreakdown 上下文构成分解累计（stage×role 的 rune 量）。
 func AddCtxBreakdown(stage, role string, runes int) {
 	ctxBreakdown.WithLabelValues(stage, role).Add(float64(runes))
+}
+
+// IncrR2SoftFailure R2 变更摘要软失败（输出空/过短）。
+func IncrR2SoftFailure() {
+	r2SoftFailure.Inc()
 }
 
 // IncrQAFailure 评论链路处理失败计数（service 层调用）。

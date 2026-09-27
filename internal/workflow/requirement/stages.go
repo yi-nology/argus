@@ -18,6 +18,7 @@ import (
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/toolprior"
 
+	"argus/internal/obs"
 	"argus/internal/plugin"
 
 	"git.example.com/enjoydream/agentkit/jsonrepair"
@@ -253,8 +254,29 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 	if err != nil {
 		return "", err
 	}
-	return truncSummary(resp.Content, 1200), nil
+	summary := truncSummary(resp.Content, 1200)
+	if rc := utf8.RuneCountInString(strings.TrimSpace(summary)); rc < r2MinValidRunes {
+		// 软失败路径（v3.42.0）：R2 是自由文本输出、无结构化失败信号——这是
+		// 「R2 失效无失败路径可钉」（v3.26.0 在案）的根因。最小有效性校验
+		//（空/过短）给路径钉上失败语义：带反馈重试一次，仍无效则上抛错误走
+		// 调用方既有降级（summary=""，R3/R4 携带原始 diff 不受影响；不写
+		// checkpoint，任务重试时 R2 可重来）。
+		obs.IncrR2SoftFailure()
+		w.Log.Warn("argus.r2.soft_failure", "runes", rc, "action", "带反馈重试一次")
+		retryMsgs := append(msgs, schema.UserMessage(plugin.ReminderNote("retry-feedback",
+			"上一轮变更摘要输出为空或过短，无法用作变更理解。请基于 diff 输出一段完整摘要：概述改动了哪些文件、每个文件改了什么（不少于两句话）。")))
+		if resp2, e2 := w.LLM.Generate(ctx, "R2", retryMsgs); e2 == nil {
+			if s2 := truncSummary(resp2.Content, 1200); utf8.RuneCountInString(strings.TrimSpace(s2)) >= r2MinValidRunes {
+				return s2, nil
+			}
+		}
+		return "", fmt.Errorf("R2 变更摘要两次输出均无效（空/过短）")
+	}
+	return summary, nil
 }
+
+// r2MinValidRunes R2 摘要最小有效长度——少于此值视为模型输出失效（空转/拒答）。
+const r2MinValidRunes = 20
 
 // CheckCompliance R3：完成度判定 → ComplianceReport（ADK ReAct agent + 工具）。
 // JSON 解析失败重试 1 次后仍败 → 全部 AC 置 unverifiable（§10.2，结果不丢）。

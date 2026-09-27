@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.42.0 (2026-09-26) — R2 软失败路径钉死 + R4 阶段事件 + golden 扩容 63 条（62/63/64）
+
+- **R2 软失败路径**（「R2 失效无失败路径可钉」v3.26.0 在案项落地）：变更摘要
+  是自由文本、无结构化失败信号——最小有效性校验（空/过短 <20 rune）给路径
+  钉上失败语义：ReminderNote 反馈重试一次，仍无效上抛错误走调用方既有降级
+  （summary=""，R3/R4 携带原始 diff 不受影响；不写 checkpoint 保任务重试可
+  重来）。argus_r2_soft_failures_total 观测。
+- **R4 阶段事件补齐**：finish 入口 w.onStage("R4")——主管线 R1→R2→R3→R35→R4
+  全阶段 task.stage 事件闭环（此前仅 R4 缺）。
+- **golden 扩容 60→63**（真实世界形态三则，v15）：
+  - 62-env-var-no-doc-comment：新增环境变量但配置文档未同步（运维高频，
+    change-shape 放宽）；
+  - 63-debug-print-rc：debug 输出残留打印用户数据（信息泄露 → high → R5.2
+    request_changes，rc 精确比对）；
+  - 64-bulk-license-comment：版权头批量替换（大 diff 零语义，考不误报）。
+  配套：harness R2 桩文本补齐到真实长度（过短桩被新软失败校验正确拦截——
+  桩与现实对齐）；打桩 63/63 全绿（clean 5/5、FP=0、boundary 2/2），真实
+  分母 46→49（待 eval-real 跑真实增量）。
+- 门禁：全量测试 + lint 绿。
+
 ## v3.41.0 (2026-09-26) — 配置陷阱清理 + knob env 化 + compaction 落地手册留档
 
 - **配置陷阱如实化**：①`ARGUS_MCP_IDLE_REAP_INTERVAL` 单配静默无效——config
