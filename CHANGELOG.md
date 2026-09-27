@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.55.0 (2026-09-28) — 八轮：finish() 拆分（最大可读性债清偿）+ 跨轮注入观测补齐
+
+- **finish() 210 行单体拆分为四个命名子步骤**（顺序即语义，纯迁移零行为变更，
+  全部注释原样保留）：`dispatchR4`（委派/共识/SAST/补审）→ `mergeAndReflect`
+  （合并/R3.5/双标注）→ `applyRepoPolicies`（min_severity/路径排除）→
+  `judgeAndGate`（完备性/scope/真值表/R5.0/R5.C）。步骤间只传显式产物，
+  golden 68 + e2e + 全量测试钉住等价性。
+- **prev_findings 注入留痕**：`argus.runner.prev_findings_injected`（task/pr/bytes）
+  ——跨轮一致性此前零日志，生产无法确认注入是否发生（本地部署测试时发现的观测缺口）。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.54.0 (2026-09-27) — 七轮：dream/health 消费侧接口补全 + Workflow 输入通道契约文档化
 
 - **RepoRef 归位 learning**（memory.Ref 先例同款）：域类型放纯叶子包，

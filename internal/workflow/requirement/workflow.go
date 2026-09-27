@@ -275,20 +275,56 @@ func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *
 }
 
 // finish = R4 专家委派 + R5 确定性真值表。
+// finish = R4 专家委派 + R5 确定性裁决的编排壳。v3.55.0 拆分为四个命名子步骤，
+// 顺序即语义（委派 → 合并/反思/标注 → 仓库主权过滤 → 裁决与门），步骤间只传
+// 显式产物——此前 210 行单体函数是勘察在案的最大可读性债。
 func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
 	rc *plugin.RepoConfig, start time.Time, spec *plugin.RequirementSpec, report *plugin.ComplianceReport,
 	summary string) (*Output, error) {
 
-	stageStart := time.Now()
 	changedFiles := diffPaths(task.Diff)
 	skills := skillsForKind(task.Kind)
+
+	sel, outcomes, pruned, retryNotes := w.dispatchR4(ctx, task, budget, rc, changedFiles, skills)
+
+	merged, reflectInfo, err := w.mergeAndReflect(ctx, task, outcomes, pruned, summary, changedFiles)
+	if err != nil {
+		return nil, err
+	}
+	w.applyRepoPolicies(merged, rc, task)
+
+	verdict, rule, completeness := w.judgeAndGate(task, spec, report, merged, sel, outcomes, pruned, retryNotes)
+
+	out := &Output{
+		Verdict:      verdict,
+		Rule:         rule,
+		Spec:         spec,
+		Report:       report,
+		Merged:       merged,
+		PluginsRun:   plugin.OutcomeNames(outcomes),
+		Summary:      summary,
+		Elapsed:      time.Since(start),
+		Reflect:      reflectInfo,
+		Completeness: completeness,
+	}
+	out.Tokens = w.LLM.UsedTokens()
+	return out, nil
+}
+
+// dispatchR4 R4 专家委派：确定性路由 → 预算裁剪 → fan-out → 编队共识 → SAST
+// 并入 → G4 受限补审。返回裁决所需的全量产物（sel 供完备性裁判、retryNotes
+// 供降级注明）。
+func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
+	rc *plugin.RepoConfig, changedFiles, skills []string) (sel []plugin.Selection,
+	outcomes []plugin.Outcome, pruned, retryNotes []string) {
+
+	stageStart := time.Now()
 	w.onStage(plugin.LayerR4)
 
 	// R4：确定性路由 → 预算裁剪 → fan-out
-	sel := w.Dispatcher.Select(&task.PR, changedFiles, skills, rc)
-	var pruned []string
+	sel = w.Dispatcher.Select(&task.PR, changedFiles, skills, rc)
 	sel, pruned = w.Dispatcher.PruneByBudget(sel, budget)
-	outcomes := w.Dispatcher.Run(ctx, task, sel, budget)
+	outcomes = w.Dispatcher.Run(ctx, task, sel, budget)
 	// v3.4 编队共识模式：consensus 编队不进 fan-out（Select 已排除），在
 	// fan-out 后单独召集——成员黑板互看、共识收敛，产出按成员归属进 Merger。
 	for _, sq := range w.Dispatcher.ConsensusSquads(&task.PR, changedFiles) {
@@ -300,17 +336,23 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		outcomes = append(w.SASTOutcomes, outcomes...)
 	}
 	// G4 受限补审（opt-in）：执行失败的插件在剩余预算内重试一次（v3.11.0）
-	var retryNotes []string
 	if w.CompletenessRetry {
 		outcomes, retryNotes = w.retryFailedPlugins(ctx, task, budget, sel, outcomes)
 	}
 	plugin.ReportStageDuration(plugin.LayerR4, time.Since(stageStart))
 	plugin.ReportLayerExec(plugin.LayerR4)
+	return sel, outcomes, pruned, retryNotes
+}
+
+// mergeAndReflect 合并与修订：Merger 归一化/指纹去重/抑制过滤 → R2 缺失与预算
+// 裁剪注明 → R3.5 报告反思 → 学习环低置信标注重放 → 交叉审查分歧标注。
+func (w *Workflow) mergeAndReflect(ctx context.Context, task plugin.Task, outcomes []plugin.Outcome,
+	pruned []string, summary string, changedFiles []string) (*plugin.MergedFindings, *plugin.ReflectSummary, error) {
 
 	// Merger：归一化 + 指纹去重 + 抑制过滤（store 由 Merger 持有）
 	merged, err := w.Merger.Merge(ctx, task.PR, task.ID, outcomes, time.Now())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if summary == "" {
 		merged.Degraded = append(merged.Degraded,
@@ -323,7 +365,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	// R3.5 报告反思（v3.4）：合并去重后、分歧标注与 R5 裁决前——被剔除的意见连带
 	// 分歧标注一起消失，R5 真值表也基于修订后 findings 求值。指纹库不受影响：
 	// 反思是逐轮质量闸门（统计性判断），持久抑制只来自人工 suppress 反馈。
-	var reflectInfo *ReflectSummary
+	var reflectInfo *plugin.ReflectSummary
 	if w.ReflectRounds > 0 {
 		// 活检：开关开着就必须走到 R35；模型未配/无 findings 也算「尝试执行」
 		//——否则「配置了反思却从未调用」会与「正常空跑」不可分。
@@ -356,9 +398,13 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	if members := w.Dispatcher.ActiveSquadMembers(&task.PR, changedFiles); len(members) >= 2 {
 		w.Merger.AnnotateCrossReview(merged, members)
 	}
+	return merged, reflectInfo, nil
+}
 
-	// 仓库级严重度阈值（v3.15.0 review.min_severity）：确定性过滤，低于阈值者
-	// 不进报告、不参与 R5 裁决（阈值是仓库主权，裁决仍不走 LLM）。
+// applyRepoPolicies 仓库主权过滤（确定性，裁决仍不走 LLM）：review.min_severity
+// 低于阈值者不进报告、不参与 R5 裁决；路径排除的覆盖收缩必须可见。
+func (w *Workflow) applyRepoPolicies(merged *plugin.MergedFindings, rc *plugin.RepoConfig, task plugin.Task) {
+	// 仓库级严重度阈值（v3.15.0 review.min_severity）
 	if rc != nil && rc.Review.MinSeverity != "" {
 		kept, dropped := plugin.FilterByMinSeverity(merged.Findings, rc.Review.MinSeverity)
 		if dropped > 0 {
@@ -382,11 +428,19 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 				fmt.Sprintf("仓库配置 review 路径过滤：%d 个变更文件被排除在审查之外（.reviewagents.yaml）", excluded))
 		}
 	}
+}
+
+// judgeAndGate R5 确定性裁决与全部门：完备性裁判 → scope 闸门 → 真值表 →
+// R5.0 空产出守门 → SAST 失败注明 → R5.C 完备性降级门 → 增量审查范围透出。
+// merged 的 Degraded 按原顺序追加。
+func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
+	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []plugin.Selection,
+	outcomes []plugin.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
 
 	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
 	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段
 	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
-	completeness := JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
+	completeness = JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
 	merged.Degraded = append(merged.Degraded, retryNotes...)
 
 	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
@@ -469,21 +523,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
 	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
-
-	out := &Output{
-		Verdict:      verdict,
-		Rule:         rule,
-		Spec:         spec,
-		Report:       report,
-		Merged:       merged,
-		PluginsRun:   plugin.OutcomeNames(outcomes),
-		Summary:      summary,
-		Elapsed:      time.Since(start),
-		Reflect:      reflectInfo,
-		Completeness: completeness,
-	}
-	out.Tokens = w.LLM.UsedTokens()
-	return out, nil
+	return verdict, rule, completeness
 }
 
 // retryFailedPlugins G4 受限补审：对执行失败（Err 非空且非任务取消跳过）的插件

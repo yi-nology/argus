@@ -513,6 +513,9 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	// request_changes↔comment 漂移）的最小缓解。查询失败降级无此键。
 	if prev := r.prevFindingsSection(ctx, pr); prev != "" {
 		ptask.Artifacts[plugin.ArtifactPrevFindings] = prev
+		r.Log.Info("argus.runner.prev_findings_injected", "task", task.ID,
+			"pr", fmt.Sprintf("%s/%s/%s#%s", pr.Platform, pr.Owner, pr.Repo, pr.Number),
+			"bytes", len(prev))
 	}
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
