@@ -80,14 +80,24 @@ poller 是干净的防腐层；除 obs→plugin 观测钩子与 biz 全局 Svc �
 
 | 批次 | 版本 | 内容 | 触碰面 |
 |---|---|---|---|
-| B1 | v3.45.0 | 纪律口子：fenced 全路径统一、storage.ErrNotFound、RunnerID 必填化、复位去重 | runner/storage/service/main |
+| B1 | v3.45.0 | 纪律口子：fenced 观测统一、storage.ErrNotFound、心跳 fail-fast、复位去重 | runner/storage/service/main |
 | B2 | v3.46.0 | 契约单源化：阶段词表统一（含 R35、LLM stage 标签族）、debug 裸键常量化 | plugin/workflow/runner/service/bootstrap |
 | B3 | v3.47.0 | learning 归位：internal/learning 叶子包（pattern.go+LearningConfig+PatternState），LearningConfig 单源化 | plugin/storage/dream/health/exportdata/bootstrap/main |
-| B4 | v3.47.1 | runner 收口：enrich 步骤接口化（EnrichStep，构造移 bootstrap），runner -4 imports | runner/bootstrap |
-| B5 | v3.48.0 | 装配收口：service 进 System、runnerRef 装配后断言 | bootstrap/main |
+| B4' | v3.48.0 | 装配收口：service 进 System、runnerRef 不变量自检（B4 原方案改判不做，见 §2） | bootstrap/main |
 
 ## 2. 关键裁定记录
 
+- **runner enrich 步骤接口化：改判不做（实施复核，v3.48.0 在案防重探）**。读实现后
+  实锤：injectOCRDelegate/injectSAST/injectCodeGraph/reviewHints 是组合点上的内聚
+  胶水——统一的「config 闸门 + 工作副本池取还 + logredact 告警降级」模式，且
+  injectOCRDelegateInDir 已有独立测试缝。倒置的两种落法都更糟：让工具包实现
+  EnrichStep 则 ocrdeleg/sastscan/codegraph 反向依赖 workflow 包（工具叶子的依赖面
+  变宽）；把实现搬 bootstrap 则组合根膨胀 ~200 行运行期逻辑（破坏装配根单一职责）。
+- **runner 学习环记账窄接口：不做**。runner 对 storage 实际调用面 14 个方法，横跨
+  任务生命周期（GetTask/FinishTaskFenced/SetTaskHeadSHA/MergeTaskStageArtifacts/
+  SetTaskDebug/RepoMonthlyTokens）、学习环记账（RecordPrintRegret/GetPrintState/
+  PatternRegret/ListLowConfidencePatterns）、评审锚定（GetLastReviewedDiff）三类——
+  为它建接口是 header-interface 反模式；merger 两方法窄接口的先例不可平移。
 - **prompt 卫生三件（reminder/fence/sanitize）不迁**：与适配器 prompt 管线语义连续，
   迁移是纯 import 扰动。在 plugin 包文档注释中写明归属理由，防后人误判。
 - **runner 的 notify/sink/progress 接口化不批**：三个都是单调用 fire-and-forget 依赖，

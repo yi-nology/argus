@@ -1,5 +1,32 @@
 # Changelog
 
+## v3.48.0 (2026-09-27) — 架构治理 B4'：装配收口（service 进 System + runnerRef 不变量自检）
+
+- **service 构造收敛进 bootstrap.Assemble**：System 由此成为完整对象图（此前
+  service 在 main 现场拼装，装配知识分散两文件）；main 只剩 HTTP 面接线
+  （SetService/Bearer 中间件/路由/评论链路停机排水）。
+- **runnerRef 延迟绑定不变量自检**：WorkflowFactory/ReviewTools 闭包捕获 runnerRef
+  指针、依赖「Invoke 时装配已完成」的隐式约定——装配尾部显式 fail-fast，未来条件
+  构造路径漏构造时启动即报错，不再运行期静默拿 nil factory。
+- **B4 原方案（enrich 步骤接口化/学习环窄接口）实施复核后裁定不做**，理由在案于
+  设计文档 §2：四步前置注入是组合点内聚胶水，倒置会加宽工具包依赖面或膨胀装配根；
+  runner 对 storage 的 14 方法调用面建接口属 header-interface 反模式。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
+## v3.47.0 (2026-09-27) — 架构治理 B3：学习环域归位 internal/learning + 阈值单源
+
+- **新建纯叶子包 internal/learning**（PatternKey/Confidence/PatternSamples/FirstBy/
+  PatternTextMax/PatternState/Config/DefaultConfig，自 plugin 归位）——学习环数学与
+  状态投影的消费方（storage/dream/health/exportdata）与插件语义无关；plugin.Merger
+  经自身声明的 PatternStore 窄接口引用 learning 类型，依赖方向不变。plugin fan-in
+  的「解环抽屉」部分清空。
+- **learning.Config 单源化**：`config.Config.LearningConfig()` 成为唯一派生出口，
+  消灭 bootstrap×2 / main×2 / service×1 共五处手写字面量映射——阈值字段变更从
+  「改五处」收敛为「改一处」。
+- config 新增对 learning（纯 stdlib 叶子）的许可依赖边；「config 不 import 重组件」
+  的叶子位约定不变（对 plugin 禁令照旧）。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.46.0 (2026-09-27) — 架构治理 B2：契约单源化（阶段词表 + debug 键），消 service↔workflow 隐式契约
 
 - **阶段词表单一出处**（plugin/hooks.go Layer 词表升级为管线阶段总词表）：文档化

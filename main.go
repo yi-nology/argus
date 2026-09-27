@@ -37,7 +37,6 @@ import (
 	"argus/internal/poller"
 	"argus/internal/service"
 	"argus/internal/storage"
-	"git.example.com/enjoydream/agentkit/audit"
 	agentkitworker "git.example.com/enjoydream/agentkit/worker"
 
 	argusworker "argus/internal/worker"
@@ -304,12 +303,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	}
 
 	// ---- service + biz 接线 ----
-	svc := &service.Service{Cfg: cfg, Store: store, SDK: sys.SDK, Registry: sys.Registry,
-		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
-		Model: sys.Models.React, QAModel: sys.Models.QA,
-		RouterModel: sys.Models.Router,
-		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
-		Audit:       audit.New(log, "argus-audit"), Version: version}
+	// service 构造已收敛进 bootstrap.Assemble（v3.48.0，System 即完整对象图）；
+	// main 只剩 HTTP 面接线与停机排水。
+	svc := sys.Service
 	// 评论链路停机排水（v3.8.0）：HTTP 已停（不再进新事件）后等在途 Q&A 收尾，
 	// 此前进程退出直接杀在途 ReAct——用户永无回复。放 worker 停机之前。
 	app.AddResource("comments", func(context.Context) error {

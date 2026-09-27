@@ -24,9 +24,11 @@ import (
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/runner"
+	"argus/internal/service"
 	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
+	"git.example.com/enjoydream/agentkit/audit"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/skill"
@@ -52,6 +54,7 @@ type System struct {
 	Merger              *plugin.Merger
 	Poster              *poster.Poster
 	Runner              *runner.Runner
+	Service             *service.Service
 }
 
 // Assemble 装配除存储/HTTP/生命周期外的全部子系统。
@@ -231,6 +234,12 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		// 模式级后悔学习环（v3.5）：默认关闭；阈值单源自 cfg.LearningConfig()
 		Learning: cfg.LearningConfig(),
 	}
+	// 延迟绑定不变量自检：WorkflowFactory/ReviewTools 闭包捕获 runnerRef 指针，
+	// 依赖「Invoke 时装配已完成」。此处显式钉死——未来若出现条件构造路径，
+	// 漏构造在此 fail-fast，而不是运行期静默拿到 nil factory。
+	if runnerRef == nil {
+		return nil, fmt.Errorf("bootstrap: runner 未装配（延迟绑定闭包将拿到 nil factory）")
+	}
 	// 结果上报 sink（ARGUS_SINK_URL 非空启用）：审查完成后 push 给 review-service
 	// 承接端点（旁路，失败只告警不阻断审查主流程）。
 	if cfg.SinkURL != "" {
@@ -238,6 +247,17 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
 	}
 	sys.Runner = runnerRef
+
+	// ---- service 门面（v3.48.0 自 main 收敛）：webhook/CRUD/Q&A/MCP 数据面 ----
+	// System 由此成为完整对象图；main 只剩 HTTP 接线（SetService/Bearer/路由/停机排水）。
+	sys.Service = &service.Service{
+		Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
+		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
+		Model: models.React, QAModel: models.QA,
+		RouterModel: models.Router,
+		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
+		Audit:       audit.New(log, "argus-audit"), Version: version,
+	}
 	return sys, nil
 }
 
