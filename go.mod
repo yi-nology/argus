@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/yi-nology/git-platform-sdk v0.61.0
+	github.com/yi-nology/go-git-platform v0.65.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
@@ -193,6 +193,6 @@ require (
 
 replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
 
-replace github.com/yi-nology/git-platform-sdk => ../../git-platform-sdk
+replace github.com/yi-nology/go-git-platform => ../../git-platform-sdk
 
 replace git.example.com/enjoydream/agentkit => ../agentkit

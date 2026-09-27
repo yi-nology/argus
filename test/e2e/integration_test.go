@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // 真实 LLM 集成测试（不打桩模型，平台仍打桩）。

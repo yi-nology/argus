@@ -19,7 +19,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/hertz/pkg/app/server"
 
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	bizapi "argus/biz/handler/api"
 	routerapi "argus/biz/router/api"

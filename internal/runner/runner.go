@@ -19,7 +19,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/ekit/observability/logx"
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/codegraph"
 	"argus/internal/config"

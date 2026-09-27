@@ -17,7 +17,7 @@ import (
 	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"

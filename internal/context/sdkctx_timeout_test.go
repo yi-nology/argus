@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // v3.5.5 回归：弱网/VPN 下 SDK 连接停滞且不报错，poster 的总结评论更新曾无限挂起。

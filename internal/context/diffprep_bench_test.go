@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // benchMergeDiff 合成变更集：n 个 .go 文件、每文件 lines 行新增（单行约 40 字节）。

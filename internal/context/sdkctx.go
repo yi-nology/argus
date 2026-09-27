@@ -12,8 +12,8 @@ import (
 	"git.example.com/enjoydream/ekit/concurrency/async"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	// 各平台 backend 在 init() 里注册到 provider 工厂
-	_ "github.com/yi-nology/git-platform-sdk/backends/all"
-	"github.com/yi-nology/git-platform-sdk/provider"
+	_ "github.com/yi-nology/go-git-platform/backends/all"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/config"
 	"argus/internal/plugin"

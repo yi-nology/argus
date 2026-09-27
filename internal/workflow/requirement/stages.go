@@ -12,7 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/schema"
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	"git.example.com/enjoydream/agentkit/agentrun"
 	"git.example.com/enjoydream/agentkit/textutil"

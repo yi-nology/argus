@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/git-platform-sdk/provider"
+	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // v3.15.0 P0-2 仓库级配置面全链路：.reviewagents.yaml review 段
