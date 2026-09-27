@@ -62,6 +62,7 @@ type reqSegment struct {
 func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plugin.RequirementSpec, error) {
 	start := time.Now()
 	defer func() { plugin.ReportStageDuration("R1", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR1) }()
+	w.onStage("R1")
 
 	bodyMax, issueMax := w.ReqBodyMaxChars, w.ReqIssueMaxChars
 	if bodyMax <= 0 {
@@ -239,6 +240,7 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (string, error) {
 	start := time.Now()
 	defer func() { plugin.ReportStageDuration("R2", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR2) }()
+	w.onStage("R2")
 
 	if task.Diff == nil || strings.TrimSpace(task.Diff.Text) == "" {
 		return "（无有效 diff 内容）", nil
@@ -259,6 +261,7 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) (*plugin.ComplianceReport, string, error) {
 	start := time.Now()
 	defer func() { plugin.ReportStageDuration("R3", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR3) }()
+	w.onStage("R3")
 
 	if spec == nil || len(spec.ACs) == 0 {
 		return nil, "", nil // 无清单：R3 跳过（R5.3 由 Ambiguous/空清单兜底）
@@ -681,6 +684,13 @@ func asInvokable(t tool.BaseTool) tool.InvokableTool {
 		return it
 	}
 	return nil
+}
+
+// onStage 阶段进度上报（nil 安全；runner 接线 SSE 发布）。
+func (w *Workflow) onStage(stage string) {
+	if w.OnStage != nil {
+		w.OnStage(stage)
+	}
 }
 
 // sortToolsByName 工具表按名排序（原位）。Info 失败的工具保持相对位置（稳定排序）。

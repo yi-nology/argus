@@ -24,6 +24,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"git.example.com/enjoydream/agentkit/textutil"
+
+	"argus/internal/obs"
 )
 
 // ---------- 真实 usage 校准注册表（进程级全局单槽） ----------
@@ -300,8 +302,22 @@ func (f *FitModel) fit(msgs []*schema.Message) []*schema.Message {
 	}
 	out, res := FitMessages(msgs, limit)
 	recordSentChars(res.Before)
+	reportBreakdown(f.Stage, msgs)
 	if f.OnFit != nil && res.Action != FitPass {
 		f.OnFit(f.Stage, res)
 	}
 	return out
+}
+
+// reportBreakdown 上下文构成分解（对标 ZCode context-usage-breakdown）：按 role
+// 分桶累计本次发送量（rune，累计口径=处理过的输入总量）。FitModel 已在发送路径
+// 上，顺手分桶零额外遍历成本——回答「token 花在哪」。
+func reportBreakdown(stage string, msgs []*schema.Message) {
+	bucket := map[schema.RoleType]int{}
+	for _, m := range msgs {
+		bucket[m.Role] += len([]rune(m.Content))
+	}
+	for role, n := range bucket {
+		obs.AddCtxBreakdown(stage, string(role), n)
+	}
 }

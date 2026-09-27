@@ -333,6 +333,8 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	}, 0)
 	// 仓库级评审规范（v3.38.0）：.argus/REVIEW.md @ head，R3/R4 注入
 	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
+	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示
+	wf.OnStage = func(stage string) { r.publishStage(task, stage) }
 	r.publish("task.running", task, "", "")
 
 	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
@@ -888,6 +890,18 @@ func (r *Runner) publish(typ string, task *storage.Task, status, verdict string)
 		Type: typ, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		Status: status, Verdict: verdict,
+	})
+}
+
+// publishStage 阶段级进度事件（task.stage；v3.40.0 SSE 阶段可视化数据源）。
+func (r *Runner) publishStage(task *storage.Task, stage string) {
+	if r.Bus == nil || task == nil {
+		return
+	}
+	r.Bus.Publish(progress.Event{
+		Type: "task.stage", TaskID: task.ID, Platform: task.Platform,
+		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
+		Stage: stage,
 	})
 }
 

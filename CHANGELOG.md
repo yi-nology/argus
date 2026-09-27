@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.40.0 (2026-09-26) — 观测与队列：ctx_breakdown 分解指标 + 任务优先级列 + SSE 阶段事件
+
+- **上下文构成分解**（对标 ZCode context-usage-breakdown，上轮 ctxfit 的补全）：
+  `argus_ctx_breakdown_runes_total{stage,role}`——FitModel 发送路径顺手按 role
+  分桶累计 rune 量，零额外遍历。回答「token 花在 system/工具结果/用户消息的
+  哪一部分」，为压缩阈值与成本归因提供分子分母。
+- **任务优先级列**（tasks.priority，AutoMigrate 增量）：人类在等的任务先于
+  批量认领——评论重审/API 手工/MCP=10、webhook push=5、poller 批量=0（缺省）；
+  ClaimNextPending `ORDER BY priority DESC, created_at ASC`（同优先级 FIFO
+  保持）。此前 poller 批量任务与人工操作抢同一条 FIFO。
+- **SSE 阶段事件**（task.stage）：progress.Event 加 Stage 字段，R1/R2/R3/R35
+  进入时发布——消费者可展示「现在跑到哪一步」。SSE 无类型过滤，新增类型对
+  既有消费者透明；R4 阶段事件待有真实 SSE 消费者再补（ReviewTools 路径的
+  workflow 与主管线不同源）。
+- 门禁：优先级认领顺序单测 + 全量测试 + lint 绿。
+
 ## v3.39.0 (2026-09-26) — 工具面治理：大输出两级化（get_detail）+ MCP 风险分级 + skill 内容上限 + QA 记忆索引
 
 - **大输出两级化**（对标 ZCode resultBudget 源头截断）：get_symbol/get_references/

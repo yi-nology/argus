@@ -73,6 +73,9 @@ type Workflow struct {
 	detailStore map[string]string
 	detailSeq   int
 
+	// OnStage 阶段进度回调（v3.40.0，runner 接线 SSE 发布；nil 安全）。
+	OnStage func(stage string)
+
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool
@@ -304,6 +307,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		// 活检：开关开着就必须走到 R35；模型未配/无 findings 也算「尝试执行」
 		//——否则「配置了反思却从未调用」会与「正常空跑」不可分。
 		plugin.ReportLayerExec(plugin.LayerR35)
+		w.onStage("R35")
 		reflectInfo = w.reflectFindings(ctx, task, summary, merged)
 		if reflectInfo != nil && (reflectInfo.Removed > 0 || reflectInfo.DegradedNoEvidence > 0) {
 			note := fmt.Sprintf(

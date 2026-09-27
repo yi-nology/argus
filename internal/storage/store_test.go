@@ -645,3 +645,26 @@ func TestMarkReviewPosted(t *testing.T) {
 		t.Fatalf("标记后应为 true，err=%v posted=%v", err, got.ReviewPosted)
 	}
 }
+
+// 优先级队列（v3.40.0）：priority 大值先认领，同优先级保持 FIFO。
+func TestClaimNextPendingPriority(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mk := func(id string, pri int, offset int) {
+		tk := &Task{ID: id, Kind: "review", Platform: "gitea", Owner: "acme", Repo: "app",
+			Number: "1", Status: StatusPending, Priority: pri,
+			CreatedAt: time.Now().Add(time.Duration(offset) * time.Second)}
+		if err := s.CreateTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("t-low-poll", 0, 0)     // 更早创建
+	mk("t-high-human", 10, 60) // 更晚创建但优先级高
+	got, ok, err := s.ClaimNextPending(ctx)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if got.ID != "t-high-human" {
+		t.Fatalf("高优先级应先认领，got %s", got.ID)
+	}
+}

@@ -52,6 +52,9 @@ type Task struct {
 	// ReviewPosted 完整评审已发成功标记（v3.36.0）：poster 重跑据此短路
 	// ListReviews 平台查询（查库代替查平台，大 PR 提速；AutoMigrate 增量加列）。
 	ReviewPosted bool `gorm:"column:review_posted;default:false"`
+	// Priority 队列优先级（v3.40.0）：大值先认领。10=人类在等（评论重审/API
+	// 手工）、5=webhook push、0=poller 批量（缺省）。AutoMigrate 增量加列。
+	Priority int `gorm:"column:priority;default:0"`
 	// DebugJSON 调试产物（ARGUS_DEBUG=1 时留存 R1 spec/R2 摘要/R3 原始输出）
 	DebugJSON string `gorm:"column:debug_json;type:text"`
 	// StageArtifacts 阶段产物 checkpoint（v3.12.0 G2 任务级断点续审）：R1 spec/
@@ -486,7 +489,9 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 	err := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			var t Task
-			q := tx.Where("status = ?", StatusPending).Order("created_at ASC, id ASC")
+			// 优先级队列（v3.40.0）：人类在等的任务（评论重审/API 手工）先于
+			// poller 批量；同优先级保持 FIFO
+			q := tx.Where("status = ?", StatusPending).Order("priority DESC, created_at ASC, id ASC")
 			if !s.sqlite {
 				q = q.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
 			}

@@ -332,6 +332,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		HeadSHA:   headSHA,
 		EventType: ev.Type,
 		Status:    storage.StatusPending,
+		Priority:  5, // webhook push：作者刚推代码在等，先于 poller 批量（v3.40.0）
 		CreatedAt: time.Now(),
 	}
 	if delivery != "" {
@@ -417,7 +418,9 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		Number:        number,
 		Status:        storage.StatusPending,
 		ArtifactsJSON: string(artifactsJSON),
-		CreatedAt:     time.Now(),
+		// 人类在等（评论重审/API 手工/MCP）：优先于 poller 批量认领（v3.40.0）
+		Priority:  10,
+		CreatedAt: time.Now(),
 	}
 	existing, created, err := s.Store.CreateTaskDirectIfIdle(ctx, task)
 	if err != nil {
