@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.41.0 (2026-09-26) — 配置陷阱清理 + knob env 化 + compaction 落地手册留档
+
+- **配置陷阱如实化**：①`ARGUS_MCP_IDLE_REAP_INTERVAL` 单配静默无效——config
+  注释标注 + bootstrap 启动期告警（配了 INTERVAL 但 MAX_IDLE=0 时提示）；②
+  `ARGUS_REACT_MAX_ITERATIONS` 不覆盖 requirement R3（其上限走 AC 条数派生）——
+  注释明示两套上限互不相干。
+- **knob env 化**（在案硬编码清欠）：`ARGUS_EXTERNAL_TOOL_CALL_LIMIT`（外部
+  MCP 工具单任务调用上限，缺省 5）；`ARGUS_MEMORY_INDEX_BUDGET`（记忆索引
+  注入预算 rune，缺省 2000）。
+- **compaction 落地手册**（docs/compaction-playbook.md，预案留档未启用）：LLM
+  摘要压缩的三明治提示词模板（首尾双硬约束/原始诉求与安全红线逐字保留/9 节
+  评审版结构）+ 读态重建参数 + rapid-refill 熔断前置条件 + 真实 usage 触发
+  判定——未来启用时照抄，ZCode prompt.ts 实证纪律。
+- 门禁：全量测试 + lint 绿。
+
 ## v3.40.0 (2026-09-26) — 观测与队列：ctx_breakdown 分解指标 + 任务优先级列 + SSE 阶段事件
 
 - **上下文构成分解**（对标 ZCode context-usage-breakdown，上轮 ctxfit 的补全）：

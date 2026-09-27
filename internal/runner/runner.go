@@ -330,7 +330,9 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
 	wf.MemoryIndex = memory.LoadIndex(r.Cfg.MemoryDir, memory.Ref{
 		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
-	}, 0)
+	}, r.Cfg.MemoryIndexBudget)
+	// 外部工具调用上限可配（v3.41.0）
+	wf.ExternalToolCallLimit = r.Cfg.ExternalToolCallLimit
 	// 仓库级评审规范（v3.38.0）：.argus/REVIEW.md @ head，R3/R4 注入
 	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
 	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示

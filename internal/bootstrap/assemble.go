@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -161,6 +162,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 				rp.StartIdleReaper(cfg.MCPIdleReapInterval, cfg.MCPIdleReapMaxIdle)
 				log.Info("argus.boot.mcp_idle_reaper", "interval", cfg.MCPIdleReapInterval.String(),
 					"max_idle", cfg.MCPIdleReapMaxIdle.String())
+			} else if cfg.MCPIdleReapInterval != 5*time.Minute {
+				// 配置陷阱如实化（v3.41.0）：单配 INTERVAL 不启用回收
+				log.Warn("argus.boot.mcp_idle_reaper_ignored", "interval_configured", cfg.MCPIdleReapInterval.String(),
+					"hint", "仅配置 ARGUS_MCP_IDLE_REAP_INTERVAL 不启用回收；需 ARGUS_MCP_IDLE_REAP_MAX_IDLE>0")
 			}
 			toolPool = &toolpool.RealAdapter{Pool: rp}
 			toolSpecs = toolpool.SpecsFromDecls(pf.Tools)

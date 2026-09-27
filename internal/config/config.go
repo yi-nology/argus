@@ -123,6 +123,8 @@ type Config struct {
 	// （ARGUS_REACT_MAX_ITERATIONS）。缺省 12（历史行为）；推理型模型在大 MR 上
 	// 12 轮可能不够，超限后两次 ReAct 尝试都空转到上限再降级单轮，白白多花数分钟。
 	// <2 视为未配置回退默认。仅 toolsHook 非 nil（ReAct 模式）时生效。
+	// ⚠️ 不覆盖 requirement R3——其迭代上限走 reactMaxIterations(AC 条数) 派生
+	//（base 12 / 封顶 24，无 env），两套上限互不相干（v3.41.0 注释如实化）。
 	ReactMaxIterations int
 	// CompletenessPolicy 完备性裁判策略（ARGUS_COMPLETENESS_POLICY，v3.11.0 G4）：
 	//   annotate = 缺省，失败项只追加报告降级注记，不改 verdict；
@@ -216,7 +218,7 @@ type Config struct {
 
 	// MCP 闲置连接回收（v0.10.18 连接租约面；默认关闭）。闲置时钟 = 建连/
 	// 取工具/探活成功。MaxIdle 必须 ≫ 最大工具超时，否则在飞调用被误回收。
-	MCPIdleReapInterval time.Duration // ARGUS_MCP_IDLE_REAP_INTERVAL，检查周期（启用时缺省 5m）
+	MCPIdleReapInterval time.Duration // ARGUS_MCP_IDLE_REAP_INTERVAL，检查周期（启用时缺省 5m；⚠️ 仅 MAX_IDLE>0 时生效，单配本项静默无效）
 	MCPIdleReapMaxIdle  time.Duration // ARGUS_MCP_IDLE_REAP_MAX_IDLE，闲置阈值（0 = 关闭）
 
 	// MemoryDir repo 评审记忆目录（ARGUS_MEMORY_DIR，默认 "memory"）：dream
@@ -232,6 +234,14 @@ type Config struct {
 	// 字节；缺省 100_000 与 agentkit 缺省一致，≤0 = 不限——与 RenderList 的
 	// 20K 清单预算构成两级纪律）。
 	SkillContentCap int
+
+	// ExternalToolCallLimit 外部 MCP 工具单任务调用上限（ARGUS_EXTERNAL_TOOL_CALL_LIMIT；
+	// 缺省 5，v3.41.0 起可配——此前硬编码，破坏性工具可再配低）。≤0 回退 5。
+	ExternalToolCallLimit int
+
+	// MemoryIndexBudget 评审记忆索引注入预算（ARGUS_MEMORY_INDEX_BUDGET，rune；
+	// 缺省 2000，超限截断注明。≤0 用包内缺省）。
+	MemoryIndexBudget int
 
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
@@ -508,6 +518,8 @@ func Load() *Config {
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
 		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
 		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
+		ExternalToolCallLimit:  envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5),
+		MemoryIndexBudget:      envInt("ARGUS_MEMORY_INDEX_BUDGET", 2000),
 		// Milvus 向量检索
 		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
 		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),

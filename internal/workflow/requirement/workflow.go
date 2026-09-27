@@ -76,6 +76,9 @@ type Workflow struct {
 	// OnStage 阶段进度回调（v3.40.0，runner 接线 SSE 发布；nil 安全）。
 	OnStage func(stage string)
 
+	// ExternalToolCallLimit 外部 MCP 工具单任务调用上限（v3.41.0 可配；≤0 回退 5）。
+	ExternalToolCallLimit int
+
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool

@@ -655,9 +655,14 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 					note = "；⚠️ 该工具具有破坏性副作用，调用前确认必要性与最小影响范围"
 					cost = "heavy"
 				}
-				// 外部工具：每次调用有网络/进程开销 → External 档 + 调用上限 5 次（硬止损）
+				// 外部工具：每次调用有网络/进程开销 → External 档 + 调用上限硬止损
+				//（v3.41.0 起上限可配 ARGUS_EXTERNAL_TOOL_CALL_LIMIT，缺省 5）
+				limit := w.ExternalToolCallLimit
+				if limit <= 0 {
+					limit = 5
+				}
 				table.Add(toolprior.Entry{
-					Tool:     toolprior.LimitCalls(asInvokable(t), 5),
+					Tool:     toolprior.LimitCalls(asInvokable(t), limit),
 					Priority: toolprior.PriorityExternal,
 					When:     fmt.Sprintf("外部系统工具（%s）：本地证据穷尽后再用%s", info.Name, note),
 					Cost:     cost,
