@@ -10,6 +10,8 @@ import (
 
 	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
+
+	"argus/internal/learning"
 )
 
 // PrintStore 指纹持久化的最小接口（由 storage.Store 实现；Merger 不 import storage，
@@ -22,49 +24,15 @@ type PrintStore interface {
 		f Finding, taskID string, at time.Time) (suppressed bool, err error)
 }
 
-// PatternState 模式信任历史读侧投影（storage.PatternSignalOut 的 plugin 侧镜像）。
-type PatternState struct {
-	Plugin      string
-	Pattern     string
-	PatternText string
-	Posted      int
-	Regret      int
-	Suppress    int
-	Restore     int
-	Confidence  float64
-	Samples     int
-}
-
 // PatternStore 模式级学习环读写接口（由 storage.Store 实现）。
 // LearningEnabled=false 时 Merger/Runner 全部旁路，可为 nil。
+// 模式数学与状态投影（PatternKey/Confidence/learning.PatternState 等）在 internal/learning。
 type PatternStore interface {
 	// ListLowConfidencePatterns 拉取本仓库低于 maxConfidence 且样本 ≥ minSamples 的模式。
 	ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
-		minSamples int, maxConfidence float64, limit int) ([]PatternState, error)
+		minSamples int, maxConfidence float64, limit int) ([]learning.PatternState, error)
 	// PatternPosted 意见进入报告后记账。
 	PatternPosted(ctx context.Context, platform, owner, repo, pluginName string, f Finding, at time.Time) error
-}
-
-// LearningConfig 后悔学习环消费阈值（config 派生；零值 = 全关）。
-type LearningConfig struct {
-	Enabled     bool
-	MinSamples  int
-	SoftFloor   float64 // 低于此打「置信度低」标注
-	HardFloor   float64 // 低于此 + low severity → 丢弃
-	InjectFloor float64
-	InjectTopN  int
-}
-
-// DefaultLearningConfig 缺省阈值（与 design §3.7 一致）。
-func DefaultLearningConfig() LearningConfig {
-	return LearningConfig{
-		Enabled:     false,
-		MinSamples:  3,
-		SoftFloor:   0.35,
-		HardFloor:   0.20,
-		InjectFloor: 0.35,
-		InjectTopN:  10,
-	}
 }
 
 // PrintState 既有指纹状态。
@@ -96,16 +64,16 @@ type MergedFindings struct {
 type Merger struct {
 	store    PrintStore
 	patterns PatternStore
-	learn    LearningConfig
+	learn    learning.Config
 	log      logx.Logger
 }
 
 func NewMerger(store PrintStore, log logx.Logger) *Merger {
-	return &Merger{store: store, log: log, learn: DefaultLearningConfig()}
+	return &Merger{store: store, log: log, learn: learning.DefaultConfig()}
 }
 
 // WithLearning 接入模式级后悔学习环（nil store 或 Enabled=false 时旁路）。
-func (m *Merger) WithLearning(ps PatternStore, cfg LearningConfig) *Merger {
+func (m *Merger) WithLearning(ps PatternStore, cfg learning.Config) *Merger {
 	m.patterns = ps
 	m.learn = cfg
 	return m
@@ -347,7 +315,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 
 	// 跨轮次入库与抑制过滤
 	// 学习环：一次性拉本仓库低置信模式（HardFloor），供丢弃与标注共用
-	var lowPatterns []PatternState
+	var lowPatterns []learning.PatternState
 	if m.learn.Enabled && m.patterns != nil {
 		ps, err := m.patterns.ListLowConfidencePatterns(ctx, pr.Platform, pr.Owner, pr.Repo,
 			m.learn.MinSamples, m.learn.SoftFloor, 0)
@@ -413,7 +381,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		// 下跌后 HardFloor 永久吞掉本应正确的条目（v3.9.0 修复只挪过了展示标注，
 		// v3.9.1 补齐 SoftFloor 标注先于记账的漏网层）。
 		if m.learn.Enabled && m.patterns != nil {
-			if err := m.patterns.PatternPosted(ctx, pr.Platform, pr.Owner, pr.Repo, FirstBy(f.By), probe, at); err != nil {
+			if err := m.patterns.PatternPosted(ctx, pr.Platform, pr.Owner, pr.Repo, learning.FirstBy(f.By), probe, at); err != nil {
 				m.log.Warn("argus.merger.pattern_posted_failed", "error", err.Error())
 			}
 		}
@@ -460,8 +428,8 @@ func abs(n int) int {
 
 // matchLowPattern 用 finding 的 plugin+comment 键在低置信列表中找匹配。
 // samples < minSamples 或 confidence ≥ floor 时返回 nil（小样本/未够低不消费）。
-func matchLowPattern(low []PatternState, f Finding, minSamples int, floor float64) *PatternState {
-	key := PatternKey(FirstBy(f.By), f.Comment)
+func matchLowPattern(low []learning.PatternState, f Finding, minSamples int, floor float64) *learning.PatternState {
+	key := learning.PatternKey(learning.FirstBy(f.By), f.Comment)
 	for i := range low {
 		if low[i].Pattern == key && low[i].Samples >= minSamples && low[i].Confidence < floor {
 			return &low[i]

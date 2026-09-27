@@ -10,11 +10,12 @@ import (
 
 	"gorm.io/gorm"
 
+	"argus/internal/learning"
 	"argus/internal/plugin"
 )
 
 // PatternSignal 仓库级审查模式信任历史：repo × plugin × pattern_key。
-// 置信度由计数读时计算（plugin.Confidence），表内不持久化 confidence 列。
+// 置信度由计数读时计算（learning.Confidence），表内不持久化 confidence 列。
 type PatternSignal struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
@@ -40,15 +41,15 @@ type PatternSignal struct {
 func (PatternSignal) TableName() string { return "pattern_signals" }
 
 // PatternSignalOut 读侧投影（含推导置信度与样本量）。
-// 消费方（Merger/Runner）直接吃 plugin.PatternState，避免双结构转换。
-type PatternSignalOut = plugin.PatternState
+// 消费方（Merger/Runner）直接吃 learning.PatternState，避免双结构转换。
+type PatternSignalOut = learning.PatternState
 
-func (p *PatternSignal) project() plugin.PatternState {
-	return plugin.PatternState{
+func (p *PatternSignal) project() learning.PatternState {
+	return learning.PatternState{
 		Plugin: p.Plugin, Pattern: p.Pattern, PatternText: p.PatternText,
 		Posted: p.Posted, Regret: p.Regret, Suppress: p.Suppress, Restore: p.Restore,
-		Confidence: plugin.Confidence(p.Posted, p.Regret, p.Suppress, p.Restore),
-		Samples:    plugin.PatternSamples(p.Posted, p.Regret, p.Suppress),
+		Confidence: learning.Confidence(p.Posted, p.Regret, p.Suppress, p.Restore),
+		Samples:    learning.PatternSamples(p.Posted, p.Regret, p.Suppress),
 	}
 }
 
@@ -61,8 +62,8 @@ func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginNa
 	if pluginName == "" {
 		pluginName = "unknown"
 	}
-	key := plugin.PatternKey(pluginName, f.Comment)
-	text := plugin.PatternSample(f.Comment)
+	key := learning.PatternKey(pluginName, f.Comment)
+	text := learning.PatternSample(f.Comment)
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -135,7 +136,7 @@ func (s *Store) PatternRestore(ctx context.Context, platform, owner, repo, plugi
 // 按置信度升序（最不可信在前），limit>0 时截断。消费点：R4 注入 + Merger 闸门。
 // 实现 plugin.PatternStore。
 func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
-	minSamples int, maxConfidence float64, limit int) ([]plugin.PatternState, error) {
+	minSamples int, maxConfidence float64, limit int) ([]learning.PatternState, error) {
 	var rows []PatternSignal
 	err := s.db.WithContext(ctx).
 		Where("platform = ? AND owner = ? AND repo = ? AND (posted + regret + suppress) >= ?",
@@ -144,7 +145,7 @@ func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]plugin.PatternState, 0, len(rows))
+	out := make([]learning.PatternState, 0, len(rows))
 	for i := range rows {
 		p := rows[i].project()
 		if p.Confidence >= maxConfidence {
@@ -174,8 +175,8 @@ func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, 
 }
 
 // GetPattern 单模式查询（测试/观测）。
-func (s *Store) GetPattern(ctx context.Context, platform, owner, repo, pluginName, comment string) (*plugin.PatternState, error) {
-	key := plugin.PatternKey(pluginName, comment)
+func (s *Store) GetPattern(ctx context.Context, platform, owner, repo, pluginName, comment string) (*learning.PatternState, error) {
+	key := learning.PatternKey(pluginName, comment)
 	var row PatternSignal
 	err := s.db.WithContext(ctx).
 		Where("platform = ? AND owner = ? AND repo = ? AND plugin = ? AND pattern_key = ?",

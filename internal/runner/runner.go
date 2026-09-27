@@ -24,6 +24,7 @@ import (
 	"argus/internal/codegraph"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/learning"
 	"argus/internal/memory"
 	"argus/internal/notify"
 	"argus/internal/ocrdeleg"
@@ -99,7 +100,7 @@ type Runner struct {
 	CompletenessPolicy string
 	CompletenessRetry  bool
 	// Learning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
-	Learning plugin.LearningConfig
+	Learning learning.Config
 
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
@@ -563,7 +564,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 				}
 			}
 			if err := r.Store.PatternRegret(ctx,
-				pr.Platform, pr.Owner, pr.Repo, plugin.FirstBy(f.By), f, time.Now()); err != nil {
+				pr.Platform, pr.Owner, pr.Repo, learning.FirstBy(f.By), f, time.Now()); err != nil {
 				r.Log.Warn("argus.regret.pattern_failed", "error", err.Error())
 			}
 		}

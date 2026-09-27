@@ -21,6 +21,7 @@ import (
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"argus/internal/learning"
 	"argus/internal/memory"
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -35,7 +36,7 @@ type Store interface {
 	ListRepoPatterns(ctx context.Context, platform, owner, repo string) ([]storage.PatternSignal, error)
 	MergePatternInto(ctx context.Context, platform, owner, repo string, keepID, dupID uint, at time.Time) error
 	ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
-		minSamples int, maxConfidence float64, limit int) ([]plugin.PatternState, error)
+		minSamples int, maxConfidence float64, limit int) ([]learning.PatternState, error)
 }
 
 // Dream 周期整合器。
@@ -48,7 +49,7 @@ type Dream struct {
 	// 同源双写事实文件（一文件一事实），R3 提示词注入索引。
 	MemoryDir string
 	// Learning 学习环阈值（复用 config 派生）。
-	Learning plugin.LearningConfig
+	Learning learning.Config
 	// ExportTopN 每仓库导出条数上限。
 	ExportTopN int
 	Log        logx.Logger
@@ -202,7 +203,7 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 }
 
 // writeMemory 逐事实写记忆文件（幂等：先清后写——模式集变化后旧文件不留场）。
-func writeMemory(dir string, r storage.RepoRef, low []plugin.PatternState, at time.Time) error {
+func writeMemory(dir string, r storage.RepoRef, low []learning.PatternState, at time.Time) error {
 	ref := memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
 	if err := memory.ClearRepo(dir, ref); err != nil {
 		return err
@@ -232,7 +233,7 @@ func singleLine(s string) string {
 }
 
 // renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。
-func renderKnowledge(r storage.RepoRef, low []plugin.PatternState, at time.Time) string {
+func renderKnowledge(r storage.RepoRef, low []learning.PatternState, at time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s/%s 历史高误报审查模式（dream 导出）\n\n", r.Owner, r.Repo)
 	fmt.Fprintf(&b, "生成时间：%s。以下模式在本仓库样本充足且置信度偏低；"+

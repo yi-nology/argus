@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/plugin"
+	"argus/internal/learning"
 	"argus/internal/storage"
 )
 
@@ -42,7 +42,7 @@ func TestBuild_Classification(t *testing.T) {
 		},
 	}
 	rep, err := Build(context.Background(), fs, Config{
-		Learning: plugin.LearningConfig{Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20},
+		Learning: learning.Config{Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestRender_NoisyAndGuideline(t *testing.T) {
 			Guideline: []Tip{{Plugin: "style", Sample: "缺少 doc comment", Posted: 5}},
 		}},
 	}
-	out := Render(rep, plugin.LearningConfig{Enabled: true, SoftFloor: 0.35, HardFloor: 0.20, MinSamples: 3})
+	out := Render(rep, learning.Config{Enabled: true, SoftFloor: 0.35, HardFloor: 0.20, MinSamples: 3})
 	for _, want := range []string{"审查健康报告", "acme/app", "噪声处置建议", "guidelines 增量建议", "绝不自动改仓库文件"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("报告缺 %q:\n%s", want, out)
@@ -84,10 +84,10 @@ func TestRender_NoisyAndGuideline(t *testing.T) {
 }
 
 func TestRender_EmptyNoPush(t *testing.T) {
-	if out := Render(nil, plugin.LearningConfig{}); out != "" {
+	if out := Render(nil, learning.Config{}); out != "" {
 		t.Fatalf("nil 报告应空渲染: %q", out)
 	}
-	if out := Render(&Report{Empty: true}, plugin.LearningConfig{}); out != "" {
+	if out := Render(&Report{Empty: true}, learning.Config{}); out != "" {
 		t.Fatalf("空报告应空渲染: %q", out)
 	}
 }

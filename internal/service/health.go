@@ -9,7 +9,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"argus/internal/health"
-	"argus/internal/plugin"
 )
 
 // HealthReport 学习环飞轮状态快照（噪声处置建议 + guidelines 增量建议 + 计数）。
@@ -20,15 +19,8 @@ func (s *Service) HealthReport(ctx context.Context) (*health.Report, int) {
 		return nil, consts.StatusInternalServerError
 	}
 	rep, err := health.Build(ctx, s.Store, health.Config{
-		Learning: plugin.LearningConfig{
-			Enabled:     s.Cfg.RegretLearning,
-			MinSamples:  s.Cfg.RegretMinSamples,
-			SoftFloor:   s.Cfg.RegretSoftFloor,
-			HardFloor:   s.Cfg.RegretHardFloor,
-			InjectFloor: s.Cfg.RegretInjectFloor,
-			InjectTopN:  s.Cfg.RegretInjectTopN,
-		},
-		TopN: s.Cfg.RegretInjectTopN,
+		Learning: s.Cfg.LearningConfig(),
+		TopN:     s.Cfg.RegretInjectTopN,
 	})
 	if err != nil {
 		return nil, consts.StatusInternalServerError

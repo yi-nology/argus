@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"argus/internal/learning"
 	"argus/internal/memory"
-	"argus/internal/plugin"
 	"argus/internal/storage"
 )
 
 type fakeStore struct {
 	repos   []storage.RepoRef
 	pattern map[string][]storage.PatternSignal // key owner/repo
-	low     map[string][]plugin.PatternState
+	low     map[string][]learning.PatternState
 	merged  [][3]any // keepID, dupID, repo
 }
 
@@ -34,7 +34,7 @@ func (f *fakeStore) MergePatternInto(_ context.Context, _, owner, repo string, k
 }
 
 func (f *fakeStore) ListLowConfidencePatterns(_ context.Context, _, owner, repo string,
-	_ int, _ float64, _ int) ([]plugin.PatternState, error) {
+	_ int, _ float64, _ int) ([]learning.PatternState, error) {
 	return f.low[owner+"/"+repo], nil
 }
 
@@ -59,7 +59,7 @@ func TestDedupRepoMergesSimilarPatterns(t *testing.T) {
 		repos:   []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
 		pattern: map[string][]storage.PatternSignal{"acme/app": {a, b, c}},
 	}
-	d := &Dream{Store: st, Learning: plugin.DefaultLearningConfig()}
+	d := &Dream{Store: st, Learning: learning.DefaultConfig()}
 	n, _, err := d.RunOnce(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -78,14 +78,14 @@ func TestExportRepoWritesLocalMarkdown(t *testing.T) {
 	dir := t.TempDir()
 	st := &fakeStore{
 		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
-		low: map[string][]plugin.PatternState{
+		low: map[string][]learning.PatternState{
 			"acme/app": {{
 				Plugin: "style", Pattern: "p1", PatternText: "建议提取魔法数字",
 				Confidence: 0.2, Samples: 5, Regret: 2, Suppress: 1,
 			}},
 		},
 	}
-	d := &Dream{Store: st, KnowledgeDir: dir, Learning: plugin.LearningConfig{
+	d := &Dream{Store: st, KnowledgeDir: dir, Learning: learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35,
 	}}
 	_, exported, err := d.RunOnce(context.Background())
@@ -104,7 +104,7 @@ func TestExportRepoWritesLocalMarkdown(t *testing.T) {
 	}
 
 	// 负控：无低置信 → 不再残留旧误报结论（v3.8.0 改为写澄清文案覆盖）
-	st.low = map[string][]plugin.PatternState{}
+	st.low = map[string][]learning.PatternState{}
 	os.Remove(filepath.Join(dir, "dream-acme-app.md"))
 	_, exported, err = d.RunOnce(context.Background())
 	if err != nil {
@@ -140,7 +140,7 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 	mdir := t.TempDir()
 	st := &fakeStore{
 		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
-		low: map[string][]plugin.PatternState{
+		low: map[string][]learning.PatternState{
 			"acme/app": {
 				{Plugin: "style", Pattern: "p1", PatternText: "建议提取魔法数字\n第二行应压平",
 					Confidence: 0.2, Samples: 5, Regret: 2, Suppress: 1},
@@ -149,7 +149,7 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 			},
 		},
 	}
-	d := &Dream{Store: st, KnowledgeDir: kdir, MemoryDir: mdir, Learning: plugin.LearningConfig{
+	d := &Dream{Store: st, KnowledgeDir: kdir, MemoryDir: mdir, Learning: learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35,
 	}}
 	if _, exported, err := d.RunOnce(context.Background()); err != nil || exported != 1 {
@@ -164,7 +164,7 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 		t.Fatal("description 内换行应压平（单行 frontmatter）")
 	}
 	// 澄清路径：记忆同步清空（不留场）
-	st.low = map[string][]plugin.PatternState{}
+	st.low = map[string][]learning.PatternState{}
 	if _, _, err := d.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

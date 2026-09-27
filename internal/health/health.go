@@ -21,7 +21,7 @@ import (
 	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"argus/internal/plugin"
+	"argus/internal/learning"
 	"argus/internal/storage"
 )
 
@@ -65,7 +65,7 @@ type Report struct {
 
 // Config 阈值（复用学习环 config 派生；零值安全）。
 type Config struct {
-	Learning plugin.LearningConfig
+	Learning learning.Config
 	// TopN 每仓库每类建议条数上限（0 = 5）。
 	TopN int
 	// GuidelineMinPosted guidelines 建议的最低 posted 次数（0 = 3）。
@@ -98,10 +98,10 @@ func Build(ctx context.Context, store Store, cfg Config) (*Report, error) {
 			}
 			tip := Tip{Plugin: row.Plugin, Sample: sample, Posted: row.Posted,
 				Regret: row.Regret, Suppress: row.Suppress,
-				Confidence: plugin.Confidence(row.Posted, row.Regret, row.Suppress, row.Restore)}
+				Confidence: learning.Confidence(row.Posted, row.Regret, row.Suppress, row.Restore)}
 			// 噪声：样本充足且置信度跌破 HardFloor（与学习环 HardFloor 消费同口径）
 			if cfg.Learning.Enabled &&
-				plugin.PatternSamples(row.Posted, row.Regret, row.Suppress) >= cfg.Learning.MinSamples &&
+				learning.PatternSamples(row.Posted, row.Regret, row.Suppress) >= cfg.Learning.MinSamples &&
 				tip.Confidence < cfg.Learning.HardFloor {
 				rh.Noisy = append(rh.Noisy, tip)
 				continue
@@ -148,7 +148,7 @@ func sortTips(tips []Tip, topN int) []Tip {
 }
 
 // Render 渲染 IM/markdown 报告（safejson 转义：pattern_text 半可信）。
-func Render(rep *Report, learning plugin.LearningConfig) string {
+func Render(rep *Report, learning learning.Config) string {
 	if rep == nil || rep.Empty {
 		return ""
 	}

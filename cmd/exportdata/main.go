@@ -34,7 +34,7 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/config"
-	"argus/internal/plugin"
+	"argus/internal/learning"
 	"argus/internal/storage"
 )
 
@@ -115,7 +115,7 @@ func main() {
 		if sample == "" {
 			sample = p.Pattern
 		}
-		conf := plugin.Confidence(p.Posted, p.Regret, p.Suppress, p.Restore)
+		conf := learning.Confidence(p.Posted, p.Regret, p.Suppress, p.Restore)
 		if err := enc.Encode(exportRow{Type: "pattern", Platform: p.Platform, Owner: p.Owner,
 			Repo: p.Repo, Plugin: p.Plugin, Sample: sample, Posted: p.Posted, Regret: p.Regret,
 			Suppress: p.Suppress, Restore: p.Restore, Confidence: &conf}); err != nil {

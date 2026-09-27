@@ -12,6 +12,8 @@ import (
 	"git.example.com/enjoydream/agentkit/llm"
 
 	ekitconfig "git.example.com/enjoydream/ekit/config"
+
+	"argus/internal/learning"
 )
 
 // PlatformConfig 单个 git 平台的接入凭证。
@@ -333,6 +335,21 @@ func (c *Config) MaxTokensResolved() int {
 		return c.LLM.MaxTokens
 	}
 	return c.budgetBase().MaxOutputTokens()
+}
+
+// LearningConfig 后悔学习环消费阈值（learning.Config 的唯一派生出口，v3.47.0）：
+// 此前 bootstrap/main/service 三处手写字面量映射同一组 Regret* 字段，阈值字段
+// 变更需要同步多处。learning 是纯叶子包（仅 stdlib），config 引用不破坏
+// 「config 不 import 重组件」的叶子位约定（对 plugin 的禁令不变）。
+func (c *Config) LearningConfig() learning.Config {
+	return learning.Config{
+		Enabled:     c.RegretLearning,
+		MinSamples:  c.RegretMinSamples,
+		SoftFloor:   c.RegretSoftFloor,
+		HardFloor:   c.RegretHardFloor,
+		InjectFloor: c.RegretInjectFloor,
+		InjectTopN:  c.RegretInjectTopN,
+	}
 }
 
 // StageOverride 单阶段模型覆盖。

@@ -1,9 +1,12 @@
-// pattern.go —— 模式级后悔学习环的确定性 pattern_key 派生。
+// Package learning 模式级后悔学习环的确定性数学、状态投影与消费阈值（v3.47.0 自
+// plugin 归位——本域消费方是 storage/dream/health/exportdata/config，与插件语义无关）。
+// 本包是纯叶子：仅依赖 stdlib，零内部依赖；config 可安全引用（config 保持叶子位的
+// 约定是"不 import plugin 等重组件"，纯数学叶子是许可例外）。
 //
-// 设计：docs/review-closed-loop-design.md §3.2。键不含 file/line——同一类问题在
-// 不同文件聚成同一模式；含 plugin——不同审查来源的信任历史不混用。
+// 设计：docs/review-closed-loop-design.md §3.2/§3.7。键不含 file/line——同一类问题在
+// 不同文件聚成同一模式；含 plugin 分量——不同审查来源的信任历史不混用。
 // 禁止 LLM 摘要：键必须可离线复算、可单测、可对账。
-package plugin
+package learning
 
 import (
 	"crypto/sha256"
@@ -130,4 +133,41 @@ func PatternSamples(posted, regret, suppress int) int {
 		suppress = 0
 	}
 	return posted + regret + suppress
+}
+
+// PatternState 模式信任历史读侧投影（storage.PatternSignal 的读侧投影；
+// 消费方 Merger/Runner/dream/health 直接吃本类型，避免双结构转换）。
+type PatternState struct {
+	Plugin      string
+	Pattern     string
+	PatternText string
+	Posted      int
+	Regret      int
+	Suppress    int
+	Restore     int
+	Confidence  float64
+	Samples     int
+}
+
+// Config 后悔学习环消费阈值（零值 = 全关）。唯一事实来源是
+// config.Config.LearningConfig() 派生——禁止在消费方手写字面量映射。
+type Config struct {
+	Enabled     bool
+	MinSamples  int
+	SoftFloor   float64 // 低于此打「置信度低」标注
+	HardFloor   float64 // 低于此 + low severity → 丢弃
+	InjectFloor float64
+	InjectTopN  int
+}
+
+// DefaultConfig 缺省阈值（与 design §3.7 一致）。
+func DefaultConfig() Config {
+	return Config{
+		Enabled:     false,
+		MinSamples:  3,
+		SoftFloor:   0.35,
+		HardFloor:   0.20,
+		InjectFloor: 0.35,
+		InjectTopN:  10,
+	}
 }

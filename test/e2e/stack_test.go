@@ -27,6 +27,7 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/learning"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
@@ -666,7 +667,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费。SoftFloor=0.55：
 		// v3.9.1 记账口径修正后，轮 2 发布使真实模式行置信度恰达 1+1 计数的
 		// 0.50（旧错账把它记进影子行才低于阈值）——放宽到 0.55 保住边界余量。
-		merger.WithLearning(store, plugin.LearningConfig{
+		merger.WithLearning(store, learning.Config{
 			Enabled: true, MinSamples: 1, SoftFloor: 0.55, HardFloor: 0.30,
 			InjectFloor: 0.50, InjectTopN: 10,
 		})
@@ -682,7 +683,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 		CompletenessRetry:  opt.completenessRetry,
 	}
 	if opt.regretLearning {
-		runnerRef.Learning = plugin.LearningConfig{
+		runnerRef.Learning = learning.Config{
 			Enabled: true, MinSamples: 1, SoftFloor: 0.55, HardFloor: 0.30,
 			InjectFloor: 0.50, InjectTopN: 10,
 		}

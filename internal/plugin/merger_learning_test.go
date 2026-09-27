@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"argus/internal/learning"
 	"context"
 	"strings"
 	"testing"
@@ -9,14 +10,14 @@ import (
 
 // fakePatternStore 内存版 PatternStore：预置低置信模式表，记录 Posted 调用。
 type fakePatternStore struct {
-	low      []PatternState
+	low      []learning.PatternState
 	posted   []Finding
 	postedBy []string // PatternPosted 的 pluginName 实参（键的 plugin 分量）
 	listErr  error
 }
 
 func (f *fakePatternStore) ListLowConfidencePatterns(_ context.Context, _, _, _ string,
-	_ int, _ float64, _ int) ([]PatternState, error) {
+	_ int, _ float64, _ int) ([]learning.PatternState, error) {
 	return f.low, f.listErr
 }
 
@@ -30,21 +31,21 @@ func (f *fakePatternStore) PatternPosted(_ context.Context, _, _, _, pluginName 
 func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 	commentLow := "建议提取魔法数字为常量"
 	commentMid := "存在空指针解引用风险"
-	ps := &fakePatternStore{low: []PatternState{
+	ps := &fakePatternStore{low: []learning.PatternState{
 		{
-			Plugin: "style", Pattern: PatternKey("style", commentLow),
-			PatternText: PatternSample(commentLow),
+			Plugin: "style", Pattern: learning.PatternKey("style", commentLow),
+			PatternText: learning.PatternSample(commentLow),
 			Posted:      0, Regret: 2, Suppress: 1,
-			Confidence: Confidence(0, 2, 1, 0), Samples: PatternSamples(0, 2, 1),
+			Confidence: learning.Confidence(0, 2, 1, 0), Samples: learning.PatternSamples(0, 2, 1),
 		},
 		{
-			Plugin: "security", Pattern: PatternKey("security", commentMid),
-			PatternText: PatternSample(commentMid),
+			Plugin: "security", Pattern: learning.PatternKey("security", commentMid),
+			PatternText: learning.PatternSample(commentMid),
 			Posted:      0, Regret: 2, Suppress: 1,
-			Confidence: Confidence(0, 2, 1, 0), Samples: PatternSamples(0, 2, 1),
+			Confidence: learning.Confidence(0, 2, 1, 0), Samples: learning.PatternSamples(0, 2, 1),
 		},
 	}}
-	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, LearningConfig{
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 		InjectFloor: 0.35, InjectTopN: 10,
 	})
@@ -78,11 +79,11 @@ func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 // 学习关闭时：不丢、不标、不记 posted。
 func TestMergeLearningDisabledIsNoop(t *testing.T) {
 	comment := "建议提取魔法数字为常量"
-	ps := &fakePatternStore{low: []PatternState{{
-		Plugin: "style", Pattern: PatternKey("style", comment),
+	ps := &fakePatternStore{low: []learning.PatternState{{
+		Plugin: "style", Pattern: learning.PatternKey("style", comment),
 		Confidence: 0.1, Samples: 5,
 	}}}
-	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, DefaultLearningConfig())
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, learning.DefaultConfig())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t2",
 		[]Outcome{{Name: "style", Result: &Result{Findings: []Finding{
 			{File: "a.go", Line: 1, Severity: SeverityLow, Comment: comment, By: "style"},
@@ -104,11 +105,11 @@ func TestMergeLearningDisabledIsNoop(t *testing.T) {
 // 小样本负控：samples < MinSamples 即使置信度极低也不消费。
 func TestMergeLearningMinSamplesGuards(t *testing.T) {
 	comment := "建议提取魔法数字为常量"
-	ps := &fakePatternStore{low: []PatternState{{
-		Plugin: "style", Pattern: PatternKey("style", comment),
+	ps := &fakePatternStore{low: []learning.PatternState{{
+		Plugin: "style", Pattern: learning.PatternKey("style", comment),
 		Confidence: 0.05, Samples: 1, // < MinSamples=3
 	}}}
-	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, LearningConfig{
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t3",
@@ -126,7 +127,7 @@ func TestMergeLearningMinSamplesGuards(t *testing.T) {
 // 开启学习时：非 suppressed 条目应 PatternPosted。
 func TestMergeLearningRecordsPosted(t *testing.T) {
 	ps := &fakePatternStore{}
-	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, LearningConfig{
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	_, err := m.Merge(context.Background(), regretTestPR(), "t4",
@@ -146,12 +147,12 @@ func TestMergeLearningRecordsPosted(t *testing.T) {
 // 下跌后 HardFloor 永久吞掉本应正确的条目。posted 必须基于标注前原文。
 func TestMergeSoftFloorPostsPreAnnotationKey(t *testing.T) {
 	comment := "存在空指针解引用风险"
-	ps := &fakePatternStore{low: []PatternState{{
-		Plugin: "security", Pattern: PatternKey("security", comment),
-		PatternText: PatternSample(comment),
+	ps := &fakePatternStore{low: []learning.PatternState{{
+		Plugin: "security", Pattern: learning.PatternKey("security", comment),
+		PatternText: learning.PatternSample(comment),
 		Confidence:  0.2, Samples: 5,
 	}}}
-	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, LearningConfig{
+	m := NewMerger(nil, testNopLogger{}).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-softfloor",
@@ -182,7 +183,7 @@ func TestMergeMergedEntryPostsAuthoritativeComment(t *testing.T) {
 		fp: {Status: "open", TimesSeen: 1, Comment: base},
 	}}
 	ps := &fakePatternStore{}
-	m := NewMerger(prints, testNopLogger{}).WithLearning(ps, LearningConfig{
+	m := NewMerger(prints, testNopLogger{}).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-merged",

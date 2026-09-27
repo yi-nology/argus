@@ -34,7 +34,6 @@ import (
 	"argus/internal/dream"
 	"argus/internal/health"
 	"argus/internal/obs"
-	"argus/internal/plugin"
 	"argus/internal/poller"
 	"argus/internal/service"
 	"argus/internal/storage"
@@ -256,16 +255,9 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 			Knowledge:    sys.Knowledge,
 			KnowledgeDir: cfg.KnowledgeDir,
 			MemoryDir:    cfg.MemoryDir,
-			Learning: plugin.LearningConfig{
-				Enabled:     true,
-				MinSamples:  cfg.RegretMinSamples,
-				SoftFloor:   cfg.RegretSoftFloor,
-				HardFloor:   cfg.RegretHardFloor,
-				InjectFloor: cfg.RegretInjectFloor,
-				InjectTopN:  cfg.RegretInjectTopN,
-			},
-			ExportTopN: cfg.RegretInjectTopN,
-			Log:        log,
+			Learning:     cfg.LearningConfig(), // 前置门已保证 RegretLearning=true
+			ExportTopN:   cfg.RegretInjectTopN,
+			Log:          log,
 		}
 		wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
 			_, _, err := dm.RunOnce(ctx)
@@ -279,14 +271,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// ---- 审查健康报告（v3.11.0，G5）：周期聚合学习环状态，IM 推送给人看 ----
 	// 噪声处置建议（人工门控）+ guidelines 增量建议（建议文本，绝不自动改仓库文件）。
 	if cfg.HealthReportInterval > 0 {
-		learning := plugin.LearningConfig{
-			Enabled:     cfg.RegretLearning,
-			MinSamples:  cfg.RegretMinSamples,
-			SoftFloor:   cfg.RegretSoftFloor,
-			HardFloor:   cfg.RegretHardFloor,
-			InjectFloor: cfg.RegretInjectFloor,
-			InjectTopN:  cfg.RegretInjectTopN,
-		}
+		learning := cfg.LearningConfig()
 		hr := &health.Runner{
 			Store:  store,
 			Notify: sys.Notify, // nil 安全：NotifyRaw 空实现仅日志
