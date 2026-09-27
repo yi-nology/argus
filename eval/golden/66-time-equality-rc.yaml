@@ -1,0 +1,41 @@
+# 场景（v16 扩容）：time.Time 用 == 做等值比较——Go 特有高发缺陷。Time 含
+# 墙钟+单调钟+时区，== 对非常量时间字段几乎必然误判 → high → R5.2 rc。
+name: 66-time-equality-rc
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增会话过期判断
+  body: |
+    会话过期时间等于当前时间时判定过期。
+changed_files:
+  - path: session/expiry.go
+    diff: |
+      diff --git a/session/expiry.go b/session/expiry.go
+      --- a/session/expiry.go
+      +++ b/session/expiry.go
+      @@ -8,3 +8,6 @@ func IsExpired(s Session, now time.Time) bool {
+      +	return s.ExpiresAt == now
+    additions: 2
+    deletions: 0
+repo_files:
+  session/expiry.go: |
+    package session
+
+    import "time"
+
+    type Session struct{ ExpiresAt time.Time }
+
+    func IsExpired(s Session, now time.Time) bool {
+    	return s.ExpiresAt == now
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"会话到达过期时间时判定为已过期"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"session/expiry.go:11"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"session/expiry.go","line":11,"severity":"high","comment":"time.Time 不可用 == 做等值比较（含单调时钟与墙钟，反序列化后单调位丢失会导致同源时间也不相等）。过期判断应为 s.ExpiresAt.Before(now) 或 !now.Before(s.ExpiresAt)（含边界语义需与需求确认）"}],"notes":""}
+expect:
+  verdict: request_changes
+  must_find: ["R5.2"]
+  must_not_find: ["R5.5"]

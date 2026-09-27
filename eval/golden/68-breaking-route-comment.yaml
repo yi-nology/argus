@@ -1,0 +1,41 @@
+# 场景（v16 扩容）：已有 API 路径重命名不保留旧路由——兼容性意识形态。
+# 内部服务路径变更会使既有调用方 404 → medium → R5.4 comment（建议保留旧
+# 路径兼容期）；真实模式 approve 同计通过（change-shape 家族诚实放宽）。
+name: 68-breaking-route-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 用户信息接口路径规范化
+  body: |
+    将 /getUserInfo 重命名为 /users/info，与其他接口风格统一。
+changed_files:
+  - path: router/user.go
+    diff: |
+      diff --git a/router/user.go b/router/user.go
+      --- a/router/user.go
+      +++ b/router/user.go
+      @@ -6,4 +6,4 @@ func Register(r *gin.Engine) {
+      -	r.GET("/getUserInfo", GetUserInfo)
+      +	r.GET("/users/info", GetUserInfo)
+    additions: 1
+    deletions: 1
+repo_files:
+  router/user.go: |
+    package router
+
+    import "github.com/gin-gonic/gin"
+
+    func Register(r *gin.Engine) {
+    	r.GET("/users/info", GetUserInfo)
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"用户信息接口路径变更为 /users/info"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"router/user.go:7"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"router/user.go","line":7,"severity":"medium","comment":"路径重命名未保留旧路由 /getUserInfo 的兼容映射——既有调用方（前端/脚本）会直接 404。建议旧路径保留 1-2 个版本并返回重定向或别名，或确认所有调用方已同步更新"}],"notes":""}
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

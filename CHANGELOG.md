@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.44.0 (2026-09-27) — ctxfit 增量语义补齐（轮次组粒度 + 错误/提醒保护）+ golden 扩容 68 条
+
+- **ctxfit L1 升级为轮次组粒度**（v3.43.0 决策记录「compact 增量语义在 ctxfit
+  内补齐」的兑现）：microcompact 从「保最近 5 条」升级为「保最近 5 个
+  assistant 轮的工具结果组」（组 = assistant(带 ToolCalls) 之后连续结果）——
+  同一轮的多个结果要么全保要么全清，不会出现同轮半清导致的上下文语义残缺。
+  孤立工具结果（无所属轮）保守不清理。
+- **错误/提醒结果保护**（compact「出错结果默认保留」同款语义）：携带
+  `<system-reminder>` 信封或 `【tool-error】` 标记的结果在 L1/L3 全级别不
+  清理不截断——错误信息是模型自纠依据、提醒信封是规则遵循依据；极端病理态
+  宁可超限报错也不丢自纠依据。
+- **golden 扩容 63→68**（真实世界形态 v16，五则）：
+  - 65-sql-concat-rc：SQL 字符串拼接注入（rc 精确比对）；
+  - 66-time-equality-rc：time.Time 用 == 等值比较（Go 特有高发坑）；
+  - 67-goroutine-leak-rc：循环内无界 goroutine + 闭包捕获循环变量（并发双缺陷）；
+  - 68-breaking-route-comment：API 路径重命名不保留旧路由（兼容性 medium）；
+  - 69-missing-tests-comment：核心脱敏函数无测试（流程性 low）。
+  打桩 68/68 一次全绿（clean 5/5、FP=0、boundary 2/2）；真实分母 49→54
+  （待 eval-real 真实增量）。
+- 门禁：全量测试 + lint 绿。
+
 ## v3.43.0 (2026-09-27) — agentkit v0.10.22→v0.10.25：mcp-go v1.1.1 跨大版本 + 九新包面验收（纯依赖升级）
 
 - **deps**：agentkit v0.10.22→v0.10.25（三版本：v0.10.23 deps 深升级+toolsched/egress/

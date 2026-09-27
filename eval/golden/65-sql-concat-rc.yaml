@@ -1,0 +1,53 @@
+# 场景（v16 扩容）：SQL 字符串拼接——注入风险。fmt.Sprintf 拼 WHERE 子句接用户
+# 输入 → high → R5.2 request_changes（rc 精确比对，01 号先例）。
+name: 65-sql-concat-rc
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增订单查询接口（支持按状态筛选）
+  body: |
+    管理后台支持按订单状态筛选查询。
+changed_files:
+  - path: repo/orders.go
+    diff: |
+      diff --git a/repo/orders.go b/repo/orders.go
+      --- a/repo/orders.go
+      +++ b/repo/orders.go
+      @@ -20,4 +20,7 @@ func ListOrders(status string) []Order {
+      +	query := fmt.Sprintf("SELECT id, amount FROM orders WHERE status = '%s'", status)
+      +	rows, err := db.Query(query)
+      +	if err != nil {
+      +		log.Println(err)
+      +	}
+    additions: 5
+    deletions: 0
+repo_files:
+  repo/orders.go: |
+    package repo
+
+    import (
+    	"database/sql"
+    	"fmt"
+    	"log"
+    )
+
+    func ListOrders(status string) []Order {
+    	query := fmt.Sprintf("SELECT id, amount FROM orders WHERE status = '%s'", status)
+    	rows, err := db.Query(query)
+    	if err != nil {
+    		log.Println(err)
+    	}
+    	defer rows.Close()
+    	return scanOrders(rows)
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"支持按订单状态筛选查询订单列表"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"repo/orders.go:23"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"repo/orders.go","line":23,"severity":"high","comment":"SQL 注入风险：status 直接经 fmt.Sprintf 拼接进 WHERE 子句（status 来自用户请求）。必须改为参数化查询 db.Query(\"... WHERE status = ?\", status)"}],"notes":""}
+expect:
+  verdict: request_changes
+  must_find: ["R5.2"]
+  must_not_find: ["R5.5"]

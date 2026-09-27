@@ -3,6 +3,7 @@ package context
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +11,13 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
+
+// assistantRound 构造一个带工具调用的 assistant 轮起点（工具结果的所属轮）。
+func assistantRound(i int) *schema.Message {
+	return &schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{
+		{ID: fmt.Sprintf("c%d", i), Function: schema.FunctionCall{Name: "t"}},
+	}}
+}
 
 func bigTool(role schema.RoleType, n int) *schema.Message {
 	return &schema.Message{Role: role, Content: strings.Repeat("x", n)}
@@ -28,12 +36,12 @@ func TestFitMessagesPassthrough(t *testing.T) {
 }
 
 func TestFitMessagesMicrocompact(t *testing.T) {
-	// 8 条大工具结果：清更早 3 条（保最近 5 条）即可入窗
+	// 8 个工具结果轮：清更早 3 轮（保最近 5 轮）即可入窗（v3.44.0 组粒度）
 	msgs := []*schema.Message{bigTool(schema.System, 10), bigTool(schema.User, 100)}
 	for i := 0; i < 8; i++ {
-		msgs = append(msgs, bigTool(schema.Tool, 2000))
+		msgs = append(msgs, assistantRound(i), bigTool(schema.Tool, 2000))
 	}
-	limit := 10 + 100 + 5*2000 + 1000 // 清 3 条后留余量
+	limit := 10 + 100 + 5*2000 + 1000 // 清 3 轮后留余量
 	out, res := FitMessages(msgs, limit)
 	if res.Action != FitMicro {
 		t.Fatalf("期望 FitMicro，got %s（before=%d limit=%d）", res.Action, res.Before, res.Limit)
@@ -44,21 +52,52 @@ func TestFitMessagesMicrocompact(t *testing.T) {
 	if len(out) != len(msgs) {
 		t.Fatal("消息条数必须不变（语法安全）")
 	}
+	// 工具结果下标：3,5,7,9,11,13,15,17（assistant 在 2,4,6,8,10,12,14,16）
 	for i := 0; i < 5; i++ {
-		if got := out[5+i].Content; got != strings.Repeat("x", 2000) {
-			t.Fatalf("最近 5 条不应被清理，第 %d 条 len=%d", i, len(got))
+		if got := out[9+2*i].Content; got != strings.Repeat("x", 2000) {
+			t.Fatalf("最近 5 轮不应被清理，第 %d 轮 len=%d", i, len(got))
 		}
 	}
 	for i := 0; i < 3; i++ {
-		if out[2+i] == msgs[2+i] {
+		if out[3+2*i] == msgs[3+2*i] {
 			t.Fatal("被清理消息应为克隆，不得污染调用方")
 		}
-		if got := out[2+i].Content; got != toolPlaceholder {
+		if got := out[3+2*i].Content; got != toolPlaceholder {
 			t.Fatalf("旧工具结果应为占位符，got %q", got)
 		}
 	}
-	if msgs[2].Content == toolPlaceholder {
+	if msgs[3].Content == toolPlaceholder {
 		t.Fatal("不得改写调用方原消息")
+	}
+}
+
+func TestFitMessagesProtectsErrorAndReminderResults(t *testing.T) {
+	// 错误/提醒结果保护（compact「出错结果默认保留」同款）：10 轮淘汰 5 轮，
+	// 其中第 0 轮带 tool-error 标记、第 1 轮带提醒信封——受保护不清理，
+	// 只清第 2/3/4 轮
+	msgs := []*schema.Message{bigTool(schema.User, 100)}
+	errContent := "调用失败：【tool-error】deadline exceeded" + strings.Repeat("x", 2000)
+	reminderContent := "说明 <system-reminder>NOT USER INPUT</system-reminder>" + strings.Repeat("y", 2000)
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, assistantRound(i))
+		switch i {
+		case 0:
+			msgs = append(msgs, &schema.Message{Role: schema.Tool, ToolCallID: "c0", Content: errContent})
+		case 1:
+			msgs = append(msgs, &schema.Message{Role: schema.Tool, ToolCallID: "c1", Content: reminderContent})
+		default:
+			msgs = append(msgs, bigTool(schema.Tool, 2000))
+		}
+	}
+	out, res := FitMessages(msgs, 12_000)
+	if res.Cleared != 3 {
+		t.Fatalf("保护项不清理应只清 3 条，got %d（action=%s）", res.Cleared, res.Action)
+	}
+	if out[2].Content != errContent {
+		t.Fatal("tool-error 结果应受保护不清理")
+	}
+	if out[4].Content != reminderContent {
+		t.Fatal("提醒信封结果应受保护不清理")
 	}
 }
 
@@ -102,10 +141,10 @@ func TestFitMessagesTruncateLongestUser(t *testing.T) {
 }
 
 func TestFitMessagesLevel3ToolTruncation(t *testing.T) {
-	// user 很小、工具结果巨大且多：L1 清 1 条不够、L2 截 user 也不够 → L3 迭代
+	// user 很小、工具结果巨大且多（6 轮）：L1 清 1 轮不够、L2 截 user 也不够 → L3 迭代
 	msgs := []*schema.Message{bigTool(schema.User, 100)}
 	for i := 0; i < 6; i++ {
-		msgs = append(msgs, bigTool(schema.Tool, 3000))
+		msgs = append(msgs, assistantRound(i), bigTool(schema.Tool, 3000))
 	}
 	out, res := FitMessages(msgs, 6000)
 	if res.After > res.Limit {

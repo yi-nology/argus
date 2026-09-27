@@ -18,6 +18,7 @@ package context
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -76,8 +77,9 @@ func tokensPerChar() float64 {
 // ---------- 拟合内核（纯函数，不改调用方切片与消息） ----------
 
 const (
-	// keepRecentTools microcompact 保留最近 N 条工具结果（ZCode 同款 5 条）。
-	keepRecentTools = 5
+	// keepRecentRounds microcompact 保留最近 N 个 assistant 轮的工具结果组
+	//（compact 同款组粒度：组 = 一个 assistant(带 ToolCalls) 之后连续的工具结果）。
+	keepRecentRounds = 5
 	// minClearSavings 清理量门槛（256 token 当量，agentkit 口径 1 token≈2 rune）：
 	// 不值得损失信息的清理不做。
 	minClearSavings = 256 * 2
@@ -85,6 +87,34 @@ const (
 	toolPlaceholder = "[旧工具结果内容已清理：microcompact]"
 	truncNote       = "输入超出模型窗口预算，已截断留痕"
 )
+
+// isProtectedResult 错误/提醒结果保护（compact「出错结果默认保留」同款语义）：
+// 携带提醒信封（含 tool-error 标记）的结果是模型自纠与规则遵循的依据，不清理。
+func isProtectedResult(content string) bool {
+	return strings.Contains(content, "<system-reminder>") || strings.Contains(content, "【tool-error】")
+}
+
+// toolGroups 划分工具结果轮次组：一个 assistant（带 ToolCalls）开启一轮，其后
+// 连续的 Tool 消息属该组。返回每组的消息下标切片（按出现序）。孤立工具结果
+// （无所属 assistant 轮）不入组——保守不清理。
+func toolGroups(msgs []*schema.Message) (groups [][]int) {
+	for i := 0; i < len(msgs); {
+		if msgs[i].Role == schema.Assistant && len(msgs[i].ToolCalls) > 0 {
+			i++
+			var g []int
+			for i < len(msgs) && msgs[i].Role == schema.Tool {
+				g = append(g, i)
+				i++
+			}
+			if len(g) > 0 {
+				groups = append(groups, g)
+			}
+			continue
+		}
+		i++
+	}
+	return groups
+}
 
 // FitAction 拟合动作（观测标签；passthrough 应占绝对多数）。
 type FitAction string
@@ -120,26 +150,24 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 		return msgs, res
 	}
 
-	// L1 microcompact：更早的工具结果清内容（保最近 keepRecentTools 条）
+	// L1 microcompact（v3.44.0 轮次组粒度）：按 assistant 轮分组，更早轮的
+	// 工具结果清内容（保最近 keepRecentRounds 轮）；错误/提醒结果保护不清理。
 	out := copyMsgs(msgs)
 	saved, cleared := 0, 0
-	var toolIdx []int
-	for i, m := range out {
-		if m.Role == schema.Tool {
-			toolIdx = append(toolIdx, i)
-		}
-	}
-	if len(toolIdx) > keepRecentTools {
-		for _, i := range toolIdx[:len(toolIdx)-keepRecentTools] {
-			l := len([]rune(out[i].Content))
-			if l <= len(toolPlaceholder) {
-				continue
+	groups := toolGroups(out)
+	if len(groups) > keepRecentRounds {
+		for _, g := range groups[:len(groups)-keepRecentRounds] {
+			for _, i := range g {
+				l := len([]rune(out[i].Content))
+				if l <= len(toolPlaceholder) || isProtectedResult(out[i].Content) {
+					continue
+				}
+				cloned := *out[i] // 消息结构克隆替换：浅拷贝切片仍共享元素指针，直改会污染调用方
+				cloned.Content = toolPlaceholder
+				out[i] = &cloned
+				saved += l - len(toolPlaceholder)
+				cleared++
 			}
-			cloned := *out[i] // 消息结构克隆替换：浅拷贝切片仍共享元素指针，直改会污染调用方
-			cloned.Content = toolPlaceholder
-			out[i] = &cloned
-			saved += l - len(toolPlaceholder)
-			cleared++
 		}
 	}
 	// 清理量不足则放弃 L1（不值得损失信息）；无论走否，out 自此都是私有副本，
@@ -178,11 +206,14 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 		}
 	}
 
-	// L3 病理态兜底：迭代截最大工具结果直至入窗（或无工具结果可截）
+	// L3 病理态兜底：迭代截最大（非保护）工具结果直至入窗（或无工具结果可截）。
+	// 保护语义全级别一致：错误/提醒结果不参与截断——极端情形宁可超限报错，
+	// 也不丢模型自纠依据。
 	for total > limitChars {
 		big := -1
 		for i, m := range out {
-			if m.Role == schema.Tool && (big < 0 || len([]rune(out[i].Content)) > len([]rune(out[big].Content))) {
+			if m.Role == schema.Tool && !isProtectedResult(m.Content) &&
+				(big < 0 || len([]rune(out[i].Content)) > len([]rune(out[big].Content))) {
 				big = i
 			}
 		}

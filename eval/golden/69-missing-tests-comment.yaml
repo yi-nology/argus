@@ -1,0 +1,52 @@
+# 场景（v16 扩容）：新增核心解析函数无配套测试——流程性建议形态。
+# 功能正确但缺测试覆盖 → low → R5.4 comment（低危流程建议）；真实模式
+# approve 同计通过（change-shape 家族诚实放宽，60 号先例）。
+name: 69-missing-tests-comment
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增手机号脱敏工具函数
+  body: |
+    提供 MaskPhone 用于日志与展示场景的手机号脱敏。
+changed_files:
+  - path: util/mask.go
+    diff: |
+      diff --git a/util/mask.go b/util/mask.go
+      --- /dev/null
+      +++ b/util/mask.go
+      @@ -0,0 +1,10 @@
+      +package util
+      +
+      +import "strings"
+      +
+      +func MaskPhone(phone string) string {
+      +	if len(phone) != 11 {
+      +		return phone
+      +	}
+      +	return phone[:3] + "****" + phone[7:]
+      +}
+    additions: 10
+    deletions: 0
+repo_files:
+  util/mask.go: |
+    package util
+
+    import "strings"
+
+    func MaskPhone(phone string) string {
+    	if len(phone) != 11 {
+    		return phone
+    	}
+    	return phone[:3] + "****" + phone[7:]
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"提供 MaskPhone 函数对 11 位手机号做中间四位脱敏"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"util/mask.go:6"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"util/mask.go","line":6,"severity":"low","comment":"核心脱敏函数建议补单元测试：非 11 位输入回退、边界（含非数字字符）与脱敏格式断言——脱敏错误属安全问题，值得用测试钉住"}],"notes":""}
+expect:
+  verdict: comment
+  real_verdicts: [comment, approve]
+  must_find: ["R5.4"]

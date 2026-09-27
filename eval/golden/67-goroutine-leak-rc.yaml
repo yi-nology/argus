@@ -1,0 +1,50 @@
+# 场景（v16 扩容）：循环内无界 goroutine 且共享变量闭包捕获——并发泄漏+数据
+# 竞争双缺陷 → high → R5.2 rc（rc 精确比对）。
+name: 67-goroutine-leak-rc
+scenario: [change-shape]
+kind: 0
+pr:
+  title: 新增批量通知发送
+  body: |
+    对一批用户并发发送通知，提升整体耗时。
+changed_files:
+  - path: notify/batch.go
+    diff: |
+      diff --git a/notify/batch.go b/notify/batch.go
+      --- a/notify/batch.go
+      +++ b/notify/batch.go
+      @@ -5,4 +5,8 @@ func SendAll(users []User) {
+      +	for _, u := range users {
+      +		go func() {
+      +			send(u.ID, u.Phone)
+      +		}()
+      +	}
+    additions: 5
+    deletions: 0
+repo_files:
+  notify/batch.go: |
+    package notify
+
+    type User struct {
+    	ID    int64
+    	Phone string
+    }
+
+    func SendAll(users []User) {
+    	for _, u := range users {
+    		go func() {
+    			send(u.ID, u.Phone)
+    		}()
+    	}
+    }
+stub:
+  r1: |
+    {"source":"PR 描述","acceptance_criteria":[{"id":"AC-1","text":"批量并发发送用户通知"}],"ambiguous":[]}
+  r3: |
+    {"checks":[{"id":"AC-1","status":"implemented","evidence":"notify/batch.go:13"}],"scope_creep":[],"summary":"完成"}
+  reviewer: |
+    {"findings":[{"file":"notify/batch.go","line":13,"severity":"high","comment":"两处并发缺陷：1) go func 闭包捕获循环变量 u（Go 1.22 前语义下共享同一变量，存在数据竞争）；2) goroutine 无并发上限且 SendAll 不等待即返回——调用方无法感知完成与失败，量大时无界并发会打爆下游。建议用带缓冲 worker pool 或 errgroup 并以参数传入 u"}],"notes":""}
+expect:
+  verdict: request_changes
+  must_find: ["R5.2"]
+  must_not_find: ["R5.5"]
