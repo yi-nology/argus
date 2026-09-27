@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.50.0 (2026-09-27) — 五轮：comment 链路 Bus 事件对齐（SSE 观测口径统一）
+
+- **新增 `comment.replied` 事件**（status ok/error）：Q&A/意图路由回帖与错误
+  告知路径此前无任何 Bus 事件，SSE 侧只见任务不见问答（观测口径分裂，勘察
+  在案）。挂在共用出口 postCommentReply 与错误出口 postQAError，nil Bus 安全。
+- 事件类型消费方（SSE 桥/前端）无过滤逻辑，纯增量安全。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
+## v3.49.0 (2026-09-27) — 五轮：code_review R2 checkpoint 补齐（生产实测驱动）
+
+- **`summaryWithCheckpoint` 统一入口**：Run 与 RunReviewOnly 共用——checkpoint
+  命中直接复用（零 LLM）；未命中调 SummarizeChange 成功即落库；失败降级空摘要
+  不落库（重试可重来，语义与既有纪律一致）。
+- **补齐 code_review/visual_check 的 R2 checkpoint**：此前 RunReviewOnly 不读写
+  checkpoint，任务重试时 R2 每次全量重跑（215 实测 ~5k tokens/次，MR #144 生产
+  观察直驱）。复用语义同 Run：重试时 runner 从 DB 重载 StageArtifacts 进
+  Artifacts；命中时 out.Debug 标记 `r2_checkpoint=reused`（debug 关闭时不写）。
+- 单测三路径覆盖：未命中调 LLM+落库 / 命中零 LLM 零落库 / LLM 失败降级。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.48.0 (2026-09-27) — 架构治理 B4'：装配收口（service 进 System + runnerRef 不变量自检）
 
 - **service 构造收敛进 bootstrap.Assemble**：System 由此成为完整对象图（此前

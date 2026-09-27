@@ -119,3 +119,24 @@ poller 是干净的防腐层；除 obs→plugin 观测钩子与 biz 全局 Svc �
 每批：`make lint`（staticcheck+gofmt）+ `make test`（全量单测）+ `make eval`
 （golden 68 条打桩回归）+ `make e2e`（双打桩场景集）全绿方可提交。
 指标标签值（layer/stage/kind）在 B2 中保持字节级不变，防 Grafana 断线。
+
+## 4. 五轮：生产实测驱动的增量优化（v3.49.0–v3.50.0，2026-09-27）
+
+背景：v3.48.0-215 上线后对真实 MR（obs/demo-insights-agent#144）做了全链路
+生产验证（见部署记录），暴露两个设计内实况，本轮转化为优化：
+
+- **v3.49.0 code_review R2 checkpoint 补齐**：RunReviewOnly（code_review/
+  visual_check）此前直接调 SummarizeChange，不读写 checkpoint——任务重试时
+  R2 每次全量重跑（实测 ~5k tokens/次）。抽 `summaryWithCheckpoint` 统一入口
+  （命中复用零 LLM / 未命中调 LLM 成功即落库 / 失败降级不落库），Run 与
+  RunReviewOnly 共用，消重复 + 补语义。复用语义与 Run 一致：重试时 runner 从
+  DB 重载 StageArtifacts 进 Artifacts。单测覆盖三路径（未命中落库/命中复用/
+  LLM 失败降级）。
+- **v3.50.0 comment 链路 Bus 事件对齐**：HandleComment 回帖路径此前无任何
+  Bus 事件，SSE 侧只见任务不见问答（勘察在案的观测口径分裂）。新增
+  `comment.replied` 事件（status ok/error），挂 Q&A/意图路由共用出口
+  postCommentReply 与错误出口 postQAError；事件类型消费方无过滤逻辑，
+  纯增量安全。
+- **复核定案不改**：ctxfit 校准单槽（代码注释有辩护记录"多模型分桶待有真实
+  需求再开"，无真实错配证据不动）；指纹措辞漂移（设计 §3.2 既定权衡：
+  键可复算优先于跨措辞收敛）。

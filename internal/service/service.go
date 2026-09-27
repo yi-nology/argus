@@ -586,6 +586,19 @@ func (s *Service) publishCreated(t *storage.Task) {
 	})
 }
 
+// publishCommentReplied 广播 comment.replied（v3.50.0）：Q&A/意图路由回帖的终态
+// 事件——此前评论链路无 Bus 事件，SSE 侧只见任务不见问答，观测口径分裂。
+// status: ok=回帖成功 / error=回帖失败或 LLM 失败（nil Bus 安全）。
+func (s *Service) publishCommentReplied(status, platform, owner, repo, number string) {
+	if s.Bus == nil {
+		return
+	}
+	s.Bus.Publish(progress.Event{
+		Type: "comment.replied", Status: status, Platform: platform,
+		Owner: owner, Repo: repo, Number: number,
+	})
+}
+
 // UsageMonthly 本月各仓库 token 用量（GET /usage/monthly；🔒，v3.1）。
 func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 	since := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
@@ -1304,8 +1317,10 @@ func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, p
 	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body); err != nil {
 		obs.IncrCommentPostFailure("reply")
 		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
+		s.publishCommentReplied("error", platform, owner, repo, prNum)
 		return
 	}
+	s.publishCommentReplied("ok", platform, owner, repo, prNum)
 	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
 	if s.Audit != nil {
 		s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
@@ -1389,6 +1404,7 @@ func (s *Service) postQAError(ctx context.Context, platform, owner, repo, number
 	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, number, body); err != nil {
 		s.log().Error("argus.qa.error_reply_failed", "error", err.Error())
 	}
+	s.publishCommentReplied("error", platform, owner, repo, number)
 }
 
 // extractRestoreFP 解析 "restore fp:xxxxxxxx" 指令（fp 短码 ≥6 位十六进制）。
