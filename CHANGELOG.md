@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.56.0 (2026-09-28) — 九轮：r3Tools 249 行拆分 + prompt 校准实验（A/B 负结果记档）
+
+- **r3Tools 249 行拆分为五方法**（纯迁移零行为变更，全部注释保留）：
+  `r3RepoTools`（get_file/get_issue/get_diff 三件套）→ `r3CodeGraphTools`
+  （四符号工具，CodeGraph nil 安全）→ `r3DetailTool` → `r3AddExternalTools`
+  （MCP 排序/风险分级/限额）；r3Tools 本体只留限额缺省与优先级表组装。
+- **prompt 校准实验（负结果，A/B 记档防重试同款）**：在评审纪律中加入
+  「流程性问题至多 low + 无 medium 证据输出空 findings」后 eval-real 对比
+  基线（52/58=89.7%，clean 0/5，FP 2）：clean +2/5、FP 2→1，**但
+  65-sql-concat（SQL 注入）从 PASS 转 FAIL——真实安全缺陷被漏报**，总分
+  51/58 净降。结论：对该模型「宁缺毋滥」推过头即漏报，比误报更危险；
+  **已回退**。后续方向：severity 标定问题（69 号类）应从输出后处理或模型
+  微调入手，而非提示词一刀切。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.55.0 (2026-09-28) — 八轮：finish() 拆分（最大可读性债清偿）+ 跨轮注入观测补齐
 
 - **finish() 210 行单体拆分为四个命名子步骤**（顺序即语义，纯迁移零行为变更，
