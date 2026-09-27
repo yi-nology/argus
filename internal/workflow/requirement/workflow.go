@@ -162,16 +162,8 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 	// R2 变更理解。失败降级继续（深挖修复）：R2 只产摘要且 R3/R4 携带原始 diff
 	// 不依赖它——此前是全链路唯一"一个摘要模型瞬断就 error 掉整个任务"的单点，
 	// 与 R1/R3/R4 的失败降级纪律不一致。
-	summary, reused := w.checkpointSummary(task)
-	if !reused {
-		summary, err = w.SummarizeChange(ctx, task)
-		if err != nil {
-			w.Log.Warn("argus.r2.degrade", "error", err.Error())
-			summary = ""
-		} else {
-			w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR2Summary: summary})
-		}
-	} else {
+	summary, reused := w.summaryWithCheckpoint(ctx, task)
+	if reused {
 		debug[plugin.DebugKeyR2Checkpoint] = "reused"
 	}
 	debug[plugin.DebugKeyR2Summary] = summary
@@ -235,17 +227,31 @@ func (w *Workflow) checkpointSave(task plugin.Task, patch map[string]string) {
 	w.CheckpointSink(patch)
 }
 
+// summaryWithCheckpoint R2 摘要统一入口（Run 与 RunReviewOnly 共用）：checkpoint
+// 命中直接复用不调 LLM；未命中调 SummarizeChange，成功即 checkpoint 落库，失败
+// 降级空摘要继续管线。v3.49.0 起 code_review/visual_check 任务重试同样免 R2
+// 重复跑（此前 checkpoint 只覆盖 requirement 路径）。
+func (w *Workflow) summaryWithCheckpoint(ctx context.Context, task plugin.Task) (summary string, reused bool) {
+	if s, ok := w.checkpointSummary(task); ok {
+		return s, true
+	}
+	summary, err := w.SummarizeChange(ctx, task)
+	if err != nil {
+		w.Log.Warn("argus.r2.degrade", "error", err.Error())
+		return "", false
+	}
+	w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR2Summary: summary})
+	return summary, false
+}
+
 // RunReviewOnly 仅 R4+R5（code_review / visual_check 任务：无需求清单，R5.1/R5.3 需求条件跳过）。
 func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
 	start := time.Now()
 	task.Budget = budget
 	rc := w.loadRepoConfig(ctx, task)
-	// R2 摘要供 R4 插件复用（失败降级，同 Run）
-	summary, err := w.SummarizeChange(ctx, task)
-	if err != nil {
-		w.Log.Warn("argus.r2.degrade", "error", err.Error())
-		summary = ""
-	}
+	// R2 摘要供 R4 插件复用（失败降级，同 Run）；checkpoint 复用/落库与 Run 同款
+	//（v3.49.0 补齐：此前 code_review/visual_check 任务重试时 R2 每次全量重跑）。
+	summary, reused := w.summaryWithCheckpoint(ctx, task)
 	if task.Artifacts == nil {
 		task.Artifacts = map[string]string{}
 	}
@@ -253,6 +259,9 @@ func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *
 	out, err := w.finish(ctx, task, budget, rc, start, nil, nil, summary)
 	if out != nil {
 		out.Debug = map[string]string{plugin.DebugKeyR2Summary: summary}
+		if reused {
+			out.Debug[plugin.DebugKeyR2Checkpoint] = "reused"
+		}
 	}
 	return out, err
 }
