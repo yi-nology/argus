@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.37.0 (2026-09-26) — 防失控三件套：循环异常守卫 + system-reminder 纪律起点 + 时序不变量测试卡点
+
+- **循环异常守卫**（internal/workflow/requirement/anomaly.go，对标 ZCode 
+  model-anomaly.ts）：R3/R4 工具表整体套 `wrapAnomalyGuard`——每笔调用算稳定
+  签名（工具名+键排序规范化 JSON，消除模型键序差异漏检），连续同签名 ≥3 次
+  短路返回提醒（不再执行工具，省无效开销）；提醒每 run 封顶 3 次，封顶后放行
+  执行防模型被持续拒绝卡死。守卫在 LimitCalls 外层——被拦截调用不消耗外部工具
+  限额。argus_tool_anomaly_total{tool} 观测。单测 5 项（阈值/链断重计/封顶
+  放行/不同参数异链/键序不变性）。
+- **ReminderNote 统一提醒信封**（internal/context/reminder.go，对标 ZCode 
+  system-reminder/source.ts）：`<system-reminder>` 信封 + 嵌套标签转义（含
+  大小写/空白变体，防工具结果/文件内容里伪造系统指令）+「NOT USER INPUT」
+  反伪装声明。异常守卫提醒为首个消费者；后续批次把重试反馈/限流文案/错误回注
+  陆续收编。
+- **时序不变量测试卡点**：ctxfit 拟合新增语法保持断言——消息条数、role 序列、
+  ToolCalls/ToolCallID 配对字段逐项不变、非 Tool/User 消息 Content 不得改动
+  （此前只有注释承诺）。
+- **反思/续跑环双条件核实**（无代码变更）：R3.5 反思环 MaxIterations 有硬上限
+  （reflectMaxRounds 钳制）且每轮修订天然消费批判输出（新上下文）；findings
+  回写按 id 锚定防幻觉新增；完备性重试 feedback 携带上轮输出摘要。双条件事实上
+  满足，记录在案。
+- 门禁：全量测试 + lint 绿。
+
 ## v3.36.0 (2026-09-26) — 幂等与卫生收口：review_posted 库标记 + 启动复位租约化 + ReAct 旁路治理 + 阶段成本近似
 
 - **评审发布 exactly-once 提速**（poster.go:120 在案项落地）：tasks 表加

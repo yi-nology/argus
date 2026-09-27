@@ -636,7 +636,8 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 	}
 
 	strategy := table.StrategyPrompt(ctx)
-	return table.Ordered(ctx), strategy, nil
+	// 循环异常守卫（v3.37.0）：整表套连续同参调用拦截——ReAct 死循环的唯一防线
+	return wrapAnomalyGuard(newAnomalyGuard(), table.Ordered(ctx)), strategy, nil
 }
 
 // ReviewTools R4 复用：审查工具表（get_file/get_diff/知识/技能/外部 MCP；

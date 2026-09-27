@@ -221,3 +221,42 @@ func TestFitModelWithToolsRewrap(t *testing.T) {
 		t.Fatal("绑定产物内层应是 WithTools 返回的模型（拟合不因绑定失效）")
 	}
 }
+
+// 时序不变量（v3.37.0 测试卡点）：拟合只允许改 Tool/User 消息的 Content——
+// 消息条数、role 序列、tool_call/tool_result 配对字段必须逐字节保持。
+func TestFitMessagesPreservesGrammar(t *testing.T) {
+	msgs := []*schema.Message{
+		bigTool(schema.System, 50),
+		bigTool(schema.User, 500),
+		{Role: schema.Assistant, Content: "查看", ToolCalls: []schema.ToolCall{
+			{ID: "call1", Function: schema.FunctionCall{Name: "get_file", Arguments: `{"path":"a.go"}`}},
+		}},
+		bigTool(schema.Tool, 3000),
+		{Role: schema.Assistant, Content: "再看"},
+		bigTool(schema.Tool, 3000),
+	}
+	for i := range msgs[3].Content {
+		_ = i
+	}
+	msgs[3].ToolCallID = "call1"
+	msgs[5].ToolCallID = "call2"
+
+	out, _ := FitMessages(msgs, 2000)
+	if len(out) != len(msgs) {
+		t.Fatal("消息条数必须不变")
+	}
+	for i := range msgs {
+		if out[i].Role != msgs[i].Role {
+			t.Fatalf("role 序列必须不变，第 %d 条 %s→%s", i, msgs[i].Role, out[i].Role)
+		}
+		if len(out[i].ToolCalls) != len(msgs[i].ToolCalls) {
+			t.Fatalf("ToolCalls 必须不变，第 %d 条", i)
+		}
+		if out[i].ToolCallID != msgs[i].ToolCallID {
+			t.Fatalf("ToolCallID 必须不变，第 %d 条", i)
+		}
+		if msgs[i].Role != schema.Tool && msgs[i].Role != schema.User && out[i].Content != msgs[i].Content {
+			t.Fatalf("非 Tool/User 消息的 Content 不得改动，第 %d 条 role=%s", i, msgs[i].Role)
+		}
+	}
+}

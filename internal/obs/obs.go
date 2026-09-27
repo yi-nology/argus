@@ -66,6 +66,10 @@ var (
 		Name: "argus_llm_continued_total", Help: "输出截断续写轮次（stage；length 截断的续写救济）",
 	}, []string{"stage"})
 
+	toolAnomaly = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_tool_anomaly_total", Help: "ReAct 循环异常守卫拦截计数（同名同参连续重复调用）",
+	}, []string{"tool"})
+
 	// layerExec 分层活检：层被真正走到的次数。increase()==0 且 tasks_total{done}>0
 	// → 该层静默失效（配置关掉的层不注册/不打点，不误报）。
 	layerExec = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -170,7 +174,7 @@ func Init() {
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
-		ctxFit, llmContinued,
+		ctxFit, llmContinued, toolAnomaly,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
@@ -262,6 +266,11 @@ func IncrCtxFit(stage, action string) {
 // IncrLLMContinued 输出截断续写轮次（ContinueModel 回调）。
 func IncrLLMContinued(stage string) {
 	llmContinued.WithLabelValues(stage).Inc()
+}
+
+// IncrToolAnomaly 循环异常守卫拦截（同名同参连续重复调用）。
+func IncrToolAnomaly(tool string) {
+	toolAnomaly.WithLabelValues(tool).Inc()
 }
 
 // IncrQAFailure 评论链路处理失败计数（service 层调用）。
