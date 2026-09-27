@@ -1,5 +1,36 @@
 # Changelog
 
+## v3.54.0 (2026-09-27) — 七轮：dream/health 消费侧接口补全 + Workflow 输入通道契约文档化
+
+- **RepoRef 归位 learning**（memory.Ref 先例同款）：域类型放纯叶子包，
+  storage.RepoRef 变别名——dream/health 不再因仓库三元组依赖 storage。
+- **health 彻底去 storage**：Store 接口改走 learning 域类型投影
+  （ListRepoPatternStates → []learning.PatternState），不再感知 storage 行模型。
+- **dream 耦合如实文档化**：PatternSignal/MergePatternInto 是去重语义的固有部分
+  （按 DB 行身份合并），保留并在接口注释言明。
+- **P2-3 复核定案**（Workflow「八字段预写」）：八字段多是运行期任务数据而非装配
+  常量，Options 化是伪收益——改为在 Workflow 结构体文档化三输入通道契约
+  （装配期/任务期/调用参数），新增输入先问归属。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
+## v3.53.0 (2026-09-27) — 七轮：writeMu 改 SQLite 感知（多副本 MySQL 解锁）
+
+- Store 写串行门 writeLock/writeUnlock：**仅 SQLite 加锁**。writeMu 为 SQLite 单写者
+  语义而生；MySQL 下并发正确性由行锁/SKIP LOCKED/唯一索引承担（各写点逐一核对：
+  claim 走 SKIP LOCKED 事务、webhook 建任务 FOR UPDATE、单任务执行体唯一无 attempt
+  竞争），进程级互斥只制造多副本横向扩容的吞吐天花板。SQLite 路径语义零变化。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
+## v3.52.0 (2026-09-27) — 七轮：跨轮意见注入（verdict 翻转最小缓解，P1-2）
+
+- **ArtifactPrevFindings**：runner 从指纹库渲染同 PR 此前轮次的 open 意见
+  （file:line [SEVERITY] 评语，上限 15 条、单条 160 rune），注入 R4 提示词
+  「上轮已提出的意见」段——评审员据此保持结论一致，推翻须显式说明理由。
+- **裁定与实现口径（P1-2）**：不动 R5 确定性真值表；给上下文而非改裁决——
+  同人类评审员「同一提交结论应稳定」的习惯。查询失败降级无此键，不影响主流程。
+- 测试：runner 注入过滤（open-only/suppressed 排除/空历史空串）+ builtin 提示词段。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.51.0 (2026-09-27) — 行内评论从未命中根因修复（路径归一化兜底 + R4 路径纪律）
 
 - **根因（215 生产实锤）**：模型常以子项目根为参照报文件路径、缺 git 仓根前缀

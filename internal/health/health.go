@@ -22,13 +22,13 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/learning"
-	"argus/internal/storage"
 )
 
-// Store 健康报告需要的最小存储面（storage.Store 满足）。
+// Store 健康报告需要的最小存储面（storage.Store 满足）。v3.54.0 起全面走
+// learning 域类型投影，不再感知 storage 行模型。
 type Store interface {
-	ListPatternRepos(ctx context.Context) ([]storage.RepoRef, error)
-	ListRepoPatterns(ctx context.Context, platform, owner, repo string) ([]storage.PatternSignal, error)
+	ListPatternRepos(ctx context.Context) ([]learning.RepoRef, error)
+	ListRepoPatternStates(ctx context.Context, platform, owner, repo string) ([]learning.PatternState, error)
 }
 
 // Tip 单条建议（噪声处置 / guidelines 增量）。
@@ -80,7 +80,7 @@ func Build(ctx context.Context, store Store, cfg Config) (*Report, error) {
 		return nil, fmt.Errorf("health: list repos: %w", err)
 	}
 	for _, r := range repos {
-		rows, err := store.ListRepoPatterns(ctx, r.Platform, r.Owner, r.Repo)
+		rows, err := store.ListRepoPatternStates(ctx, r.Platform, r.Owner, r.Repo)
 		if err != nil {
 			return nil, fmt.Errorf("health: list patterns %s/%s: %w", r.Owner, r.Repo, err)
 		}

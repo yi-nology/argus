@@ -30,9 +30,12 @@ import (
 // DedupPrefixRunes 去重键：pattern_text 前 N 个 rune（normalize 后已无路径/hex 噪声）。
 const DedupPrefixRunes = 80
 
+// Store dream 需要的最小存储面。RepoRef 已归 learning（v3.54.0）；
+// PatternSignal/MergePatternInto 是去重语义的固有部分（按 DB 行身份合并），
+// 与 storage 的这一耦合如实保留。
 // Store dream 需要的最小存储面。
 type Store interface {
-	ListPatternRepos(ctx context.Context) ([]storage.RepoRef, error)
+	ListPatternRepos(ctx context.Context) ([]learning.RepoRef, error)
 	ListRepoPatterns(ctx context.Context, platform, owner, repo string) ([]storage.PatternSignal, error)
 	MergePatternInto(ctx context.Context, platform, owner, repo string, keepID, dupID uint, at time.Time) error
 	ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
@@ -88,7 +91,7 @@ func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err
 }
 
 // dedupRepo 同 plugin + pattern_text 前缀相同 → 计数并入样本更多的一行。
-func (d *Dream) dedupRepo(ctx context.Context, r storage.RepoRef, at time.Time) (int, error) {
+func (d *Dream) dedupRepo(ctx context.Context, r learning.RepoRef, at time.Time) (int, error) {
 	rows, err := d.Store.ListRepoPatterns(ctx, r.Platform, r.Owner, r.Repo)
 	if err != nil {
 		return 0, err
@@ -140,7 +143,7 @@ func betterKeep(a, b storage.PatternSignal) bool {
 }
 
 // exportRepo 把低置信模式写成知识条目。无低置信样本时跳过（ok=false）。
-func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time) (bool, error) {
+func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time) (bool, error) {
 	topN := d.ExportTopN
 	if topN <= 0 {
 		topN = 20
@@ -203,7 +206,7 @@ func (d *Dream) exportRepo(ctx context.Context, r storage.RepoRef, at time.Time)
 }
 
 // writeMemory 逐事实写记忆文件（幂等：先清后写——模式集变化后旧文件不留场）。
-func writeMemory(dir string, r storage.RepoRef, low []learning.PatternState, at time.Time) error {
+func writeMemory(dir string, r learning.RepoRef, low []learning.PatternState, at time.Time) error {
 	ref := memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
 	if err := memory.ClearRepo(dir, ref); err != nil {
 		return err
@@ -233,7 +236,7 @@ func singleLine(s string) string {
 }
 
 // renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。
-func renderKnowledge(r storage.RepoRef, low []learning.PatternState, at time.Time) string {
+func renderKnowledge(r learning.RepoRef, low []learning.PatternState, at time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s/%s 历史高误报审查模式（dream 导出）\n\n", r.Owner, r.Repo)
 	fmt.Fprintf(&b, "生成时间：%s。以下模式在本仓库样本充足且置信度偏低；"+
@@ -249,7 +252,7 @@ func renderKnowledge(r storage.RepoRef, low []learning.PatternState, at time.Tim
 	return b.String()
 }
 
-func writeLocalKnowledge(dir string, r storage.RepoRef, body string) error {
+func writeLocalKnowledge(dir string, r learning.RepoRef, body string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

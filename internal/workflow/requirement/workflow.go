@@ -47,6 +47,14 @@ type Output = plugin.WorkflowOutput
 
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
 type Workflow struct {
+	// 输入通道契约（v3.54.0 文档化，防三通道漂移；此前勘察在案「八字段外部预写」）：
+	//   ① 装配期构造字段——基础设施引用（LLM/Dispatcher/Merger/SDK/Tools/Knowledge），
+	//     buildWorkflow 一次构造；
+	//   ② 任务期预写字段——MemoryIndex/RepoGuide/ExternalToolCallLimit/OnStage/
+	//     CheckpointSink/SASTOutcomes/CodeGraph/RepoConfig：运行期数据而非装配常量，
+	//     runner 每任务 Run 前注入（这正是不用 Options 构造参数表达的原因，v3.54.0 复核定案）；
+	//   ③ 调用参数——Run/RunReviewOnly(ctx, task, budget) 携带任务本体与预算。
+	// 新增输入先问归属：装配常量→①，任务数据→②，禁止经钩子旁路绕开②。
 	LLM llm.Generator
 	// R3ChatModel R3 ReAct 专用模型（P6 阶段覆盖；nil = LLM.RawModel()）。
 	R3ChatModel model.BaseChatModel

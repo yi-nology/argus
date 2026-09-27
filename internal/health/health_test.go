@@ -7,26 +7,25 @@ import (
 	"time"
 
 	"argus/internal/learning"
-	"argus/internal/storage"
 )
 
 type fakeStore struct {
-	repos []storage.RepoRef
-	rows  map[string][]storage.PatternSignal
+	repos []learning.RepoRef
+	rows  map[string][]learning.PatternState
 }
 
-func (f *fakeStore) ListPatternRepos(context.Context) ([]storage.RepoRef, error) {
+func (f *fakeStore) ListPatternRepos(context.Context) ([]learning.RepoRef, error) {
 	return f.repos, nil
 }
 
-func (f *fakeStore) ListRepoPatterns(_ context.Context, platform, owner, repo string) ([]storage.PatternSignal, error) {
+func (f *fakeStore) ListRepoPatternStates(_ context.Context, platform, owner, repo string) ([]learning.PatternState, error) {
 	return f.rows[platform+"/"+owner+"/"+repo], nil
 }
 
 func TestBuild_Classification(t *testing.T) {
 	fs := &fakeStore{
-		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
-		rows: map[string][]storage.PatternSignal{
+		repos: []learning.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
+		rows: map[string][]learning.PatternState{
 			"gitea/acme/app": {
 				// 噪声：样本充足、置信度 < HardFloor(0.20)
 				// Confidence(posted=1, regret=5, suppress=0) ≈ 3/(3+12) = 0.20 → 用更大 regret 压到 <0.2
