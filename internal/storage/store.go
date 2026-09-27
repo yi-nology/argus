@@ -151,13 +151,32 @@ type ReviewTarget struct {
 func (ReviewTarget) TableName() string { return "review_targets" }
 
 // Store 存储门面。SQLite 下用连接数=1 + 写锁实现"查询与落库同一事务"的串行语义
-// （design §5.2：SQLite 单写串行下单事务即闭环）；MySQL 下写锁退化为空操作亦无害。
+// （design §5.2：SQLite 单写串行下单事务即闭环）；MySQL 下并发正确性由行锁/
+// SKIP LOCKED/唯一索引承担，进程级互斥只制造吞吐天花板，写锁仅 SQLite 生效
+// （v3.53.0 writeLock/writeUnlock）。
 type Store struct {
 	db      *gorm.DB
 	writeMu sync.Mutex
 	sqlite  bool
 	// RunnerID 本实例标识（Open 后由 main 赋值；claim/心跳用它归属 running 任务）
 	RunnerID string
+}
+
+// writeLock/writeUnlock 进程内写串行门（v3.53.0 SQLite 感知）：writeMu 为 SQLite
+// 单写者语义而生。MySQL 路径各写点的并发正确性均有 DB 侧机制承担——claim 走
+// SKIP LOCKED 事务、webhook 建任务对 target 行 FOR UPDATE、幂等靠唯一索引；
+// 单任务执行体唯一，attempt 读改写与 checkpoint 合并无同任务并发。多副本
+// MySQL 横向扩容前的必要解锁。
+func (s *Store) writeLock() {
+	if s.sqlite {
+		s.writeMu.Lock()
+	}
+}
+
+func (s *Store) writeUnlock() {
+	if s.sqlite {
+		s.writeMu.Unlock()
+	}
 }
 
 // ErrNotFound 查询无结果的边界哨兵：上层判 404/无此对象以此为准，不再感知
@@ -287,8 +306,8 @@ func (s *Store) Ping(ctx context.Context) error {
 // 只有 heartbeat_at 已死（或遗留的 NULL 心跳旧行）才重置——多副本共库时，
 // 一个实例滚动重启不会把其他存活实例正在执行的任务也重置（那会双执行、双回帖）。
 func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Duration) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	cutoff := time.Now().Add(-staleAfter)
 	res := s.db.WithContext(ctx).Model(&Task{}).
 		Where("status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)", StatusRunning, cutoff).
@@ -303,8 +322,8 @@ func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 		// 本实例任务被 reaper 反复重置重跑（装配纪律：main 先赋 RunnerID 再启动 worker）。
 		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Model(&Task{}).
 		Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID).
 		Update("heartbeat_at", time.Now()).Error
@@ -340,16 +359,16 @@ func (s *Store) GetTaskByEventID(ctx context.Context, eventID string) (*Task, er
 
 // CreateTask 新建任务（CLI/TaskAPI 提交；无幂等键）。
 func (s *Store) CreateTask(ctx context.Context, t *Task) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Create(t).Error
 }
 
 // CreateTaskForWebhook 同步完成"同 SHA 去重检查 + 落库"（同一事务，§5.1 规则 4 的 TOCTOU 防线）。
 // 返回 dupReason 非空表示命中去重（"last_head_sha" | "in_flight"），existingID 给出可指向的任务。
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	txErr := gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		// 规则 4a：review_targets.last_head_sha == 本次 head。
 		// MySQL 下对 target 行 FOR UPDATE：同 PR 的并发建任务事务在此串行化，
@@ -424,8 +443,8 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 // 与 CreateTaskForWebhook 的 in_flight 去重语义对齐，防手工触发与轮询/webhook 竞态双审。
 // done 任务不拦——手工强制重审是 TaskAPI 的合法用途。
 func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *Task, created bool, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	txErr := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// MySQL 下先对 review_targets 行 FOR UPDATE：与 CreateTaskForWebhook 同一
 		// 串行化锚点——此前 count-then-insert 无锁，跨副本可双建任务双烧 LLM
@@ -491,8 +510,8 @@ func (s *Store) quietDB() *gorm.DB {
 // 两步条件更新（单写模型下无竞争）。抢锁失败少量重试而非直接报"无任务"——
 // 此前败者直接 ok=false，worker 睡 500ms，队列有任务也空转（深挖修复）。
 func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	const maxAttempts = 3
 	var claimed *Task
 	err := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -560,8 +579,8 @@ func (s *Store) FinishTask(ctx context.Context, id, status, verdict, report, res
 // 例外：RunnerID 未装配（单测桩）时只校验 status。
 func (s *Store) FinishTaskFenced(ctx context.Context, id, status, verdict, report, resultJSON, failReason string,
 	tokensUsed int, summaryCommentID int64) (fenced bool, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	now := time.Now()
 	updates := map[string]any{
 		"status":      status,
@@ -617,8 +636,8 @@ func (s *Store) ResetFailedForRetry(ctx context.Context, maxRetries int, now tim
 	if maxRetries <= 0 {
 		return 0, nil
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	res := s.db.WithContext(ctx).Model(&Task{}).
 		Where("status = ? AND attempt < ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?",
 			StatusFailed, maxRetries, now).
@@ -628,16 +647,16 @@ func (s *Store) ResetFailedForRetry(ctx context.Context, maxRetries int, now tim
 
 // SetTaskHeadSHA 回填 CLI 任务的 head SHA（执行期从平台获取）。
 func (s *Store) SetTaskHeadSHA(ctx context.Context, id, sha string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("head_sha", sha).Error
 }
 
 // SetTaskDebug 留存阶段调试产物（ARGUS_DEBUG=1）。
 func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("debug_json", debugJSON).Error
 }
@@ -645,8 +664,8 @@ func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
 // MarkReviewPosted 完整评审发成功落标记（v3.36.0）：重跑任务据此跳过
 // ListReviews 平台锚点查询（总结评论更新不受影响，照常执行）。
 func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
 		Update("review_posted", true).Error
 }
@@ -656,8 +675,8 @@ func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
 // writeMu 下无并发竞争。坏 JSON 当空处理——checkpoint 可丢（重试退化为全量
 // 重跑），不可阻塞主流程。
 func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch map[string]string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var row Task
 	if err := s.db.WithContext(ctx).Select("stage_artifacts").Where("id = ?", id).First(&row).Error; err != nil {
 		return err
@@ -698,8 +717,8 @@ func (s *Store) HasNewerNonFailedTask(ctx context.Context, platform, owner, repo
 // 单条大 DELETE 会长事务占住 SQLite 单写连接，队头阻塞心跳（深挖修复）。
 // 返回删除行数。
 func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var total int64
 	for {
 		var batch []string
@@ -763,8 +782,8 @@ func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task
 // 与 PruneTasks 同理：单条大 DELETE 长事务占住 SQLite 单写连接，v3.9.1 补齐）。
 // 返回删除行数。
 func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var total int64
 	for {
 		var batch []string
@@ -793,8 +812,8 @@ func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, e
 // v3.8.0：随行清理指向已删指纹的孤儿别名（print_aliases 此前无限增长）。
 // v3.9.1：分批删除（每批 500），别名清理跟随本批指纹。
 func (s *Store) PruneStalePrints(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var total int64
 	for {
 		var batch []string
@@ -884,8 +903,8 @@ func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, numb
 // UpsertReviewTarget 回帖成功后更新定位（staleness 不读它，五轮评审定案）。
 func (s *Store) UpsertReviewTarget(ctx context.Context, platform, owner, repo, number string,
 	summaryCommentID int64, headSHA string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		var t ReviewTarget
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",

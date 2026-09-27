@@ -40,8 +40,8 @@ func (s *Store) GetPrintState(ctx context.Context, platform, owner, repo, number
 func (s *Store) UpsertPrint(ctx context.Context, platform, owner, repo, number, fingerprint string,
 	f plugin.Finding, taskID string, at time.Time) (suppressed bool, err error) {
 
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return suppressed, s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint
@@ -129,8 +129,8 @@ var _ plugin.PrintStore = (*Store)(nil)
 // 之后每轮 Merger 自动剔除该意见。
 func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number, fingerprint string,
 	f plugin.Finding, at time.Time) (matched bool, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint
@@ -261,8 +261,8 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 // 近重复层永不回收、v2 迁移还会因同 PR 多条空行重算出同一常量指纹而撞唯一索引）。
 // 指纹先经别名解析：剔除的可能以别名身份在库。
 func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, number, fingerprint string, f plugin.Finding) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 		var p FindingPrint

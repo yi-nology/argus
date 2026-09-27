@@ -17,8 +17,8 @@ import (
 // ClearReviewTargetComment 显式清零 last_summary_comment_id（评论 404 后调用），
 // head SHA 不动（同 SHA 去重语义保留）。行不存在视为已清除。
 func (s *Store) ClearReviewTargetComment(ctx context.Context, platform, owner, repo, number string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		return tx.Model(&ReviewTarget{}).
 			Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number).
@@ -36,8 +36,8 @@ func (s *Store) AppendReviewTargetComment(ctx context.Context, platform, owner, 
 	if id <= 0 {
 		return nil
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		var t ReviewTarget
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",

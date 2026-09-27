@@ -65,8 +65,8 @@ func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginNa
 	key := learning.PatternKey(pluginName, f.Comment)
 	text := learning.PatternSample(f.Comment)
 
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row PatternSignal
 		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND plugin = ? AND pattern_key = ?",
@@ -220,10 +220,9 @@ func (s *Store) ListPatternRepos(ctx context.Context) ([]RepoRef, error) {
 	return out, nil
 }
 
-// RepoRef 仓库坐标（跨表遍历用）。
-type RepoRef struct {
-	Platform, Owner, Repo string
-}
+// RepoRef 仓库坐标（跨表遍历用）。v3.54.0 起为 learning.RepoRef 的别名——
+// 域类型归 learning 纯叶子包，dream/health 等消费方不再因它依赖 storage。
+type RepoRef = learning.RepoRef
 
 // MergePatternInto 把 dup 行的计数并入 keep 行并删除 dup（dream 去重）。
 // keep 必须存在；事务内完成，失败整体回滚。
@@ -231,8 +230,8 @@ func (s *Store) MergePatternInto(ctx context.Context, platform, owner, repo stri
 	if keepID == 0 || dupID == 0 || keepID == dupID {
 		return nil
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var keep, dup PatternSignal
 		if err := tx.Where("id = ? AND platform = ? AND owner = ? AND repo = ?",
@@ -278,8 +277,8 @@ func earlierTime(a, b time.Time) time.Time {
 // 的模式遗忘后最坏效果是"同型意见重新从头计数"，不会误杀（MinSamples 门槛
 // 保护小样本消费）。分批删除（每批 500，长事务占住 SQLite 单写连接）。
 func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var total int64
 	for {
 		var batch []uint
@@ -309,4 +308,18 @@ func (s *Store) ListAllPatternSignals(ctx context.Context) ([]PatternSignal, err
 	var rows []PatternSignal
 	err := s.db.WithContext(ctx).Order("id").Find(&rows).Error
 	return rows, err
+}
+
+// ListRepoPatternStates 某 PR 全部模式的学习环读侧投影（health 消费；不暴露
+// storage 行模型——v3.54.0 消费侧接口补全）。
+func (s *Store) ListRepoPatternStates(ctx context.Context, platform, owner, repo string) ([]learning.PatternState, error) {
+	rows, err := s.ListRepoPatterns(ctx, platform, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]learning.PatternState, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, p.project())
+	}
+	return out, nil
 }

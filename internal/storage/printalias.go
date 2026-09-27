@@ -134,8 +134,8 @@ func linesClose(a, b int) bool { return absDiff(a, b) <= 2 }
 // 未命中则以 line=0 的 v2 指纹预插 suppressed 行（matched=false）——真实意见
 // 下轮入库时会经近重复层并回该行，抑制随之生效。
 func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, number, file, comment string, at time.Time) (fp string, matched bool, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []FindingPrint
 		q := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file = ?", platform, owner, repo, number, file)

@@ -25,8 +25,8 @@ func (s *Store) MarkCommentDelivery(ctx context.Context, deliveryID string, at t
 	if deliveryID == "" {
 		return true, nil
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	err = s.db.WithContext(ctx).Create(&CommentDelivery{DeliveryID: deliveryID, SeenAt: at}).Error
 	if err != nil {
 		if isDuplicateKeyErr(err) {
@@ -41,8 +41,8 @@ func (s *Store) MarkCommentDelivery(ctx context.Context, deliveryID string, at t
 // 分批删除（每批 500，与 PruneTasks 同理：单条大 DELETE 长事务占住 SQLite
 // 单写连接，v3.9.1 补齐）。
 func (s *Store) PruneCommentDeliveries(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.writeLock()
+	defer s.writeUnlock()
 	var total int64
 	for {
 		var batch []string
