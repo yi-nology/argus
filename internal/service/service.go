@@ -958,31 +958,31 @@ func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any
 	stageDone := map[string]bool{}
 	arts := decodeArtifactsMap(task.StageArtifacts)
 	if _, ok := arts[plugin.ArtifactCkptR1Spec]; ok {
-		stageDone["R1"] = true
+		stageDone[plugin.LayerR1] = true
 	}
 	if _, ok := arts[plugin.ArtifactCkptR2Summary]; ok {
-		stageDone["R2"] = true
+		stageDone[plugin.LayerR2] = true
 	}
 	debug := decodeArtifactsMap(task.DebugJSON)
-	if _, ok := debug["r3_checks"]; ok {
-		stageDone["R3"] = true
+	if _, ok := debug[plugin.DebugKeyR3Checks]; ok {
+		stageDone[plugin.LayerR3] = true
 	}
-	if debug["r3_raw"] != "" {
-		stageDone["R3"] = true
+	if debug[plugin.DebugKeyR3Raw] != "" {
+		stageDone[plugin.LayerR3] = true
 	}
 	if task.ResultJSON != "" {
-		stageDone["R4"] = true
+		stageDone[plugin.LayerR4] = true
 	}
 	if task.ResultJSON != "" && task.Verdict != "" {
-		stageDone["R5"] = true
+		stageDone[plugin.LayerR5] = true
 	}
 	if task.Status == storage.StatusDone {
-		for _, st := range []string{"R1", "R2", "R3", "R35", "R4", "R5"} {
+		for _, st := range plugin.StageTimeline {
 			stageDone[st] = true
 		}
 	}
-	stages := make([]map[string]any, 0, 6)
-	for _, st := range []string{"R1", "R2", "R3", "R35", "R4", "R5"} {
+	stages := make([]map[string]any, 0, len(plugin.StageTimeline))
+	for _, st := range plugin.StageTimeline {
 		stages = append(stages, map[string]any{"stage": st, "done": stageDone[st]})
 	}
 	return map[string]any{

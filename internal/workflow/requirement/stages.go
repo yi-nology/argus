@@ -62,8 +62,11 @@ type reqSegment struct {
 // 任何截断/提炼路径都留痕 Ambiguous → R5.3 人工确认，绝不静默丢内容。
 func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plugin.RequirementSpec, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R1", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR1) }()
-	w.onStage("R1")
+	defer func() {
+		plugin.ReportStageDuration(plugin.LayerR1, time.Since(start))
+		plugin.ReportLayerExec(plugin.LayerR1)
+	}()
+	w.onStage(plugin.LayerR1)
 
 	bodyMax, issueMax := w.ReqBodyMaxChars, w.ReqIssueMaxChars
 	if bodyMax <= 0 {
@@ -146,7 +149,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	// 直调 + llmjson 宽容解析（深挖修复）：此前走 GenerateJSON 纯严格链，中文模型
 	// 高频的全角标点/尾逗号类损坏会把整条 PR 打成「解析降级」→ 全 Ambiguous →
 	// R5.3 强制 COMMENT——最贵的失败模式。R3/R3.5 已迁移，R1 补齐。
-	resp, err := w.LLM.Generate(ctx, "R1", msgs)
+	resp, err := w.LLM.Generate(ctx, plugin.LayerR1, msgs)
 	if err == nil {
 		if e := jsonrepair.Unmarshal(resp.Content, &spec); e != nil {
 			err = e
@@ -222,7 +225,7 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 			schema.UserMessage(DataFence(seg.label+fmt.Sprintf(" 需求片段 %d/%d（数据）", i+1, len(chunks)), ch) +
 				"\n请提炼以上需求片段的全部要点。"),
 		}
-		resp, err := w.LLM.Generate(ctx, "R1a", msgs)
+		resp, err := w.LLM.Generate(ctx, plugin.LayerR1A, msgs)
 		if err != nil {
 			w.Log.Warn("argus.r1.digest_failed", "segment", seg.label, "chunk", i+1, "error", err.Error())
 			notes = append(notes, fmt.Sprintf("%s 片段提炼失败（块 %d/%d），以截断原文参与解析", seg.label, i+1, len(chunks)))
@@ -240,8 +243,11 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 // SummarizeChange R2：变更理解 → ChangeSummary（R3/R4 复用的 diff 公共前缀，省 token）。
 func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (string, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R2", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR2) }()
-	w.onStage("R2")
+	defer func() {
+		plugin.ReportStageDuration(plugin.LayerR2, time.Since(start))
+		plugin.ReportLayerExec(plugin.LayerR2)
+	}()
+	w.onStage(plugin.LayerR2)
 
 	if task.Diff == nil || strings.TrimSpace(task.Diff.Text) == "" {
 		return "（无有效 diff 内容）", nil
@@ -250,7 +256,7 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 		schema.SystemMessage(r2System),
 		schema.UserMessage(DataFence("git diff（已清洗）", task.Diff.Text)),
 	}
-	resp, err := w.LLM.Generate(ctx, "R2", msgs)
+	resp, err := w.LLM.Generate(ctx, plugin.LayerR2, msgs)
 	if err != nil {
 		return "", err
 	}
@@ -265,7 +271,7 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 		w.Log.Warn("argus.r2.soft_failure", "runes", rc, "action", "带反馈重试一次")
 		retryMsgs := append(msgs, schema.UserMessage(plugin.ReminderNote("retry-feedback",
 			"上一轮变更摘要输出为空或过短，无法用作变更理解。请基于 diff 输出一段完整摘要：概述改动了哪些文件、每个文件改了什么（不少于两句话）。")))
-		if resp2, e2 := w.LLM.Generate(ctx, "R2", retryMsgs); e2 == nil {
+		if resp2, e2 := w.LLM.Generate(ctx, plugin.LayerR2, retryMsgs); e2 == nil {
 			if s2 := truncSummary(resp2.Content, 1200); utf8.RuneCountInString(strings.TrimSpace(s2)) >= r2MinValidRunes {
 				return s2, nil
 			}
@@ -282,8 +288,11 @@ const r2MinValidRunes = 20
 // JSON 解析失败重试 1 次后仍败 → 全部 AC 置 unverifiable（§10.2，结果不丢）。
 func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) (*plugin.ComplianceReport, string, error) {
 	start := time.Now()
-	defer func() { plugin.ReportStageDuration("R3", time.Since(start)); plugin.ReportLayerExec(plugin.LayerR3) }()
-	w.onStage("R3")
+	defer func() {
+		plugin.ReportStageDuration(plugin.LayerR3, time.Since(start))
+		plugin.ReportLayerExec(plugin.LayerR3)
+	}()
+	w.onStage(plugin.LayerR3)
 
 	if spec == nil || len(spec.ACs) == 0 {
 		return nil, "", nil // 无清单：R3 跳过（R5.3 由 Ambiguous/空清单兜底）

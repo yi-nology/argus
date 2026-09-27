@@ -153,10 +153,16 @@ func ReportBestOfN(name, result string) {
 	}
 }
 
-// Layer 词表（活检探针；与告警规则 label 对齐）。
+// Layer 管线阶段词表（单一出处，v3.46.0 契约显式化）。所有跨包消费阶段名之处
+// 一律引用此处常量，禁止裸字符串——新增阶段只需在此追加并扩展 StageTimeline：
+//   - 指标 label：ReportStageDuration/ReportLayerExec（与告警规则 label 对齐，改值断 Grafana）；
+//   - SSE 进度事件：Workflow.onStage；
+//   - LLM 阶段路由键：llm.StageRouter 前缀匹配（LayerR1 命中 LayerR1A），模型覆盖/包装同键；
+//   - MCP TaskStages 阶段时间线：service 按 StageTimeline 顺序出表。
 const (
 	LayerDiffprep = "diffprep"
 	LayerR1       = "R1"
+	LayerR1A      = "R1a" // R1 的分块提炼子阶段（StageRouter 由 LayerR1 前缀命中）
 	LayerR2       = "R2"
 	LayerR3       = "R3"
 	LayerR35      = "R35"
@@ -165,3 +171,6 @@ const (
 	LayerMerger   = "merger"
 	LayerPoster   = "poster"
 )
+
+// StageTimeline 阶段时间线的规范顺序（只读词表，消费方勿改写元素；新增阶段在此追加）。
+var StageTimeline = []string{LayerR1, LayerR2, LayerR3, LayerR35, LayerR4, LayerR5}

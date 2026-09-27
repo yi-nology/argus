@@ -336,6 +336,16 @@ const (
 	ArtifactCkptR2Summary = "checkpoint_r2_summary" // R2 变更摘要文本
 )
 
+// tasks.debug_json 的阶段调试键（workflow 写，service.TaskStages 读；e2e 断言消费）。
+// 与 ArtifactCkpt* 的区别：debug 键仅诊断与时间线推断用，缺失不影响断点续审。
+const (
+	DebugKeyR1Spec       = "r1_spec"       // R1 需求规格 JSON
+	DebugKeyR2Checkpoint = "r2_checkpoint" // R2 checkpoint 复用标记（值 "reused"）
+	DebugKeyR2Summary    = "r2_summary"    // R2 变更摘要文本
+	DebugKeyR3Raw        = "r3_raw"        // R3 模型原始输出
+	DebugKeyR3Checks     = "r3_checks"     // R3 完成度检查 JSON
+)
+
 // Result.Artifact 键：R3 完成度报告 JSON 与 R5 裁决规则（compliance 插件产出）。
 const (
 	ArtifactComplianceReport = "compliance_report"

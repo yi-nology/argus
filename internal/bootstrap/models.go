@@ -13,6 +13,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/obs"
+	"argus/internal/plugin"
 	"git.example.com/enjoydream/agentkit/llm"
 )
 
@@ -188,7 +189,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		return stageGenerator(p, fallbackProvider, so, cfg, m.Limiter)
 	}
 	for stage, so := range map[string]*config.StageOverride{
-		"R1": cfg.StageModelR1, "R2": cfg.StageModelR2,
+		plugin.LayerR1: cfg.StageModelR1, plugin.LayerR2: cfg.StageModelR2,
 	} {
 		if so == nil {
 			continue
@@ -250,7 +251,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		wrap := wrapReactFailoverFn(cfg, m.Fallback, log)
 		m.React = wrap(m.React, "chat")
 		if m.R3 != nil {
-			m.R3 = wrap(m.R3, "R3")
+			m.R3 = wrap(m.R3, plugin.LayerR3)
 		}
 		if m.QA != nil {
 			m.QA = wrap(m.QA, "qa")
@@ -259,7 +260,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 			m.Router = wrap(m.Router, "router")
 		}
 		if m.Reflect != nil {
-			m.Reflect = wrap(m.Reflect, "R35")
+			m.Reflect = wrap(m.Reflect, plugin.LayerR35)
 		}
 		// Reviewer ReAct 出口：有阶段覆盖时用覆盖链 RawModel（需 Failover 包）；
 		// 无覆盖或覆盖链无 RawModel 时与主 React 出口同源（已包 Failover）。
@@ -311,10 +312,10 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		m.ReviewerReact = m.React // 无 Reviewer 覆盖：与主 React 同源（含包装）
 	}
 	if m.R3 != nil {
-		m.R3 = wrapStage(m.R3, "R3", stageWindow(cfg.StageModelR3))
+		m.R3 = wrapStage(m.R3, plugin.LayerR3, stageWindow(cfg.StageModelR3))
 	}
 	if m.Reflect != nil {
-		m.Reflect = wrapStage(m.Reflect, "R35", stageWindow(cfg.StageModelR35))
+		m.Reflect = wrapStage(m.Reflect, plugin.LayerR35, stageWindow(cfg.StageModelR35))
 	}
 	if m.QA != nil {
 		m.QA = wrapStage(m.QA, "qa", stageWindow(cfg.StageModelQA))

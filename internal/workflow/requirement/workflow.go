@@ -157,7 +157,7 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 		}
 	}
 	if b, e := json.Marshal(spec); e == nil {
-		debug["r1_spec"] = string(b)
+		debug[plugin.DebugKeyR1Spec] = string(b)
 	}
 	// R2 变更理解。失败降级继续（深挖修复）：R2 只产摘要且 R3/R4 携带原始 diff
 	// 不依赖它——此前是全链路唯一"一个摘要模型瞬断就 error 掉整个任务"的单点，
@@ -172,9 +172,9 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 			w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR2Summary: summary})
 		}
 	} else {
-		debug["r2_checkpoint"] = "reused"
+		debug[plugin.DebugKeyR2Checkpoint] = "reused"
 	}
-	debug["r2_summary"] = summary
+	debug[plugin.DebugKeyR2Summary] = summary
 	// 注入 R2 产物到 Artifacts，R4 插件可复用（公共前缀省 token）
 	if task.Artifacts == nil {
 		task.Artifacts = map[string]string{}
@@ -188,11 +188,11 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 		return nil, err
 	}
 	if raw != "" {
-		debug["r3_raw"] = raw
+		debug[plugin.DebugKeyR3Raw] = raw
 	}
 	if report != nil {
 		if b, e := json.Marshal(report); e == nil {
-			debug["r3_checks"] = string(b)
+			debug[plugin.DebugKeyR3Checks] = string(b)
 		}
 	}
 
@@ -252,7 +252,7 @@ func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *
 	task.Artifacts[plugin.ArtifactChangeSummary] = summary
 	out, err := w.finish(ctx, task, budget, rc, start, nil, nil, summary)
 	if out != nil {
-		out.Debug = map[string]string{"r2_summary": summary}
+		out.Debug = map[string]string{plugin.DebugKeyR2Summary: summary}
 	}
 	return out, err
 }
@@ -265,7 +265,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	stageStart := time.Now()
 	changedFiles := diffPaths(task.Diff)
 	skills := skillsForKind(task.Kind)
-	w.onStage("R4")
+	w.onStage(plugin.LayerR4)
 
 	// R4：确定性路由 → 预算裁剪 → fan-out
 	sel := w.Dispatcher.Select(&task.PR, changedFiles, skills, rc)
@@ -287,7 +287,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	if w.CompletenessRetry {
 		outcomes, retryNotes = w.retryFailedPlugins(ctx, task, budget, sel, outcomes)
 	}
-	plugin.ReportStageDuration("R4", time.Since(stageStart))
+	plugin.ReportStageDuration(plugin.LayerR4, time.Since(stageStart))
 	plugin.ReportLayerExec(plugin.LayerR4)
 
 	// Merger：归一化 + 指纹去重 + 抑制过滤（store 由 Merger 持有）
@@ -311,7 +311,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		// 活检：开关开着就必须走到 R35；模型未配/无 findings 也算「尝试执行」
 		//——否则「配置了反思却从未调用」会与「正常空跑」不可分。
 		plugin.ReportLayerExec(plugin.LayerR35)
-		w.onStage("R35")
+		w.onStage(plugin.LayerR35)
 		reflectInfo = w.reflectFindings(ctx, task, summary, merged)
 		if reflectInfo != nil && (reflectInfo.Removed > 0 || reflectInfo.DegradedNoEvidence > 0) {
 			note := fmt.Sprintf(
@@ -395,7 +395,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		merged.Degraded = append(merged.Degraded,
 			fmt.Sprintf("%d 条意见位于本次变更范围之外（get_file 读到的未变更文件），未计入高危裁决", outOfScope))
 	}
-	plugin.ReportStageDuration("R5", time.Since(r5Start))
+	plugin.ReportStageDuration(plugin.LayerR5, time.Since(r5Start))
 	plugin.ReportLayerExec(plugin.LayerR5)
 
 	// R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。skills 词表不匹配/

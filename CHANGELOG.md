@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.46.0 (2026-09-27) — 架构治理 B2：契约单源化（阶段词表 + debug 键），消 service↔workflow 隐式契约
+
+- **阶段词表单一出处**（plugin/hooks.go Layer 词表升级为管线阶段总词表）：文档化
+  四类消费面（指标 label/SSE 事件/LLM StageRouter 键/MCP TaskStages 时间线），
+  新增 `LayerR1A`（R1 分块提炼子阶段）与只读词表 `StageTimeline`（R1→R5 规范顺序）。
+- **裸串清零**：workflow/requirement（stages.go 指标+onStage+Generate 标签、
+  workflow.go R4/R35/R5）、bootstrap/models.go（模型覆盖 map 键 + Failover/包装
+  stage 标签）、service.TaskStages——全部改引 plugin 常量。新增阶段从此只改
+  plugin 一处 + StageTimeline，不再四文件散改。指标 label 值字节级不变。
+- **debug 裸键常量化**：新增 `plugin.DebugKey{R1Spec,R2Checkpoint,R2Summary,R3Raw,
+  R3Checks}`（workflow 写/service.TaskStages 读/e2e 断言），service↔workflow 的
+  debug JSON 隐式契约改常量消费，改键不再静默失真。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.45.0 (2026-09-27) — 架构治理 B1：纪律口子修复（fenced 观测统一/错误哨兵/心跳 fail-fast/复位去重）
 
 - **fenced 终态观测口径统一**（runner）：预算耗尽与「diff 无新变更→stale」两条
