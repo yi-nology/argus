@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.43.0 (2026-09-27) — agentkit v0.10.22→v0.10.25：mcp-go v1.1.1 跨大版本 + 九新包面验收（纯依赖升级）
+
+- **deps**：agentkit v0.10.22→v0.10.25（三版本：v0.10.23 deps 深升级+toolsched/egress/
+  elicitation、v0.10.24 compact/sysprompt、v0.10.25 五新包+compact 二期+llm 流恢复
+  谓词+procx Stdin）。联动：**mcp-go v0.58.0→v1.1.1**（协议协商跳至 2026-07-28）、
+  eino v0.9.18→v0.9.21、rogpeppe/go-internal v1.15.0、新增 mvdan.cc/sh v3.14.1
+  （indirect，bashguard 用）。
+- **被动项验收**（全量测试+e2e 一次通过）：①mcp-go 跨大版本对 argus 11 个直用
+  文件（mcpserver/adapter_remote/ocrshim/copilot）符号与签名兼容，e2e mcp_server
+  互操作绿——argus 作为 MCP server 的协议跳版对旧客户端的兼容性待 215 实网观察
+  （argus-copilot 自带客户端版本）；②mcp 建连错误文案变化（行为等价）；③vendor
+  同步曾出现 procx 缺 import 的半同步状态，重跑 go mod vendor 恢复（教训：vendor
+  后必须以构建为验收，勿信单次成功）。
+- **opt-in 决策记录**（本轮不接，含理由与触发条件）：
+  - **compact 包不替换 ctxfit**：数据模型不同（自有 Message vs eino schema.Message，
+    接入需双向转写），ctxfit 是 eino 装饰器零侵入且已有真实 usage 校准；compact
+    的增量语义（错误结果保护/轮次组/idle）需要时在 ctxfit 内补齐成本更低。
+  - llm 流恢复谓词子集（SuspiciousEmptyResult/IsContextExceeded/ProviderBusy）：
+    可用但下游已有 jsonrepair+重试兜底，挂起待真实空终态案例出现再接。
+  - toolsched/egress/procx Stdin/sysprompt/bashguard：argus 无对应执行环或接入点
+    （无 shell 管道变通、URL 全为运维配置非 LLM 可控、无双工具并行调度需求）。
+  - hookx/permgate/steering/filestate：ZCode CLI 交互运行时移植面，服务端批处理
+    形态无对应面，引入即死代码。
+- Deprecated 标记：全仓零（与 v0.10.22 持平）。
+- 门禁：build/全量测试/e2e（含 MCP 互操作）+ lint 绿。
+
 ## v3.42.0 (2026-09-26) — R2 软失败路径钉死 + R4 阶段事件 + golden 扩容 63 条（62/63/64）
 
 - **R2 软失败路径**（「R2 失效无失败路径可钉」v3.26.0 在案项落地）：变更摘要
