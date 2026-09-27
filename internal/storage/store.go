@@ -160,6 +160,10 @@ type Store struct {
 	RunnerID string
 }
 
+// ErrNotFound 查询无结果的边界哨兵：上层判 404/无此对象以此为准，不再感知
+// gorm.ErrRecordNotFound——ORM 错误语义不出 storage 包。
+var ErrNotFound = errors.New("storage: record not found")
+
 // Open 打开数据库并自动迁移。DSN 以 "mysql://" 前缀或含 "@tcp("（go-sql-driver 形态）
 // 视为 MySQL，否则 SQLite——不做子串 "mysql" 判断：路径含 mysql 的 SQLite 文件会误判。
 func Open(dsn string) (*Store, error) {
@@ -295,7 +299,9 @@ func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Durat
 // TouchRunningHeartbeats 续本实例全部 running 任务的心跳（worker 池周期调用）。
 func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 	if s.RunnerID == "" {
-		return nil
+		// 显式失败拒绝执行：空 RunnerID 的续期无法归属实例，静默 no-op 会让
+		// 本实例任务被 reaper 反复重置重跑（装配纪律：main 先赋 RunnerID 再启动 worker）。
+		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -309,11 +315,14 @@ func NewTaskID() string {
 	return "t-" + strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:16] + time.Now().Format("01021504")
 }
 
-// GetTask 按 ID 查询。
+// GetTask 按 ID 查询。无此任务返回 ErrNotFound 哨兵。
 func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 	var t Task
 	err := s.db.WithContext(ctx).Where("id = ?", id).First(&t).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &t, nil
@@ -842,12 +851,16 @@ func (s *Store) MonthlyTokensByRepo(ctx context.Context, since time.Time) ([]Rep
 }
 
 // FindReportByHead 按 head SHA 查最近一次成功的报告（GET /reports/:ref）。
+// 无报告返回 ErrNotFound 哨兵。
 func (s *Store) FindReportByHead(ctx context.Context, headSHA string) (*Task, error) {
 	var t Task
 	err := s.quietDB().WithContext(ctx).
 		Where("head_sha = ? AND status = ? AND report != ''", headSHA, StatusDone).
 		Order("created_at DESC").First(&t).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &t, nil

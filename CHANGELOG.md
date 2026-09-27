@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.45.0 (2026-09-27) — 架构治理 B1：纪律口子修复（fenced 观测统一/错误哨兵/心跳 fail-fast/复位去重）
+
+- **fenced 终态观测口径统一**（runner）：预算耗尽与「diff 无新变更→stale」两条
+  路径此前 `_ = FinishTask(...)` 丢弃 fenced 标志与错误——核实 `FinishTask` 本身
+  已委托 `FinishTaskFenced`（fencing 无缺口），真实问题是这两条路径的僵尸写入/
+  DB 错误静默无痕。统一改为 fenced 感知写法（finish_failed/finish_fenced 告警），
+  与主失败路径一致。纯观测修复，零行为变更。
+- **storage.ErrNotFound 边界哨兵**：GetTask/FindReportByHead 无结果改返回哨兵，
+  service 两处 404 判定改 `errors.Is(err, storage.ErrNotFound)`，service 不再
+  import gorm——全仓最后一处 ORM 错误语义泄漏收口（ORM 错误不出 storage 包）。
+- **心跳 fail-fast**：`TouchRunningHeartbeats` 在 RunnerID 未装配时从静默 no-op
+  改为显式报错拒绝执行（空 RunnerID 的静默降级会让本实例任务被 reaper 反复重置
+  重跑、fencing 退化为只校验 status；装配纪律不变：main 先赋 RunnerID 再启动 worker）。
+- **启动复位去重**：删 main 第一遍 ResetRunningToPending（90s 窗）——第二遍
+  （30s 窗，v3.30.1/v3.36.0 租约化）是其超集且更晚执行，第一遍完全被覆盖。
+- **删除僵尸抽象 TaskStore**（internal/storage/iface.go）：全仓零消费者，注释
+  声称的四个使用方（runner/service/poster/worker）实际全部持具体 `*storage.Store`；
+  真实解耦由消费侧窄接口承担（plugin.PrintStore/PatternStore、dream.Store、
+  health.Store、worker.LeaseStore）。
+- 设计文档：docs/superpowers/specs/2026-09-27-coupling-cohesion-design.md
+  （勘察四类坏味道 A 纪律口子/B 隐式契约/C 归属错位/D 编排根过胖 + B1~B5 批次规划）。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.44.0 (2026-09-27) — ctxfit 增量语义补齐（轮次组粒度 + 错误/提醒保护）+ golden 扩容 68 条
 
 - **ctxfit L1 升级为轮次组粒度**（v3.43.0 决策记录「compact 增量语义在 ctxfit

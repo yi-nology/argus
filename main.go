@@ -115,14 +115,6 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		log.Warn("argus.boot.same_sha_guard_skipped", "hint",
 			"tasks 表存在历史在飞重复 (platform,owner,repo,number,head_sha)，唯一索引未建立；清理重复任务后重启自愈")
 	}
-	if n, err := store.ResetRunningToPending(ctx, agentkitworker.StaleRunningAfter); err != nil {
-		log.Error("argus.boot.reset_running_failed", "error", err.Error())
-	} else if n > 0 {
-		log.Warn("argus.boot.reset_running", "count", n,
-			"stale_after", agentkitworker.StaleRunningAfter.String(),
-			"hint", "心跳过期的遗留 running 任务已重置回 pending")
-	}
-
 	// ---- 子系统装配（模型栈/知识库/插件/工具/编排，internal/bootstrap）----
 	sys, err := bootstrap.Assemble(ctx, cfg, log, store, version, instanceID)
 	if err != nil {

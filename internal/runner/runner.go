@@ -353,7 +353,12 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 			r.Log.Warn("argus.runner.repo_budget_exceeded", "task", taskID,
 				"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
 			reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
-			_ = r.Store.FinishTask(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0)
+			if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
+				r.Log.Warn("argus.runner.finish_failed", "task", taskID, "error", ferr.Error())
+			} else if fenced {
+				r.Log.Warn("argus.runner.finish_fenced", "task", taskID,
+					"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+			}
 			// 预算路径不重试（刻意）→ 直接终态告知（v3.30.1）
 			r.setStartMarker(ctx, task, fmt.Sprintf(
 				"❌ Argus 审查失败：%s——下月预算重置后 push 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
@@ -441,8 +446,13 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if diff.NoNewChanges {
 		r.Log.Info("argus.runner.no_new_changes", "task", task.ID,
 			"pr", fmt.Sprintf("%s/%s/%s#%s", task.Platform, task.Owner, task.Repo, task.Number))
-		_ = r.Store.FinishTask(ctx, task.ID, storage.StatusStale, "", "", "",
-			"增量审查：diff 与上次审查完全一致，无新变更", 0, 0)
+		staleReason := "增量审查：diff 与上次审查完全一致，无新变更"
+		if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusStale, "", "", "", staleReason, 0, 0); ferr != nil {
+			r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
+		} else if fenced {
+			r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
+				"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+		}
 		r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
 		plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
 		return nil

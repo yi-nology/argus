@@ -18,7 +18,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/git-platform-sdk/provider"
-	"gorm.io/gorm"
 
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/concurrency/async"
@@ -615,7 +614,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 	}
 	task, err := s.Store.FindReportByHead(ctx, ref)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, storage.ErrNotFound) {
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
@@ -632,7 +631,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, storage.ErrNotFound) {
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
