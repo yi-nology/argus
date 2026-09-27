@@ -77,21 +77,40 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	}
 	// 行内预校验：file 必须在 diff 文件列表内。LLM 幻觉文件/行号直发会被平台
 	// 整单拒绝（422），连累评审事件与全部行内意见一起丢——被剔除的留在总结评论里。
+	// v3.51.0 路径归一化兜底：模型常以子项目根为参照报路径、缺 git 仓根前缀
+	//（实测 demo-insights/{agent,server} 两仓 100% 复现，行内评论因此从未命中）。
+	// 精确 miss 时在 Included 文件中做唯一尾段匹配（/ 段边界），唯一命中才修正——
+	// 0/多命中维持剔除（错发位置比不发更糟）。剔除数进 rep.Degraded 用户可见。
+	dropped := 0
 	if diff != nil && len(inlineFindings) > 0 {
 		inDiff := make(map[string]bool, len(diff.Files))
+		var included []string
 		for _, df := range diff.Files {
 			inDiff[df.Path] = true
+			if df.Included {
+				included = append(included, df.Path)
+			}
 		}
 		kept := inlineFindings[:0]
 		for _, f := range inlineFindings {
 			if inDiff[f.File] {
 				kept = append(kept, f)
+			} else if fixed, ok := uniqueSuffixMatch(included, f.File); ok {
+				p.Log.Warn("argus.poster.inline_path_normalized",
+					"task", task.ID, "from", f.File, "to", fixed, "line", f.Line)
+				f.File = fixed
+				kept = append(kept, f)
 			} else {
+				dropped++
 				p.Log.Warn("argus.poster.inline_dropped_not_in_diff",
 					"task", task.ID, "file", f.File, "line", f.Line)
 			}
 		}
 		inlineFindings = kept
+		if dropped > 0 {
+			rep.Degraded = append(rep.Degraded, fmt.Sprintf(
+				"%d 条意见的文件路径无法对应 diff 中的文件（模型路径引用偏差），仅在总结中展示、未行内标注", dropped))
+		}
 	}
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
 		return reportutil.Rank(inlineFindings[i].Severity) > reportutil.Rank(inlineFindings[j].Severity)
@@ -335,4 +354,23 @@ func clampInlineByMaxComments(inlineFindings []plugin.Finding, rep *reportview.R
 		"仓库配置 review.max_comments=%d：%d 条行内意见超出上限，仅在总结评论列出",
 		rep.MaxInlineComments, dropped))
 	return inlineFindings[:rep.MaxInlineComments]
+}
+
+// uniqueSuffixMatch 在 paths 中找 file 的唯一尾段匹配（/ 段边界，防 pcap.go 误配
+// pcapDownload.go）。模型路径幻觉的常见形态是缺 git 仓根前缀（子项目根参照）——
+// 唯一命中返回修正路径；0/多命中返回 false（多义时错发位置比不发更糟）。
+func uniqueSuffixMatch(paths []string, file string) (string, bool) {
+	if file == "" {
+		return "", false
+	}
+	hit := ""
+	for _, p := range paths {
+		if p == file || strings.HasSuffix(p, "/"+file) {
+			if hit != "" {
+				return "", false
+			}
+			hit = p
+		}
+	}
+	return hit, hit != ""
 }

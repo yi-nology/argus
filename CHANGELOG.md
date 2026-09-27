@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.51.0 (2026-09-27) — 行内评论从未命中根因修复（路径归一化兜底 + R4 路径纪律）
+
+- **根因（215 生产实锤）**：模型常以子项目根为参照报文件路径、缺 git 仓根前缀
+  （demo-insights/{agent,server} 两仓 100% 复现：diff 路径
+  `demo-insights/agent/src/dispatcher/mod.rs` vs 模型引用 `src/dispatcher/mod.rs`）
+  ——poster 文件级预校验恒 miss，**行内评论自试点上线以来一条都没发出过**
+  （MR 141/142/144/230 discussions 全查实），并非本轮架构治理回归。
+- **poster 路径归一化兜底**：精确 miss 时在 Included 文件中做唯一尾段匹配
+  （/ 段边界，防 pcap.go 误配 pcapDownload.go），唯一命中才修正并 WARN 留痕
+  （`inline_path_normalized`）；0/多命中维持剔除（错发位置比不发更糟）。
+- **剔除数用户可见**：无法定位的意见数进报告「插件降级说明」区块
+  （`rep.Degraded`，与 max_comments 超限同款模式），不再只有日志可见。
+- **R4 路径纪律**：diff 数据区前注入【路径纪律】（ReAct/单轮两路径同款），
+  要求 file 字段逐字复制 diff 中出现的路径——治本降幻觉。
+- 单测：唯一命中/段边界防误配/不存在剔除/多命中放弃。
+- 顺带（chore）：根目录 85MB 编译产物 `argus` 出库（远古提交带入，clone 体积
+  元凶），.gitignore 补 `/argus`。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.50.0 (2026-09-27) — 五轮：comment 链路 Bus 事件对齐（SSE 观测口径统一）
 
 - **新增 `comment.replied` 事件**（status ok/error）：Q&A/意图路由回帖与错误

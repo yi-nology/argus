@@ -103,3 +103,30 @@ func TestClampInlineByMaxComments(t *testing.T) {
 		t.Fatalf("未超限不应钳制: %+v", got)
 	}
 }
+
+// v3.51.0：行内路径归一化兜底——模型缺 git 仓根前缀时唯一尾段匹配修正；
+// 多命中/不存在维持剔除；剔除数进 rep.Degraded 用户可见。
+func TestUniqueSuffixMatch(t *testing.T) {
+	paths := []string{
+		"demo-insights/agent/src/dispatcher/mod.rs",
+		"demo-insights/agent/src/interface_info.rs",
+		"demo-insights/server/querier/service/pcap/pcapDownload.go",
+	}
+	// 唯一命中：缺仓根前缀 → 修正
+	if got, ok := uniqueSuffixMatch(paths, "src/dispatcher/mod.rs"); !ok || got != "demo-insights/agent/src/dispatcher/mod.rs" {
+		t.Fatalf("唯一尾段应命中: %q %v", got, ok)
+	}
+	// 段边界防误配：pcap.go 不得命中 pcapDownload.go
+	if _, ok := uniqueSuffixMatch(paths, "pcap.go"); ok {
+		t.Fatal("pcap.go 不应尾段命中 pcapDownload.go（段边界）")
+	}
+	// 不存在：剔除
+	if _, ok := uniqueSuffixMatch(paths, "querier/api/pcap.go"); ok {
+		t.Fatal("不存在的文件不应命中")
+	}
+	// 多命中：放弃修正
+	dup := append(append([]string{}, paths...), "demo-insights/server/src/dispatcher/mod.rs")
+	if _, ok := uniqueSuffixMatch(dup, "src/dispatcher/mod.rs"); ok {
+		t.Fatal("多命中应放弃修正")
+	}
+}

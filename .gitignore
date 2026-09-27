@@ -63,3 +63,6 @@ go.work.sum
 # 本机构建产物（host 交叉编译 + runtime 镜像上下文）
 build-deploy/
 eval/results/
+
+# 本地编译产物（根目录手工构建残留，勿入库；镜像构建用 bin/ 下的交叉编译输出）
+/argus

@@ -26,6 +26,13 @@ import (
 	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
+// diffPathDiscipline 注入 diff 数据区前的路径纪律（v3.51.0）：实测模型常以子项目
+// 根为参照报文件路径、缺 git 仓根前缀（demo-insights/{agent,server} 两仓 100%
+// 复现），poster 行内评论因此从未命中——行号可信度依赖路径逐字正确。
+const diffPathDiscipline = "【路径纪律】下方 git diff 中出现的文件路径以 git 仓库根为参照，" +
+	"可能包含仓库内子目录前缀。审查意见里的 file 字段必须逐字复制 diff 中出现的路径，" +
+	"禁止简写、禁止使用相对其他目录的路径。\n\n"
+
 // CompliancePlugin requirement-compliance 插件：workflow 的 L4 外壳。
 // R4 分派时不会递归选中它（它的 skills= requirement-compliance，R4 只选 code-review）。
 type CompliancePlugin struct {
@@ -248,6 +255,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 
 	var user strings.Builder
 	if task.Diff != nil && task.Diff.Text != "" {
+		user.WriteString(diffPathDiscipline)
 		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
@@ -327,6 +335,7 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 
 	var user strings.Builder
 	if task.Diff != nil && task.Diff.Text != "" {
+		user.WriteString(diffPathDiscipline)
 		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
