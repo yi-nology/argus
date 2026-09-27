@@ -114,6 +114,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 				SkipTLS:     pc.SkipTLS,
 				TokenStyle:  pc.TokenStyle,
 				RetryConfig: retry,
+				Logger:      log,
 			})
 			if err != nil {
 				log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
@@ -130,6 +131,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 					SkipTLS:     pc.SkipTLS,
 					TokenStyle:  pc.TokenStyle,
 					RetryConfig: retry,
+					Logger:      log,
 				}); err == nil {
 					s.provsMu.Lock()
 					s.provs[name] = newP
