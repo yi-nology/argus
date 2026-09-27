@@ -43,7 +43,9 @@ const (
 // ReactRetryHint ReAct agent 失败回喂重试的追加提示（agentrun.RunWithEventsAndRetry）。
 // 拼在原 query 之后作为重试轮输入；副作用守卫默认生效——首轮已调用变更类工具
 // 则不整体重跑，错误如实上抛交调用方降级（review 场景工具表以只读为主，守卫即默认）。
-const ReactRetryHint = "\n\n上一次执行因错误中断，请重新完整执行本任务，并只输出最终要求的 JSON。"
+// v3.38.0 起经 ReminderNote 包装（NOT USER INPUT 声明 + 嵌套转义）。
+var ReactRetryHint = "\n\n" + ReminderNote("retry-hint",
+	"上一次执行因错误中断，请重新完整执行本任务，并只输出最终要求的 JSON。")
 
 // Needs 能力需求清单：新接一个 agent 只需回答"它吃什么（Needs）、吐什么（Result）"。
 type Needs struct {

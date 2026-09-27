@@ -224,6 +224,10 @@ type Config struct {
 	// 目录保持为空 = 无注入，零开销。
 	MemoryDir string
 
+	// RepoGuideOff 关闭仓库级评审规范加载（ARGUS_REPO_GUIDE_OFF=1；默认读取
+	// 被评审仓库的 .argus/REVIEW.md @ head 注入 R3/R4，100KB 截断 + 提醒标签转义）。
+	RepoGuideOff bool
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -497,6 +501,7 @@ func Load() *Config {
 		MCPIdleReapInterval:    envDuration("ARGUS_MCP_IDLE_REAP_INTERVAL", 5*time.Minute),
 		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
+		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
 		// Milvus 向量检索
 		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
 		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),

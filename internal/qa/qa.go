@@ -313,8 +313,9 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		return "", err
 	}
 	// 失败回喂重试一次（副作用守卫默认生效）；QA 产出是自然语言回答，
-	// 重试提示不要求 JSON。
-	qaRetryHint := "\n\n上一次执行因错误中断，请重新完整执行本任务并给出最终回答。"
+	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
+	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
+		"上一次执行因错误中断，请重新完整执行本任务并给出最终回答。")
 	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
 		Name:          "argus-qa",
 		Description:   "PR 问答助手",

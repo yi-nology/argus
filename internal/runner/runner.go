@@ -329,6 +329,8 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	wf.MemoryIndex = memory.LoadIndex(r.Cfg.MemoryDir, memory.Ref{
 		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
 	}, 0)
+	// 仓库级评审规范（v3.38.0）：.argus/REVIEW.md @ head，R3/R4 注入
+	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
 	r.publish("task.running", task, "", "")
 
 	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
@@ -703,6 +705,49 @@ func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plug
 		}
 	}
 	return rc
+}
+
+// repoGuideMaxBytes 仓库评审规范单文件上限（ZCode AGENTS.md 同款 100KB）。
+const repoGuideMaxBytes = 100_000
+
+// repoGuideCache 评审规范缓存（repo@sha → 内容；同 sha 多任务/重试复用，
+// 负缓存空串防同 sha 反复打平台 API）。
+var (
+	repoGuideMu    sync.Mutex
+	repoGuideCache = map[string]string{}
+)
+
+// RepoGuideFor 读取被评审仓库的评审规范 .argus/REVIEW.md @ head（v3.38.0）。
+// 经平台 API 取 blob——tree 作用域天然无本地 symlink 逃逸面；100KB 头截断 +
+// 提醒标签转义（半可信输入）；缺失/失败返回空串（常态，debug 留痕）。
+func (r *Runner) RepoGuideFor(ctx context.Context, platform, owner, repo, headSHA string) string {
+	if r.SDK == nil || r.Cfg.RepoGuideOff || headSHA == "" {
+		return ""
+	}
+	key := platform + "/" + owner + "/" + repo + "@" + headSHA
+	repoGuideMu.Lock()
+	cached, ok := repoGuideCache[key]
+	repoGuideMu.Unlock()
+	if ok {
+		return cached
+	}
+	content := ""
+	if raw, err := r.SDK.GetFileContent(ctx, platform, owner, repo, ".argus/REVIEW.md", headSHA); err == nil && strings.TrimSpace(raw) != "" {
+		if len(raw) > repoGuideMaxBytes {
+			raw = raw[:repoGuideMaxBytes] + "\n…（截断：评审规范超 100KB 上限）"
+		}
+		content = plugin.EscapeReminderTags(raw)
+		r.Log.Info("argus.runner.repo_guide_loaded", "repo", owner+"/"+repo, "bytes", len(content))
+	} else if err != nil {
+		r.Log.Debug("argus.runner.repo_guide_absent", "repo", owner+"/"+repo)
+	}
+	repoGuideMu.Lock()
+	if len(repoGuideCache) >= 64 {
+		repoGuideCache = map[string]string{} // 粗暴整体换防膨胀（键含 sha，天然有限）
+	}
+	repoGuideCache[key] = content
+	repoGuideMu.Unlock()
+	return content
 }
 
 // costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。

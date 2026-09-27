@@ -13,8 +13,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	argusctx "argus/internal/context"
 	"argus/internal/obs"
+	"argus/internal/plugin"
 )
 
 const (
@@ -52,7 +52,7 @@ func (g *anomalyGuard) check(toolName, rawArgs string) (string, bool) {
 	}
 	g.nudges++
 	obs.IncrToolAnomaly(toolName)
-	return argusctx.ReminderNote("loop-anomaly",
+	return plugin.ReminderNote("loop-anomaly",
 		fmt.Sprintf("你已连续 %d 次以完全相同的参数调用工具 %q，本次调用被跳过。不要重复同一调用：换个查询目标、缩小范围，或基于已获取的信息直接推进结论。", g.consec[sig], toolName)), true
 }
 

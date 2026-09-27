@@ -1,8 +1,12 @@
 package requirement
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/schema"
 )
 
 func TestAnomalyGuardBlocksThirdIdenticalCall(t *testing.T) {
@@ -66,5 +70,22 @@ func TestCanonicalArgsKeyOrderInvariant(t *testing.T) {
 	}
 	if canonicalArgs(`not-json`) != `not-json` {
 		t.Fatal("非法 JSON 应原样返回")
+	}
+}
+
+// fakeNamedTool 仅实现 BaseTool（Info）——验证排序 helper。
+type fakeNamedTool struct{ name string }
+
+func (f *fakeNamedTool) Info(context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{Name: f.name}, nil
+}
+
+func TestSortToolsByNameDeterministic(t *testing.T) {
+	tools := []tool.BaseTool{
+		&fakeNamedTool{name: "zget"}, &fakeNamedTool{name: "aget"}, &fakeNamedTool{name: "mget"},
+	}
+	sortToolsByName(context.Background(), tools)
+	if tools[0].(*fakeNamedTool).name != "aget" || tools[2].(*fakeNamedTool).name != "zget" {
+		t.Fatal("应按名升序")
 	}
 }

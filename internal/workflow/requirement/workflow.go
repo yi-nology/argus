@@ -61,6 +61,11 @@ type Workflow struct {
 	// 装载；空 = 无记忆或功能未启用）。感知面：细节全文走 search_knowledge 检索。
 	MemoryIndex string
 
+	// RepoGuide 仓库级评审规范（v3.38.0，runner 按 repo@sha 从平台 API 装载
+	// .argus/REVIEW.md；空 = 未启用或仓库未提供）。半可信输入：已经提醒标签
+	// 转义预处理，stages 注入侧带对冲句。
+	RepoGuide string
+
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。
 	SkillTool tool.BaseTool

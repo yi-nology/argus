@@ -133,7 +133,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 			if runnerRef == nil {
 				return nil, "", fmt.Errorf("runner 未就绪")
 			}
-			return runnerRef.WorkflowFor(budget).ReviewTools(ctx, task)
+			wf := runnerRef.WorkflowFor(budget)
+			// 仓库级评审规范（v3.38.0）：R4 与 R3 同源装载
+			wf.RepoGuide = runnerRef.RepoGuideFor(ctx, task.PR.Platform, task.PR.Owner, task.PR.Repo, task.PR.HeadSHA)
+			return wf.ReviewTools(ctx, task)
 		},
 		ReviewerLLM:  models.ReviewerGen,
 		ReviewerName: models.ReviewerName,
