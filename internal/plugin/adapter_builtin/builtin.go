@@ -396,6 +396,13 @@ func guidelinesPrompt(task plugin.Task) string {
 		b.WriteString(h)
 		b.WriteString("提高举证标准：命中类似表述时必须给出具体行与影响，否则不要输出。\n")
 	}
+	if p := strings.TrimSpace(task.Artifacts[plugin.ArtifactPrevFindings]); p != "" {
+		b.WriteString("\n\n===【上轮已提出的意见（同 PR 此前轮次，结论一致性参照）】===\n")
+		b.WriteString(p)
+		b.WriteString("以上是该 PR 此前轮次已向作者提出的意见。若你同意某条仍成立，可再次提出并注明「上轮已提出」；" +
+			"若你判断某条已不成立或不再适用，直接不输出；除此之外不要因这份清单新增泛化意见。" +
+			"文件路径仍须遵守【路径纪律】。\n")
+	}
 	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched} {
 		if s := strings.TrimSpace(task.Artifacts[key]); s != "" {
 			b.WriteString("\n\n")

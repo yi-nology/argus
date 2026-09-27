@@ -308,6 +308,11 @@ const ArtifactReviewGuidelines = "review_guidelines"
 // （runner 从 pattern_signals 拉低置信度模式渲染，学习环关闭或无样本时无此键）。
 const ArtifactReviewHints = "review_hints"
 
+// ArtifactPrevFindings Task.Artifacts 键：同 PR 此前轮次的 open 意见清单
+// （v3.52.0 跨轮一致性）：runner 从指纹库渲染，供 R4 评审员保持结论一致——
+// 推翻上轮意见须显式说明理由。首轮或无历史意见时无此键。
+const ArtifactPrevFindings = "prev_findings"
+
 // ArtifactOCRTriage / ArtifactOCRRules Task.Artifacts 键：OCR delegate 委托前置
 // 产物（design §2 委托模式；runner dispatch 前执行 `ocr delegate preview/rule`
 // 渲染为提示词 section，ARGUS_OCR_BIN 未配置或执行失败时无此键）。section 自带

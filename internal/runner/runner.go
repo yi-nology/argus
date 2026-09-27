@@ -508,6 +508,12 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	if h := r.reviewHints(ctx, pr); h != "" {
 		ptask.Artifacts[plugin.ArtifactReviewHints] = h
 	}
+	// 跨轮一致性（v3.52.0）：同 PR 此前轮次的 open 意见注入 R4，供评审员保持
+	// 结论一致（推翻须显式说明理由）——同 head 重审 verdict 翻转（生产实测
+	// request_changes↔comment 漂移）的最小缓解。查询失败降级无此键。
+	if prev := r.prevFindingsSection(ctx, pr); prev != "" {
+		ptask.Artifacts[plugin.ArtifactPrevFindings] = prev
+	}
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
 	r.injectOCRDelegate(ctx, pr, diff, &ptask)
 	// SAST 确定性前置（v3.15.0）：gitleaks/semgrep 工作副本扫描，产出直进 Merger。
@@ -1287,4 +1293,33 @@ func (r *Runner) reviewHints(ctx context.Context, pr *plugin.PRContext) string {
 		fmt.Fprintf(&b, "- [%s] %s（置信度 %.2f，samples=%d）\n", p.Plugin, sample, p.Confidence, p.Samples)
 	}
 	return b.String()
+}
+
+// prevFindingsSection 渲染同 PR 此前轮次的 open 意见清单（跨轮一致性参照，
+// v3.52.0）：file:line [SEVERITY] 评语（单条截 160 rune），上限 15 条防提示词
+// 膨胀。查询失败返回空（best-effort，不影响主流程）。
+func (r *Runner) prevFindingsSection(ctx context.Context, pr *plugin.PRContext) string {
+	if r.Store == nil {
+		return ""
+	}
+	prints, err := r.Store.ListFindingPrints(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
+	if err != nil {
+		r.Log.Warn("argus.runner.prev_findings_failed", "error", err.Error())
+		return ""
+	}
+	lines := make([]string, 0, len(prints))
+	for _, p := range prints {
+		if p.Status != storage.PrintOpen || p.Comment == "" || p.File == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s:%d [%s] %s",
+			p.File, p.Line, strings.ToUpper(p.Severity), truncRunes(p.Comment, 160)))
+		if len(lines) >= 15 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
