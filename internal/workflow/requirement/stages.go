@@ -447,10 +447,9 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
 			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
 			content = numberLines(content)
-			if rc := utf8.RuneCountInString(content); rc > fileMax {
-				content, _ = textutil.TruncRunes(content, fileMax)
-				content += "\n…（截断）"
-			}
+			// 大输出两级化（v3.39.0）：超限全文入任务级详情库（get_detail 取回），
+			// 进上下文的只留上限内正文 + 取回指引
+			content = w.stashOverflowAt(content, fileMax)
 			// 文件内容是 PR 作者完全可控的注入面：回注 agent 前必须包数据区（防线 #1）
 			return &getFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
 		})
@@ -512,12 +511,8 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 						name = d.Recv + "." + d.Name
 					}
 					fmt.Fprintf(&b, "%s:%d  %s %s\n", d.File, d.Line, name, d.Signature)
-					if b.Len() > 4000 {
-						b.WriteString("…（截断）")
-						break
-					}
 				}
-				return &symOut{Result: DataFence("get_symbol 结果（数据）", b.String())}, nil
+				return &symOut{Result: DataFence("get_symbol 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 			})
 		if err != nil {
 			return nil, "", err
@@ -533,7 +528,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 				for _, r := range refs {
 					fmt.Fprintf(&b, "%s:%d\n", r.File, r.Line)
 				}
-				return &symOut{Result: DataFence("get_references 结果（数据）", b.String())}, nil
+				return &symOut{Result: DataFence("get_references 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 			})
 		if err != nil {
 			return nil, "", err
@@ -549,7 +544,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 				for _, r := range refs {
 					fmt.Fprintf(&b, "%s:%d\n", r.File, r.Line)
 				}
-				return &symOut{Result: DataFence("get_callers 结果（词法级，数据）", b.String())}, nil
+				return &symOut{Result: DataFence("get_callers 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 			})
 		if err != nil {
 			return nil, "", err
@@ -568,12 +563,8 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 					} else {
 						fmt.Fprintf(&b, "%s:%d  def %s(%s)\n", d.File, d.Line, d.Name, d.Args)
 					}
-					if b.Len() > 4000 {
-						b.WriteString("…（截断）")
-						break
-					}
 				}
-				return &symOut{Result: DataFence("get_poly_symbol 结果（词法级，数据）", b.String())}, nil
+				return &symOut{Result: DataFence("get_poly_symbol 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 			})
 		if err != nil {
 			return nil, "", err
@@ -622,6 +613,24 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 			When: "任务与可用清单中某条方法论相关时加载全文", Cost: "low"})
 	}
 
+	// get_detail（v3.39.0 大输出两级化）：被截断工具的全文取回通道
+	getDetail, err := utils.InferTool("get_detail",
+		"读取此前被截断的完整工具输出。ref 来自截断提示中的 ref 编号（如 \"d1\"）。",
+		func(ctx context.Context, in *getDetailIn) (*symOut, error) {
+			w.detailMu.Lock()
+			content, ok := w.detailStore[in.Ref]
+			w.detailMu.Unlock()
+			if !ok {
+				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
+			}
+			return &symOut{Result: DataFence("get_detail 完整输出（数据）", content)}, nil
+		})
+	if err != nil {
+		return nil, "", err
+	}
+	table.Add(toolprior.Entry{Tool: getDetail, Priority: toolprior.PrioritySupport,
+		When: "需要被截断工具输出的完整内容（ref 在截断提示中）时使用", Cost: "low"})
+
 	if w.Tools != nil {
 		extra, err := w.Tools.Tools(ctx, w.ToolSpecs)
 		if err != nil {
@@ -630,17 +639,25 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 			// 缓存前缀纪律（v3.38.0）：MCP 目录来自 map 迭代、顺序不定——按名排序
 			// 后再注册，保证工具表与策略提示逐字节稳定（provider context cache 前提）
 			sortToolsByName(ctx, extra)
+			// 风险分级（v3.39.0）：目录注解驱动——破坏性工具加显式警示并升成本档
+			hints := w.Tools.Hints(w.ToolSpecs)
 			for _, t := range extra {
 				info, err := t.Info(ctx)
 				if err != nil {
 					continue
 				}
+				note := ""
+				cost := "high"
+				if h, ok := hints[info.Name]; ok && h.Destructive {
+					note = "；⚠️ 该工具具有破坏性副作用，调用前确认必要性与最小影响范围"
+					cost = "heavy"
+				}
 				// 外部工具：每次调用有网络/进程开销 → External 档 + 调用上限 5 次（硬止损）
 				table.Add(toolprior.Entry{
 					Tool:     toolprior.LimitCalls(asInvokable(t), 5),
 					Priority: toolprior.PriorityExternal,
-					When:     fmt.Sprintf("外部系统工具（%s）：本地证据穷尽后再用", info.Name),
-					Cost:     "high",
+					When:     fmt.Sprintf("外部系统工具（%s）：本地证据穷尽后再用%s", info.Name, note),
+					Cost:     cost,
 				})
 			}
 		}
@@ -678,6 +695,48 @@ func sortToolsByName(ctx context.Context, tools []tool.BaseTool) {
 	})
 }
 
+// ---------- 大输出两级化（v3.39.0） ----------
+
+const (
+	// detailMaxBytes 单条详情硬上限（防异常工具输出打爆内存）。
+	detailMaxBytes = 200_000
+	// detailMaxRefs 详情库条数上限（超出整体换——最新详情优先保）。
+	detailMaxRefs = 8
+	// detailOverflowMax codegraph 类工具进上下文的截断正文上限。
+	detailOverflowMax = 4_000
+)
+
+// stashDetail 暂存超限全文，返回引用编号（get_detail 凭 ref 取回）。
+func (w *Workflow) stashDetail(content string) string {
+	w.detailMu.Lock()
+	defer w.detailMu.Unlock()
+	if w.detailStore == nil {
+		w.detailStore = map[string]string{}
+	}
+	if len(content) > detailMaxBytes {
+		content = content[:detailMaxBytes] + "\n…（详情超 200KB 硬上限，尾部丢弃）"
+	}
+	if len(w.detailStore) >= detailMaxRefs {
+		w.detailStore = map[string]string{}
+		w.detailSeq = 0
+	}
+	w.detailSeq++
+	ref := fmt.Sprintf("d%d", w.detailSeq)
+	w.detailStore[ref] = content
+	return ref
+}
+
+// stashOverflowAt 超限两级化：全文入任务级详情库，进上下文的只留 max 内正文 +
+// 取回指引。未超限原样返回（零开销直通）。
+func (w *Workflow) stashOverflowAt(full string, max int) string {
+	if max <= 0 || len(full) <= max {
+		return full
+	}
+	ref := w.stashDetail(full)
+	head, _ := textutil.TruncRunes(full, max)
+	return head + fmt.Sprintf("\n…（截断；完整结果 %d 字节已存为详情，用 get_detail 工具 ref=%q 获取全文）", len(full), ref)
+}
+
 // ---------- 小工具 ----------
 
 type getFileIn struct {
@@ -696,6 +755,9 @@ type getIssueOut struct {
 	Error string `json:"error,omitempty"`
 }
 type emptyIn struct{}
+type getDetailIn struct {
+	Ref string `json:"ref" jsonschema:"description=截断提示中的详情编号"`
+}
 type getDiffOut struct {
 	Diff string `json:"diff"`
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -65,6 +66,12 @@ type Workflow struct {
 	// .argus/REVIEW.md；空 = 未启用或仓库未提供）。半可信输入：已经提醒标签
 	// 转义预处理，stages 注入侧带对冲句。
 	RepoGuide string
+
+	// 详情库（v3.39.0 大输出两级化）：超限工具全文暂存，模型经 get_detail 取回。
+	// workflow 每任务构造 → 任务级生命周期；条数/单条上限防 OOM。
+	detailMu    sync.Mutex
+	detailStore map[string]string
+	detailSeq   int
 
 	// SkillTool 决策使用模式的 use_skill 工具（ARGUS_SKILL_MODE=tool 时装配；
 	// 与 SkillText 互斥——静态注入 vs 渐进披露，双开会让正文重复）。

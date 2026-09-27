@@ -22,10 +22,20 @@ type ToolSpec struct {
 	Allow []string `yaml:"allow" json:"allow"`
 }
 
+// RiskHints 工具风险注解（agentkit mcp.ToolHints 的消费侧投影；无注解的工具
+// 按 MCP 规范缺省视为破坏性——保守缺省）。
+type RiskHints struct {
+	ReadOnly       bool
+	Destructive    bool
+	ConcurrentSafe bool
+}
+
 // Pool 工具池接口：把外部工具（MCP 连接）转成 eino 工具挂进 agent 工具表。
 type Pool interface {
 	// Tools 返回 spec 白名单内的工具集合；无匹配返回空切片。
 	Tools(ctx context.Context, specs []ToolSpec) ([]tool.BaseTool, error)
+	// Hints 返回 spec 白名单内工具的风险注解（工具名 → 注解；v3.39.0）。
+	Hints(specs []ToolSpec) map[string]RiskHints
 }
 
 // ---------- 真实现：agentkit/mcp.Pool 适配（v3.2；plugins.yaml mcpServers 段） ----------
@@ -147,6 +157,21 @@ func (a *RealAdapter) Tools(ctx context.Context, specs []ToolSpec) ([]tool.BaseT
 		mspecs[i] = mcp.ToolSpec{Server: s.MCP, Allow: s.Allow}
 	}
 	return a.Pool.Tools(ctx, mspecs)
+}
+
+// Hints 汇总各 server 的目录注解为消费侧投影（v0.10.19 ToolHints）。
+func (a *RealAdapter) Hints(specs []ToolSpec) map[string]RiskHints {
+	out := map[string]RiskHints{}
+	for _, s := range specs {
+		for name, h := range a.Pool.Hints(s.MCP) {
+			out[name] = RiskHints{
+				ReadOnly:       h.ReadOnly,
+				Destructive:    h.Destructive,
+				ConcurrentSafe: h.ConcurrentSafe(),
+			}
+		}
+	}
+	return out
 }
 
 // Close 关闭底层连接池。

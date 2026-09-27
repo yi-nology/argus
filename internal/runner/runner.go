@@ -201,7 +201,9 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 	// 决策使用模式：use_skill 工具进 R3 工具表（与静态注入互斥，ARGUS_SKILL_MODE）
 	var skillTool tool.BaseTool
 	if r.Cfg.SkillMode == "tool" && r.SkillProvider != nil && len(r.SkillRefs) > 0 {
-		if st, e := skill.AsSkillTool(r.SkillProvider, r.SkillRefs); e == nil {
+		// 显式内容上限（v3.39.0）：与清单 RenderList 预算构成两级纪律
+		if st, e := skill.AsSkillTool(r.SkillProvider, r.SkillRefs,
+			skill.WithContentCap(r.Cfg.SkillContentCap)); e == nil {
 			skillTool = st
 		} else {
 			r.Log.Warn("argus.runner.skill_tool_failed", "error", e.Error(), "fallback", "静态注入")

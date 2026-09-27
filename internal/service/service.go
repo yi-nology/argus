@@ -27,6 +27,7 @@ import (
 	api "argus/biz/model/api"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/memory"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/progress"
@@ -909,7 +910,7 @@ func (s *Service) recordFalsePositiveKnowledge(ctx context.Context, platform, ow
 // qa 组装问答引擎（v3.5.6 Q&A 逻辑拆至 internal/qa）。Engine 无自有状态，
 // 字段全为共享引用；会话历史在 Store，节流与 delivery 幂等留在本层 HandleComment。
 func (s *Service) qa() *qa.Engine {
-	return &qa.Engine{
+	e := &qa.Engine{
 		SDK:       s.SDK,
 		Store:     s.Store,
 		Knowledge: s.Knowledge,
@@ -917,6 +918,13 @@ func (s *Service) qa() *qa.Engine {
 		QAModel:   s.QAModel,
 		Log:       s.log(),
 	}
+	// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论
+	if s.Cfg != nil && s.Cfg.MemoryDir != "" {
+		e.MemoryIndexFor = func(platform, owner, repo string) string {
+			return memory.LoadIndex(s.Cfg.MemoryDir, memory.Ref{Platform: platform, Owner: owner, Repo: repo}, 0)
+		}
+	}
+	return e
 }
 
 // LatestReview 某 PR 最近一次审查结论（mcpserver ask_argus 数据源）。

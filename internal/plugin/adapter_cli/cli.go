@@ -13,9 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"git.example.com/enjoydream/agentkit/procx"
 	"git.example.com/enjoydream/agentkit/reportutil"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
@@ -85,9 +87,18 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	}
 	for i := range findings {
 		findings[i].By = p.manifest.Name
+		// finding 文本截断（v3.39.0）：cli stdout 半可信且文本无上限——超长
+		// comment 经 R3.5 反思 wire 与报告进入上下文（条数有封顶、文本此前没有）
+		if rc := utf8.RuneCountInString(findings[i].Comment); rc > findingCommentMaxRunes {
+			t, _ := textutil.TruncRunes(findings[i].Comment, findingCommentMaxRunes)
+			findings[i].Comment = t + "…（截断）"
+		}
 	}
 	return plugin.Result{Findings: findings}, nil
 }
+
+// findingCommentMaxRunes 单条 finding 文本上限（rune）。
+const findingCommentMaxRunes = 2000
 
 // ---------- OCR JSON → Findings 容错解析 ----------
 // OCR（open-code-review）`--format json` 的字段名存在变体（path/file、level/severity、

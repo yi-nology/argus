@@ -228,6 +228,11 @@ type Config struct {
 	// 被评审仓库的 .argus/REVIEW.md @ head 注入 R3/R4，100KB 截断 + 提醒标签转义）。
 	RepoGuideOff bool
 
+	// SkillContentCap use_skill 工具全文单次加载上限（ARGUS_SKILL_CONTENT_CAP，
+	// 字节；缺省 100_000 与 agentkit 缺省一致，≤0 = 不限——与 RenderList 的
+	// 20K 清单预算构成两级纪律）。
+	SkillContentCap int
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -502,6 +507,7 @@ func Load() *Config {
 		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
 		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
+		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
 		// Milvus 向量检索
 		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
 		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),

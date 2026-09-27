@@ -38,7 +38,13 @@ type Engine struct {
 	Model     model.BaseChatModel  // 必填（调用方 HandleComment 已拦截 nil）
 	QAModel   model.BaseChatModel  // P6 阶段覆盖（ARGUS_QA_MODEL）；nil = Model
 	Log       Logger
+	// MemoryIndexFor 本仓评审记忆索引装载器（v3.39.0，bootstrap 接线
+	// memory.LoadIndex；nil = 未启用）。注入系统提示词作答参考。
+	MemoryIndexFor func(platform, owner, repo string) string
 }
+
+// Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器
+//（bootstrap 接线 memory.LoadIndex；nil = 未启用）。
 
 // Logger qa 层最小日志接口（logx.Logger 满足）。
 type Logger interface {
@@ -255,7 +261,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			}
 			content, ferr := e.SDK.GetFileContent(ctx, platform, owner, repo, in.Path, ref)
 			if ferr != nil {
-				return &fileOut{Error: ferr.Error()}, nil // 工具错误回注文本，不中断 ReAct
+				return &fileOut{Error: plugin.ReminderNote("tool-error", ferr.Error())}, nil // 工具错误回注（提醒信封），不中断 ReAct
 			}
 			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
 			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
@@ -312,6 +318,13 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	if err != nil {
 		return "", err
 	}
+	// 本仓评审记忆索引（v3.39.0）：作答可参考既有结论；内容半可信，先转义提醒标签
+	instruction := systemPrompt(strategy, historyText)
+	if e.MemoryIndexFor != nil {
+		if idx := e.MemoryIndexFor(platform, owner, repo); idx != "" {
+			instruction += "\n\n===【本仓历史评审记忆（dream 导出索引，可参考既有结论）】===\n" + plugin.EscapeReminderTags(idx)
+		}
+	}
 	// 失败回喂重试一次（副作用守卫默认生效）；QA 产出是自然语言回答，
 	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
 	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
@@ -319,7 +332,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
 		Name:          "argus-qa",
 		Description:   "PR 问答助手",
-		Instruction:   systemPrompt(strategy, historyText),
+		Instruction:   instruction,
 		Model:         e.chatModel(),
 		MaxIterations: 8,
 		ToolsFactory: func() []tool.BaseTool {

@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.39.0 (2026-09-26) — 工具面治理：大输出两级化（get_detail）+ MCP 风险分级 + skill 内容上限 + QA 记忆索引
+
+- **大输出两级化**（对标 ZCode resultBudget 源头截断）：get_symbol/get_references/
+  get_callers/get_poly_symbol 的硬截断（4000B 中断式）与 get_file 上限升级为
+  「全文暂存任务级详情库 + 进上下文只留截断正文与取回指引」；新增 get_detail
+  工具（Support 档）凭 ref 取回全文。详情库任务级生命周期：单条 200KB 硬上限、
+  8 条整体换防 OOM；workflow 实例隔离，重试轮复用。
+- **MCP 风险分级**（消费 agentkit v0.10.19 ToolHints，此前零消费）：toolpool
+  Pool 接口新增 Hints（RiskHints 投影）——破坏性工具在策略提示中加显式警示并
+  升 heavy 成本档；无注解不标注（保守缺省在 agentkit 侧）。
+- **skill 内容上限显式化**：`ARGUS_SKILL_CONTENT_CAP`（缺省 100KB = agentkit
+  缺省，≤0 不限）——与 RenderList 20K 清单预算构成两级纪律。
+- **QA 工具面升级**：Engine 新增 MemoryIndexFor 装载器（bootstrap 接线）——
+  Q&A 系统提示词注入本仓 dream 记忆索引（回答可参考既有结论，内容半可信先
+  转义）；get_file 错误回注收编提醒信封。codegraph-QA 不适用在案（QA 无工作
+  副本沙箱，索引成本不成立）。
+- **cli finding 文本截断**：adapter_cli 的 comment 补 2000 rune 上限（条数有
+  50 封顶、文本此前无界——超长文本经 R3.5 wire 与报告进上下文的缝隙闭合）。
+- 门禁：全量测试 + lint 绿。
+
 ## v3.38.0 (2026-09-26) — 注入纪律与仓库级评审规范：system-reminder 收编 + .argus/REVIEW.md + 工具表排序确定性
 
 - **system-reminder 收编**（ReminderNote 迁 plugin 包解依赖环）：全部合成注入点
