@@ -178,6 +178,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 			SkipTLS:     pc.SkipTLS,
 			TokenStyle:  pc.TokenStyle,
 			RetryConfig: retry,
+			Logger:      log,
 		})
 		if err != nil {
 			// 平台不可达不阻塞启动（学习期/内网常态）；readyz 与请求期报错可见
