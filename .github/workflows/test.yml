@@ -19,6 +19,24 @@ jobs:
       - name: Run tests
         run: go test -race -count=1 -timeout=300s ./...
 
+  # 静态门禁（企业级 CI 必过项）：vet + staticcheck + gofmt 三合一走 make lint，
+  # 命令单源在 Makefile；钉版本安装，规则与本地 `make lint` 完全一致。
+  lint:
+    name: Lint (vet + staticcheck + gofmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: make vet
+
+      - name: staticcheck + gofmt
+        run: make lint
+
   test-mysql:
     name: Tests (MySQL)
     runs-on: ubuntu-latest

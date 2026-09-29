@@ -55,8 +55,12 @@ eval-real:
 vet:
 	go vet ./...
 
+# staticcheck 钉版本：CI 与本地缺失时安装同一版本，避免 @latest 漂移把
+# "新检查器报新问题"冒充代码回归；升级版本是显式动作（改这个变量 + 过一次全量）。
+STATICCHECK_VERSION ?= 2026.2.1
+
 lint:
-	@command -v staticcheck >/dev/null 2>&1 || go install honnef.co/go/tools/cmd/staticcheck@latest
+	@command -v staticcheck >/dev/null 2>&1 || GOFLAGS= go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 	staticcheck $$(go list ./... | grep -v '/biz/model/')
 	@unformatted=$$(gofmt -l internal cmd test 2>/dev/null); \
 		if [ -n "$$unformatted" ]; then echo "gofmt 未格式化:"; echo "$$unformatted"; exit 1; fi
