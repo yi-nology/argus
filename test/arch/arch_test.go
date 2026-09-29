@@ -4,11 +4,11 @@
 // diff 里显式可见、可评审、可回滚。
 //
 // 三类检查：
-//   1. TestLayering        分层白名单：受约束包的 internal 依赖必须是封闭允许集
-//                          （新增依赖 → 测试失败 → 显式扩集 → CHANGELOG 记档）；
-//   2. TestBootstrapNotImported 组合根单向性：bootstrap 只许 import、不许被 import；
-//   3. TestPackageDocs     包文档完整性：每个 internal 包必须有包级 doc comment
-//                          （包的职责与层级写在第一眼能看到的地方）。
+//  1. TestLayering        分层白名单：受约束包的 internal 依赖必须是封闭允许集
+//     （新增依赖 → 测试失败 → 显式扩集 → CHANGELOG 记档）；
+//  2. TestBootstrapNotImported 组合根单向性：bootstrap 只许 import、不许被 import；
+//  3. TestPackageDocs     包文档完整性：每个 internal 包必须有包级 doc comment
+//     （包的职责与层级写在第一眼能看到的地方）。
 //
 // 规则与 docs/architecture-deep-dive.md / design.md 的分工：design 是设计契约
 // （§ 引用），deep-dive 是历史演进分析，本测试是**当前分层事实的机器可读快照**
@@ -68,7 +68,7 @@ var layering = map[string][]string{
 	"argus/internal/plugin": {"argus/internal/domain", "argus/internal/learning"},
 	"argus/internal/config": {"argus/internal/learning"},
 	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）
-	"argus/internal/obs": {"argus/internal/plugin"},
+	"argus/internal/obs":    {"argus/internal/plugin"},
 	"argus/internal/notify": {"argus/internal/obs"},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
