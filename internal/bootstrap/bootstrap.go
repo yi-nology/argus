@@ -110,126 +110,24 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 		}
 
 		var p plugin.AgentPlugin
+		isCompliance := false
 		switch manifest.Kind {
 		case plugin.KindBuiltin:
-			if strings.EqualFold(decl.Name, "requirement-compliance") ||
-				containsSkill(decl.Skills, plugin.SkillRequirementCompliance) {
-				if d.WorkflowFactory == nil {
-					return nil, nil, fmt.Errorf("requirement-compliance 插件缺少 workflow factory")
-				}
-				p, err = adapter_builtin.NewCompliance(manifest, d.WorkflowFactory)
-				if err != nil {
-					return nil, nil, err
-				}
-				complianceSkillRefs = decl.SkillRefs
-			} else {
-				if d.Model == nil {
-					d.Log.Warn("argus.bootstrap.builtin_no_llm", "plugin", decl.Name,
-						"reason", "未配置 OPENAI_*，插件将不可用")
-				}
-				reviewerName := d.Cfg.LLM.Model
-				if d.ReviewerName != "" { // P6 阶段覆盖：R4 Reviewer 专用模型
-					reviewerName = d.ReviewerName
-				}
-				var client llm.Generator = llm.NewClient(d.Model, reviewerName, nil)
-				if c, ok := client.(*llm.Client); ok && d.ReviewerLLM == nil {
-					c.ContextTokens = d.Cfg.LLM.ContextToken
-					c.MaxOutputTokens = d.Cfg.MaxTokensResolved()
-				}
-				if d.ReviewerLLM != nil {
-					client = d.ReviewerLLM
-				}
-				var opts []adapter_builtin.ReviewerOption
-				opts = append(opts, adapter_builtin.WithLogger(d.Log))
-				if d.ReviewTools != nil {
-					// ReAct 模式（agentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
-					opts = append(opts, adapter_builtin.WithToolsHook(d.ReviewTools))
-				}
-				if d.ReactModel != nil {
-					opts = append(opts, adapter_builtin.WithReactModel(d.ReactModel))
-				}
-				// ReAct 迭代上限（ARGUS_REACT_MAX_ITERATIONS；<=0 = builtin 内缺省 12）
-				if d.Cfg.ReactMaxIterations > 0 {
-					opts = append(opts, adapter_builtin.WithReactMaxIterations(d.Cfg.ReactMaxIterations))
-				}
-				p, err = adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
-					client, decl.SkillRefs, d.Skills, opts...)
-				if err != nil {
-					return nil, nil, err
-				}
+			p, isCompliance, err = newBuiltinAgent(d, decl, manifest)
+			if err != nil {
+				return nil, nil, err
 			}
 		case plugin.KindCLI:
-			if len(decl.Cmd) == 0 {
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 cmd"}
-			} else if strings.EqualFold(decl.Mode, "delegate") {
-				// delegate 产物是审查输入而非 findings，装不进插件契约（运行期必报错）——
-				// 已实装为 runner 层前置步骤（internal/ocrdeleg，ARGUS_OCR_BIN 启用）。
-				// 启动期即停用并注明，不注册成"可用"插件每个 PR 撞一次错、白烧熔断额度。
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest,
-					reason: "cli 插件无 delegate 模式（delegate 由 runner 前置实装：ARGUS_OCR_BIN）"}
-			} else if _, err := exec.LookPath(decl.Cmd[0]); err != nil {
-				// 供应链信任（§8）：白名单可执行文件不存在 → 不启用（绝不尝试其他解析路径）
-				d.Log.Warn("argus.bootstrap.cli_binary_missing", "plugin", decl.Name, "cmd", decl.Cmd[0])
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "可执行文件不存在: " + decl.Cmd[0]}
-			} else {
-				p = adapter_cli.New(manifest, decl.Cmd, decl.Mode, decl.Env, d.WC, d.Log)
-			}
+			p, enabled = newCLIAgent(d, decl, manifest)
 		case plugin.KindRemote:
-			// protocol 白名单（深挖修复）：拼错的 protocol 此前启动照常注册，
-			// 运行期每次 Invoke 走 default 分支报错 → 3 个 PR 后熔断
-			if manifest.Protocol != plugin.ProtocolA2A && manifest.Protocol != plugin.ProtocolMCP {
-				d.Log.Warn("argus.bootstrap.remote_bad_protocol", "plugin", decl.Name,
-					"protocol", string(manifest.Protocol), "allowed", "a2a|mcp")
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "protocol 非法: " + string(manifest.Protocol)}
-				break
-			}
-			authToken := ""
-			if decl.AuthTokenEnv != "" {
-				authToken = os.Getenv(decl.AuthTokenEnv)
-				if authToken == "" {
-					// 与 needs:[working-copy] 缺池同款启动期停用：配置声明了凭证
-					// 而环境未给，运行期必被对端 401——不注册成"可用"插件每个 PR 撞一次
-					d.Log.Warn("argus.bootstrap.remote_auth_env_missing", "plugin", decl.Name, "env", decl.AuthTokenEnv)
-					enabled = false
-					p = &unavailablePlugin{manifest: manifest,
-						reason: "auth_token_env 环境变量未设置: " + decl.AuthTokenEnv}
-					break
-				}
-			}
-			rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool, authToken, d.WC)
-			if err != nil {
-				d.Log.Warn("argus.bootstrap.remote_skipped", "plugin", decl.Name, "error", err.Error())
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "endpoint 未配置"}
-				break
-			}
-			p = rp
+			p, enabled = newRemoteAgent(d, decl, manifest)
 		case plugin.KindACPX:
-			if decl.Agent == "" {
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 agent"}
-				break
-			}
-			ap, err := adapter_acpx.New(manifest, decl.Agent, d.WC, d.Log)
-			if err != nil {
-				// 二进制缺失（未装该 CLI）= 正常形态，停用并说明；未知名才值得留 probe
-				reason := err.Error()
-				if errors.Is(err, adapter_acpx.ErrBinaryMissing) {
-					d.Log.Warn("argus.bootstrap.acpx_binary_missing", "plugin", decl.Name, "error", reason)
-				} else {
-					d.Log.Warn("argus.bootstrap.acpx_skipped", "plugin", decl.Name, "error", reason)
-				}
-				enabled = false
-				p = &unavailablePlugin{manifest: manifest, reason: reason}
-				break
-			}
-			p = ap
+			p, enabled = newACPXAgent(d, decl, manifest)
 		default:
 			return nil, nil, fmt.Errorf("插件 %s kind 非法: %s", decl.Name, decl.Kind)
+		}
+		if isCompliance {
+			complianceSkillRefs = decl.SkillRefs
 		}
 
 		if err := reg.Register(&plugin.Registration{
@@ -245,6 +143,126 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 			"kind", string(manifest.Kind), "enabled", enabled)
 	}
 	return reg, complianceSkillRefs, nil
+}
+
+// newBuiltinAgent builtin 工厂：requirement-compliance 外壳（isCompliance=true，主循环
+// 收集 skillRefs）或 Reviewer（P6 覆盖链 + ReAct 工具表）。错误 = 启动失败（fail-fast）。
+func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (
+	plugin.AgentPlugin, bool, error) {
+	if strings.EqualFold(decl.Name, "requirement-compliance") ||
+		containsSkill(decl.Skills, plugin.SkillRequirementCompliance) {
+		if d.WorkflowFactory == nil {
+			return nil, false, fmt.Errorf("requirement-compliance 插件缺少 workflow factory")
+		}
+		p, err := adapter_builtin.NewCompliance(manifest, d.WorkflowFactory)
+		if err != nil {
+			return nil, false, err
+		}
+		return p, true, nil
+	}
+	if d.Model == nil {
+		d.Log.Warn("argus.bootstrap.builtin_no_llm", "plugin", decl.Name,
+			"reason", "未配置 OPENAI_*，插件将不可用")
+	}
+	reviewerName := d.Cfg.LLM.Model
+	if d.ReviewerName != "" { // P6 阶段覆盖：R4 Reviewer 专用模型
+		reviewerName = d.ReviewerName
+	}
+	var client llm.Generator = llm.NewClient(d.Model, reviewerName, nil)
+	if c, ok := client.(*llm.Client); ok && d.ReviewerLLM == nil {
+		c.ContextTokens = d.Cfg.LLM.ContextToken
+		c.MaxOutputTokens = d.Cfg.MaxTokensResolved()
+	}
+	if d.ReviewerLLM != nil {
+		client = d.ReviewerLLM
+	}
+	var opts []adapter_builtin.ReviewerOption
+	opts = append(opts, adapter_builtin.WithLogger(d.Log))
+	if d.ReviewTools != nil {
+		// ReAct 模式（agentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
+		opts = append(opts, adapter_builtin.WithToolsHook(d.ReviewTools))
+	}
+	if d.ReactModel != nil {
+		opts = append(opts, adapter_builtin.WithReactModel(d.ReactModel))
+	}
+	// ReAct 迭代上限（ARGUS_REACT_MAX_ITERATIONS；<=0 = builtin 内缺省 12）
+	if d.Cfg.ReactMaxIterations > 0 {
+		opts = append(opts, adapter_builtin.WithReactMaxIterations(d.Cfg.ReactMaxIterations))
+	}
+	p, err := adapter_builtin.NewReviewer(manifest, reviewerFocus(decl.Name, decl.Skills),
+		client, decl.SkillRefs, d.Skills, opts...)
+	if err != nil {
+		return nil, false, err
+	}
+	return p, false, nil
+}
+
+// newCLIAgent cli 工厂。返回 enabled=false 的情形一律装 unavailablePlugin（可观测）：
+// 未声明 cmd / delegate 模式（delegate 由 runner 前置实装）/ 可执行文件不存在（§8 供应链
+// 白名单：绝不尝试其他解析路径）。
+func newCLIAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+	if len(decl.Cmd) == 0 {
+		return &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 cmd"}, false
+	}
+	if strings.EqualFold(decl.Mode, "delegate") {
+		// delegate 产物是审查输入而非 findings，装不进插件契约（运行期必报错）——
+		// 已实装为 runner 层前置步骤（internal/ocrdeleg，ARGUS_OCR_BIN 启用）。
+		// 启动期即停用并注明，不注册成"可用"插件每个 PR 撞一次错、白烧熔断额度。
+		return &unavailablePlugin{manifest: manifest,
+			reason: "cli 插件无 delegate 模式（delegate 由 runner 前置实装：ARGUS_OCR_BIN）"}, false
+	}
+	if _, err := exec.LookPath(decl.Cmd[0]); err != nil {
+		// 供应链信任（§8）：白名单可执行文件不存在 → 不启用（绝不尝试其他解析路径）
+		d.Log.Warn("argus.bootstrap.cli_binary_missing", "plugin", decl.Name, "cmd", decl.Cmd[0])
+		return &unavailablePlugin{manifest: manifest, reason: "可执行文件不存在: " + decl.Cmd[0]}, false
+	}
+	return adapter_cli.New(manifest, decl.Cmd, decl.Mode, decl.Env, d.WC, d.Log), true
+}
+
+// newRemoteAgent remote 工厂。protocol 白名单（深挖修复）：拼错的 protocol 此前启动
+// 照常注册，运行期每次 Invoke 走 default 分支报错 → 3 个 PR 后熔断。auth_token_env
+// 声明了凭证而环境未给时同样启动期停用（与 needs:[working-copy] 缺池同款语义）。
+func newRemoteAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+	if manifest.Protocol != plugin.ProtocolA2A && manifest.Protocol != plugin.ProtocolMCP {
+		d.Log.Warn("argus.bootstrap.remote_bad_protocol", "plugin", decl.Name,
+			"protocol", string(manifest.Protocol), "allowed", "a2a|mcp")
+		return &unavailablePlugin{manifest: manifest, reason: "protocol 非法: " + string(manifest.Protocol)}, false
+	}
+	authToken := ""
+	if decl.AuthTokenEnv != "" {
+		authToken = os.Getenv(decl.AuthTokenEnv)
+		if authToken == "" {
+			// 与 needs:[working-copy] 缺池同款启动期停用：配置声明了凭证
+			// 而环境未给，运行期必被对端 401——不注册成"可用"插件每个 PR 撞一次
+			d.Log.Warn("argus.bootstrap.remote_auth_env_missing", "plugin", decl.Name, "env", decl.AuthTokenEnv)
+			return &unavailablePlugin{manifest: manifest,
+				reason: "auth_token_env 环境变量未设置: " + decl.AuthTokenEnv}, false
+		}
+	}
+	rp, err := adapter_remote.New(manifest, manifest.Protocol, decl.Endpoint, decl.Tool, authToken, d.WC)
+	if err != nil {
+		d.Log.Warn("argus.bootstrap.remote_skipped", "plugin", decl.Name, "error", err.Error())
+		return &unavailablePlugin{manifest: manifest, reason: "endpoint 未配置"}, false
+	}
+	return rp, true
+}
+
+// newACPXAgent acpx 工厂。二进制缺失（未装该 CLI）= 正常形态，停用并说明；未知名才值得留 probe。
+func newACPXAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+	if decl.Agent == "" {
+		return &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 agent"}, false
+	}
+	ap, err := adapter_acpx.New(manifest, decl.Agent, d.WC, d.Log)
+	if err != nil {
+		reason := err.Error()
+		if errors.Is(err, adapter_acpx.ErrBinaryMissing) {
+			d.Log.Warn("argus.bootstrap.acpx_binary_missing", "plugin", decl.Name, "error", reason)
+		} else {
+			d.Log.Warn("argus.bootstrap.acpx_skipped", "plugin", decl.Name, "error", reason)
+		}
+		return &unavailablePlugin{manifest: manifest, reason: reason}, false
+	}
+	return ap, true
 }
 
 // reviewerFocus 不同 builtin 审查插件的人设差异（§3.2：correctness / security）。

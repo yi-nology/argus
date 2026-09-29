@@ -65,11 +65,39 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		return &Result{Stale: true}, nil
 	}
 
-	// ---- 评审记录（v3.0.1 试点改造：每轮必留，PR 页可见审查状态）----
-	// verdict 映射评审事件：request_changes→REQUEST_CHANGES / comment→COMMENT / approve→APPROVE。
-	// 有行内 findings 时一并附上；无行内意见也提交评审事件（否则 PR 页看不到任何审查动作，
-	// 评审状态恒为"暂无评审员"——真实试点暴露的可用性缺陷）。
-	inline := 0
+	// ---- 行内意见准备（过滤/路径归一化/排序/钳制/构造评论）----
+	comments := p.prepareInline(task, diff, &rep)
+
+	// ---- 评审事件（幂等 + 三级降级）----
+	inline := p.sendReview(ctx, pr, rep, verdict, comments)
+
+	// ---- 总结评论：更新 → 扫描兜底 → 历史缓存兜底 → 新建（四级降级）----
+	body := reportview.Render(rep)
+	commentID, err := p.postSummary(ctx, pr, body)
+	if err != nil {
+		plugin.ReportPluginFailure("poster")
+		return nil, err
+	}
+
+	// ---- 回帖成功：更新 review_targets（staleness 不读它；同 SHA 去重读 last_head_sha）----
+	if err := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		commentID, pr.HeadSHA); err != nil {
+		p.Log.Error("argus.poster.target_update_failed", "error", err.Error())
+	}
+	// 历史评论 ID 缓存追加（收尾批修复）：供"评论被顶出 SDK 分页第一页"后的
+	// 直连更新兜底，防每轮新建报告评论
+	if err := p.Store.AppendReviewTargetComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, commentID); err != nil {
+		p.Log.Warn("argus.poster.known_comment_append_failed", "error", err.Error())
+	}
+
+	return &Result{SummaryCommentID: commentID, InlinePosted: inline}, nil
+}
+
+// prepareInline 行内意见筛选与评论构造：f.Line>0 且有 file 的 finding 进候选；
+// file 不在 diff 文件列表内的剔除（模型幻觉路径直发会被平台整单拒绝），精确 miss
+// 时唯一尾段匹配修正（v3.51.0 路径归一化）；剔除数追加进 rep.Degraded 用户可见。
+// 返回按严重度排序、经 max_comments 钳制后的评论表。
+func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep *reportview.Report) []provider.ReviewComment {
 	var inlineFindings []plugin.Finding
 	for _, f := range rep.Findings {
 		if f.Line > 0 && f.File != "" {
@@ -116,7 +144,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	sort.SliceStable(inlineFindings, func(i, j int) bool {
 		return reportutil.Rank(inlineFindings[i].Severity) > reportutil.Rank(inlineFindings[j].Severity)
 	})
-	inlineFindings = clampInlineByMaxComments(inlineFindings, &rep)
+	inlineFindings = clampInlineByMaxComments(inlineFindings, rep)
 	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
 	for _, f := range inlineFindings {
 		comments = append(comments, provider.ReviewComment{
@@ -124,6 +152,17 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 			Body: inlineCommentBody(f),
 		})
 	}
+	return comments
+}
+
+// sendReview 评审事件投递：verdict 映射评审事件；幂等锚点查重（库标记短路 → 平台
+// 锚点查询回退）；CreateReview 三级降级（blocking 拒绝 → COMMENT → 无行内意见纯评论）。
+// 返回行内评论成功条数——仅首次 CreateReview 成功时非 0，幂等跳过与降级路径均为 0。
+func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep reportview.Report,
+	verdict string, comments []provider.ReviewComment) int {
+	// verdict 映射评审事件：request_changes→REQUEST_CHANGES / comment→COMMENT / approve→APPROVE。
+	// 有行内 findings 时一并附上；无行内意见也提交评审事件（否则 PR 页看不到任何审查动作，
+	// 评审状态恒为"暂无评审员"——真实试点暴露的可用性缺陷）。
 	event := "COMMENT"
 	switch verdict {
 	case "request_changes":
@@ -136,7 +175,6 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	// 评审幂等锚点：任务模型 at-least-once（崩溃/硬取消落在发评审与落终态之间 → 重跑），
 	// 重跑会再发一条完整评审（行内评论重复）。锚点只写不查等于没有——发前按 task_id 查一次；
 	// 查询失败不阻断正常路径（宁多查一次 API，不因兜底接口缺失丢评审）。
-	// v3.36.0：review_posted 库标记短路——重跑任务大多不再走 ListReviews 平台查询。
 	// v3.36.0：review_posted 库标记短路——此前重跑任务必 ListReviews 拉全量
 	// 评审（大 PR 有延迟）。查库失败/未标记时回退平台锚点查询（宁多查一次）。
 	alreadyPosted := false
@@ -155,81 +193,62 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 			}
 		}
 	}
-	if !alreadyPosted {
-		reviewSent := false
-		if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+	if alreadyPosted {
+		return 0
+	}
+	reviewSent := false
+	if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		provider.CreateReviewOptions{
+			CommitID: pr.HeadSHA,
+			Event:    event,
+			Body:     reviewBody,
+			Comments: comments,
+		}); err != nil {
+		// 平台策略降级（真实试点发现）：PR 作者本人不能给自己提 blocking 评审
+		//（Forgejo/Gitea "reject your own pull is not allowed"）。生产部署应使用
+		// 独立 bot 账号；共用账号时自动降级为 COMMENT——审查记录仍然落地，
+		// 结论语义保留在评审 body 与总结评论中。
+		p.Log.Warn("argus.poster.review_failed", "error", err.Error(), "event", event,
+			"fallback", "COMMENT 评审")
+		fallbackBody := "⚠️ 平台限制：当前账号与 PR 作者相同，无法提交 " + event +
+			" 评审，已降级为评论。原判定：" + rep.VerdictText + "\n\n" + reviewBody
+		if _, err2 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			provider.CreateReviewOptions{
 				CommitID: pr.HeadSHA,
-				Event:    event,
-				Body:     reviewBody,
+				Event:    "COMMENT",
+				Body:     fallbackBody,
 				Comments: comments,
-			}); err != nil {
-			// 平台策略降级（真实试点发现）：PR 作者本人不能给自己提 blocking 评审
-			//（Forgejo/Gitea "reject your own pull is not allowed"）。生产部署应使用
-			// 独立 bot 账号；共用账号时自动降级为 COMMENT——审查记录仍然落地，
-			// 结论语义保留在评审 body 与总结评论中。
-			p.Log.Warn("argus.poster.review_failed", "error", err.Error(), "event", event,
-				"fallback", "COMMENT 评审")
-			fallbackBody := "⚠️ 平台限制：当前账号与 PR 作者相同，无法提交 " + event +
-				" 评审，已降级为评论。原判定：" + rep.VerdictText + "\n\n" + reviewBody
-			if _, err2 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+			}); err2 != nil {
+			// 行内意见可能整体非法（如全部行号越界）——去掉 comments 以纯评论事件兜底，
+			// 保住评审记录与结论语义（此前整轮评审事件直接丢失）。
+			p.Log.Warn("argus.poster.review_fallback_failed", "error", err2.Error(),
+				"fallback", "无行内意见评审")
+			if _, err3 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 				provider.CreateReviewOptions{
 					CommitID: pr.HeadSHA,
 					Event:    "COMMENT",
 					Body:     fallbackBody,
-					Comments: comments,
-				}); err2 != nil {
-				// 行内意见可能整体非法（如全部行号越界）——去掉 comments 以纯评论事件兜底，
-				// 保住评审记录与结论语义（此前整轮评审事件直接丢失）。
-				p.Log.Warn("argus.poster.review_fallback_failed", "error", err2.Error(),
-					"fallback", "无行内意见评审")
-				if _, err3 := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
-					provider.CreateReviewOptions{
-						CommitID: pr.HeadSHA,
-						Event:    "COMMENT",
-						Body:     fallbackBody,
-					}); err3 != nil {
-					p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
-					plugin.ReportPluginFailure("poster:review")
-				} else {
-					reviewSent = true
-				}
+				}); err3 != nil {
+				p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
+				plugin.ReportPluginFailure("poster:review")
 			} else {
 				reviewSent = true
 			}
 		} else {
-			inline = len(inlineFindings)
 			reviewSent = true
 		}
-		if reviewSent {
-			// 发成功落库标记（v3.36.0）：重跑短路平台锚点查询
-			if merr := p.Store.MarkReviewPosted(ctx, rep.TaskID); merr != nil {
-				p.Log.Warn("argus.poster.mark_posted_failed", "error", merr.Error(),
-					"hint", "未落库标记：重跑回退 ListReviews 锚点查询（幂等不丢）")
-			}
+	} else {
+		reviewSent = true
+	}
+	if reviewSent {
+		// 发成功落库标记（v3.36.0）：重跑短路平台锚点查询
+		if merr := p.Store.MarkReviewPosted(ctx, rep.TaskID); merr != nil {
+			p.Log.Warn("argus.poster.mark_posted_failed", "error", merr.Error(),
+				"hint", "未落库标记：重跑回退 ListReviews 锚点查询（幂等不丢）")
 		}
+		return len(comments)
 	}
-
-	// ---- 总结评论：更新 → 扫描兜底 → 历史缓存兜底 → 新建（四级降级）----
-	body := reportview.Render(rep)
-	commentID, err := p.postSummary(ctx, pr, body)
-	if err != nil {
-		plugin.ReportPluginFailure("poster")
-		return nil, err
-	}
-
-	// ---- 回帖成功：更新 review_targets（staleness 不读它；同 SHA 去重读 last_head_sha）----
-	if err := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
-		commentID, pr.HeadSHA); err != nil {
-		p.Log.Error("argus.poster.target_update_failed", "error", err.Error())
-	}
-	// 历史评论 ID 缓存追加（收尾批修复）：供"评论被顶出 SDK 分页第一页"后的
-	// 直连更新兜底，防每轮新建报告评论
-	if err := p.Store.AppendReviewTargetComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, commentID); err != nil {
-		p.Log.Warn("argus.poster.known_comment_append_failed", "error", err.Error())
-	}
-
-	return &Result{SummaryCommentID: commentID, InlinePosted: inline}, nil
+	return 0
 }
 
 // postSummary 三级降级定位总结评论。

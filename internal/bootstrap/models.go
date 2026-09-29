@@ -95,7 +95,30 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	m.React = chatModel
 
 	// 全局降级链：配置 OPENAI_FALLBACK_* 四项后启用 Resilient 多模型降级。
-	var fallbackProvider llm.Provider // 阶段覆盖构建各自降级链时复用
+	fallbackProvider, err := m.buildGenerateChain(ctx, cfg, log, chatModel)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL,
+		"context_tokens", cfg.LLM.ContextToken, "max_tokens", maxTokens,
+		"diff_chars", cfg.MaxDiffCharsResolved(), "task_budget", cfg.EffectiveTaskTokenBudget())
+
+	// ---- P6 分阶段模型路由 ----
+	if err := m.buildStageLLMs(ctx, cfg, log, fallbackProvider); err != nil {
+		return nil, err
+	}
+	// Failover 包装：仅配置了全局降级时生效；每个直调出口按各自 stage 名标注切换日志。
+	m.wrapFailover(cfg, log)
+	// ---- 上下文窗口拟合 + 输出续写（v3.33/v3.34）----
+	m.wrapFit(cfg, log)
+	return m, nil
+}
+
+// buildGenerateChain 主生成链：无降级配置 → 单模型 Client；配置 OPENAI_FALLBACK_*
+// → Resilient 主备链 + 降级 BaseChatModel（ReAct 旁路 Failover 用）。返回的
+// fallbackProvider 供阶段覆盖构建各自降级链复用（nil = 无降级）。
+func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log logx.Logger,
+	chatModel model.BaseChatModel) (llm.Provider, error) {
 	fallbackReady := cfg.LLM.FallbackBaseURL != "" && cfg.LLM.FallbackAPIKey != "" && cfg.LLM.FallbackModel != ""
 	if !fallbackReady {
 		c := llm.NewClient(chatModel, cfg.LLM.Model, nil)
@@ -103,66 +126,67 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		c.MaxOutputTokens = cfg.MaxTokensResolved()
 		c.Limiter = m.Limiter
 		m.Generate = c
-	} else {
-		primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
-			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
-			ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
-			Timeout: cfg.LLM.Timeout,
-			// v0.10.16：429 响应捕获 Retry-After，重试环按服务端建议退避（限流窗口
-			// 还剩多久只有端点知道；mimo 并发限流下比本地指数曲线更准）
-			CaptureRetryAfter: true,
-		})
-		if e != nil {
-			return nil, fmt.Errorf("构造主 LLM Provider 失败: %w", e)
-		}
-		fb, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
-			BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
-			ContextTokens:     cfg.LLM.FallbackContextToken,
-			CaptureRetryAfter: true,
-		})
-		if e != nil {
-			return nil, fmt.Errorf("构造降级 LLM Provider 失败: %w", e)
-		}
-		fallbackProvider = fb
-		resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fallbackProvider), llm.ResilientConfig{
-			RetriesPerModel: cfg.LLM.LLMResilienceRetries,
-			BaseDelay:       cfg.LLM.LLMResilienceBaseDelay,
-		})
-		if e != nil {
-			return nil, fmt.Errorf("构造 Resilient 失败: %w", e)
-		}
-		// 降级事件接结构化日志（运维观测主/备切换频率）
-		resilient.OnFallback = func(from, to, stage, reason string) {
-			log.Warn("argus.llm.fallback", "from", from, "to", to,
-				"stage", stage, "reason", reason)
-			obs.IncrLLMFailover(stage)
-		}
-		resilient.Limiter = m.Limiter
-		m.Generate = resilient
-
-		// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
-		// FailoverModel 装饰补齐主备切换（agentkit v0.9.4；Resilient.RawModel 只返回主模型）
-		fallbackBM, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-			BaseURL: cfg.LLM.FallbackBaseURL,
-			APIKey:  cfg.LLM.FallbackAPIKey,
-			Model:   cfg.LLM.FallbackModel,
-			Timeout: cfg.LLM.Timeout,
-		})
-		if e != nil {
-			return nil, fmt.Errorf("构造降级 BaseChatModel 失败: %w", e)
-		}
-		m.Fallback = fallbackBM
-		m.FallbackName = cfg.LLM.FallbackModel
-
-		log.Info("argus.boot.llm_resilient", "chain", resilient.String(),
-			"primary_ctx", cfg.LLM.ContextToken, "fallback_ctx", cfg.LLM.FallbackContextToken)
-		log.Info("argus.boot.llm_failover", "react", "enabled", "fallback_model", cfg.LLM.FallbackModel)
+		return nil, nil
 	}
-	log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL,
-		"context_tokens", cfg.LLM.ContextToken, "max_tokens", maxTokens,
-		"diff_chars", cfg.MaxDiffCharsResolved(), "task_budget", cfg.EffectiveTaskTokenBudget())
+	primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+		BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
+		ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
+		Timeout: cfg.LLM.Timeout,
+		// v0.10.16：429 响应捕获 Retry-After，重试环按服务端建议退避（限流窗口
+		// 还剩多久只有端点知道；mimo 并发限流下比本地指数曲线更准）
+		CaptureRetryAfter: true,
+	})
+	if e != nil {
+		return nil, fmt.Errorf("构造主 LLM Provider 失败: %w", e)
+	}
+	fb, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
+		BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
+		ContextTokens:     cfg.LLM.FallbackContextToken,
+		CaptureRetryAfter: true,
+	})
+	if e != nil {
+		return nil, fmt.Errorf("构造降级 LLM Provider 失败: %w", e)
+	}
+	resilient, e := llm.NewResilient(llm.NewFallbackChain(primary, fb), llm.ResilientConfig{
+		RetriesPerModel: cfg.LLM.LLMResilienceRetries,
+		BaseDelay:       cfg.LLM.LLMResilienceBaseDelay,
+	})
+	if e != nil {
+		return nil, fmt.Errorf("构造 Resilient 失败: %w", e)
+	}
+	// 降级事件接结构化日志（运维观测主/备切换频率）
+	resilient.OnFallback = func(from, to, stage, reason string) {
+		log.Warn("argus.llm.fallback", "from", from, "to", to,
+			"stage", stage, "reason", reason)
+		obs.IncrLLMFailover(stage)
+	}
+	resilient.Limiter = m.Limiter
+	m.Generate = resilient
 
-	// ---- P6 分阶段模型路由 ----
+	// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
+	// FailoverModel 装饰补齐主备切换（agentkit v0.9.4；Resilient.RawModel 只返回主模型）
+	fallbackBM, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		BaseURL: cfg.LLM.FallbackBaseURL,
+		APIKey:  cfg.LLM.FallbackAPIKey,
+		Model:   cfg.LLM.FallbackModel,
+		Timeout: cfg.LLM.Timeout,
+	})
+	if e != nil {
+		return nil, fmt.Errorf("构造降级 BaseChatModel 失败: %w", e)
+	}
+	m.Fallback = fallbackBM
+	m.FallbackName = cfg.LLM.FallbackModel
+
+	log.Info("argus.boot.llm_resilient", "chain", resilient.String(),
+		"primary_ctx", cfg.LLM.ContextToken, "fallback_ctx", cfg.LLM.FallbackContextToken)
+	log.Info("argus.boot.llm_failover", "react", "enabled", "fallback_model", cfg.LLM.FallbackModel)
+	return fb, nil
+}
+
+// buildStageLLMs P6 阶段覆盖：R1/R2 走生成链（StageRouter 注册），R3/R35/Router/QA
+// 直调模型，Reviewer 覆盖链。各覆盖继承主 BaseURL/APIKey。
+func (m *Models) buildStageLLMs(ctx context.Context, cfg *config.Config, log logx.Logger,
+	fallbackProvider llm.Provider) error {
 	buildStageModel := func(so *config.StageOverride) (model.BaseChatModel, error) {
 		// v3.33.0 ctxfit：直调阶段窗口拟合生效（此前 CONTEXT_TOKENS 对直调路径
 		// 静默无效——v3.8.0 的「配置误导」告警随之解除）
@@ -196,7 +220,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		}
 		g, err := buildStageGen(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 %s 阶段模型失败: %w", stage, err)
+			return fmt.Errorf("构造 %s 阶段模型失败: %w", stage, err)
 		}
 		if m.StageLLMs == nil {
 			m.StageLLMs = map[string]llm.Generator{}
@@ -207,7 +231,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if so := cfg.StageModelR3; so != nil {
 		mm, err := buildStageModel(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 R3 模型失败: %w", err)
+			return fmt.Errorf("构造 R3 模型失败: %w", err)
 		}
 		m.R3 = mm
 		log.Info("argus.boot.stage_model", "stage", "R3(ReAct)", "model", so.Model)
@@ -215,7 +239,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if so := cfg.StageModelR35; so != nil {
 		mm, err := buildStageModel(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 R3.5 模型失败: %w", err)
+			return fmt.Errorf("构造 R3.5 模型失败: %w", err)
 		}
 		m.Reflect = mm
 		log.Info("argus.boot.stage_model", "stage", "R35(reflection)", "model", so.Model)
@@ -223,7 +247,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if so := cfg.StageModelRouter; so != nil {
 		mm, err := buildStageModel(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 Router 模型失败: %w", err)
+			return fmt.Errorf("构造 Router 模型失败: %w", err)
 		}
 		m.Router = mm
 		log.Info("argus.boot.stage_model", "stage", "router", "model", so.Model)
@@ -231,7 +255,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if so := cfg.StageModelReviewer; so != nil {
 		g, err := buildStageGen(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 Reviewer 模型失败: %w", err)
+			return fmt.Errorf("构造 Reviewer 模型失败: %w", err)
 		}
 		m.ReviewerGen = g
 		m.ReviewerName = so.Model
@@ -240,13 +264,17 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if so := cfg.StageModelQA; so != nil {
 		mm, err := buildStageModel(so)
 		if err != nil {
-			return nil, fmt.Errorf("构造 QA 模型失败: %w", err)
+			return fmt.Errorf("构造 QA 模型失败: %w", err)
 		}
 		m.QA = mm
 		log.Info("argus.boot.stage_model", "stage", "qa", "model", so.Model)
 	}
+	return nil
+}
 
-	// Failover 包装：仅配置了全局降级时生效；每个直调出口按各自 stage 名标注切换日志。
+// wrapFailover FailoverModel 包装：仅配置了全局降级时生效，每个直调出口按各自
+// stage 名标注切换日志；ReviewerReact 兜底（=主 React 出口）不受降级配置影响。
+func (m *Models) wrapFailover(cfg *config.Config, log logx.Logger) {
 	if m.Fallback != nil {
 		wrap := wrapReactFailoverFn(cfg, m.Fallback, log)
 		m.React = wrap(m.React, "chat")
@@ -275,12 +303,13 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if m.ReviewerReact == nil {
 		m.ReviewerReact = m.React
 	}
+}
 
-	// ---- 上下文窗口拟合 + 输出续写（v3.33/v3.34，对标 ZCode compact 与
-	// turn-output-token-continuation）：直调出口统一包 FitModel（输入两级拟合，
-	// 超限才动作、未超限零拷贝直通）与 ContinueModel（length 截断续写 ≤3 轮）。
-	// Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
-	// 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
+// wrapFit 直调出口统一包 Rate（限速最内层，v3.36.0）+ FitModel（输入两级拟合，
+// 超限才动作、未超限零拷贝直通）+ ContinueModel（length 截断续写 ≤3 轮）。
+// Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
+// 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
+func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 	fitOnEvent := func(stage string, res argusctx.FitResult) {
 		obs.IncrCtxFit(stage, string(res.Action))
 		log.Warn("argus.ctxfit", "stage", stage, "action", string(res.Action),
@@ -327,7 +356,6 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if m.ReviewerGen != nil && m.ReviewerReact != nil {
 		m.ReviewerReact = wrapStage(m.ReviewerReact, "reviewer", stageWindow(cfg.StageModelReviewer))
 	}
-	return m, nil
 }
 
 // stageGenerator 阶段覆盖生成链：有全局降级 → Resilient 主备链（与主链共用
