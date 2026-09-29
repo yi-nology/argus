@@ -8,11 +8,12 @@
 
 ```text
                      ┌─────────────────────────────┐
-                     │  main (argus)               │  装配入口：bootstrap 组图 + hertz 服务器 + worker
+                     │  main (argus)               │  进程生命周期：配置/信号/停机 + HTTP 接线
                      └──────┬──────────────────────┘
                             │
   ┌─────────────────────────▼───────────────────────────┐
   │ L1 组合根  bootstrap                                │  装配一切、不被任何人 import（组合根单向性）
+  │  Assemble(对象图) + StartSubsystems(后台子系统)     │  选主/worker 池/运维 ticker/dream/health/poller
   └──┬───────┬───────┬───────┬───────┬───────┬─────────┘
      │       │       │       │       │       └────────────┐
   ┌──▼────┐ ┌▼─────┐ ┌▼─────┐ ┌▼─────┐ ┌▼──────────┐ ┌──▼──────────┐
@@ -71,8 +72,9 @@
    单实现且无测试替身用途的用具体类型。
 3. **插件适配器单向**：adapter_* → plugin 单向；新形态适配器（如 sandboxed CLI）
    落 plugin/adapter_* 子包，不进核心域。
-4. **组合根单点**：一切对象图组装在 bootstrap（Assemble/BuildModels/BuildRegistry）；
-   任何包不得反向 import bootstrap。
+4. **组合根单点**：一切对象图组装在 bootstrap（Assemble/BuildModels/BuildRegistry/
+   StartSubsystems），main 只剩进程生命周期（v3.63.0 闭环）；任何包不得反向
+   import bootstrap。
 5. **观测旁路**：L4 纯逻辑不依赖 prometheus——业务包调 `plugin.Report*`（nil 安全），
    obs 装配期接线实现；指标词表（stage/reason label）与告警规则对齐，改值断 Grafana。
 6. **数据防线上移**：半可信输入（diff/issue/模型输出）进提示词必须过 DataFence，

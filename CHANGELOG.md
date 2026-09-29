@@ -1,5 +1,41 @@
 # Changelog
 
+## v3.63.0 (2026-09-30) — 十五轮：组合根单点闭环——后台子系统组装自 main 收口进 bootstrap
+
+- **新增 bootstrap.StartSubsystems**：多副本选主（agentkit LeaderElector，租约
+  换主）/worker 池（DB 即队列 + 两阶段优雅停机，ARGUS_WORKER_GRACE）/GitHub App
+  refresher 停机收编/运维 ticker 全家桶（workcopy 清扫/任务保留清理/qa 会话与
+  指纹清理/failed 指数退避重试/队列深度采样/eval 指标周期加载）/dream 长期记忆
+  整合/审查健康报告/轮询兜底任务源——此前散在 main.runApp 手工组装的 ~180 行
+  全部收敛。
+- **main.go 431→260 行**：只剩进程身份生成（instanceID）/store 打开/Assemble/
+  StartSubsystems 一行调用/HTTP 面接线。资源注册顺序（store→poll-leader→worker
+  →refresher→comments→http，逆序关闭：HTTP 先停→评论排水→worker 排水 60s→
+  选主让位→关库）与全部 ticker 名/日志/启用判断逐字保留，行为零变化。
+- **架构意义**：v3.48.0 收敛 service 构造时遗留的"组合根分裂"（周期性子系统仍
+  在 main 组装）就此闭环——ARCHITECTURE.md「组合根单点」不变量首次全量成立，
+  main 与文件头自述「只做进程生命周期」一致。
+- 门禁：make arch + go vet + 全量测试 + golden 68 绿。
+
+## v3.62.0 (2026-09-30) — 十四轮：可执行架构守卫 + 架构地图（分层纪律进门禁）
+
+- **新增 test/arch（make arch）**：分层纪律从口头约定变成 go test 门禁——
+  ① TestLayering：32 个 internal 包的依赖方向钉成封闭允许集（layering 白名单，
+  当前实现事实快照），任何依赖方向变更必须先改白名单=架构变更在 diff 里显式
+  可见、可评审、可回滚；② TestBootstrapNotImported：组合根单向性（被反向依赖
+  即装配职责泄漏）；③ TestPackageDocs：包文档完整性（每包 doc comment 必填，
+  domain 在途迁移暂缓）。Makefile 新增 arch 目标。
+- **新增 ARCHITECTURE.md**：分层图/依赖规则表/六条架构不变量（契约单源/消费侧
+  窄接口/适配器单向/组合根单点/观测旁路/数据防线上移）/守卫说明。三文档分工：
+  design=设计契约、architecture-deep-dive=演进分析、本文件=当前分层事实（与
+  test/arch 互为镜像，不一致以能跑的为准）。
+- **依赖图勘察结论**（守卫的白名单来源）：channel/mcpserver 零 internal 依赖
+  （Core/Copilot/ReviewQA 消费侧窄接口，service 由 main 注入）；storage 零依赖
+  plugin（PrintStore 域接口迁移完成态）；config→learning 为 v3.47.0 配置派生
+  单源刻意设计；obs→plugin 为钩子接线（L4 无 prometheus 依赖）。
+- dream 包注释规范化（Package 前缀 + 紧贴 package 子句，此前 .Doc 为空）。
+- 门禁：make arch + 全量测试 + golden 68 绿。
+
 ## v3.61.0 (2026-09-30) — 十三轮：超长函数三批清偿（共识/反思/R1/R3/SDKCtx/Render/runReview）
 
 - **RunConsensus 178行 → 三方法**：resolveConsensusMembers（成员解析+同序占位
