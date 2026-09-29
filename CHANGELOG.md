@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.57.0 (2026-09-28) — 🏆 行内评论全链路打通（四层根因终局 + 215 实测 3 条 position 行内落地）
+
+- **sdkctx 通用平台分支补 Logger 注入**（f17b403）：GitLab/Gitea 走的
+  provider 构造点此前漏注入（awk 去重误删），SDK 告警全进 noop 黑洞——
+  靠重新接通的日志才定位到最终级根因。
+- **deps：go-git-platform v0.65.0→v0.66.0**（2d2497f，diff 感知行内定位）：
+  GitLab CreateReview 拉 MR diffs 构建 per-file new→old 行映射——hunk 内行
+  精确 position（上下文行自动补推导的 old_line，服务端据此生成 line_code）；
+  非 hunk 行降级 file 级 position（评论挂 diff 视图文件下，不 400）；文件
+  不在 diff 则跳过。根因=模型行号是 get_file 全文行号，GitLab position 只
+  认 hunk 内的行（400 "must be a valid line code"）。
+- **215 终验实锤**（obs/demo-insights-agent#144，v3.56.0-215 含 v0.66.0）：
+  GitLab 首次出现 3 条带 position 的行内 discussions——text 精确行×2
+  （new_line:181/182 + 推导 old_line:182/183）、file 级×1（3171 不在 hunk
+  按设计降级），零 400 零 skipped；同轮评论正文带「上轮已提出，仍成立」
+  （v3.52.0 跨轮注入同轮生效）。四层根因链（路径前缀→SDK 丢 Comments→
+  vendor 旧拷贝→行号语义）全部闭环。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.56.0 (2026-09-28) — 九轮：r3Tools 249 行拆分 + prompt 校准实验（A/B 负结果记档）
 
 - **r3Tools 249 行拆分为五方法**（纯迁移零行为变更，全部注释保留）：
