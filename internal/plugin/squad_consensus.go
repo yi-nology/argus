@@ -69,41 +69,25 @@ type consensusMember struct {
 	skipped   string // 非空 = 全程未执行（预算/熔断/解析失败）
 }
 
+// consensusEnv 单成员 Act 执行环境（闭包捕获集显式化）。taskCtx 是任务级
+// context——teardown 判定（取消/终止≠插件故障）用的是它而非 actCtx（成员自身
+// 超时派生），二者刻意区分。
+type consensusEnv struct {
+	task    Task
+	squad   string
+	budget  *TokenBudget
+	boardFP map[string]bool
+	st      *consensusMember
+	name    string
+	taskCtx context.Context
+}
+
 // RunConsensus 召集一个 consensus 编队：黑板种子 → 成员轮转互看 → 共识收敛，
 // 返回按成员归属拆分的 Outcome（进 Merger 走既有合并管线）。
 func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, budget *TokenBudget) []Outcome {
-	// 成员解析：注册且启用（与 Select 的编队段同语义——不受仓库 use/disable 约束）；
-	// 声明重复的成员名只保留首个。
-	var members []*consensusMember
-	var outcomes []Outcome
-	seen := map[string]bool{}
-	for _, n := range sq.Members {
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		reg, ok := d.reg.Get(n)
-		o := Outcome{Name: n}
-		if ok {
-			o.Manifest = reg.Manifest
-		}
-		if !ok || !reg.Enabled {
-			o.SkippedReason = "未注册或未启用"
-			outcomes = append(outcomes, o)
-			continue
-		}
-		members = append(members, &consensusMember{reg: reg})
-		// Outcome 顺序与成员声明序一致（占位，收尾回填）
-		outcomes = append(outcomes, o)
-	}
-	if len(members) < 2 {
-		if len(members) == 1 {
-			// 单成员无互看价值：降级注明，退回独立执行语义由调用方决定——这里
-			// 直接按共识流程跑一轮（行为正确，只是没有"互看"对象）。
-			d.log.Warn("argus.squad.consensus_single_member", "squad", sq.Name)
-		} else {
-			return outcomes
-		}
+	members, outcomes := d.resolveConsensusMembers(sq)
+	if len(members) == 0 {
+		return outcomes
 	}
 
 	board := blackboard.NewBoard()
@@ -111,13 +95,7 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 	d.log.Info("argus.squad.consensus_start", "squad", sq.Name, "members", len(members))
 	start := time.Now()
 
-	// 名字 → outcomes 下标（收尾回填）
-	idxByName := map[string]int{}
-	for i := range outcomes {
-		idxByName[outcomes[i].Name] = i
-	}
-
-	// 名字 → 成员状态（Act 闭包经此回写）
+	// 名字 → 成员状态（Act 经 env 携带回写）
 	stateByName := map[string]*consensusMember{}
 	for _, m := range members {
 		stateByName[m.reg.Manifest.Name] = m
@@ -129,84 +107,12 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 	specialists := make([]blackboard.Specialist, 0, len(members))
 	for _, m := range members {
 		name := m.reg.Manifest.Name
+		env := &consensusEnv{task: task, squad: sq.Name, budget: budget,
+			boardFP: boardFP, st: stateByName[name], name: name, taskCtx: ctx}
 		specialists = append(specialists, blackboard.Specialist{
 			Name: name,
 			Act: func(actCtx context.Context, b *blackboard.Board, since int64) (bool, error) {
-				st := stateByName[name]
-				// 预算门（锁定插件豁免语义不适用——编队成员无 lock 概念）
-				if budget != nil && budget.Remaining() <= 0 {
-					st.skipped = "任务 token 预算耗尽"
-					b.Write(name, boardKindNote, "预算耗尽，本轮跳过")
-					return false, nil
-				}
-				// 熔断门（Allow 后必然配对一次 Success/Failure/Abandon）
-				if !d.breakers.Allow(name) {
-					st.skipped = "熔断中"
-					b.Write(name, boardKindNote, "熔断中，本轮跳过")
-					return false, nil
-				}
-
-				// 逐轮重建任务副本：黑板增量视图注入 Artifacts（map 必须拷贝，
-				// 防成员间/跨轮互相污染外层 task）
-				t := task
-				t.Budget = budget
-				t.Artifacts = copyArtifacts(task.Artifacts)
-				if t.Artifacts == nil {
-					t.Artifacts = map[string]string{}
-				}
-				t.Artifacts[ArtifactSquadBoard] = renderBoardView(b.EntriesAfter(since))
-
-				timeout := m.reg.Manifest.Timeout
-				if timeout <= 0 {
-					timeout = 120 * time.Second
-				}
-				cctx, cancel := context.WithTimeout(actCtx, timeout)
-				defer cancel()
-
-				invStart := d.Now()
-				res, err := safeInvoke(cctx, m.reg.Plugin, t)
-				dur := d.Now().Sub(invStart)
-				obsPluginDuration(name, dur)
-				if err != nil {
-					st.lastErr = err
-					if teardown(err, ctx) {
-						// 任务级取消/终止不是插件故障：不计熔断连续失败（与
-						// Dispatcher.Run 同语义）——否则优雅停机打断共识时每个
-						// 成员各记一次 Failure，连续 3 次滚动发布即误熔断
-						// security 类成员（v3.9.1）。结果未知也不计成功——
-						// Abandon 释放半开探测位（v0.10.4 配对契约）。
-						d.breakers.Abandon(name)
-						d.log.Warn("argus.squad.consensus_member_canceled", "squad", sq.Name,
-							"member", name, "error", err.Error())
-					} else {
-						d.breakers.Failure(name)
-						ReportPluginFailure(name)
-						d.log.Error("argus.squad.consensus_member_failed", "squad", sq.Name,
-							"member", name, "error", logredact.Redact(err.Error()))
-					}
-					// 黑板条目会渲染进其他成员的提示词（ArtifactSquadBoard）——
-					// acpx 类错误内嵌 stderr 原文，必须整条脱敏（同凭证泄漏 P0 教训）。
-					b.Write(name, boardKindNote, "执行失败: "+logredact.Redact(err.Error()))
-					return false, nil
-				}
-				d.breakers.Success(name)
-				st.ran = true
-
-				// 指纹差分：只把新发现写上黑板（成员自述的重复报告在此拦下）
-				added := 0
-				for _, f := range res.Findings {
-					fp := Fingerprint(f.File, f.Comment, f.Line)
-					if boardFP[fp] {
-						continue
-					}
-					boardFP[fp] = true
-					b.Write(name, boardKindFinding, findingBoardLine(f))
-					st.collected = append(st.collected, f)
-					added++
-				}
-				d.log.Info("argus.squad.consensus_member_round", "squad", sq.Name,
-					"member", name, "new_findings", added, "duration_ms", dur.Milliseconds())
-				return added > 0, nil
+				return d.consensusAct(env, actCtx, b, since)
 			},
 		})
 	}
@@ -229,8 +135,135 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 			"hint", "全员未贡献（预算/熔断/失败），非共识收敛")
 	}
 
-	// 收尾回填 Outcome：有发现 → Result；执行失败 → Err（Notes 渲染降级注明）；
-	// 全程未执行 → SkippedReason；跑了但零新发现 → 空 Result（参与过，计入 PluginsRun）
+	fillConsensusOutcomes(members, outcomes)
+	return outcomes
+}
+
+// resolveConsensusMembers 成员解析：注册且启用（与 Select 的编队段同语义——不受
+// 仓库 use/disable 约束）；声明重复的成员名只保留首个。返回成员状态与同序占位
+// outcomes（未注册成员的 SkippedReason 已填）。单成员告警（无互看对象，仍按共识
+// 流程跑——行为正确）；零成员时 outcomes 即最终结果。
+func (d *Dispatcher) resolveConsensusMembers(sq SquadDecl) ([]*consensusMember, []Outcome) {
+	var members []*consensusMember
+	var outcomes []Outcome
+	seen := map[string]bool{}
+	for _, n := range sq.Members {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		reg, ok := d.reg.Get(n)
+		o := Outcome{Name: n}
+		if ok {
+			o.Manifest = reg.Manifest
+		}
+		if !ok || !reg.Enabled {
+			o.SkippedReason = "未注册或未启用"
+			outcomes = append(outcomes, o)
+			continue
+		}
+		members = append(members, &consensusMember{reg: reg})
+		// Outcome 顺序与成员声明序一致（占位，收尾回填）
+		outcomes = append(outcomes, o)
+	}
+	if len(members) == 1 {
+		// 单成员无互看价值：降级注明，退回独立执行语义由调用方决定——这里
+		// 直接按共识流程跑一轮（行为正确，只是没有"互看"对象）。
+		d.log.Warn("argus.squad.consensus_single_member", "squad", sq.Name)
+	}
+	return members, outcomes
+}
+
+// consensusAct 单成员单轮黑板行动：预算/熔断门 → 注入黑板增量视图 → 调用插件 →
+// 结果指纹差分写回黑板。返回 true = 本轮有新贡献。成员失败转黑板 note 不中止整轮。
+func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
+	b *blackboard.Board, since int64) (bool, error) {
+	st, name := env.st, env.name
+	// 预算门（锁定插件豁免语义不适用——编队成员无 lock 概念）
+	if env.budget != nil && env.budget.Remaining() <= 0 {
+		st.skipped = "任务 token 预算耗尽"
+		b.Write(name, boardKindNote, "预算耗尽，本轮跳过")
+		return false, nil
+	}
+	// 熔断门（Allow 后必然配对一次 Success/Failure/Abandon）
+	if !d.breakers.Allow(name) {
+		st.skipped = "熔断中"
+		b.Write(name, boardKindNote, "熔断中，本轮跳过")
+		return false, nil
+	}
+
+	// 逐轮重建任务副本：黑板增量视图注入 Artifacts（map 必须拷贝，
+	// 防成员间/跨轮互相污染外层 task）
+	t := env.task
+	t.Budget = env.budget
+	t.Artifacts = copyArtifacts(env.task.Artifacts)
+	if t.Artifacts == nil {
+		t.Artifacts = map[string]string{}
+	}
+	t.Artifacts[ArtifactSquadBoard] = renderBoardView(b.EntriesAfter(since))
+
+	timeout := st.reg.Manifest.Timeout
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	cctx, cancel := context.WithTimeout(actCtx, timeout)
+	defer cancel()
+
+	invStart := d.Now()
+	res, err := safeInvoke(cctx, st.reg.Plugin, t)
+	dur := d.Now().Sub(invStart)
+	obsPluginDuration(name, dur)
+	if err != nil {
+		st.lastErr = err
+		if teardown(err, env.taskCtx) {
+			// 任务级取消/终止不是插件故障：不计熔断连续失败（与
+			// Dispatcher.Run 同语义）——否则优雅停机打断共识时每个
+			// 成员各记一次 Failure，连续 3 次滚动发布即误熔断
+			// security 类成员（v3.9.1）。结果未知也不计成功——
+			// Abandon 释放半开探测位（v0.10.4 配对契约）。
+			d.breakers.Abandon(name)
+			d.log.Warn("argus.squad.consensus_member_canceled", "squad", env.squad,
+				"member", name, "error", err.Error())
+		} else {
+			d.breakers.Failure(name)
+			ReportPluginFailure(name)
+			d.log.Error("argus.squad.consensus_member_failed", "squad", env.squad,
+				"member", name, "error", logredact.Redact(err.Error()))
+		}
+		// 黑板条目会渲染进其他成员的提示词（ArtifactSquadBoard）——
+		// acpx 类错误内嵌 stderr 原文，必须整条脱敏（同凭证泄漏 P0 教训）。
+		b.Write(name, boardKindNote, "执行失败: "+logredact.Redact(err.Error()))
+		return false, nil
+	}
+	d.breakers.Success(name)
+	st.ran = true
+
+	// 指纹差分：只把新发现写上黑板（成员自述的重复报告在此拦下）
+	added := 0
+	for _, f := range res.Findings {
+		fp := Fingerprint(f.File, f.Comment, f.Line)
+		if env.boardFP[fp] {
+			continue
+		}
+		env.boardFP[fp] = true
+		b.Write(name, boardKindFinding, findingBoardLine(f))
+		st.collected = append(st.collected, f)
+		added++
+	}
+	d.log.Info("argus.squad.consensus_member_round", "squad", env.squad,
+		"member", name, "new_findings", added, "duration_ms", dur.Milliseconds())
+	return added > 0, nil
+}
+
+// fillConsensusOutcomes 收尾回填 Outcome：有发现 → Result；执行失败 → Err（Notes
+// 渲染降级注明）；全程未执行 → SkippedReason；跑了但零新发现 → 空 Result（参与过，
+// 计入 PluginsRun）。
+func fillConsensusOutcomes(members []*consensusMember, outcomes []Outcome) {
+	// 名字 → outcomes 下标（收尾回填）
+	idxByName := map[string]int{}
+	for i := range outcomes {
+		idxByName[outcomes[i].Name] = i
+	}
 	for _, m := range members {
 		i := idxByName[m.reg.Manifest.Name]
 		o := &outcomes[i]
@@ -247,7 +280,6 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 			o.Result = &Result{}
 		}
 	}
-	return outcomes
 }
 
 // anyConsensusContribution 是否有成员真正贡献过发现（区分真收敛与全员无法贡献）。

@@ -93,75 +93,11 @@ func Render(r Report) string {
 	b.WriteString("\n## 📋 Argus 需求复核报告")
 
 	if r.ShowCompliance {
-		src := r.ReqSource
-		if src == "" {
-			src = "未关联"
-		}
-		fmt.Fprintf(&b, "（需求源: %s）\n", fence.EscapeUntrusted(src))
-
-		done, total := complianceProgress(r.ACs)
-		switch {
-		case total == 0:
-			b.WriteString("\n\n### 验收清单完成度\n\n**无验收清单（需求模糊或未关联，需人工确认）**\n")
-		default:
-			icon := "✅"
-			if done < total {
-				icon = "⚠️"
-				for _, ac := range r.ACs {
-					if ac.Status == plugin.ACMissing || ac.Status == plugin.ACPartial {
-						icon = "⛔"
-						break
-					}
-				}
-			}
-			fmt.Fprintf(&b, "\n\n### 验收清单完成度: %d/%d %s\n", done, total, icon)
-			for _, ac := range r.ACs {
-				detail := ac.Evid
-				if detail == "" {
-					detail = "—"
-				}
-				fmt.Fprintf(&b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID,
-					fence.EscapeUntrusted(ac.Text), ac.Status, fence.EscapeUntrusted(detail))
-			}
-		}
-
-		if len(r.ScopeCreep) > 0 {
-			b.WriteString("\n### ⚠️ 需求外改动（scope creep）\n")
-			for _, sc := range r.ScopeCreep {
-				fmt.Fprintf(&b, "- %s: %s\n", fence.EscapeUntrusted(sc.File), fence.EscapeUntrusted(sc.Note))
-			}
-		}
+		renderCompliance(&b, r)
 	}
 
 	if len(r.Findings) > 0 {
-		b.WriteString("\n### 🔍 代码审查意见\n")
-		for _, f := range r.Findings {
-			by := f.By
-			if by == "" {
-				by = "argus"
-			}
-			// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）。
-			// 必须用 merger 写定的入库指纹 f.FP（prints 表身份）；终稿文本已被
-			// 复现/R3.5 标注改写，重算必漂移——漂移短码让"最需要抑制的条目"
-			// 恰好无法抑制（v3.8.0 修复）。零值回退仅兜底未经 merger 的测试桩。
-			fp := f.FP
-			if fp == "" {
-				fp = plugin.Fingerprint(f.File, f.Comment, f.Line)
-			}
-			fp = fp[:8]
-			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
-			comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
-			if ann := plugin.SamplesAnnotation(f); ann != "" {
-				comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
-			}
-			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
-				fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
-				fence.EscapeUntrusted(by), fp)
-			if f.SuggestedFix != "" {
-				fix := fence.EscapeUntrusted(f.SuggestedFix)
-				fmt.Fprintf(&b, "  \n  **建议修复：**\n  ```\n  %s\n  ```\n", strings.ReplaceAll(fix, "\n", "\n  "))
-			}
-		}
+		renderFindings(&b, r)
 	}
 
 	if len(r.Degraded) > 0 {
@@ -187,20 +123,99 @@ func Render(r Report) string {
 	b.WriteString("\n")
 
 	if r.Meta {
-		meta := fmt.Sprintf("task `%s` · 插件: %s · 耗时 %ds · tokens %d",
-			r.TaskID, strings.Join(r.Plugins, ","), int(r.Elapsed.Seconds()), r.Tokens)
-		if r.CostUSD > 0 {
-			meta += fmt.Sprintf(" · 成本 ≈ $%.4f", r.CostUSD)
-		}
-		fmt.Fprintf(&b, "\n> %s\n", meta)
-		if r.CrossReview != "" {
-			fmt.Fprintf(&b, "> 🤝 交叉审查：%s\n", fence.EscapeUntrusted(r.CrossReview))
-		}
-		if r.Suppressed > 0 {
-			fmt.Fprintf(&b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)
-		}
+		renderMeta(&b, r)
 	}
 	return b.String()
+}
+
+// renderCompliance 验收清单完成度节（含 scope creep）。
+func renderCompliance(b *strings.Builder, r Report) {
+	src := r.ReqSource
+	if src == "" {
+		src = "未关联"
+	}
+	fmt.Fprintf(b, "（需求源: %s）\n", fence.EscapeUntrusted(src))
+
+	done, total := complianceProgress(r.ACs)
+	switch {
+	case total == 0:
+		b.WriteString("\n\n### 验收清单完成度\n\n**无验收清单（需求模糊或未关联，需人工确认）**\n")
+	default:
+		icon := "✅"
+		if done < total {
+			icon = "⚠️"
+			for _, ac := range r.ACs {
+				if ac.Status == plugin.ACMissing || ac.Status == plugin.ACPartial {
+					icon = "⛔"
+					break
+				}
+			}
+		}
+		fmt.Fprintf(b, "\n\n### 验收清单完成度: %d/%d %s\n", done, total, icon)
+		for _, ac := range r.ACs {
+			detail := ac.Evid
+			if detail == "" {
+				detail = "—"
+			}
+			fmt.Fprintf(b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID,
+				fence.EscapeUntrusted(ac.Text), ac.Status, fence.EscapeUntrusted(detail))
+		}
+	}
+
+	if len(r.ScopeCreep) > 0 {
+		b.WriteString("\n### ⚠️ 需求外改动（scope creep）\n")
+		for _, sc := range r.ScopeCreep {
+			fmt.Fprintf(b, "- %s: %s\n", fence.EscapeUntrusted(sc.File), fence.EscapeUntrusted(sc.Note))
+		}
+	}
+}
+
+// renderFindings 代码审查意见节（指纹短码 + 多行 comment 缩进续行 + 建议修复块）。
+func renderFindings(b *strings.Builder, r Report) {
+	b.WriteString("\n### 🔍 代码审查意见\n")
+	for _, f := range r.Findings {
+		by := f.By
+		if by == "" {
+			by = "argus"
+		}
+		// 指纹短码：/findings/suppress 可按 fp 直达（反馈闭环，§3.3）。
+		// 必须用 merger 写定的入库指纹 f.FP（prints 表身份）；终稿文本已被
+		// 复现/R3.5 标注改写，重算必漂移——漂移短码让"最需要抑制的条目"
+		// 恰好无法抑制（v3.8.0 修复）。零值回退仅兜底未经 merger 的测试桩。
+		fp := f.FP
+		if fp == "" {
+			fp = plugin.Fingerprint(f.File, f.Comment, f.Line)
+		}
+		fp = fp[:8]
+		// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
+		comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
+		if ann := plugin.SamplesAnnotation(f); ann != "" {
+			comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
+		}
+		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
+			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
+			fence.EscapeUntrusted(by), fp)
+		if f.SuggestedFix != "" {
+			fix := fence.EscapeUntrusted(f.SuggestedFix)
+			fmt.Fprintf(b, "  \n  **建议修复：**\n  ```\n  %s\n  ```\n", strings.ReplaceAll(fix, "\n", "\n  "))
+		}
+	}
+}
+
+// renderMeta 元信息尾注节（耗时/成本/交叉审查/抑制计数）。
+func renderMeta(b *strings.Builder, r Report) {
+	meta := fmt.Sprintf("task `%s` · 插件: %s · 耗时 %ds · tokens %d",
+		r.TaskID, strings.Join(r.Plugins, ","), int(r.Elapsed.Seconds()), r.Tokens)
+	if r.CostUSD > 0 {
+		meta += fmt.Sprintf(" · 成本 ≈ $%.4f", r.CostUSD)
+	}
+	fmt.Fprintf(b, "\n> %s\n", meta)
+	if r.CrossReview != "" {
+		fmt.Fprintf(b, "> 🤝 交叉审查：%s\n", fence.EscapeUntrusted(r.CrossReview))
+	}
+	if r.Suppressed > 0 {
+		fmt.Fprintf(b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)
+	}
 }
 
 // complianceProgress 统计达成数（implemented 计为达成；partial/missing/unverifiable 不计）。

@@ -98,64 +98,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 	for name, pc := range cfg.Platforms {
 		// GitHub App 认证：三者全配时优先于 PAT
 		if name == "github" && pc.GitHubAppEnabled() {
-			tokenMgr := &appTokenManager{}
-			// 首次获取 token 并构造 provider
-			token, expires, err := generateInstallationToken(
-				pc.GitHubAppID, pc.GitHubAppPrivateKey, pc.GitHubAppInstallationID)
-			if err != nil {
-				log.Error("argus.githubapp.init_failed", "error", err.Error())
-				continue
-			}
-			tokenMgr.set(token)
-			p, err := provider.NewProvider(provider.Config{
-				Platform:    provider.PlatformGitHub,
-				BaseURL:     pc.BaseURL,
-				Token:       token,
-				SkipTLS:     pc.SkipTLS,
-				TokenStyle:  pc.TokenStyle,
-				RetryConfig: retry,
-				Logger:      log,
-			})
-			if err != nil {
-				log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
-				continue
-			}
-			s.provs[name] = p
-
-			// 启动后台刷新：token 过期时重建 provider 替换到 map
-			refresher := newGitHubAppRefresher(pc, log, func(newToken string) {
-				if newP, err := provider.NewProvider(provider.Config{
-					Platform:    provider.PlatformGitHub,
-					BaseURL:     pc.BaseURL,
-					Token:       newToken,
-					SkipTLS:     pc.SkipTLS,
-					TokenStyle:  pc.TokenStyle,
-					RetryConfig: retry,
-					Logger:      log,
-				}); err == nil {
-					s.provsMu.Lock()
-					s.provs[name] = newP
-					s.provsMu.Unlock()
-					tokenMgr.set(newToken)
-				} else {
-					log.Error("argus.githubapp.rebuild_provider_failed", "error", err.Error())
-				}
-			})
-			refresher.initWithToken(token, expires)
-			tokenMgr.refresh = refresher
-			s.appTokens = tokenMgr
-
-			// 启动后台刷新循环（非阻塞；GoSafe 防 Start 期 panic 拖垮进程——
-			// v3.9.2 收编，Stop 经 main 的 AddResource 停机序列调用）
-			async.GoSafe(func() {
-				if err := refresher.Start(); err != nil {
-					log.Error("argus.githubapp.refresher_start_failed", "error", err.Error())
-				}
-			})
-
-			log.Info("argus.sdkctx.platform_ready", "platform", name,
-				"auth", "github_app", "app_id", pc.GitHubAppID,
-				"expires_at", expires.Format(time.RFC3339))
+			s.initGitHubApp(name, pc, retry, log)
 			continue
 		}
 
@@ -171,15 +114,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 			log.Warn("argus.sdkctx.skip_tls", "platform", name,
 				"hint", "已跳过 TLS 证书校验（内网自建实例），请勿在公网环境开启")
 		}
-		p, err := provider.NewProvider(provider.Config{
-			Platform:    provider.Platform(name),
-			BaseURL:     pc.BaseURL,
-			Token:       pc.Token,
-			SkipTLS:     pc.SkipTLS,
-			TokenStyle:  pc.TokenStyle,
-			RetryConfig: retry,
-			Logger:      log,
-		})
+		p, err := newProviderFor(name, pc, pc.Token, retry, log)
 		if err != nil {
 			// 平台不可达不阻塞启动（学习期/内网常态）；readyz 与请求期报错可见
 			log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
@@ -189,6 +124,73 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 		log.Info("argus.sdkctx.platform_ready", "platform", name)
 	}
 	return s, nil
+}
+
+// newProviderFor 平台 provider 构造单一出处（PAT / GitHub App / App 刷新重建三路共用）。
+func newProviderFor(name string, pc config.PlatformConfig, token string,
+	retry *provider.RetryConfig, log logx.Logger) (provider.Provider, error) {
+	platform := provider.Platform(name)
+	if name == "github" && pc.GitHubAppEnabled() {
+		platform = provider.PlatformGitHub
+	}
+	return provider.NewProvider(provider.Config{
+		Platform:    platform,
+		BaseURL:     pc.BaseURL,
+		Token:       token,
+		SkipTLS:     pc.SkipTLS,
+		TokenStyle:  pc.TokenStyle,
+		RetryConfig: retry,
+		Logger:      log,
+	})
+}
+
+// initGitHubApp GitHub App 认证初始化：installation token 获取 → provider 构造 →
+// 后台 50min 刷新循环（过期时重建 provider 原子替换）。初始化失败仅告警跳过（该
+// 平台不可用，不阻塞其他平台）。
+func (s *SDKCtx) initGitHubApp(name string, pc config.PlatformConfig,
+	retry *provider.RetryConfig, log logx.Logger) {
+	tokenMgr := &appTokenManager{}
+	// 首次获取 token 并构造 provider
+	token, expires, err := generateInstallationToken(
+		pc.GitHubAppID, pc.GitHubAppPrivateKey, pc.GitHubAppInstallationID)
+	if err != nil {
+		log.Error("argus.githubapp.init_failed", "error", err.Error())
+		return
+	}
+	tokenMgr.set(token)
+	p, err := newProviderFor(name, pc, token, retry, log)
+	if err != nil {
+		log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
+		return
+	}
+	s.provs[name] = p
+
+	// 启动后台刷新：token 过期时重建 provider 替换到 map
+	refresher := newGitHubAppRefresher(pc, log, func(newToken string) {
+		if newP, err := newProviderFor(name, pc, newToken, retry, log); err == nil {
+			s.provsMu.Lock()
+			s.provs[name] = newP
+			s.provsMu.Unlock()
+			tokenMgr.set(newToken)
+		} else {
+			log.Error("argus.githubapp.rebuild_provider_failed", "error", err.Error())
+		}
+	})
+	refresher.initWithToken(token, expires)
+	tokenMgr.refresh = refresher
+	s.appTokens = tokenMgr
+
+	// 启动后台刷新循环（非阻塞；GoSafe 防 Start 期 panic 拖垮进程——
+	// v3.9.2 收编，Stop 经 main 的 AddResource 停机序列调用）
+	async.GoSafe(func() {
+		if err := refresher.Start(); err != nil {
+			log.Error("argus.githubapp.refresher_start_failed", "error", err.Error())
+		}
+	})
+
+	log.Info("argus.sdkctx.platform_ready", "platform", name,
+		"auth", "github_app", "app_id", pc.GitHubAppID,
+		"expires_at", expires.Format(time.RFC3339))
 }
 
 // RegisterProvider 测试/e2e 注入口：覆盖某平台的 provider（fake 后端）。

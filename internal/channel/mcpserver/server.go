@@ -186,21 +186,13 @@ func getReportTool() mcp.Tool {
 
 // runReview 建任务 →（可选）轮询至终态 → 结构化结论。
 func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind string) (*mcp.CallToolResult, error) {
-	platform, err := req.RequireString("platform")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	owner, err := req.RequireString("owner")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	repo, err := req.RequireString("repo")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	number, err := req.RequireString("number")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	argv := map[string]string{}
+	for _, k := range []string{"platform", "owner", "repo", "number"} {
+		v, err := req.RequireString(k)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		argv[k] = v
 	}
 	wait := true
 	if b, ok := req.GetArguments()["wait"].(bool); ok {
@@ -216,7 +208,7 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 		timeout = maxWaitTimeout
 	}
 
-	created, code := core.CreateTaskDirect(ctx, kind, platform, owner, repo, number, nil)
+	created, code := core.CreateTaskDirect(ctx, kind, argv["platform"], argv["owner"], argv["repo"], argv["number"], nil)
 	if code != http.StatusOK {
 		return mcp.NewToolResultError(fmt.Sprintf("创建任务失败（HTTP %d），检查平台是否接入/参数是否合法", code)), nil
 	}
@@ -225,7 +217,12 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 		b, _ := json.Marshal(map[string]any{"task_id": taskID, "status": created.Status})
 		return mcp.NewToolResultText(string(b)), nil
 	}
+	return pollReviewTask(ctx, core, taskID, timeout), nil
+}
 
+// pollReviewTask 轮询任务至终态或超时：done/failed/stale 即刻返回；deadline 后
+// 返回当前态+提示。自适应退避：1 分钟后轮询间隔从 2s 拉长到 5s，减少 DB 压力。
+func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.Duration) *mcp.CallToolResult {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
 	adaptiveAfter := time.Now().Add(1 * time.Minute) // 1 分钟后拉长轮询间隔
@@ -234,56 +231,53 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 	for {
 		t, code := core.GetTask(ctx, taskID)
 		if code != http.StatusOK {
-			return mcp.NewToolResultError(fmt.Sprintf("查询任务失败（HTTP %d）", code)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("查询任务失败（HTTP %d）", code))
 		}
 		switch t.Status {
 		case "done":
-			out := map[string]any{
-				"task_id": t.TaskId, "status": t.Status,
-			}
-			if t.Verdict != nil {
-				out["verdict"] = *t.Verdict
-			}
-			if t.Report != nil {
-				out["report"] = *t.Report
-			}
-			b, _ := json.MarshalIndent(out, "", "  ")
-			return mcp.NewToolResultText(string(b)), nil
+			return renderTerminalTask(t, "verdict")
 		case "failed":
 			reason := ""
 			if t.FailReason != nil {
 				reason = *t.FailReason
 			}
-			return mcp.NewToolResultError("审查失败: " + reason), nil
+			return mcp.NewToolResultError("审查失败: " + reason)
 		case "stale":
-			out := map[string]any{
-				"task_id": t.TaskId, "status": t.Status,
-				"note": "审查完成但已有更新的提交，报告未回帖（staleness）",
-			}
-			if t.Report != nil {
-				out["report"] = *t.Report
-			}
-			b, _ := json.MarshalIndent(out, "", "  ")
-			return mcp.NewToolResultText(string(b)), nil
+			return renderTerminalTask(t, "note")
 		}
 		if time.Now().After(deadline) {
 			b, _ := json.Marshal(map[string]any{
 				"task_id": taskID, "status": t.Status,
 				"note": "等待超时，任务仍在执行；稍后用 get_report 查询",
 			})
-			return mcp.NewToolResultText(string(b)), nil
+			return mcp.NewToolResultText(string(b))
 		}
-		// 自适应退避：1 分钟后轮询间隔从 2s 拉长到 5s，减少 DB 压力
 		if time.Now().After(adaptiveAfter) && pollInterval < 5*time.Second {
 			pollInterval = 5 * time.Second
 			ticker.Reset(pollInterval)
 		}
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("调用方取消"), nil
+			return mcp.NewToolResultError("调用方取消")
 		case <-ticker.C:
 		}
 	}
+}
+
+// renderTerminalTask done/stale 终态的结构化输出（verdict/report 必带，note 按态填写）。
+func renderTerminalTask(t *api.GetTaskResponse, noteField string) *mcp.CallToolResult {
+	out := map[string]any{"task_id": t.TaskId, "status": t.Status}
+	if t.Verdict != nil {
+		out["verdict"] = *t.Verdict
+	}
+	if t.Report != nil {
+		out["report"] = *t.Report
+	}
+	if noteField == "note" {
+		out["note"] = "审查完成但已有更新的提交，报告未回帖（staleness）"
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	return mcp.NewToolResultText(string(b))
 }
 
 // maxWaitTimeout review_pr 等待终态的时长上界。
