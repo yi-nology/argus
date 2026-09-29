@@ -575,6 +575,11 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
   （成本经 obsx/费率记账可见）；
 - remote 插件仅实装协议子集（a2a/mcp 的审查调用面），完整 agent 间互操作待需求驱动。
 
+
+## 十一、安全与贡献
+
+漏洞报告与支持范围见 [SECURITY.md](SECURITY.md)；本地门禁与改动准则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ---
 
 *设计文档：[design.md](design.md) · 试点手册：[PILOT.md](PILOT.md) · 部署：[deploy/README.md](deploy/README.md) · 变更记录：[CHANGELOG.md](CHANGELOG.md)*

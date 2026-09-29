@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.66.1 (2026-09-30) — 治理面：SECURITY/CONTRIBUTING + 依赖漏洞扫描
+
+- **SECURITY.md**：私密披露渠道、支持范围（仅最新主干）、威胁模型概览（LLM 输出不可信、
+  验签+防重放、token 脱敏、header token_mode）。
+- **CONTRIBUTING.md**：本地门禁四连（test/lint/arch/eval）与 CI 完全一致、根因修复准则、
+  可观测性随行、命名双语规范。
+- **govulncheck 全量扫描**：cmd 全家 0 可达漏洞（1 个未调用的导入包漏洞，记档待升级窗口）。
+- README 增「十一、安全与贡献」回环链接。
+
+
 ## v3.65.0 (2026-09-30) — 领域模型叶子包收口：domain 抽取 + service/runner 拆分（+481/−1244）
 
 - **internal/domain 叶子包**：Finding（含 FP/Samples 身份语义）、PrintState、
