@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/plugin"
+	"argus/internal/domain"
 )
 
 // 信号往返：Posted 累加；Regret/Suppress 压低置信度；Restore 回抬。
@@ -13,7 +13,7 @@ func TestPatternSignalsLifecycle(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	at := time.Now().UTC()
-	f := plugin.Finding{File: "a.go", Line: 3, Severity: "low", Comment: "未检查 error 返回"}
+	f := domain.Finding{File: "a.go", Line: 3, Severity: "low", Comment: "未检查 error 返回"}
 
 	// 创建 + Posted
 	if err := s.PatternPosted(ctx, "gitea", "acme", "app", "security", f, at); err != nil {
@@ -69,8 +69,8 @@ func TestListLowConfidencePatternsFilters(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	at := time.Now().UTC()
-	fLow := plugin.Finding{Comment: "建议提取常量"}
-	fHigh := plugin.Finding{Comment: "存在空指针解引用风险"}
+	fLow := domain.Finding{Comment: "建议提取常量"}
+	fHigh := domain.Finding{Comment: "存在空指针解引用风险"}
 
 	// 低置信：samples=4, regret2+suppress1
 	for i := 0; i < 2; i++ {
@@ -85,7 +85,7 @@ func TestListLowConfidencePatternsFilters(t *testing.T) {
 	}
 
 	// 小样本负控：只有 1 次 posted，minSamples=3 时不得出现
-	_ = s.PatternPosted(ctx, "gitea", "acme", "app", "cli", plugin.Finding{Comment: "仅一次"}, at)
+	_ = s.PatternPosted(ctx, "gitea", "acme", "app", "cli", domain.Finding{Comment: "仅一次"}, at)
 
 	list, err := s.ListLowConfidencePatterns(ctx, "gitea", "acme", "app", 3, 0.35, 10)
 	if err != nil {

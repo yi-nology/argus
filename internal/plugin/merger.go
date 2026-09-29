@@ -11,41 +11,15 @@ import (
 	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
+	"argus/internal/domain"
 	"argus/internal/learning"
 )
 
-// PrintStore 指纹持久化的最小接口（由 storage.Store 实现；Merger 不 import storage，
-// 避免 plugin ↔ storage 循环依赖）。
-type PrintStore interface {
-	// GetPrintState 返回既有指纹状态；不存在返回 (nil, nil)。
-	GetPrintState(ctx context.Context, platform, owner, repo, number, fingerprint string) (*PrintState, error)
-	// UpsertPrint 跨轮次合并入库；返回该指纹当前是否 suppressed（true 时本轮报告剔除该条）。
-	UpsertPrint(ctx context.Context, platform, owner, repo, number, fingerprint string,
-		f Finding, taskID string, at time.Time) (suppressed bool, err error)
-}
-
-// PatternStore 模式级学习环读写接口（由 storage.Store 实现）。
-// LearningEnabled=false 时 Merger/Runner 全部旁路，可为 nil。
-// 模式数学与状态投影（PatternKey/Confidence/learning.PatternState 等）在 internal/learning。
-type PatternStore interface {
-	// ListLowConfidencePatterns 拉取本仓库低于 maxConfidence 且样本 ≥ minSamples 的模式。
-	ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
-		minSamples int, maxConfidence float64, limit int) ([]learning.PatternState, error)
-	// PatternPosted 意见进入报告后记账。
-	PatternPosted(ctx context.Context, platform, owner, repo, pluginName string, f Finding, at time.Time) error
-}
-
-// PrintState 既有指纹状态。
-type PrintState struct {
-	Status      string // open | suppressed
-	Line        int
-	Severity    string
-	TimesSeen   int
-	RegretCount int // 历史被 R3.5 反思剔除次数（误报历史）
-	// Comment 入库原文（任何展示标注之前）——模式记账键（PatternKey 由评语
-	// 派生）的权威来源；下游 regret 记账用它对齐 PatternPosted 的键。
-	Comment string
-}
+// PrintStore / PatternStore 持久化契约住在 internal/domain（storage 实现、Merger 消费），
+// 此处别名保持既有 API，避免 39 个消费方一次性改引用。
+type PrintStore = domain.PrintStore
+type PatternStore = domain.PatternStore
+type PrintState = domain.PrintState
 
 // MergedFindings Merger 产出。
 type MergedFindings struct {
@@ -151,17 +125,24 @@ func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 	if len(recs) < 2 {
 		return
 	}
+	// 按文件分桶：分歧判定只在同文件内两两比对，免全量 O(n²)（大编队多意见时）。
+	byFile := map[string][]rec{}
+	for _, r := range recs {
+		byFile[r.file] = append(byFile[r.file], r)
+	}
 	disagreed := 0
 	for _, a := range recs {
 		// 条目自身已聚合多专家（Merge 合并，bys≥2）= 意见一致，无分歧可言
 		replicated := len(a.bys) >= 2
-		for _, b := range recs {
-			if a.idx == b.idx || sharesAny(a.bys, b.bys) || a.file != b.file {
-				continue
-			}
-			if abs(a.line-b.line) <= 5 {
-				replicated = true
-				break
+		if !replicated {
+			for _, b := range byFile[a.file] {
+				if a.idx == b.idx || sharesAny(a.bys, b.bys) {
+					continue
+				}
+				if abs(a.line-b.line) <= 5 {
+					replicated = true
+					break
+				}
 			}
 		}
 		if !replicated {
@@ -193,12 +174,14 @@ func (m *Merger) AnnotateLowConfidence(ctx context.Context, pr PRContext, mf *Me
 		return
 	}
 	const mark = "（本仓库同类意见历史置信度低）"
+	lowIdx := patternIndex(low, m.learn.MinSamples)
 	for i := range mf.Findings {
 		f := &mf.Findings[i]
 		if strings.Contains(f.Comment, mark) {
 			continue
 		}
-		if hit := matchLowPattern(low, *f, m.learn.MinSamples, m.learn.SoftFloor); hit != nil {
+		pkey := learning.PatternKey(learning.FirstBy(f.By), f.Comment)
+		if hit := lookupLow(lowIdx, pkey, m.learn.SoftFloor); hit != nil {
 			f.Comment += mark
 		}
 	}
@@ -314,17 +297,27 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 	}
 
 	// 跨轮次入库与抑制过滤
-	// 学习环：一次性拉本仓库低置信模式（HardFloor），供丢弃与标注共用
-	var lowPatterns []learning.PatternState
+	// 学习环：一次性拉本仓库低置信模式（HardFloor），供丢弃与标注共用；
+	// 建 key 索引后循环内 O(1) 查表（原 matchLowPattern 为 O(n·m) 线扫 + 每条
+	// finding 重算 PatternKey，意见多的 PR 在热路径上）。
+	var lowIdx map[string]*learning.PatternState
 	if m.learn.Enabled && m.patterns != nil {
 		ps, err := m.patterns.ListLowConfidencePatterns(ctx, pr.Platform, pr.Owner, pr.Repo,
 			m.learn.MinSamples, m.learn.SoftFloor, 0)
 		if err != nil {
 			m.log.Warn("argus.merger.pattern_list_failed", "error", err.Error())
 		} else {
-			lowPatterns = ps
+			lowIdx = patternIndex(ps, m.learn.MinSamples)
 		}
 	}
+	// 先归一化 By 并批量入库：整批共用一次 writeMu（SQLite 多意见 PR 显著降锁竞争），
+	// 返回逐条 Prior/suppressed，后续学习环与展示标注在同一趟消费。
+	type pending struct {
+		f   Finding
+		res domain.PrintUpsertResult
+	}
+	batch := make([]domain.PrintUpsert, 0, len(order))
+	pendings := make([]pending, 0, len(order))
 	for _, a := range order {
 		f := a.finding
 		if len(a.bys) > 1 { // 多插件报了同一问题：by 按合并发生序拼接展示
@@ -333,27 +326,28 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			// 学习历史（误报模式跨插件串门）。
 			f.By = joinNames(a.byOrder)
 		}
-		// 跨轮历史查询（GetPrintState 此前只有接口与实现、无调用方——接线于此）：
-		// 复现次数与 regret（被 R3.5 反思剔除次数）作为可信度信号。
-		var prior *PrintState
-		if m.store != nil {
-			if ps, err := m.store.GetPrintState(ctx,
-				pr.Platform, pr.Owner, pr.Repo, pr.Number, a.fp); err != nil {
-				m.log.Warn("argus.merger.print_state_failed", "error", err.Error())
-			} else {
-				prior = ps
+		batch = append(batch, domain.PrintUpsert{FP: a.fp, Finding: f})
+		pendings = append(pendings, pending{f: f})
+	}
+	if m.store != nil && len(batch) > 0 {
+		results := m.store.UpsertPrints(ctx,
+			pr.Platform, pr.Owner, pr.Repo, pr.Number, taskID, at, batch)
+		for i := range pendings {
+			if i < len(results) {
+				pendings[i].res = results[i]
 			}
 		}
-		if m.store != nil {
-			suppressed, err := m.store.UpsertPrint(ctx,
-				pr.Platform, pr.Owner, pr.Repo, pr.Number, a.fp, f, taskID, at)
-			if err != nil {
-				m.log.Error("argus.merger.print_upsert_failed", "error", err.Error())
-			} else if suppressed {
-				out.Suppressed++
-				continue
-			}
+	}
+	for _, p := range pendings {
+		f, res := p.f, p.res
+		if res.Err != nil {
+			m.log.Error("argus.merger.print_upsert_failed", "error", res.Err.Error())
+		} else if res.Suppressed {
+			out.Suppressed++
+			continue
 		}
+		// 跨轮历史（批量入库返回的 Prior）：复现次数与 regret 作可信度信号。
+		prior := res.Prior
 		// 学习环记账/匹配的权威评语（v3.9.1）：跨轮既有条目以 prints 行原文为
 		// 准——轮内合并拼接（"（X 同位置补充）…"）发生在 acc.finding 上，而条目
 		// 指纹=首见评语的指纹，内存文本会偏离历史模式行的键；新条目用本轮文本
@@ -364,11 +358,16 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		}
 		probe := f
 		probe.Comment = patternComment
+		// PatternKey 整轮只算一次（规范化+哈希是热路径），Hard/Soft 两闸共用。
+		var pkey string
+		if m.learn.Enabled {
+			pkey = learning.PatternKey(learning.FirstBy(f.By), patternComment)
+		}
 
 		// 学习环硬闸门：样本充足且置信度低于 HardFloor 的 low 条目直接丢弃。
 		// medium/high 不丢——误杀代价不对称（design D4）。
 		if m.learn.Enabled && f.Severity == SeverityLow {
-			if hit := matchLowPattern(lowPatterns, probe, m.learn.MinSamples, m.learn.HardFloor); hit != nil {
+			if hit := lookupLow(lowIdx, pkey, m.learn.HardFloor); hit != nil {
 				out.Degraded = append(out.Degraded, fmt.Sprintf(
 					"学习环抑制：%s/%s（模式置信度 %.2f）", hit.Plugin, truncateText(hit.PatternText, 40), hit.Confidence))
 				// 记 posted 以外：被闸门吃掉不记 posted，避免抬高置信度
@@ -389,7 +388,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		// 匹配同样基于权威评语 probe；标注恒在记账/匹配之后（错账见上，
 		// v3.9.0 审查修复确立的不变量）。
 		if m.learn.Enabled {
-			if hit := matchLowPattern(lowPatterns, probe, m.learn.MinSamples, m.learn.SoftFloor); hit != nil {
+			if hit := lookupLow(lowIdx, pkey, m.learn.SoftFloor); hit != nil {
 				f.Comment += "（本仓库同类意见历史置信度低）"
 			}
 		}
@@ -426,14 +425,27 @@ func abs(n int) int {
 	return n
 }
 
-// matchLowPattern 用 finding 的 plugin+comment 键在低置信列表中找匹配。
-// samples < minSamples 或 confidence ≥ floor 时返回 nil（小样本/未够低不消费）。
-func matchLowPattern(low []learning.PatternState, f Finding, minSamples int, floor float64) *learning.PatternState {
-	key := learning.PatternKey(learning.FirstBy(f.By), f.Comment)
+// patternIndex 把低置信模式列表建成 key → *PatternState 索引（仅保留够样本的项）。
+func patternIndex(low []learning.PatternState, minSamples int) map[string]*learning.PatternState {
+	if len(low) == 0 {
+		return nil
+	}
+	idx := make(map[string]*learning.PatternState, len(low))
 	for i := range low {
-		if low[i].Pattern == key && low[i].Samples >= minSamples && low[i].Confidence < floor {
-			return &low[i]
+		if low[i].Samples >= minSamples {
+			idx[low[i].Pattern] = &low[i]
 		}
+	}
+	return idx
+}
+
+// lookupLow 按 Pattern 键查低置信索引；confidence ≥ floor 时返回 nil（未够低不消费）。
+func lookupLow(idx map[string]*learning.PatternState, key string, floor float64) *learning.PatternState {
+	if idx == nil || key == "" {
+		return nil
+	}
+	if hit := idx[key]; hit != nil && hit.Confidence < floor {
+		return hit
 	}
 	return nil
 }

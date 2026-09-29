@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.65.0 (2026-09-30) — 领域模型叶子包收口：domain 抽取 + service/runner 拆分（+481/−1244）
+
+- **internal/domain 叶子包**：Finding（含 FP/Samples 身份语义）、PrintState、
+  PrintUpsert/PrintUpsertResult、PrintStore/PatternStore 持久化契约与
+  Fingerprint/severity 词表（委托 agentkit/reportutil 单源）上移为跨层共享域模型；
+  `plugin.Finding = domain.Finding` 类型别名 + 常量转发保持既有 API 不变。
+- **解除 storage→plugin 分层倒置**：storage 实现改指 domain.PrintState/契约，
+  不再为拿 Finding/PrintState 导入插件运行时；Merger 经 domain.PrintStore 解耦，
+  与 ARCHITECTURE.md 登记的 L0 域类型分层对齐。
+- **service 三分拆分**：service.go 只留装配/HTTP/任务面；评论闭环
+  （parseCommentMeta/HandleComment/suppress/QA）归 service_comment.go，
+  webhook 分发归 service_webhook.go。
+- **runner 注入面独立**：OCR delegate/SAST/CodeGraph 注入器与 diff 辅助
+  （parseHunkLines/renderTouchedSymbols 等）拆到 inject.go，主编排
+  Execute/run/finalize 留 runner.go。
+- 门禁：build + vet + staticcheck + gofmt + 全量测试（含 -race、golden 69、e2e）绿。
+
+
 ## v3.64.0 (2026-09-30) — 十六轮：重复代码收口——八处克隆单源化（+212/−255）
 
 - **截断尾注单源**：6 处手写 `TruncRunes+"…（截断）"` 改 `textutil.TruncNote`

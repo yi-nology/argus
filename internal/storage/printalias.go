@@ -17,7 +17,7 @@ import (
 	akreportutil "git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
 
-	"argus/internal/plugin"
+	"argus/internal/domain"
 )
 
 // PrintAlias 别名映射：alias_fp（某轮出现的新措辞指纹）→ print_fp（既有条目的
@@ -95,7 +95,7 @@ func resolveAliasFP(tx *gorm.DB, platform, owner, repo, number, fingerprint stri
 //
 // 返回 nil 表示无近重复；exact=true 表示走的是完全同评语通道（调用方可据此
 // 让行号跟随新值，行内评论位置不漂移）。
-func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f plugin.Finding) (*FindingPrint, bool, error) {
+func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.Finding) (*FindingPrint, bool, error) {
 	// 不在 SQL 层限行距：exact 通道必须看到行号超窗的同评语行（行号漂移场景）；
 	// 同 PR 同文件条目规模小（试点 <50），Limit(200) 足够，分级在内存做。
 	var rows []FindingPrint
@@ -155,7 +155,7 @@ func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, nu
 			fp = best.Print
 			return tx.Save(best).Error
 		}
-		fp = plugin.Fingerprint(file, comment, 0)
+		fp = domain.Fingerprint(file, comment, 0)
 		p := FindingPrint{
 			Platform: platform, Owner: owner, Repo: repo, Number: number,
 			Print: fp,
@@ -185,7 +185,7 @@ func (s *Store) migratePrintFingerprintsV2(ctx context.Context) (migrated int, e
 	groups := map[groupKey][]FindingPrint{}
 	order := []groupKey{}
 	for _, r := range rows {
-		nv := plugin.Fingerprint(r.File, r.Comment, r.Line)
+		nv := domain.Fingerprint(r.File, r.Comment, r.Line)
 		k := groupKey{r.Platform + "/" + r.Owner + "/" + r.Repo + "/" + r.Number, nv}
 		if _, seen := groups[k]; !seen {
 			order = append(order, k)
@@ -251,7 +251,7 @@ func (s *Store) migratePrintFingerprintsV2(ctx context.Context) (migrated int, e
 		migrated += len(g) - 1
 	}
 	for _, r := range rows {
-		nv := plugin.Fingerprint(r.File, r.Comment, r.Line)
+		nv := domain.Fingerprint(r.File, r.Comment, r.Line)
 		if nv == r.Print {
 			continue
 		}

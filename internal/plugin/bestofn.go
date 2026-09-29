@@ -82,10 +82,10 @@ func aggregateSamples(n, k int, results []Result) Result {
 
 	groups := reportutil.Aggregate(findings,
 		func(f Finding) []string {
-			return []string{
-				"fp:" + Fingerprint(f.File, f.Comment, f.Line),
-				"nc:" + f.File + "|" + reportutil.NormalizeComment(f.Comment),
-			}
+			// FingerprintNorm 一次规范化同时给出指纹与规范评语，免同一评语
+			// 跑两遍 NormalizeComment（best-of-N 聚簇热路径）。
+			fp, norm := FingerprintNorm(f.File, f.Comment, f.Line)
+			return []string{"fp:" + fp, "nc:" + f.File + "|" + norm}
 		},
 		func(a, b Finding) bool { return linesCompatible(a.Line, b.Line) },
 	)

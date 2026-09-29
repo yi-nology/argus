@@ -13,7 +13,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"argus/internal/plugin"
+	"argus/internal/domain"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -279,14 +279,14 @@ func TestStaleness(t *testing.T) {
 func TestPrintUpsert(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	f := plugin.Finding{File: "a.go", Line: 10, Severity: "high", Comment: "SQL 注入"}
+	f := domain.Finding{File: "a.go", Line: 10, Severity: "high", Comment: "SQL 注入"}
 	now := time.Now()
 
 	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", "fp1", f, "t1", now)
 	if err != nil || suppressed {
 		t.Fatalf("首次入库: suppressed=%v err=%v", suppressed, err)
 	}
-	f2 := plugin.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "SQL 注入"}
+	f2 := domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "SQL 注入"}
 	suppressed, err = s.UpsertPrint(ctx, "gitea", "acme", "app", "7", "fp1", f2, "t2", now)
 	if err != nil || suppressed {
 		t.Fatalf("二次应为 open: %v %v", suppressed, err)

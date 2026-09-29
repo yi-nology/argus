@@ -7,7 +7,7 @@ import (
 
 	akseverity "git.example.com/enjoydream/agentkit/reportutil"
 
-	"argus/internal/plugin"
+	"argus/internal/domain"
 )
 
 // suppress → restore 全往返 + 负控（不存在前缀 / 前缀歧义）。
@@ -17,7 +17,7 @@ func TestRestorePrint_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now().UTC()
 	fp := "abcdef1234567890"
-	f := plugin.Finding{File: "a.go", Line: 10, Severity: "warn", Comment: "问题甲"}
+	f := domain.Finding{File: "a.go", Line: 10, Severity: "warn", Comment: "问题甲"}
 
 	// 首次 suppress 库中尚无该指纹：预插 suppressed，matched=false（文档语义）。
 	matched, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "12", fp, f, at)
@@ -68,18 +68,18 @@ func TestUpsertPrint_NearDuplicateWordingMerges(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	at := time.Now()
-	v2a := plugin.Fingerprint("a.go", "这里存在SQL注入风险", 10)
+	v2a := domain.Fingerprint("a.go", "这里存在SQL注入风险", 10)
 
 	// 第一轮：原始措辞
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", v2a,
-		plugin.Finding{File: "a.go", Line: 10, Severity: "high", Comment: "这里存在SQL注入风险", By: "security"},
+		domain.Finding{File: "a.go", Line: 10, Severity: "high", Comment: "这里存在SQL注入风险", By: "security"},
 		"t1", at); err != nil {
 		t.Fatal(err)
 	}
 	// 第二轮：措辞漂移（精确未命中 → 近重复并入）
-	drifted := plugin.Fingerprint("a.go", "拼接 SQL 存在注入风险！", 11)
+	drifted := domain.Fingerprint("a.go", "拼接 SQL 存在注入风险！", 11)
 	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", drifted,
-		plugin.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "拼接 SQL 存在注入风险！", By: "security"},
+		domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "拼接 SQL 存在注入风险！", By: "security"},
 		"t2", at)
 	if err != nil || suppressed {
 		t.Fatalf("近重复应并入既有条目: suppressed=%v err=%v", suppressed, err)
@@ -90,7 +90,7 @@ func TestUpsertPrint_NearDuplicateWordingMerges(t *testing.T) {
 	}
 	// 第三轮：漂移措辞经别名精确命中
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", drifted,
-		plugin.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "拼接 SQL 存在注入风险！", By: "security"},
+		domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "拼接 SQL 存在注入风险！", By: "security"},
 		"t3", at); err != nil {
 		t.Fatal(err)
 	}
@@ -104,18 +104,18 @@ func TestUpsertPrint_SuppressedNearDuplicateStillDropped(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	at := time.Now()
-	fp := plugin.Fingerprint("a.go", "硬编码密钥", 20)
+	fp := domain.Fingerprint("a.go", "硬编码密钥", 20)
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", fp,
-		plugin.Finding{File: "a.go", Line: 20, Severity: "high", Comment: "硬编码密钥"}, "t1", at); err != nil {
+		domain.Finding{File: "a.go", Line: 20, Severity: "high", Comment: "硬编码密钥"}, "t1", at); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "7", fp,
-		plugin.Finding{File: "a.go", Line: 20, Comment: "硬编码密钥"}, at); err != nil {
+		domain.Finding{File: "a.go", Line: 20, Comment: "硬编码密钥"}, at); err != nil {
 		t.Fatal(err)
 	}
-	drifted := plugin.Fingerprint("a.go", "密钥硬编码在源码中", 21)
+	drifted := domain.Fingerprint("a.go", "密钥硬编码在源码中", 21)
 	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", drifted,
-		plugin.Finding{File: "a.go", Line: 21, Severity: "high", Comment: "密钥硬编码在源码中"}, "t2", at)
+		domain.Finding{File: "a.go", Line: 21, Severity: "high", Comment: "密钥硬编码在源码中"}, "t2", at)
 	if err != nil || !suppressed {
 		t.Fatalf("抑制条目的措辞漂移复现应保持剔除: suppressed=%v err=%v", suppressed, err)
 	}
@@ -126,8 +126,8 @@ func TestSuppressPrintNear_MatchesExisting(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	at := time.Now()
-	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", plugin.Fingerprint("a.go", "goroutine 泄漏未处理", 30),
-		plugin.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "goroutine 泄漏未处理"}, "t1", at); err != nil {
+	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", domain.Fingerprint("a.go", "goroutine 泄漏未处理", 30),
+		domain.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "goroutine 泄漏未处理"}, "t1", at); err != nil {
 		t.Fatal(err)
 	}
 	fp, matched, err := s.SuppressPrintNear(ctx, "gitea", "acme", "app", "7", "a.go", "goroutine 泄漏未处理", at)
@@ -144,15 +144,15 @@ func TestRestorePrint_AliasFallback(t *testing.T) {
 	at := time.Now()
 	orig := "goroutine 泄漏未处理"
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "9",
-		plugin.Fingerprint("a.go", orig, 30),
-		plugin.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: orig}, "t1", at); err != nil {
+		domain.Fingerprint("a.go", orig, 30),
+		domain.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: orig}, "t1", at); err != nil {
 		t.Fatal(err)
 	}
 	// 措辞漂移：新措辞并入既有条目，产生别名
 	drifted := "goroutine 泄漏了却没人处理它"
-	aliasFP := plugin.Fingerprint("a.go", drifted, 31)
+	aliasFP := domain.Fingerprint("a.go", drifted, 31)
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "9", aliasFP,
-		plugin.Finding{File: "a.go", Line: 31, Severity: "medium", Comment: drifted}, "t2", at); err != nil {
+		domain.Finding{File: "a.go", Line: 31, Severity: "medium", Comment: drifted}, "t2", at); err != nil {
 		t.Fatal(err)
 	}
 	// 经别名 suppress（用别名短码直达）
@@ -164,7 +164,7 @@ func TestRestorePrint_AliasFallback(t *testing.T) {
 		t.Fatalf("ResolvePrintRecord 应回原始评语: got %q want %q", rec.Comment, orig)
 	}
 	if _, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "9", rec.Print,
-		plugin.Finding{File: rec.File, Comment: rec.Comment}, at); err != nil {
+		domain.Finding{File: rec.File, Comment: rec.Comment}, at); err != nil {
 		t.Fatal(err)
 	}
 	// 用别名短码 restore（此前 RestorePrint 无别名回退，此处 matched=false 单向门）
@@ -201,7 +201,7 @@ func TestMigratePrintFingerprintsV2_RekeysLegacyRows(t *testing.T) {
 		First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if want := plugin.Fingerprint("a.go", "存量误报意见", 42); row.Print != want {
+	if want := domain.Fingerprint("a.go", "存量误报意见", 42); row.Print != want {
 		t.Fatalf("应重算为 v2 指纹: got %s want %s", row.Print, want)
 	}
 	// 抑制状态与计数原地保留
@@ -247,7 +247,7 @@ func TestMigratePrintFingerprintsV2_CollisionMerges(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("应只剩 1 行，got %d", len(rows))
 	}
-	if rows[0].Print != plugin.Fingerprint("", "", 0) || rows[0].RegretCount != 1 {
+	if rows[0].Print != domain.Fingerprint("", "", 0) || rows[0].RegretCount != 1 {
 		t.Fatalf("合并行指纹/regret 应保留: %+v", rows[0])
 	}
 }
@@ -260,14 +260,14 @@ func TestUpsertPrint_LineDriftBeyondWindow_ExactCommentAbsorbed(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now()
 	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
-		plugin.Fingerprint("a.go", "资源释放缺失", 30),
-		plugin.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "资源释放缺失"}, "t1", at); err != nil {
+		domain.Fingerprint("a.go", "资源释放缺失", 30),
+		domain.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "资源释放缺失"}, "t1", at); err != nil {
 		t.Fatal(err)
 	}
 	// 抑制后行号大幅位移（30 → 40，>±2），同评语复现
 	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
-		plugin.Fingerprint("a.go", "资源释放缺失", 40),
-		plugin.Finding{File: "a.go", Line: 40, Severity: "medium", Comment: "资源释放缺失"}, "t2", at)
+		domain.Fingerprint("a.go", "资源释放缺失", 40),
+		domain.Finding{File: "a.go", Line: 40, Severity: "medium", Comment: "资源释放缺失"}, "t2", at)
 	_ = suppressed
 	if err != nil {
 		t.Fatal(err)
@@ -295,8 +295,8 @@ func TestSuppressPrintNear_PreinsertRecoveredByExactComment(t *testing.T) {
 		t.Fatalf("预插路径 matched 应为 false: %v %v", matched, err)
 	}
 	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "11",
-		plugin.Fingerprint("b.go", "并发写 map 未加锁", 88),
-		plugin.Finding{File: "b.go", Line: 88, Severity: "high", Comment: "并发写 map 未加锁"}, "t2", at)
+		domain.Fingerprint("b.go", "并发写 map 未加锁", 88),
+		domain.Finding{File: "b.go", Line: 88, Severity: "high", Comment: "并发写 map 未加锁"}, "t2", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,17 +322,17 @@ func TestUpsertPrint_SameDriftAcrossPRsNoAliasConflict(t *testing.T) {
 	at := time.Now()
 	base := "这里存在SQL注入风险"
 	drift := "拼接 SQL 存在注入风险！"
-	baseFP := plugin.Fingerprint("a.go", base, 10)
-	driftFP := plugin.Fingerprint("a.go", drift, 11)
+	baseFP := domain.Fingerprint("a.go", base, 10)
+	driftFP := domain.Fingerprint("a.go", drift, 11)
 
 	for _, number := range []string{"7", "8"} {
 		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, baseFP,
-			plugin.Finding{File: "a.go", Line: 10, Severity: "high", Comment: base, By: "security"},
+			domain.Finding{File: "a.go", Line: 10, Severity: "high", Comment: base, By: "security"},
 			"t-base-"+number, at); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, driftFP,
-			plugin.Finding{File: "a.go", Line: 11, Severity: "high", Comment: drift, By: "security"},
+			domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: drift, By: "security"},
 			"t-drift-"+number, at); err != nil {
 			t.Fatalf("PR %s 漂移并入不得因别名主键冲突失败: %v", number, err)
 		}
@@ -384,5 +384,52 @@ func TestMigratePrintAliasPRScope(t *testing.T) {
 		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, a1); err != nil || st == nil || st.Comment != "注入风险" {
 			t.Fatalf("PR %s 应经别名解析到 Fx 行，got %+v err=%v", number, st, err)
 		}
+	}
+}
+
+// TestUpsertPrints_BatchSingleLock 批量入库：逐条独立、Prior 返回入库前状态、
+// suppressed 语义与单条一致。整批共用一次 writeMu（本测试锁语义由实现保证，
+// 此处验证结果正确性）。
+func TestUpsertPrints_BatchSingleLock(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// 预置一条 suppressed，批量里既有既有指纹也有新指纹
+	fpOld := domain.Fingerprint("a.go", "旧问题", 1)
+	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", fpOld,
+		domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题", By: "s1"}, "t0", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "7", fpOld,
+		domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题"}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	fpNew := domain.Fingerprint("b.go", "新问题", 9)
+	res := s.UpsertPrints(ctx, "gitea", "acme", "app", "7", "t1", now.Add(2*time.Second),
+		[]domain.PrintUpsert{
+			{FP: fpOld, Finding: domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题", By: "s1"}},
+			{FP: fpNew, Finding: domain.Finding{File: "b.go", Line: 9, Severity: "low", Comment: "新问题", By: "s2"}},
+		})
+	if len(res) != 2 {
+		t.Fatalf("结果应与输入等长，got %d", len(res))
+	}
+	if res[0].Err != nil || !res[0].Suppressed {
+		t.Fatalf("既有 suppressed 条目应被剔除，got %+v", res[0])
+	}
+	if res[0].Prior == nil || res[0].Prior.TimesSeen != 1 {
+		t.Fatalf("Prior 应为入库前状态（TimesSeen=1），got %+v", res[0].Prior)
+	}
+	if res[1].Err != nil || res[1].Suppressed {
+		t.Fatalf("新条目不应 suppressed，got %+v", res[1])
+	}
+	if res[1].Prior != nil {
+		t.Fatalf("全新指纹 Prior 应为 nil，got %+v", res[1].Prior)
+	}
+	// 新条目已入库
+	st, err := s.GetPrintState(ctx, "gitea", "acme", "app", "7", fpNew)
+	if err != nil || st == nil || st.TimesSeen != 1 {
+		t.Fatalf("新条目应入库 TimesSeen=1，got %+v err=%v", st, err)
 	}
 }

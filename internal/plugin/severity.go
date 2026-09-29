@@ -1,31 +1,23 @@
 package plugin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"strconv"
-
-	akreportutil "git.example.com/enjoydream/agentkit/reportutil"
 	aktextutil "git.example.com/enjoydream/agentkit/textutil"
+
+	"argus/internal/domain"
 )
 
 // severity 词表钉死为 {high, medium, low}（design §3.3）。
-// 实现整体委托 agentkit/severity——Argus 不再自维护克隆（此前双源并存，
-// 本地 glob 版缺 .gitignore 尾随 ** 语义与多字节 ? 支持，已随 v0.7.1 收敛）。
-// Merger 入口统一映射，越界值一律归 low 并由调用方告警（R5.2 真值表依赖此归一化）。
+// 单一来源在 internal/domain（委托 agentkit/reportutil）；本文件只是既有 API 门面。
 const (
-	SeverityHigh   = akreportutil.High
-	SeverityMedium = akreportutil.Medium
-	SeverityLow    = akreportutil.Low
+	SeverityHigh   = domain.SeverityHigh
+	SeverityMedium = domain.SeverityMedium
+	SeverityLow    = domain.SeverityLow
 )
 
 // NormalizeSeverity 把任意写法归一到词表。
 // 第二个返回值=false 表示原值越界（已归为 low，调用方应记录告警）。
-// v3.13.0：外部专家别名词表（P0/fatal/urgent→high 等）下沉 agentkit
-// reportutil.Normalize——此前本包维护别名克隆，多消费方重复实现；收敛后
-// 词表单一来源（本函数保留为 argus 侧 API 门面）。
 func NormalizeSeverity(s string) (string, bool) {
-	return akreportutil.Normalize(s)
+	return domain.NormalizeSeverity(s)
 }
 
 // DegradationMarker 插件在 Result.Notes 里自报"审查降级"的行内标记；
@@ -33,24 +25,19 @@ func NormalizeSeverity(s string) (string, bool) {
 const DegradationMarker = "[审查降级]"
 
 // SeverityRank 排序权重（high > medium > low）。
-func SeverityRank(s string) int { return akreportutil.Rank(s) }
+func SeverityRank(s string) int { return domain.SeverityRank(s) }
 
 // HigherSeverity 返回两者中更严重的级别。
-func HigherSeverity(a, b string) string { return akreportutil.Higher(a, b) }
+func HigherSeverity(a, b string) string { return domain.HigherSeverity(a, b) }
 
-// Fingerprint 意见指纹 v2（file + line + 规范化 comment 的 SHA256 前 16 位）。
-// v3.7.0 起行号入指纹：同文件两处不同位置的同模板意见不再共享跨轮统计
-// （轮内误并已由 merger 行号相容闸门拦截）。措辞漂移的跨轮匹配由 storage 的
-// 近重复匹配层 + 别名表负责（fingerprint v2 消费方必须容忍"精确未命中→近重
-// 复并入"语义，勿自行绕过 UpsertPrint）。
-// 注意：与 agentkit reportutil.Fingerprint（v1，无行号）不同格式——存量行由
-// storage 启动迁移重算（见 storage.migratePrintFingerprintsV2），勿混用两版。
+// Fingerprint 意见指纹 v2。实现住在 internal/domain（storage 与 plugin 共用同一份）。
 func Fingerprint(file, comment string, line int) string {
-	if line < 0 {
-		line = 0
-	}
-	sum := sha256.Sum256([]byte("v2\x1f" + file + "\x1f" + strconv.Itoa(line) + "\x1f" + akreportutil.NormalizeComment(comment)))
-	return hex.EncodeToString(sum[:16])
+	return domain.Fingerprint(file, comment, line)
+}
+
+// FingerprintNorm 一次规范化同时给出指纹与规范化评语（避免双重 NormalizeComment）。
+func FingerprintNorm(file, comment string, line int) (fp, norm string) {
+	return domain.FingerprintNorm(file, comment, line)
 }
 
 // GlobMatch 极简 glob（.gitignore 语义：`web/**` 只匹配目录内部；`?` 按 rune）。

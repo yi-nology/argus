@@ -44,10 +44,11 @@ type fileEntry struct {
 	tf  *token.File
 }
 
-// Index 代码图索引（只读；多 goroutine 并发查询安全——References 惰性扫描
-// 只读 fileEntry，无共享可变状态）。
+// Index 代码图索引（只读；多 goroutine 并发查询安全——refs 与 files 均在
+// NewIndex 建完后冻结，查询侧零共享可变状态）。
 type Index struct {
 	defs  map[string][]Symbol // 小写名 → 定义
+	refs  map[string][]Ref    // 精确标识符 → 出现位置（含定义行，References 查询时剔除）
 	poly  map[string][]PolySymbol
 	files []fileEntry
 	skip  int // 解析失败文件数（坏语法）
@@ -110,8 +111,42 @@ func NewIndex(dir string, maxFiles int) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	idx.buildRefs()
 	idx.poly = scanPolyFiles(dir, maxFiles)
 	return idx, nil
+}
+
+// buildRefs 一次性扫描全部已解析文件，建立 精确标识符 → 出现位置 反向索引。
+// References 原先每次查询都全量 go/scanner 重扫（ReAct 反复查同名时 O(files×tokens)）；
+// 建索引期一次付清，查询侧 O(1) 查表 + 过滤定义行。含定义行，查询时剔除。
+func (x *Index) buildRefs() {
+	x.refs = make(map[string][]Ref, 64)
+	seen := map[string]map[string]bool{} // name → "file:line" 去重
+	var sc scanner.Scanner
+	for _, f := range x.files {
+		sc.Init(f.tf, f.src, nil, 0)
+		for {
+			pos, tok, lit := sc.Scan()
+			if tok == token.EOF {
+				break
+			}
+			if tok != token.IDENT {
+				continue
+			}
+			line := f.tf.Line(pos)
+			key := f.rel + ":" + strconv.Itoa(line)
+			m := seen[lit]
+			if m == nil {
+				m = map[string]bool{}
+				seen[lit] = m
+			}
+			if m[key] {
+				continue
+			}
+			m[key] = true
+			x.refs[lit] = append(x.refs[lit], Ref{File: f.rel, Line: line})
+		}
+	}
 }
 
 // collectDefs 提取顶层 FuncDecl/GenDecl(type/var/const) 定义。
@@ -175,8 +210,9 @@ func (x *Index) Definitions(name string) []Symbol {
 	return x.defs[strings.ToLower(name)]
 }
 
-// References 惰性扫描标识符出现位置（精确大小写——Go 标识符大小写敏感）。
+// References 查标识符出现位置（精确大小写——Go 标识符大小写敏感）。
 // 定义行自身不计入；按行去重；limit 封顶（<=0 = 50）。
+// 走 buildRefs 预建的反向索引：查询 O(1) 查表，不再全量重扫。
 func (x *Index) References(name string, limit int) []Ref {
 	if x == nil || name == "" {
 		return nil
@@ -189,28 +225,14 @@ func (x *Index) References(name string, limit int) []Ref {
 		defLines[s.File+":"+itoa(s.Line)] = true
 	}
 	var out []Ref
-	seen := map[string]bool{}
-	var sc scanner.Scanner
-	for _, f := range x.files {
-		sc.Init(f.tf, f.src, nil, 0)
-		for {
-			pos, tok, lit := sc.Scan()
-			if tok == token.EOF {
-				break
-			}
-			if tok != token.IDENT || lit != name {
-				continue
-			}
-			line := f.tf.Line(pos)
-			key := f.rel + ":" + itoa(line)
-			if defLines[key] || seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, Ref{File: f.rel, Line: line})
-			if len(out) >= limit {
-				return out
-			}
+	for _, r := range x.refs[name] {
+		key := r.File + ":" + itoa(r.Line)
+		if defLines[key] {
+			continue
+		}
+		out = append(out, r)
+		if len(out) >= limit {
+			break
 		}
 	}
 	return out

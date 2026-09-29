@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -152,20 +153,23 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 
 	// L1 microcompact（v3.44.0 轮次组粒度）：按 assistant 轮分组，更早轮的
 	// 工具结果清内容（保最近 keepRecentRounds 轮）；错误/提醒结果保护不清理。
+	// sizes 缓存整趟消息的 rune 数，免每层重复 len([]rune()) 分配（热路径）。
 	out := copyMsgs(msgs)
+	sizes := msgRunes(out)
 	saved, cleared := 0, 0
 	groups := toolGroups(out)
 	if len(groups) > keepRecentRounds {
 		for _, g := range groups[:len(groups)-keepRecentRounds] {
 			for _, i := range g {
-				l := len([]rune(out[i].Content))
+				l := sizes[i]
 				if l <= len(toolPlaceholder) || isProtectedResult(out[i].Content) {
 					continue
 				}
 				cloned := *out[i] // 消息结构克隆替换：浅拷贝切片仍共享元素指针，直改会污染调用方
 				cloned.Content = toolPlaceholder
 				out[i] = &cloned
-				saved += l - len(toolPlaceholder)
+				sizes[i] = utf8.RuneCountInString(toolPlaceholder)
+				saved += l - sizes[i]
 				cleared++
 			}
 		}
@@ -177,6 +181,7 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 		res.Cleared = cleared
 	} else {
 		out = copyMsgs(msgs)
+		sizes = msgRunes(out)
 	}
 
 	// L2 截最长 user 消息（agentkit fitInput 同款：保头尾，TruncNote 留痕）
@@ -184,12 +189,12 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 	if total > limitChars {
 		longest := -1
 		for i, m := range out {
-			if m.Role == schema.User && (longest < 0 || len([]rune(out[i].Content)) > len([]rune(out[longest].Content))) {
+			if m.Role == schema.User && (longest < 0 || sizes[i] > sizes[longest]) {
 				longest = i
 			}
 		}
 		if longest >= 0 {
-			l := len([]rune(out[longest].Content))
+			l := sizes[longest]
 			// 注记余量 32：agentkit fitInput 的 keep 不扣注记开销（截完仍略超限），
 			// 本处两级递进需 L2 后真正入窗，否则 L3 会被这 ~20 rune 噪声无谓触发
 			keep := limitChars - (total - l) - 32
@@ -199,7 +204,9 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 			if keep < l {
 				cloned := *out[longest]
 				cloned.Content = "\n" + textutil.TruncNote(out[longest].Content, keep, truncNote)
-				total -= l - len([]rune(cloned.Content))
+				nl := utf8.RuneCountInString(cloned.Content)
+				total -= l - nl
+				sizes[longest] = nl
 				out[longest] = &cloned
 				truncated = true
 			}
@@ -213,14 +220,14 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 		big := -1
 		for i, m := range out {
 			if m.Role == schema.Tool && !isProtectedResult(m.Content) &&
-				(big < 0 || len([]rune(out[i].Content)) > len([]rune(out[big].Content))) {
+				(big < 0 || sizes[i] > sizes[big]) {
 				big = i
 			}
 		}
 		if big < 0 {
 			break
 		}
-		l := len([]rune(out[big].Content))
+		l := sizes[big]
 		keep := l - (total - limitChars) - 64 // 64：截断注记余量
 		cloned := *out[big]
 		if keep <= 0 {
@@ -228,7 +235,9 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 		} else {
 			cloned.Content = textutil.TruncNote(out[big].Content, keep, truncNote)
 		}
-		total -= l - len([]rune(cloned.Content))
+		nl := utf8.RuneCountInString(cloned.Content)
+		total -= l - nl
+		sizes[big] = nl
 		out[big] = &cloned
 		truncated = true
 	}
@@ -250,9 +259,18 @@ func FitMessages(msgs []*schema.Message, limitChars int) ([]*schema.Message, Fit
 func runeTotal(msgs []*schema.Message) int {
 	n := 0
 	for _, m := range msgs {
-		n += len([]rune(m.Content))
+		n += utf8.RuneCountInString(m.Content)
 	}
 	return n
+}
+
+// msgRunes 一次扫描得到每条消息的 rune 数（FitMessages 多层共享，免重复分配）。
+func msgRunes(msgs []*schema.Message) []int {
+	sizes := make([]int, len(msgs))
+	for i, m := range msgs {
+		sizes[i] = utf8.RuneCountInString(m.Content)
+	}
+	return sizes
 }
 
 // copyMsgs 浅拷贝切片（元素指针复用；修改内容时另行克隆消息结构）。

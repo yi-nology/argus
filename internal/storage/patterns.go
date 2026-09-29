@@ -6,12 +6,13 @@ package storage
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
 
+	"argus/internal/domain"
 	"argus/internal/learning"
-	"argus/internal/plugin"
 )
 
 // PatternSignal 仓库级审查模式信任历史：repo × plugin × pattern_key。
@@ -55,7 +56,7 @@ func (p *PatternSignal) project() learning.PatternState {
 
 // bumpPattern 原子累加一列并刷新 last_seen_at；行不存在则以该信号创建。
 func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginName string,
-	f plugin.Finding, column string, at time.Time) error {
+	f domain.Finding, column string, at time.Time) error {
 	if platform == "" || owner == "" || repo == "" {
 		return nil
 	}
@@ -113,28 +114,28 @@ func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginNa
 }
 
 // PatternPosted 意见进入报告（入库后调用；调用方保证非 suppressed）。
-func (s *Store) PatternPosted(ctx context.Context, platform, owner, repo, pluginName string, f plugin.Finding, at time.Time) error {
+func (s *Store) PatternPosted(ctx context.Context, platform, owner, repo, pluginName string, f domain.Finding, at time.Time) error {
 	return s.bumpPattern(ctx, platform, owner, repo, pluginName, f, "posted", at)
 }
 
 // PatternRegret R3.5 / 证据门剔除该意见。
-func (s *Store) PatternRegret(ctx context.Context, platform, owner, repo, pluginName string, f plugin.Finding, at time.Time) error {
+func (s *Store) PatternRegret(ctx context.Context, platform, owner, repo, pluginName string, f domain.Finding, at time.Time) error {
 	return s.bumpPattern(ctx, platform, owner, repo, pluginName, f, "regret", at)
 }
 
 // PatternSuppress 人工判误报。
-func (s *Store) PatternSuppress(ctx context.Context, platform, owner, repo, pluginName string, f plugin.Finding, at time.Time) error {
+func (s *Store) PatternSuppress(ctx context.Context, platform, owner, repo, pluginName string, f domain.Finding, at time.Time) error {
 	return s.bumpPattern(ctx, platform, owner, repo, pluginName, f, "suppress", at)
 }
 
 // PatternRestore 撤销误抑制。
-func (s *Store) PatternRestore(ctx context.Context, platform, owner, repo, pluginName string, f plugin.Finding, at time.Time) error {
+func (s *Store) PatternRestore(ctx context.Context, platform, owner, repo, pluginName string, f domain.Finding, at time.Time) error {
 	return s.bumpPattern(ctx, platform, owner, repo, pluginName, f, "restore", at)
 }
 
 // ListLowConfidencePatterns 拉取本仓库低于 maxConfidence 且样本量 ≥ minSamples 的模式，
 // 按置信度升序（最不可信在前），limit>0 时截断。消费点：R4 注入 + Merger 闸门。
-// 实现 plugin.PatternStore。
+// 实现 domain.PatternStore。
 func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, repo string,
 	minSamples int, maxConfidence float64, limit int) ([]learning.PatternState, error) {
 	var rows []PatternSignal
@@ -154,20 +155,12 @@ func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, 
 		out = append(out, p)
 	}
 	// 确定性排序：置信度升序，同分按 pattern
-	for i := 0; i < len(out); i++ {
-		for j := i + 1; j < len(out); j++ {
-			swap := false
-			switch {
-			case out[j].Confidence < out[i].Confidence:
-				swap = true
-			case out[j].Confidence == out[i].Confidence && out[j].Pattern < out[i].Pattern:
-				swap = true
-			}
-			if swap {
-				out[i], out[j] = out[j], out[i]
-			}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Confidence != out[j].Confidence {
+			return out[i].Confidence < out[j].Confidence
 		}
-	}
+		return out[i].Pattern < out[j].Pattern
+	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
@@ -300,8 +293,8 @@ func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (int64
 	}
 }
 
-// 编译期：*Store 实现 plugin.PatternStore。
-var _ plugin.PatternStore = (*Store)(nil)
+// 编译期：*Store 实现 domain.PatternStore。
+var _ domain.PatternStore = (*Store)(nil)
 
 // ListAllPatternSignals 全量模式信号（G1c 训练数据导出用；只读，无仓库过滤）。
 func (s *Store) ListAllPatternSignals(ctx context.Context) ([]PatternSignal, error) {

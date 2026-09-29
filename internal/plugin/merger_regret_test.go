@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"argus/internal/domain"
 )
 
 // fakePrintStore 内存版 PrintStore：预置 prior 状态与抑制表，用于 Merger
@@ -26,6 +28,18 @@ func (f *fakePrintStore) GetPrintState(_ context.Context, _, _, _, _, fp string)
 func (f *fakePrintStore) UpsertPrint(_ context.Context, _, _, _, _, fp string,
 	_ Finding, _ string, _ time.Time) (bool, error) {
 	return f.suppressed[fp], nil
+}
+
+func (f *fakePrintStore) UpsertPrints(_ context.Context, _, _, _, _, _ string,
+	_ time.Time, items []domain.PrintUpsert) []domain.PrintUpsertResult {
+	out := make([]domain.PrintUpsertResult, len(items))
+	for i, it := range items {
+		out[i] = domain.PrintUpsertResult{
+			Prior:      f.prior[it.FP],
+			Suppressed: f.suppressed[it.FP],
+		}
+	}
+	return out
 }
 
 func regretTestPR() PRContext {

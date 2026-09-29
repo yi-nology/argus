@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/breaker"
+
+	"argus/internal/domain"
 )
 
 func TestNormalizeSeverity(t *testing.T) {
@@ -162,6 +164,16 @@ func (f *fakeStore) UpsertPrint(_ context.Context, _, _, _, _, fp string, _ Find
 	}
 	f.prints[fp] = "open"
 	return false, nil
+}
+
+func (f *fakeStore) UpsertPrints(_ context.Context, _, _, _, _, _ string,
+	_ time.Time, items []domain.PrintUpsert) []domain.PrintUpsertResult {
+	out := make([]domain.PrintUpsertResult, len(items))
+	for i, it := range items {
+		sup, _ := f.UpsertPrint(context.Background(), "", "", "", "", it.FP, it.Finding, "", time.Now())
+		out[i] = domain.PrintUpsertResult{Suppressed: sup}
+	}
+	return out
 }
 
 func TestMerger(t *testing.T) {
