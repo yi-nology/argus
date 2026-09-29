@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"git.example.com/enjoydream/agentkit/procx"
 	"git.example.com/enjoydream/agentkit/reportutil"
@@ -89,10 +88,8 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 		findings[i].By = p.manifest.Name
 		// finding 文本截断（v3.39.0）：cli stdout 半可信且文本无上限——超长
 		// comment 经 R3.5 反思 wire 与报告进入上下文（条数有封顶、文本此前没有）
-		if rc := utf8.RuneCountInString(findings[i].Comment); rc > findingCommentMaxRunes {
-			t, _ := textutil.TruncRunes(findings[i].Comment, findingCommentMaxRunes)
-			findings[i].Comment = t + "…（截断）"
-		}
+		// 截断留痕尾注经 textutil.TruncNote 单源（v3.64.0）
+		findings[i].Comment = textutil.TruncNote(findings[i].Comment, findingCommentMaxRunes, "截断")
 	}
 	return plugin.Result{Findings: findings}, nil
 }

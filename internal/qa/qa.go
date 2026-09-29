@@ -241,11 +241,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			if md != nil {
 				text = md.RawDiff
 			}
-			if rc := utf8.RuneCountInString(text); rc > 30_000 {
-				var trunc string
-				trunc, _ = textutil.TruncRunes(text, 30_000)
-				text = trunc + "…（截断）"
-			}
+			text = textutil.TruncNote(text, 30_000, "截断")
 			return &diffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
 		})
 	if err != nil {

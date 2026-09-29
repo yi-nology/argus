@@ -46,7 +46,7 @@ func Save(dir string, r Ref, slug, factType, description, body string, at time.T
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ntype: %s\ndescription: %s\nupdated: %s\n---\n\n",
-		sanitize(slug), sanitize(factType), singleLine(description), at.Format(time.RFC3339))
+		sanitize(slug), sanitize(factType), SingleLine(description), at.Format(time.RFC3339))
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteString("\n")
@@ -145,8 +145,8 @@ func sanitize(s string) string {
 	return b.String()
 }
 
-// singleLine 压平换行（description 进单行 frontmatter）。
-func singleLine(s string) string {
+// SingleLine 压平换行（description 进单行 frontmatter）；memory/dream 共用单源（v3.64.0）。
+func SingleLine(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.TrimSpace(s)

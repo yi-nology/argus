@@ -217,9 +217,7 @@ func (w *Workflow) applyR1Guardrails(spec *plugin.RequirementSpec, refs []string
 	}
 	// 单条 AC 文本截断（LLM 偶发把整段原文塞进单条 AC）
 	for i := range spec.ACs {
-		if t, truncated := textutil.TruncRunes(spec.ACs[i].Text, maxACTextRunes); truncated {
-			spec.ACs[i].Text = t + "…（截断）"
-		}
+		spec.ACs[i].Text = textutil.TruncNote(spec.ACs[i].Text, maxACTextRunes, "截断")
 	}
 }
 
@@ -475,15 +473,7 @@ func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tool
 		Model:         reactModel,
 		MaxIterations: maxIterations,
 		ToolsFactory:  toolsFactory,
-	}, query, query+plugin.ReactRetryHint, func(e agentrun.Event) {
-		// 工具轨迹落审计日志（tool_result 只落长度不落内容，防敏感代码入库）
-		switch e.Type {
-		case agentrun.EventToolCall:
-			w.Log.Info("argus.r3.tool_call", "tool", e.Tool)
-		case agentrun.EventToolResult:
-			w.Log.Info("argus.r3.tool_result", "tool", e.Tool, "bytes", len(e.Text))
-		}
-	})
+	}, query, query+plugin.ReactRetryHint, plugin.ToolTraceLogger(w.Log, "argus.r3"))
 }
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。
@@ -601,11 +591,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 			if err != nil {
 				return &getIssueOut{Error: plugin.ReminderNote("tool-error", err.Error())}, nil
 			}
-			body := issue.Body
-			if rc := utf8.RuneCountInString(body); rc > issueMax {
-				body, _ = textutil.TruncRunes(body, issueMax)
-				body += "…（截断）"
-			}
+			body := textutil.TruncNote(issue.Body, issueMax, "截断")
 			// 标题+正文一起进数据区（两者都攻击者可控）
 			return &getIssueOut{Body: DataFence("get_issue 标题与正文（数据）", issue.Title+"\n"+body)}, nil
 		})
@@ -618,10 +604,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 		func(ctx context.Context, _ *emptyIn) (*getDiffOut, error) {
 			if task.Diff != nil {
 				text := task.Diff.Text
-				if rc := utf8.RuneCountInString(text); rc > diffMax {
-					text, _ = textutil.TruncRunes(text, diffMax)
-					text += "…（截断）"
-				}
+				text = textutil.TruncNote(text, diffMax, "截断")
 				return &getDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
 			}
 			return &getDiffOut{Diff: ""}, nil

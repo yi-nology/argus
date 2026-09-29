@@ -22,8 +22,6 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
-
-	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // diffPathDiscipline 注入 diff 数据区前的路径纪律（v3.51.0）：实测模型常以子项目
@@ -242,46 +240,12 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 	}
 
 	r.ensureSkillText(ctx)
-	sys := r.systemPrompt() + guidelinesPrompt(task)
-	if strategy != "" {
-		sys += "\n\n===【工具使用策略】===\n" + strategy
-	}
-	if r.skillText != "" {
-		sys += "\n\n===【审查方法论（skill 注入）】===\n" + r.skillText
-	}
+	sys := r.buildReviewSystem(task, strategy)
+	user := r.buildReviewUser(task) +
+		"\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。"
 
-	var user strings.Builder
-	if task.Diff != nil && task.Diff.Text != "" {
-		user.WriteString(diffPathDiscipline)
-		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
-		user.WriteString("\n")
-	}
-	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
-		user.WriteString(plugin.DataFence("变更摘要", s))
-		user.WriteString("\n")
-	}
-	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
-		// v3.4 编队共识模式：黑板记录同队专家已报告的发现（指令在围栏外，
-		// 围栏内是纯数据——防注入纪律与 change_summary 一致）
-		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
-			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
-		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
-		user.WriteString("\n")
-	}
-	user.WriteString("\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。")
-
-	// 工具轨迹落日志（tool_result 只落长度不落内容）
-	var onEvent func(agentrun.Event)
-	if r.log != nil {
-		onEvent = func(e agentrun.Event) {
-			switch e.Type {
-			case agentrun.EventToolCall:
-				r.log.Info("argus.builtin.tool_call", "plugin", r.manifest.Name, "tool", e.Tool)
-			case agentrun.EventToolResult:
-				r.log.Info("argus.builtin.tool_result", "plugin", r.manifest.Name, "tool", e.Tool, "bytes", len(e.Text))
-			}
-		}
-	}
+	// 工具轨迹落日志（tool_result 只落长度不落内容；单源 ToolTraceLogger）
+	onEvent := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
 
 	// 失败回喂重试一次（副作用守卫默认生效：首轮已调变更类工具不整体重跑）；
 	// 失败后仍交由调用方走 invokeSingle 单轮降级。
@@ -303,16 +267,13 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 			}
 			return t
 		},
-	}, user.String(), user.String()+plugin.ReactRetryHint, onEvent)
+	}, user, user+plugin.ReactRetryHint, onEvent)
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
 	}
 
-	var out struct {
-		Findings []plugin.Finding `json:"findings"`
-		Notes    string           `json:"notes"`
-	}
-	if e := jsonrepair.Unmarshal(final, &out); e != nil {
+	out, e := plugin.DecodeFindingsJSON(final)
+	if e != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 输出解析失败: %w", e)
 	}
 	for i := range out.Findings {
@@ -325,38 +286,15 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.Result, error) {
 	r.ensureSkillText(ctx)
 
-	sys := r.systemPrompt() + guidelinesPrompt(task)
-	if r.skillText != "" {
-		sys += "\n\n===【审查方法论（skill 注入）】===\n" + r.skillText
-	}
-
-	var user strings.Builder
-	if task.Diff != nil && task.Diff.Text != "" {
-		user.WriteString(diffPathDiscipline)
-		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
-		user.WriteString("\n")
-	}
-	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
-		user.WriteString(plugin.DataFence("变更摘要", s))
-		user.WriteString("\n")
-	}
-	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
-		// v3.4 编队共识模式（单轮降级路径同样携带黑板——两路径语义一致）
-		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
-			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
-		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
-		user.WriteString("\n")
-	}
-	user.WriteString("\n请审查以上变更并输出 findings JSON（无问题输出空数组）。")
+	sys := r.buildReviewSystem(task, "")
+	user := r.buildReviewUser(task) +
+		"\n请审查以上变更并输出 findings JSON（无问题输出空数组）。"
 
 	msgs := []*schema.Message{
 		schema.SystemMessage(sys),
-		schema.UserMessage(user.String()),
+		schema.UserMessage(user),
 	}
-	var out struct {
-		Findings []plugin.Finding `json:"findings"`
-		Notes    string           `json:"notes"`
-	}
+	var out plugin.FindingsWire
 	// 计入任务预算：构造期注入的 budget 为 nil（Reviewer 全局单例），任务级
 	// 预算由 Dispatcher.Run 经 Task.Budget 传入——否则 R4 主成本对预算不可见。
 	client := r.llm
@@ -372,6 +310,44 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 		out.Findings[i].By = r.manifest.Name
 	}
 	return plugin.Result{Findings: out.Findings, Notes: out.Notes}, nil
+}
+
+// buildReviewSystem 系统提示词公共段（ReAct/单轮两路径单源，v3.64.0）：人设 +
+// 评审指南 + skill 方法论；strategy 非空时追加工具使用策略（仅 ReAct 路径有）。
+func (r *Reviewer) buildReviewSystem(task plugin.Task, strategy string) string {
+	sys := r.systemPrompt() + guidelinesPrompt(task)
+	if strategy != "" {
+		sys += "\n\n===【工具使用策略】===\n" + strategy
+	}
+	if r.skillText != "" {
+		sys += "\n\n===【审查方法论（skill 注入）】===\n" + r.skillText
+	}
+	return sys
+}
+
+// buildReviewUser 数据区公共段（两路径单源）：diff 围栏（带路径纪律）→ 变更摘要
+// 围栏 → 编队黑板围栏。结尾审查指令由调用方追加（两路径措辞不同）。
+func (r *Reviewer) buildReviewUser(task plugin.Task) string {
+	var user strings.Builder
+	if task.Diff != nil && task.Diff.Text != "" {
+		user.WriteString(diffPathDiscipline)
+		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString("\n")
+	}
+	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
+		user.WriteString(plugin.DataFence("变更摘要", s))
+		user.WriteString("\n")
+	}
+	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
+		// v3.4 编队共识模式：黑板记录同队专家已报告的发现（指令在围栏外，
+		// 围栏内是纯数据——防注入纪律与 change_summary 一致；ReAct 与单轮
+		// 降级两路径语义一致）
+		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
+			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
+		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		user.WriteString("\n")
+	}
+	return user.String()
 }
 
 // guidelinesPrompt 仓库级自定义审查指引（runner 从默认分支读出后放在

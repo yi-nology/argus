@@ -1,6 +1,11 @@
 package plugin
 
-import "time"
+import (
+	"time"
+
+	"git.example.com/enjoydream/agentkit/agentrun"
+	"git.example.com/enjoydream/ekit/observability/logx"
+)
 
 // 观测钩子：本包不直接依赖 prometheus，由 obs 包在装配期注入实现（design §10.1）。
 // 保持 L4 纯逻辑、可在无指标环境（单测）下运行。
@@ -168,3 +173,21 @@ const (
 
 // StageTimeline 阶段时间线的规范顺序（只读词表，消费方勿改写元素；新增阶段在此追加）。
 var StageTimeline = []string{LayerR1, LayerR2, LayerR3, LayerR35, LayerR4, LayerR5}
+
+// ToolTraceLogger agentrun 工具轨迹审计日志（tool_result 只落长度不落内容，防
+// 敏感代码入库；v3.64.0 自 builtin/stages 两处克隆收口）。prefix 决定事件名
+// （<prefix>.tool_call / .tool_result），kv 为附加固定键值（如 plugin 名）。
+// log 为 nil 时返回 nil 闭包（agentrun 侧 nil 安全）。
+func ToolTraceLogger(log logx.Logger, prefix string, kv ...any) func(agentrun.Event) {
+	if log == nil {
+		return nil
+	}
+	return func(e agentrun.Event) {
+		switch e.Type {
+		case agentrun.EventToolCall:
+			log.Info(prefix+".tool_call", append(kv, "tool", e.Tool)...)
+		case agentrun.EventToolResult:
+			log.Info(prefix+".tool_result", append(kv, "tool", e.Tool, "bytes", len(e.Text))...)
+		}
+	}
+}

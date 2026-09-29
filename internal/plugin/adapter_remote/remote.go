@@ -16,8 +16,6 @@ import (
 	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"argus/internal/plugin"
-
-	"git.example.com/enjoydream/agentkit/jsonrepair"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。
@@ -126,9 +124,7 @@ func buildPayload(task plugin.Task, workcopyDir string) (*remotePayload, string,
 		HeadBranch:    task.PR.HeadBranch,
 		ChangeSummary: task.Artifacts[plugin.ArtifactChangeSummary],
 	}
-	if t, truncated := textutil.TruncRunes(p.Body, payloadBodyMaxChars); truncated {
-		p.Body = t + "…（截断）"
-	}
+	p.Body = textutil.TruncNote(p.Body, payloadBodyMaxChars, "截断")
 	p.WorkcopyDir = workcopyDir
 	if task.Diff != nil {
 		p.Diff = task.Diff.Text
@@ -139,11 +135,8 @@ func buildPayload(task plugin.Task, workcopyDir string) (*remotePayload, string,
 
 // parseFindings 从远端响应文本提取 findings JSON（与 builtin 同 schema）。
 func parseFindings(text string) (plugin.Result, error) {
-	var out struct {
-		Findings []plugin.Finding `json:"findings"`
-		Notes    string           `json:"notes"`
-	}
-	if err := jsonrepair.Unmarshal(text, &out); err != nil {
+	out, err := plugin.DecodeFindingsJSON(text)
+	if err != nil {
 		return plugin.Result{}, fmt.Errorf("remote 响应解析失败: %w（原文 %.200s）", err, text)
 	}
 	for i := range out.Findings {

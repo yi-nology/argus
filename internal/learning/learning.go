@@ -149,6 +149,15 @@ type PatternState struct {
 	Samples     int
 }
 
+// SampleText 人读样本：PatternText 缺省时回退 Pattern 键（dream 知识导出/health
+// 报告三处共用单源，v3.64.0）。
+func (p PatternState) SampleText() string {
+	if p.PatternText != "" {
+		return p.PatternText
+	}
+	return p.Pattern
+}
+
 // Config 后悔学习环消费阈值（零值 = 全关）。唯一事实来源是
 // config.Config.LearningConfig() 派生——禁止在消费方手写字面量映射。
 type Config struct {

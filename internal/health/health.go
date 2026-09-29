@@ -92,10 +92,7 @@ func Build(ctx context.Context, store Store, cfg Config) (*Report, error) {
 			rh.Posted += row.Posted
 			rh.Regret += row.Regret
 			rh.Suppress += row.Suppress
-			sample := row.PatternText
-			if sample == "" {
-				sample = row.Pattern
-			}
+			sample := row.SampleText()
 			tip := Tip{Plugin: row.Plugin, Sample: sample, Posted: row.Posted,
 				Regret: row.Regret, Suppress: row.Suppress,
 				Confidence: learning.Confidence(row.Posted, row.Regret, row.Suppress, row.Restore)}

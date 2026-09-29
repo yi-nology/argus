@@ -19,6 +19,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/learning"
@@ -102,7 +103,7 @@ func (d *Dream) dedupRepo(ctx context.Context, r learning.RepoRef, at time.Time)
 	}
 	groups := map[groupKey][]storage.PatternSignal{}
 	for _, row := range rows {
-		prefix := truncateRunes(row.PatternText, DedupPrefixRunes)
+		prefix, _ := textutil.TruncRunes(row.PatternText, DedupPrefixRunes)
 		if prefix == "" {
 			prefix = row.Pattern
 		}
@@ -212,12 +213,10 @@ func writeMemory(dir string, r learning.RepoRef, low []learning.PatternState, at
 		return err
 	}
 	for i, p := range low {
-		sample := p.PatternText
-		if sample == "" {
-			sample = p.Pattern
-		}
+		sample := p.SampleText()
+		sampleHead, _ := textutil.TruncRunes(sample, 80)
 		desc := fmt.Sprintf("[%s] %s（置信度 %.2f，samples=%d）",
-			p.Plugin, singleLine(truncateRunes(sample, 80)), p.Confidence, p.Samples)
+			p.Plugin, memory.SingleLine(sampleHead), p.Confidence, p.Samples)
 		body := fmt.Sprintf("命中类似表述请提高举证标准，无具体行与影响则不要输出。\n\n"+
 			"样本（已消毒）：%s\n\n来源：plugin=%s regret=%d suppress=%d\n",
 			fence.EscapeUntrusted(sample), p.Plugin, p.Regret, p.Suppress)
@@ -226,13 +225,6 @@ func writeMemory(dir string, r learning.RepoRef, low []learning.PatternState, at
 		}
 	}
 	return nil
-}
-
-// singleLine 压平换行（description 进单行 frontmatter）。
-func singleLine(s string) string {
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
 }
 
 // renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。
@@ -260,14 +252,6 @@ func writeLocalKnowledge(dir string, r learning.RepoRef, body string) error {
 	// exportRepo 每周期告警（v3.9.1）。
 	name := plugin.SanitizeFileStem(fmt.Sprintf("dream-%s-%s", r.Owner, r.Repo)) + ".md"
 	return os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
-}
-
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }
 
 func (d *Dream) info(msg string, kv ...any) {
