@@ -1,5 +1,73 @@
 # Changelog
 
+## v3.61.0 (2026-09-30) — 十三轮：超长函数三批清偿（共识/反思/R1/R3/SDKCtx/Render/runReview）
+
+- **RunConsensus 178行 → 三方法**：resolveConsensusMembers（成员解析+同序占位
+  Outcome）/ consensusAct（单成员单轮黑板行动；新增 consensusEnv 结构显式化闭包
+  捕获集——taskCtx（teardown 判定用任务级 ctx）与 actCtx（成员超时派生）刻意
+  区分的语义随结构体注释落档）/ fillConsensusOutcomes（终态回填四分支）。
+- **reflectFindings 177行 → 三方法**：buildReflectInput（DataFence 输入组装）/
+  applyEvidenceGate（strict 剔除记 regret 用改写前原始身份 origFP/origFinding，
+  soft 强制 low+标注）/ reconcileRemoved（Rubric/幻觉 id 剔除对账，指纹去重）。
+- **ParseRequirement 147行 → 两方法**：collectReqSegments（PR 描述 digestMax
+  截断 + issue 拉取 issueMax×8 截断，注记随段留痕）/ applyR1Guardrails（sanitize
+  告警/IssueRefs 回填/截断留痕/空清单兜底/AC 条数上限/单条 AC 截断七道防线）。
+- **CheckCompliance 124行 → 三段**：r3Instruction（系统提示词五段非空追加）/
+  parseAligned 闭包（首试与重试共用 unmarshal+双向对齐+证据门——重试路径此前
+  漏记 checks_dropped/aligned/evidence_downgraded 三条对齐日志，一并补齐）/
+  degradedComplianceReport（全 AC 置 unverifiable）。
+- **NewSDKCtx 100行 → 两方法**：initGitHubApp（installation token 获取→provider
+  构造→50min 后台刷新循环）/ newProviderFor（PAT/GitHub App/App 刷新重建三路
+  provider 构造单源，此前三处克隆 Config 字面量）。
+- **Render 115行 → 三节渲染器**：renderCompliance（完成度+scope creep）/
+  renderFindings（指纹短码+多行缩进+建议修复）/ renderMeta（耗时成本尾注），
+  共享 strings.Builder。
+- **runReview 105行 → 三段**：表驱动 RequireString 四连 / pollReviewTask
+  （轮询+自适应退避）/ renderTerminalTask（done/stale 终态 JSON 组装去重）。
+- 门禁：各批次相关包全测 + golden 68 绿（全量套件因并行会话 storage/domain
+  迁移中间态暂不可跑，见 v3.59.0 同注）。
+
+## v3.60.0 (2026-09-30) — 十二轮：超长函数二批清偿（装配三件套 + Post 拆分）
+
+- **BuildModels 264行 → 主函数 60 行 + 四段命名方法**：buildGenerateChain（主链
+  Client/Resilient 分支+降级 BaseChatModel，fallbackProvider 经返回值传给阶段
+  覆盖段）/ buildStageLLMs（P6 六阶段覆盖）/ wrapFailover（直调出口 Failover
+  包装；ReviewerReact==nil 兜底保持在 Fallback 块外——无降级配置时同样生效，
+  原语义钉住）/ wrapFit（Rate+Fit+Continue 三层包装，fitOnEvent/continueOnEvent/
+  stageWindow/wrapStage 闭包随段内聚）。
+- **BuildRegistry 195行 switch 五 case → 四工厂**：newBuiltinAgent（compliance
+  外壳 vs Reviewer 分流，isCompliance 返回值供主循环收集 skillRefs）/ newCLIAgent /
+  newRemoteAgent / newACPXAgent。cli/remote/acpx 从不 fail-fast（一律停用降级装
+  unavailablePlugin），签名不带 error 更诚实；错误语义注释随函数落档。
+- **Poster.Post 182行 → 编排骨架 + 两方法**：prepareInline（行内候选过滤/路径
+  归一化唯一尾段匹配/严重度排序/max_comments 钳制/评论构造，剔除数写 rep.Degraded）/
+  sendReview（review_posted 库标记短路→平台锚点回退查重 + CreateReview 三级降级
+  阶梯 + MarkReviewPosted；返回行内成功条数——仅首次成功非 0，幂等跳过与降级均 0）。
+- 门禁：bootstrap/poster 全测 + golden 68 绿。
+
+## v3.59.0 (2026-09-30) — 十一轮：死代码/间接层清偿（+66/−128，转义单一出处+hooks 单层化）
+
+- **删零引用面**：Config.MaxCallInputChars（注释声称 llm.fitInput 兜底实为从未
+  接线的遗留）与 Config.EnabledPlatforms（Validate 自行数平台）——二者仅测试
+  自嗨引用，测试断言随删；requirement 包 Kind* 三别名（canonical 自 v3.5.6 上提
+  plugin 后包内零引用）与 adapter_builtin.WorkflowRunner 单向别名（e2e 唯一引用
+  改走 plugin 源头）。
+- **转义单一出处**：删 reportview.EscapeUntrusted 纯转发（13+1 处改直调
+  agentkit/fence.EscapeUntrusted，与 health/dream/service 同一出处，消除"该用
+  哪个"的双名并存）；ReportHeaderHTML 改用 ReportHeaderPrefix 常量拼接——此前
+  常量零参与生成、Sprintf 硬编码同一字面量，构成"改常量不生效"的漂移陷阱。
+- **hooks 双层转发单层化**：ReportPluginFailure/ReportTaskTotal/ReportStageDuration
+  的 nil-guard 并入导出面，删三个 obs* 中转（dispatcher/squad_consensus 包内
+  调用点同改）；obsPluginDuration/obsLLMTokens/obsFindings 保留（包内专用或带
+  额外闸门，无门面冗余）。
+- **prToKey 收口**：adapter_remote/adapter_cli 两份字节级克隆下沉 plugin.PRToKey
+  单源（PRContext→workcopy.WorktreeKey 定位键）。
+- **裁定留痕**：plugin.NewTokenBudget 保留不删——它是 TokenBudget 别名契约的
+  配套构造器，删除会迫使契约读者知道 TokenBudget=llm.Budget，破坏别名封装价值；
+  severity.go 四个一行门面保留（注释明言刻意 API 门面，v3.25.0 在案不翻案）；
+  toolpool.Pool 单实现接口保留（workflow.go 注释暗示预留 mock 缝）。
+- 门禁：相关包全测 + golden 68 绿。
+
 ## v3.58.0 (2026-09-28) — 十轮：超长函数群清偿收官（run 202 行 + Webhook 177 行拆分）
 
 - **run() 拆分四命名子步骤**（顺序即语义，纯迁移零行为变更，注释原样保留）：
