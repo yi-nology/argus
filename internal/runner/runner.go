@@ -425,23 +425,76 @@ func truncRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// run 单任务管线执行体。v3.58.0 拆分为四个命名子步骤（顺序即语义）：
+// prepareContext（PR 上下文/仓库配置/diff/stale 判定）→ buildPluginTask
+// （任务组装 + checkpoint + 各注入）→ recordRegret（学习环记账）→
+// finalizeAndAnnounce（终态落库/sink/marker/播报）。此前 202 行单体是
+// 勘察在案的可读性债（finish/r3Tools 同款清偿）。
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
 	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker) error {
 
-	pr, err := r.buildPRContext(ctx, task)
+	pr, rc, diff, stale, err := r.prepareContext(ctx, task)
 	if err != nil {
 		return err
 	}
+	if stale {
+		return nil // stale 终态已落地
+	}
+
+	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
+
+	var out *requirement.Output
+	switch task.Kind {
+	case plugin.TaskKindRequirementCompliance:
+		out, err = wf.Run(ctx, ptask, budget)
+	default: // code_review / visual_check：R4+R5 only
+		out, err = wf.RunReviewOnly(ctx, ptask, budget)
+	}
+	if err != nil {
+		return err
+	}
+
+	r.recordRegret(ctx, out, pr)
+
+	// 组装报告并回帖（staleness 门控在 poster 内）
+	rep := r.buildReport(task, pr, out, taskCost)
+	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
+	rep.Rule = out.Rule
+	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
+	rep.MaxInlineComments = rc.Review.MaxComments
+
+	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
+	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
+	plugin.ReportLayerExec(plugin.LayerPoster)
+	if err != nil {
+		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
+		plugin.ReportPluginFailure("poster")
+		return fmt.Errorf("回帖失败: %w", err)
+	}
+
+	return r.finalizeAndAnnounce(ctx, task, pr, out, res, rep, diff, start)
+}
+
+// prepareContext PR 上下文与前置判定：平台 API 组装 → 仓库主权配置单次加载 →
+// 增量 diff → stale 判定。stale=true 表示 diff 与上次完全一致、stale 终态已
+// 落地，调用方直接返回；err 非 nil 为真实失败。
+func (r *Runner) prepareContext(ctx context.Context, task *storage.Task) (
+	pr *plugin.PRContext, rc *plugin.RepoConfig, diff *plugin.DiffContext, stale bool, err error) {
+
+	pr, err = r.buildPRContext(ctx, task)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
 	// 仓库主权配置单次加载（v3.15.0）：diff 路径过滤、附加指令、workflow 严重度
 	// 阈值与评论上限共用；加载失败降级为空配置（全默认行为）。
-	rc := r.loadRepoConfig(ctx, pr)
+	rc = r.loadRepoConfig(ctx, pr)
 	diffOpts := argusctx.PrepareOptions{
 		Exclude: rc.Review.ExcludePaths,
 		Include: rc.Review.IncludePaths,
 	}
-	diff, err := r.buildDiffIncremental(ctx, pr, task, diffOpts)
+	diff, err = r.buildDiffIncremental(ctx, pr, task, diffOpts)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 	// 增量审查：diff 与上次完全一致 → 标记 stale，跳过 LLM
 	if diff.NoNewChanges {
@@ -456,11 +509,19 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		}
 		r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
 		plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
-		return nil
+		return pr, rc, diff, true, nil
 	}
 	if task.HeadSHA == "" && pr.HeadSHA != "" {
 		_ = r.Store.SetTaskHeadSHA(ctx, task.ID, pr.HeadSHA)
 	}
+	return pr, rc, diff, false, nil
+}
+
+// buildPluginTask 任务组装与注入：plugin.Task 骨架 → checkpoint 回流/落库钩子 →
+// 仓库指引/附加指令/学习环提示/跨轮一致性 → OCR/SAST/codegraph 前置 →
+// 仓库级行为配置进 workflow。
+func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
+	rc *plugin.RepoConfig, diff *plugin.DiffContext, wf *requirement.Workflow) plugin.Task {
 
 	ptask := plugin.Task{
 		ID:        task.ID,
@@ -527,18 +588,12 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	// 仓库级行为配置进 workflow（v3.15.0）：min_severity 过滤在 finish 内执行；
 	// RepoConfig 非 nil 时 workflow 不再重复加载（省一次 API 往返）。
 	wf.RepoConfig = rc
+	return ptask
+}
 
-	var out *requirement.Output
-	switch task.Kind {
-	case plugin.TaskKindRequirementCompliance:
-		out, err = wf.Run(ctx, ptask, budget)
-	default: // code_review / visual_check：R4+R5 only
-		out, err = wf.RunReviewOnly(ctx, ptask, budget)
-	}
-	if err != nil {
-		return err
-	}
-
+// recordRegret 学习环记账：R3.5 反思剔除的条目分别落指纹级误报历史与模式级
+// regret（失败只告警，不影响主流程）。
+func (r *Runner) recordRegret(ctx context.Context, out *requirement.Output, pr *plugin.PRContext) {
 	// regret 跨轮入库：R3.5 反思剔除的指纹记录误报历史（产出 vs 终审的差值即
 	// regret），后续轮次由 Merger 读取标注可信度。失败只告警，不影响主流程。
 	// RemovedPrints[i] 与 RemovedFindings[i] 按索引一一对应（reflection 组装保证）：
@@ -578,22 +633,13 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 			}
 		}
 	}
+}
 
-	// 组装报告并回帖（staleness 门控在 poster 内）
-	rep := r.buildReport(task, pr, out, taskCost)
-	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
-	rep.Rule = out.Rule
-	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
-	rep.MaxInlineComments = rc.Review.MaxComments
-
-	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
-	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
-	plugin.ReportLayerExec(plugin.LayerPoster)
-	if err != nil {
-		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
-		plugin.ReportPluginFailure("poster")
-		return fmt.Errorf("回帖失败: %w", err)
-	}
+// finalizeAndAnnounce 终态收口：结果落库（fenced）→ debug 留存 → sink 旁路
+// 上报 → start marker 收口 → 终态播报与指标。finish 落库失败返回 error 由
+// 主失败路径接手（task=failed），fenced 则静默返回（写入已被新执行体接管）。
+func (r *Runner) finalizeAndAnnounce(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
+	out *requirement.Output, res *poster.Result, rep reportview.Report, diff *plugin.DiffContext, start time.Time) error {
 
 	resultJSON, _ := json.Marshal(toResultPayload(out, diff.Text))
 	status := storage.StatusDone

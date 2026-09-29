@@ -199,86 +199,13 @@ var crEventWhitelist = map[string]string{
 }
 
 // Webhook 平台 webhook 入口：返回 (IDL 响应体, HTTP 状态码)。
+// Webhook webhook 入口。v3.58.0 拆分为准入防线（webhookAdmission）→ 事件分流
+// （installation/comment/CR）→ CR 过滤链（webhookCRFilter）→ 建任务去重
+// （webhookCreateTask）。§5.1 过滤规则顺序即安全语义，不得重排。
 func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform string) (*api.WebhookResponse, int) {
-	platform, pcfg, ok := s.requirePlatform(platform)
+	ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
 	if !ok {
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("平台未接入: " + platform)}, http.StatusNotFound
-	}
-	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
-	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
-	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
-	if pcfg.Secret == "" {
-		obs.IncrWebhookRejected("no_secret")
-		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
-			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
-		return &api.WebhookResponse{
-			Status: "error",
-			Reason: strPtr("平台 webhook secret 未配置，拒绝服务（配置 " + "ARGUS_" + strings.ToUpper(platform) + "_SECRET 后恢复）"),
-		}, http.StatusServiceUnavailable
-	}
-
-	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
-	// Hertz WithMaxRequestBodySize 作为第二道防线（框架层拦截）。
-	if s.Cfg.WebhookMaxBody > 0 {
-		if cl := string(c.GetHeader("Content-Length")); cl != "" {
-			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
-				obs.IncrWebhookRejected("body_too_large")
-				return &api.WebhookResponse{
-					Status: "error",
-					Reason: strPtr(fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)),
-				}, http.StatusRequestEntityTooLarge
-			}
-		}
-	}
-
-	// 幂等键：在 ParseWebhookEvent 之前从原始请求头取 delivery（§5.2 四轮评审修正）
-	delivery := s.SDK.ExtractDeliveryID(func(key string) string {
-		return string(c.GetHeader(key))
-	})
-
-	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
-	rawBody := c.Request.Body()
-	if len(rawBody) == 0 {
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("读取 body 失败")}, http.StatusBadRequest
-	}
-	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
-	if err != nil {
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("内部请求构造失败")}, http.StatusInternalServerError
-	}
-	c.Request.Header.VisitAll(func(k, v []byte) {
-		httpReq.Header.Add(string(k), string(v))
-	})
-
-	ev, err := s.SDK.ParseWebhook(platform, httpReq, pcfg.Secret)
-	if err != nil {
-		if errors.Is(err, provider.ErrWebhookValidation) {
-			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
-			obs.IncrWebhookRejected("signature")
-			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
-			return &api.WebhookResponse{Status: "error", Reason: strPtr("签名校验失败")}, http.StatusUnauthorized
-		}
-		obs.IncrWebhookRejected("parse")
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("事件解析失败: " + err.Error())}, http.StatusBadRequest
-	}
-
-	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
-	if delivery != "" {
-		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
-			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
-			return &api.WebhookResponse{
-				Status:  "duplicate",
-				Reason:  strPtr("重复投递，命中既有任务"),
-				EventId: strPtr(delivery),
-				TaskId:  strPtr(exist.ID),
-			}, http.StatusOK
-		}
-	}
-
-	skipped := func(reason, why string) (*api.WebhookResponse, int) {
-		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
-		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
-		obs.IncrWebhookSkipped(reason)
-		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(why), EventId: strPtr(delivery)}, http.StatusOK
+		return resp, status
 	}
 
 	// GitHub App 安装事件：记录安装信息，不建审查任务
@@ -299,24 +226,131 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), Reason: strPtr("qa comment")}, http.StatusOK
 	}
 
-	// §5.1 规则 1：事件类型白名单（防评论风暴、防自我触发循环）
-	if _, ok := crEventWhitelist[ev.Type]; !ok {
-		return skipped("event_type", "事件类型不在白名单: "+ev.Type)
+	// §5.1 规则 1-3：事件白名单 / bot 自审 / draft 与异常事件防御
+	skipped := func(reason, why string) (*api.WebhookResponse, int) {
+		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
+		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
+		obs.IncrWebhookSkipped(reason)
+		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(why), EventId: strPtr(delivery)}, http.StatusOK
 	}
-	// 规则 2：bot 自审保护
-	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
-		return skipped("bot_self", "bot 自身事件，跳过")
-	}
-	// 规则 3：draft 默认不审；缺 CR/Repo 信息的异常事件防御性跳过（长跑服务不 panic）
-	if ev.CR == nil || ev.Repo == nil {
-		return skipped("missing_cr", "事件缺少 CR/Repo 信息")
-	}
-	if ev.CR.Draft && s.Cfg.SkipDraft {
-		return skipped("draft", "draft PR 默认不审（ARGUS_SKIP_DRAFT=true）")
+	if resp, status, ok := s.webhookCRFilter(ev, skipped); !ok {
+		return resp, status
 	}
 
-	// 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
-	headSHA := ev.CR.HeadSHA
+	return s.webhookCreateTask(ctx, ev, delivery, platform)
+}
+
+// webhookAdmission 准入防线（顺序即安全语义，不得重排）：平台接入校验 →
+// secret fail-closed → Content-Length 预检 → 签名校验+事件解析 → 幂等预查。
+// ok=false 时 resp/status 即最终响应。
+func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, platform string) (
+	ev *provider.NormalizedEvent, delivery string, resp *api.WebhookResponse, status int, ok bool) {
+	platform, pcfg, ok := s.requirePlatform(platform)
+	if !ok {
+		return nil, "", &api.WebhookResponse{Status: "error", Reason: strPtr("平台未接入: " + platform)}, http.StatusNotFound, false
+	}
+	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
+	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
+	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
+	if pcfg.Secret == "" {
+		obs.IncrWebhookRejected("no_secret")
+		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
+			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
+		return nil, "", &api.WebhookResponse{
+			Status: "error",
+			Reason: strPtr("平台 webhook secret 未配置，拒绝服务（配置 " + "ARGUS_" + strings.ToUpper(platform) + "_SECRET 后恢复）"),
+		}, http.StatusServiceUnavailable, false
+	}
+
+	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
+	// Hertz WithMaxRequestBodySize 作为第二道防线（框架层拦截）。
+	if s.Cfg.WebhookMaxBody > 0 {
+		if cl := string(c.GetHeader("Content-Length")); cl != "" {
+			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
+				obs.IncrWebhookRejected("body_too_large")
+				return nil, "", &api.WebhookResponse{
+					Status: "error",
+					Reason: strPtr(fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)),
+				}, http.StatusRequestEntityTooLarge, false
+			}
+		}
+	}
+
+	// 幂等键：在 ParseWebhookEvent 之前从原始请求头取 delivery（§5.2 四轮评审修正）
+	delivery = s.SDK.ExtractDeliveryID(func(key string) string {
+		return string(c.GetHeader(key))
+	})
+
+	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
+	rawBody := c.Request.Body()
+	if len(rawBody) == 0 {
+		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("读取 body 失败")}, http.StatusBadRequest, false
+	}
+	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
+	if err != nil {
+		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("内部请求构造失败")}, http.StatusInternalServerError, false
+	}
+	c.Request.Header.VisitAll(func(k, v []byte) {
+		httpReq.Header.Add(string(k), string(v))
+	})
+
+	ev, err = s.SDK.ParseWebhook(platform, httpReq, pcfg.Secret)
+	if err != nil {
+		if errors.Is(err, provider.ErrWebhookValidation) {
+			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
+			obs.IncrWebhookRejected("signature")
+			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
+			return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("签名校验失败")}, http.StatusUnauthorized, false
+		}
+		obs.IncrWebhookRejected("parse")
+		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("事件解析失败: " + err.Error())}, http.StatusBadRequest, false
+	}
+
+	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
+	if delivery != "" {
+		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
+			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
+			return nil, delivery, &api.WebhookResponse{
+				Status:  "duplicate",
+				Reason:  strPtr("重复投递，命中既有任务"),
+				EventId: strPtr(delivery),
+				TaskId:  strPtr(exist.ID),
+			}, http.StatusOK, false
+		}
+	}
+	return ev, delivery, nil, 0, true
+}
+
+// webhookCRFilter §5.1 CR 事件过滤链：规则 1 事件类型白名单（防评论风暴、防
+// 自我触发循环）→ 规则 2 bot 自审保护 → 规则 3 draft 默认不审 + 缺 CR/Repo
+// 信息的异常事件防御性跳过（长跑服务不 panic）。ok=false 时 resp/status 即
+// skipped 响应。
+func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
+	skipped func(reason, why string) (*api.WebhookResponse, int)) (*api.WebhookResponse, int, bool) {
+	if _, ok := crEventWhitelist[ev.Type]; !ok {
+		r, st := skipped("event_type", "事件类型不在白名单: "+ev.Type)
+		return r, st, false
+	}
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+		r, st := skipped("bot_self", "bot 自身事件，跳过")
+		return r, st, false
+	}
+	if ev.CR == nil || ev.Repo == nil {
+		r, st := skipped("missing_cr", "事件缺少 CR/Repo 信息")
+		return r, st, false
+	}
+	if ev.CR.Draft && s.Cfg.SkipDraft {
+		r, st := skipped("draft", "draft PR 默认不审（ARGUS_SKIP_DRAFT=true）")
+		return r, st, false
+	}
+	return nil, 0, true
+}
+
+// webhookCreateTask 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
+// 并落库：规则 4 同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/
+// TOCTOU）→ 去重分支透出 → 审计 + SSE 发布。
+func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
+	delivery, platform string) (*api.WebhookResponse, int) {
 	if delivery == "" {
 		s.log().Warn("argus.webhook.delivery_header_missing",
 			"platform", platform, "event", "幂等键缺失，本次投递不做幂等（event_id=NULL）")
@@ -328,7 +362,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		Owner:     ev.Repo.Owner,
 		Repo:      ev.Repo.Name,
 		Number:    ev.CR.Number,
-		HeadSHA:   headSHA,
+		HeadSHA:   ev.CR.HeadSHA,
 		EventType: ev.Type,
 		Status:    storage.StatusPending,
 		Priority:  5, // webhook push：作者刚推代码在等，先于 poller 批量（v3.40.0）
@@ -338,7 +372,6 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		task.EventID = &delivery
 	}
 
-	// 规则 4：同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/TOCTOU）
 	dupReason, existingID, err := s.Store.CreateTaskForWebhook(ctx, task)
 	if err != nil {
 		s.log().Error("argus.webhook.task_create_failed", "error", err.Error())
@@ -368,7 +401,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	}
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
-		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", headSHA, "event_id", delivery)
+		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", ev.CR.HeadSHA, "event_id", delivery)
 	if s.Audit != nil {
 		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")

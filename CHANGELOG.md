@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.58.0 (2026-09-28) — 十轮：超长函数群清偿收官（run 202 行 + Webhook 177 行拆分）
+
+- **run() 拆分四命名子步骤**（顺序即语义，纯迁移零行为变更，注释原样保留）：
+  `prepareContext`（PR 上下文/仓库配置/增量 diff/stale 判定，stale 显式成布尔
+  返回值）→ `buildPluginTask`（任务组装 + checkpoint + 五路注入 + workflow
+  配置）→ `recordRegret`（指纹级/模式级两段学习环记账）→ `finalizeAndAnnounce`
+  （fenced 终态落库/debug/sink/marker/播报，finish 失败保留上抛语义走 failed
+  路径）。至此 runner 管线全部子步骤可独立阅读。
+- **Webhook() 拆分四段**（准入顺序即安全语义，不得重排）：`webhookAdmission`
+  （平台/secret fail-closed/大小/签名/幂等预查）→ installation/comment 分流 →
+  `webhookCRFilter`（§5.1 规则 1-3 白名单/bot/draft）→ `webhookCreateTask`
+  （规则 4 同事务去重 + 幻影 ID 防护 + 审计/SSE）。webhook 全套单测 + golden
+  68 + e2e 钉住等价性。
+- 超长函数群收官：finish 210 / r3Tools 249 / run 202 / Webhook 177 全部清偿
+  （Post 163 行留待下次功能性触碰 poster 时顺手）。
+- 门禁：全量测试 + lint + golden 68 + e2e 绿。
+
 ## v3.57.0 (2026-09-28) — 🏆 行内评论全链路打通（四层根因终局 + 215 实测 3 条 position 行内落地）
 
 - **sdkctx 通用平台分支补 Logger 注入**（f17b403）：GitLab/Gitea 走的
