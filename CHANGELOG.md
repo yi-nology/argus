@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.64.0 (2026-09-30) — 十六轮：重复代码收口——八处克隆单源化（+212/−255）
+
+- **截断尾注单源**：6 处手写 `TruncRunes+"…（截断）"` 改 `textutil.TruncNote`
+  （vendor 注释明言该函数即为此单源而生；`\n` 前缀变体 3 处保留原样）。
+- **sdkctx 泛型 invoke**：`call`/`callIface`/`call2` 收口 12 个方法的 Provider
+  解析 + bound ctx + 能力断言样板（此前每方法 5-7 行重复，共 ~70 行）。行为
+  顺序逐字等价：Provider 错误优先返回、断言在 bound 之后；CreateIssueComment
+  的 DiffManager 优先+IssueManager 回退逻辑原样保留只换外壳。
+- **builtin ReAct/单轮提示词组装去重**：`buildReviewSystem`（strategy 段仅
+  ReAct 路径）+ `buildReviewUser`（diff/摘要/编队黑板三围栏）两方法单源，
+  结尾审查指令两路径措辞不同留调用方追加。
+- **findings JSON schema 单源**：`plugin.FindingsWire` + `DecodeFindingsJSON`
+  （此前匿名结构体三处克隆：builtin ReAct/单轮/remote；By 归属策略各异留
+  调用方——builtin 强制 manifest 名、remote 空时补 "remote"）。
+- **agentrun 工具轨迹日志单源**：`plugin.ToolTraceLogger`（tool_result 只落
+  长度不落内容的防泄漏语义随函数固化；builtin 的 plugin kv 差异走 kv 参数；
+  nil log 返回 nil 闭包保持 builtin 原守卫语义，stages 侧顺带获得 nil 安全）。
+- **learning.PatternState.SampleText**：样本回退（PatternText 空→Pattern）三抄
+  单源（dream 知识导出×2 + health 报告）。
+- **memory.SingleLine 导出**：dream 删本地逐字克隆（含注释同文）。
+- **dream 删本地 truncateRunes** 改 textutil.TruncRunes——顺带修 n<0 panic
+  隐患（vendor 版按"全部截断"处理）；**learning 本地版保留**：包 doc 明言
+  纯叶子仅依赖 stdlib（config 引用方不传递依赖 agentkit），契约优先于去重。
+- 门禁：全量编译 + staticcheck + internal 全测 + golden 68 + e2e 绿。
+- 调研结论在案（查过判定干净不值得收）：jsonrepair 解析回退序列（各路径
+  解析后处理语义不同）、notify/sink HTTP 构造（返回语义与客户端不同，合并
+  收益 <10 行）、map 去重过滤循环（均 ≤8 行带域内副作用）、PR 字段 wire 拷贝
+  （不同 schema 刻意差异）。
+
 ## v3.63.0 (2026-09-30) — 十五轮：组合根单点闭环——后台子系统组装自 main 收口进 bootstrap
 
 - **新增 bootstrap.StartSubsystems**：多副本选主（agentkit LeaderElector，租约
