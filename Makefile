@@ -3,7 +3,7 @@ BINARY  := argus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt e2e it eval eval-real check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -11,6 +11,7 @@ help:
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 单元测试（不联网）"
 	@echo "make lint    - staticcheck 静态检查（排除 biz/model 生成代码）"
+	@echo "make arch    - 可执行架构守卫：分层白名单/组合根单向性/包文档完整性"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
 	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
 	@echo "make eval    - golden PR 评测集·打桩回归（编排语义固化，不联网）"
@@ -35,6 +36,11 @@ test:
 
 e2e:
 	go test ./test/e2e/ -count=1 -v
+
+# 可执行架构守卫（v3.62.0）：分层白名单+组合根单向性+包文档完整性；
+# 依赖方向变更必须先改 test/arch 白名单（=架构变更显式化）
+arch:
+	go test ./test/arch/ -count=1 -v
 
 it:
 	ARGUS_IT=1 go test ./test/e2e/ -run TestIntegration -count=1 -v

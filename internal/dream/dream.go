@@ -1,4 +1,5 @@
-// dream.go —— 长期记忆定期整合（docs/review-closed-loop-design.md §8）。
+// Package dream 长期记忆定期整合（docs/review-closed-loop-design.md §8）：低置信模式去重合并
+// 与知识导出，R3 search_knowledge 的数据供给方。
 //
 // OFC 的 dream 对应到这里：
 //  1. 去重合并：同 plugin 且 pattern_text 前缀高度重合的行，计数并入样本更多的一行；
@@ -6,7 +7,6 @@
 //     检索——语义检索（Milvus）与符号信号（pattern_signals）双轨。
 //
 // 全部确定性、无 LLM；失败只告警，不影响审查主流程。
-
 package dream
 
 import (
