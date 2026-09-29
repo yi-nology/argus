@@ -180,7 +180,7 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 							"member", name, "error", err.Error())
 					} else {
 						d.breakers.Failure(name)
-						obsPluginFailure(name)
+						ReportPluginFailure(name)
 						d.log.Error("argus.squad.consensus_member_failed", "squad", sq.Name,
 							"member", name, "error", logredact.Redact(err.Error()))
 					}

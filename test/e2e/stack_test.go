@@ -29,7 +29,6 @@ import (
 	argusctx "argus/internal/context"
 	"argus/internal/learning"
 	"argus/internal/plugin"
-	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/poster"
 	"argus/internal/runner"
 	"argus/internal/service"
@@ -646,7 +645,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	skills := skill.NewFileProvider(skillsDir)
 	reg, skillRefs, err := bootstrap.BuildRegistry(&bootstrap.Deps{
 		Cfg: cfg, Log: log, WC: wc, Model: model, Skills: skills,
-		WorkflowFactory: func(budget *plugin.TokenBudget) adapter_builtin.WorkflowRunner {
+		WorkflowFactory: func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
 			if runnerRef == nil {
 				t.Fatal("runner 未装配")
 			}

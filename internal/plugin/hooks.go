@@ -37,27 +37,9 @@ var (
 	HookBestOfN func(plugin string, result string)
 )
 
-func obsTaskTotal(platform, kind, status string) {
-	if HookTaskTotal != nil {
-		HookTaskTotal(platform, kind, status)
-	}
-}
-
-func obsStageDuration(stage string, d time.Duration) {
-	if HookStageDuration != nil {
-		HookStageDuration(stage, d)
-	}
-}
-
 func obsPluginDuration(name string, d time.Duration) {
 	if HookPluginDuration != nil {
 		HookPluginDuration(name, d)
-	}
-}
-
-func obsPluginFailure(name string) {
-	if HookPluginFailure != nil {
-		HookPluginFailure(name)
 	}
 }
 
@@ -80,14 +62,26 @@ func ReportLLMTokens(stage, model string, tokens int) {
 	}
 }
 
-// ReportPluginFailure 供 poster 等非插件路径记失败（argus_plugin_failures_total）。
-func ReportPluginFailure(name string) { obsPluginFailure(name) }
+// ReportPluginFailure 插件失败计数（argus_plugin_failures_total，含 poster 等非插件路径）。
+func ReportPluginFailure(name string) {
+	if HookPluginFailure != nil {
+		HookPluginFailure(name)
+	}
+}
 
 // ReportTaskTotal 供 runner 记任务终态。
-func ReportTaskTotal(platform, kind, status string) { obsTaskTotal(platform, kind, status) }
+func ReportTaskTotal(platform, kind, status string) {
+	if HookTaskTotal != nil {
+		HookTaskTotal(platform, kind, status)
+	}
+}
 
 // ReportStageDuration 供 runner 记阶段耗时。
-func ReportStageDuration(stage string, d time.Duration) { obsStageDuration(stage, d) }
+func ReportStageDuration(stage string, d time.Duration) {
+	if HookStageDuration != nil {
+		HookStageDuration(stage, d)
+	}
+}
 
 // ReportReflectDrop R3.5 证据门 strict 丢弃（reason=missing_evidence|missing_counterexample|evidence_path_out_of_scope）。
 func ReportReflectDrop(reason string) {

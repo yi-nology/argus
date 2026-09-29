@@ -56,11 +56,11 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	if p.wc == nil {
 		return plugin.Result{}, fmt.Errorf("cli 插件未接入工作副本服务")
 	}
-	dir, err := p.wc.Ensure(ctx, prToKey(task.PR))
+	dir, err := p.wc.Ensure(ctx, plugin.PRToKey(task.PR))
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("准备工作副本失败: %w", err)
 	}
-	defer p.wc.Release(prToKey(task.PR))
+	defer p.wc.Release(plugin.PRToKey(task.PR))
 
 	// 进程托管委托 agentkit/acpx（env 白名单按 plugins.yaml env 声明按名透传；
 	// MaxStdout 维持 1MB 上限防异常 cli 刷屏）
@@ -187,16 +187,4 @@ func firstString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-// prToKey 将 plugin.PRContext 转换为 agentkit/workcopy.WorktreeKey。
-func prToKey(pr plugin.PRContext) workcopy.WorktreeKey {
-	return workcopy.WorktreeKey{
-		Platform:      pr.Platform,
-		Owner:         pr.Owner,
-		Repo:          pr.Repo,
-		Number:        pr.Number,
-		HeadSHA:       pr.HeadSHA,
-		DefaultBranch: pr.DefaultBranch,
-	}
 }

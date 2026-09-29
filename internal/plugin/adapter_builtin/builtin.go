@@ -40,12 +40,9 @@ type CompliancePlugin struct {
 	factory  WorkflowFactory // 每次 Invoke 构造独立 workflow 实例（LLM 预算随调用方注入）
 }
 
-// WorkflowRunner / WorkflowFactory 边界契约自 v3.5.6 上提 plugin（runner 装配
-// factory 时不再为拿类型名 import 本适配器）；别名保 bootstrap/main/e2e 兼容。
-type (
-	WorkflowRunner  = plugin.WorkflowRunner
-	WorkflowFactory = plugin.WorkflowFactory
-)
+// WorkflowFactory 边界契约自 v3.5.6 上提 plugin（runner 装配 factory 时不再为拿
+// 类型名 import 本适配器）；WorkflowRunner 无包内使用者，直接引用 plugin 源头。
+type WorkflowFactory = plugin.WorkflowFactory
 
 func NewCompliance(m plugin.AgentManifest, factory WorkflowFactory) (*CompliancePlugin, error) {
 	if m.Timeout <= 0 {

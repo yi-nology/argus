@@ -16,14 +16,9 @@ import (
 // review_targets 记录损坏时的扫描兜底）。
 const ReportHeaderPrefix = "<!-- argus:report "
 
-// ReportHeaderHTML 生成某任务的报告头。
+// ReportHeaderHTML 生成某任务的报告头（前缀单一出处，改头格式只动常量）。
 func ReportHeaderHTML(taskID, headSHA, version string) string {
-	return fmt.Sprintf("<!-- argus:report task_id=%s head=%s ver=%s -->", taskID, headSHA, version)
-}
-
-// EscapeUntrusted 委托给 agentkit/fence.EscapeUntrusted。
-func EscapeUntrusted(s string) string {
-	return fence.EscapeUntrusted(s)
+	return ReportHeaderPrefix + fmt.Sprintf("task_id=%s head=%s ver=%s -->", taskID, headSHA, version)
 }
 
 // ACCheckView 单条验收清单渲染条目。
@@ -102,7 +97,7 @@ func Render(r Report) string {
 		if src == "" {
 			src = "未关联"
 		}
-		fmt.Fprintf(&b, "（需求源: %s）\n", EscapeUntrusted(src))
+		fmt.Fprintf(&b, "（需求源: %s）\n", fence.EscapeUntrusted(src))
 
 		done, total := complianceProgress(r.ACs)
 		switch {
@@ -126,14 +121,14 @@ func Render(r Report) string {
 					detail = "—"
 				}
 				fmt.Fprintf(&b, "- %s **%s** %s — %s（%s）\n", ac.Icon(), ac.ID,
-					EscapeUntrusted(ac.Text), ac.Status, EscapeUntrusted(detail))
+					fence.EscapeUntrusted(ac.Text), ac.Status, fence.EscapeUntrusted(detail))
 			}
 		}
 
 		if len(r.ScopeCreep) > 0 {
 			b.WriteString("\n### ⚠️ 需求外改动（scope creep）\n")
 			for _, sc := range r.ScopeCreep {
-				fmt.Fprintf(&b, "- %s: %s\n", EscapeUntrusted(sc.File), EscapeUntrusted(sc.Note))
+				fmt.Fprintf(&b, "- %s: %s\n", fence.EscapeUntrusted(sc.File), fence.EscapeUntrusted(sc.Note))
 			}
 		}
 	}
@@ -155,15 +150,15 @@ func Render(r Report) string {
 			}
 			fp = fp[:8]
 			// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
-			comment := strings.ReplaceAll(strings.TrimSpace(EscapeUntrusted(f.Comment)), "\n", "\n  ")
+			comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
 			if ann := plugin.SamplesAnnotation(f); ann != "" {
 				comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
 			}
 			fmt.Fprintf(&b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
-				EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
-				EscapeUntrusted(by), fp)
+				fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
+				fence.EscapeUntrusted(by), fp)
 			if f.SuggestedFix != "" {
-				fix := EscapeUntrusted(f.SuggestedFix)
+				fix := fence.EscapeUntrusted(f.SuggestedFix)
 				fmt.Fprintf(&b, "  \n  **建议修复：**\n  ```\n  %s\n  ```\n", strings.ReplaceAll(fix, "\n", "\n  "))
 			}
 		}
@@ -172,7 +167,7 @@ func Render(r Report) string {
 	if len(r.Degraded) > 0 {
 		b.WriteString("\n<details><summary>插件降级说明</summary>\n\n")
 		for _, d := range r.Degraded {
-			fmt.Fprintf(&b, "- %s\n", EscapeUntrusted(d))
+			fmt.Fprintf(&b, "- %s\n", fence.EscapeUntrusted(d))
 		}
 		b.WriteString("\n</details>\n")
 	}
@@ -180,7 +175,7 @@ func Render(r Report) string {
 	if len(r.Completeness) > 0 {
 		b.WriteString("\n### ⚠️ 完备性检查（覆盖可能不完整）\n")
 		for _, c := range r.Completeness {
-			fmt.Fprintf(&b, "- %s\n", EscapeUntrusted(c))
+			fmt.Fprintf(&b, "- %s\n", fence.EscapeUntrusted(c))
 		}
 	}
 
@@ -199,7 +194,7 @@ func Render(r Report) string {
 		}
 		fmt.Fprintf(&b, "\n> %s\n", meta)
 		if r.CrossReview != "" {
-			fmt.Fprintf(&b, "> 🤝 交叉审查：%s\n", EscapeUntrusted(r.CrossReview))
+			fmt.Fprintf(&b, "> 🤝 交叉审查：%s\n", fence.EscapeUntrusted(r.CrossReview))
 		}
 		if r.Suppressed > 0 {
 			fmt.Fprintf(&b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)

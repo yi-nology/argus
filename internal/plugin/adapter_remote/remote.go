@@ -75,7 +75,7 @@ func (r *Remote) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	defer cancel()
 	dir := ""
 	if r.manifest.Needs.WorkingCopy {
-		key := prToKey(task.PR)
+		key := plugin.PRToKey(task.PR)
 		var err error
 		if dir, err = r.wc.Ensure(ctx, key); err != nil {
 			return plugin.Result{}, fmt.Errorf("准备工作副本失败: %w", err)
@@ -89,18 +89,6 @@ func (r *Remote) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		return r.invokeA2A(ctx, task, dir)
 	default:
 		return plugin.Result{}, fmt.Errorf("remote 插件 %s 不支持的协议: %s", r.manifest.Name, r.manifest.Protocol)
-	}
-}
-
-// prToKey 将 plugin.PRContext 转换为 agentkit/workcopy.WorktreeKey。
-func prToKey(pr plugin.PRContext) workcopy.WorktreeKey {
-	return workcopy.WorktreeKey{
-		Platform:      pr.Platform,
-		Owner:         pr.Owner,
-		Repo:          pr.Repo,
-		Number:        pr.Number,
-		HeadSHA:       pr.HeadSHA,
-		DefaultBranch: pr.DefaultBranch,
 	}
 }
 

@@ -444,7 +444,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 					d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
 				default:
 					d.breakers.Failure(reg.Manifest.Name)
-					obsPluginFailure(reg.Manifest.Name)
+					ReportPluginFailure(reg.Manifest.Name)
 					o.Err = sampleErr
 					d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 						"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
@@ -474,7 +474,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
 			default:
 				d.breakers.Failure(reg.Manifest.Name)
-				obsPluginFailure(reg.Manifest.Name)
+				ReportPluginFailure(reg.Manifest.Name)
 				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 					"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
 			}

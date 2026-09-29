@@ -26,13 +26,8 @@ import (
 	"git.example.com/enjoydream/agentkit/llm"
 )
 
-// TaskKind 词表（与 IDL TaskKind 对齐）。canonical 定义自 v3.5.6 上提
-// plugin.TaskKind*（service/poller 不必为拿常量依赖编排层）；别名保包内兼容。
-const (
-	KindRequirementCompliance = plugin.TaskKindRequirementCompliance
-	KindCodeReview            = plugin.TaskKindCodeReview
-	KindVisualCheck           = plugin.TaskKindVisualCheck
-)
+// TaskKind 词表（与 IDL TaskKind 对齐）：canonical 定义自 v3.5.6 上提
+// plugin.TaskKind*（service/poller 不必为拿常量依赖编排层），本包直接引用。
 
 // Verdict 词表。
 const (
@@ -135,7 +130,7 @@ type Workflow struct {
 // skillsForKind 任务类型 → R4 分派的技能词表。
 func skillsForKind(kind string) []string {
 	switch kind {
-	case KindVisualCheck:
+	case plugin.TaskKindVisualCheck:
 		return []string{plugin.SkillVisualCheck}
 	default:
 		return []string{plugin.SkillCodeReview}

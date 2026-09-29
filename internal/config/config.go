@@ -402,16 +402,6 @@ func (c *Config) ReqIssueMaxChars() int {
 	return n
 }
 
-// MaxCallInputChars 单次 LLM 调用的输入字符上限（llm.fitInput 兜底）：
-// （窗口 - 输出预留）× 2 chars/token，再打 9 折留分词误差余量。
-func (c *Config) MaxCallInputChars() int {
-	n := (c.contextTokens() - c.MaxTokensResolved()) * 2 * 9 / 10
-	if n < 8_000 {
-		n = 8_000
-	}
-	return n
-}
-
 // SASTEnabled SAST 前置是否启用（任一工具 bin 已配置）。
 func (c *Config) SASTEnabled() bool {
 	return c.SASTGitleaksBin != "" || c.SASTSemgrepBin != ""
@@ -443,17 +433,6 @@ func (c *Config) GetDiffMaxRunes() int {
 // GitHubAppEnabled 三者全配时返回 true（AppID + PrivateKey + InstallationID）。
 func (pc *PlatformConfig) GitHubAppEnabled() bool {
 	return pc.GitHubAppID > 0 && pc.GitHubAppPrivateKey != "" && pc.GitHubAppInstallationID > 0
-}
-
-// EnabledPlatforms 返回已配置 token 的平台名（小写）。
-func (c *Config) EnabledPlatforms() []string {
-	names := make([]string, 0, len(c.Platforms))
-	for k, v := range c.Platforms {
-		if v.Token != "" {
-			names = append(names, k)
-		}
-	}
-	return names
 }
 
 // Load 从环境变量读取全部配置（已加载 .env 后调用）。
