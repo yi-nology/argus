@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.69.0 (2026-09-30) — qa 问答面 SDK+模型打桩全覆盖：8.9%→80.4%
+
+- **打桩面**（`qa_io_test.go`）：fakeModel（BaseChatModel 队列：按次回复/错误、
+  记录入参）+ fakePlatform（`NewSDKCtxStubbed` 注入 GetCR/GetCRDiff/GetFileContent）
+  + 真 sqlite Store。agentrun 把空最终答复当失败并回喂重试一次——降级用例
+  用「两空一实」三连排队逼出 single 路径，不再误吃重试轮。
+- **loadContext**：标题/描述/作者/变更文件形态（新增/删除/±行数）/空描述占位/
+  GetCR 失败上抛。
+- **Answer 全路径**：ReAct 直出成功与会话落库、空回答降级 single（PR 上下文围栏）、
+  双路径失败上抛、确定性模型错误（401 invalid api key）快速失败不拖重试、
+  多轮历史 DataFence 注入、坏 HistoryJSON 降级为无历史、rawTurnsCap 封顶保新轮、
+  MemoryIndexFor 评审记忆注入。
+- **rollSummary 带模型**：超长截断（summaryMaxRunes + 省略号）、空回复保旧。
+- **LatestReview / AnswerAboutReview**：字段面（verdict/report/findings/change_summary）、
+  长报告截断注明、无模型/无任务/模型失败三档 false、追问上下文（报告围栏+问题）。
+- 门禁：make test（race）+ make lint + make arch 绿。
+
 ## v3.68.0 (2026-09-30) — poster 回帖面单测 13%→90.3% + InlinePosted 语义修正
 
 - **poster 降级面全覆盖**（`poster_flow_test.go`，fakePlatform + 真 sqlite Store +
