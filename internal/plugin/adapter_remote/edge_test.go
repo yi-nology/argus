@@ -11,21 +11,21 @@ import (
 	"argus/internal/plugin"
 )
 
-// TestRemoteMCP_EmptyPayload payload 缺字段 → 工具报错。
-func TestRemoteMCP_EmptyPayload(t *testing.T) {
+// TestRemoteMCP_MissingParams 任务元数据不齐 → 对端 create_review 参数校验报错上抛。
+func TestRemoteMCP_MissingParams(t *testing.T) {
 	ts := spawnMCPServer(t, true) // fail=true → 工具返回 error
-	r := newRemote(t, plugin.ProtocolMCP, ts.URL, "review")
-	// 无 Body 的任务 → payload 缺 owner → 工具应报错
+	r := newRemote(t, plugin.ProtocolMCP, ts.URL, "create_review")
+	// 空 PR 元数据 → provider/repo/head_sha 不齐 → 对端工具应报错
 	task := plugin.Task{PR: plugin.PRContext{}}
 	if _, err := r.Invoke(context.Background(), task); err == nil {
-		t.Fatal("缺字段应上抛错误")
+		t.Fatal("参数不齐应上抛错误")
 	}
 }
 
 // TestRemoteMCP_Timeout 超短超时 → 连接报错。
 func TestRemoteMCP_Timeout(t *testing.T) {
 	ts := spawnMCPServer(t, false)
-	r := newRemote(t, plugin.ProtocolMCP, ts.URL, "review")
+	r := newRemote(t, plugin.ProtocolMCP, ts.URL, "create_review")
 	// 传入已取消的 ctx → Invoke 内部 WithTimeout 立即失败
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

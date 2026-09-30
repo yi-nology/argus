@@ -1,8 +1,10 @@
 // Package adapter_remote remote 形态适配器（design §3.2/§3.5）。
 // v3.1 实装协议子集：mcp（mark3labs/mcp-go streamable http client）与
 // a2a（Agent Card 发现 → message/send → tasks/get 轮询 artifact）。
-// 与远端的调用契约：发送结构化任务 payload，收回 findings JSON
-// （{"findings":[{file,line,severity,comment}...],"notes"}），与 builtin/cli 同一 schema。
+// 返回契约与 builtin/cli 同一 findings schema（{"findings":[{file,line,severity,
+// comment}...],"notes"}）：a2a 发结构化任务 payload 收 findings JSON；mcp 走
+// review-service mcp-server 编排契约（create_review 平铺参数同步等 →
+// get_review_findings 取明细，见 mcp.go）。
 package adapter_remote
 
 import (
@@ -35,7 +37,7 @@ type WorkcopyPool interface {
 type Remote struct {
 	manifest plugin.AgentManifest
 	Endpoint string
-	Tool     string // mcp 协议：要调用的工具名（缺省 review）
+	Tool     string // mcp 协议：create_review 工具名（review-service mcp-server 契约；缺省 review）
 	// AuthToken Bearer 共享密钥（空 = 不带鉴权头；与对端 auth_token_env 配对，
 	// 如 ocrshim 的 OCRSHIM_TOKEN）。非 loopback 的 sidecar endpoint（compose
 	// 跨容器）网络隔离不足以限定"只有 argus"，建议配置。
