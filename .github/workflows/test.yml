@@ -5,6 +5,8 @@ on:
     branches: [main, master]
   pull_request:
 
+# 门禁口径单源在 Makefile：本文件只编排 job 与矩阵环境，不各自拼 go test 参数。
+# 本地 `make test` / `make lint` / `make arch` / `make eval` 过 = 本流水线绿。
 jobs:
   test-sqlite:
     name: Tests (SQLite)
@@ -17,7 +19,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests
-        run: go test -race -count=1 -timeout=300s ./...
+        run: make test
 
   # 静态门禁（企业级 CI 必过项）：vet + staticcheck + gofmt 三合一走 make lint，
   # 命令单源在 Makefile；钉版本安装，规则与本地 `make lint` 完全一致。
@@ -31,11 +33,23 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: go vet
-        run: make vet
-
-      - name: staticcheck + gofmt
+      - name: vet + staticcheck + gofmt
         run: make lint
+
+  # 可执行架构守卫（v3.62.0）：分层白名单 + 组合根单向性 + 包文档完整性。
+  # 依赖方向变更必须先改 test/arch 白名单——CI 拦住未显式化的架构漂移。
+  arch:
+    name: Arch (layering + composition root)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Architecture guards
+        run: make arch
 
   test-mysql:
     name: Tests (MySQL)
@@ -65,7 +79,7 @@ jobs:
       - name: Run tests
         env:
           ARGUS_TEST_MYSQL_DSN: "root:test@tcp(127.0.0.1:3306)/argus_test?parseTime=true"
-        run: go test -race -count=1 -timeout=300s ./...
+        run: make test
 
   golden-eval:
     name: Golden eval (stub)

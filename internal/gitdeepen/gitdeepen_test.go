@@ -1,6 +1,7 @@
 package gitdeepen
 
 import (
+	"argus/internal/testkit"
 	"context"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ func fakeGit(t *testing.T, probeFailUntil int, failFetch bool) string {
 	bin := t.TempDir()
 	probe := filepath.Join(bin, "called")
 	state := filepath.Join(bin, "state")
-	script := "#!/bin/sh\necho \"$@\" >> " + probe + "\n"
+	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(probe) + "\n"
 	if failFetch {
 		script += "if [ \"$3\" = \"fetch\" ]; then echo 'fatal: unable to access https://oauth2:sup3rsecret@host/o/r.git/: some error' >&2; exit 128; fi\n"
 	}
@@ -27,8 +28,8 @@ func fakeGit(t *testing.T, probeFailUntil int, failFetch bool) string {
 		// 如 cat 不可用——acpx 最小环境 + t.Setenv 的既有约束）
 		script += "if [ \"$3\" = \"merge-base\" ]; then\n" +
 			"  n=0\n" +
-			"  if [ -f " + state + " ]; then read n < " + state + "; fi\n" +
-			"  n=$((n+1)); echo $n > " + state + "\n" +
+			"  if [ -f " + testkit.Shq(state) + " ]; then read n < " + testkit.Shq(state) + "; fi\n" +
+			"  n=$((n+1)); echo $n > " + testkit.Shq(state) + "\n" +
 			"  if [ \"$n\" -lt " + strconv.Itoa(probeFailUntil) + " ]; then exit 1; fi\n" +
 			"fi\n"
 	}

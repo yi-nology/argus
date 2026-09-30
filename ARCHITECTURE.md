@@ -83,8 +83,10 @@
 ## 守卫
 
 ```bash
-make arch    # 分层白名单 + 组合根单向性 + 包文档完整性
-make lint    # staticcheck + gofmt
-make test    # 全量单测
-make eval    # golden 68 编排语义回归
+make test    # 全量测试（-race，与 CI test job 同参）
+make lint    # 静态三合一：vet + staticcheck + gofmt（与 CI lint job 同参）
+make arch    # 分层白名单 + 组合根单向性 + 包文档完整性（CI arch job）
+make eval    # golden 编排语义回归
 ```
+
+命令口径单源在 Makefile；CI 只编排 job 与矩阵环境。本地四连过 = 流水线绿。

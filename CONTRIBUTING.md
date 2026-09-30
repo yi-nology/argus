@@ -3,16 +3,17 @@
 ## 开发环境
 
 - Go 版本以 `go.mod` 为准；依赖走 `vendor/`（`go mod vendor` 同步）。
-- 本地门禁与 CI 完全一致，提交前跑：
+- 本地门禁与 CI 完全一致（命令单源在 `Makefile`，流水线只调 make 目标），提交前跑：
 
   ```bash
-  make test    # go vet + 全量测试
-  make lint    # staticcheck（钉版本）+ gofmt
-  make arch    # 可执行架构守卫（分层白名单 + 组合根单向性）
+  make test    # 全量测试（-race，与 CI test-sqlite / test-mysql 同参）
+  make lint    # 静态门禁三合一：vet + staticcheck（钉版本）+ gofmt
+  make arch    # 可执行架构守卫（分层白名单 + 组合根单向性 + 包文档）
   make eval    # golden PR 评测集（打桩，固化编排语义）
   ```
 
-  MySQL 路径由 CI `test-mysql` job 覆盖（本地可 `docker compose up mysql` + `make it`）。
+  过 = CI 对应 job 绿。MySQL 路径由 CI `test-mysql` job 覆盖（本地可 `docker compose up mysql` + `make it`）。
+  `make check`（govulncheck）按发布窗口跑，不阻塞日常提交。
 
 ## 修复与改动准则
 

@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.67.0 (2026-09-30) — 企业级门禁口径统一 + MCP 门面单测 + 版本单源
+
+- **门禁命令单源（Makefile）**：`make test` 对齐 CI（`-race -timeout=300s`）；
+  `make lint` 升格为静态三合一（vet + staticcheck + gofmt），`lint: vet` 依赖显式化。
+  CI 侧 test-sqlite/test-mysql 改调 `make test`、lint 改调 `make lint`——流水线不再各自
+  拼 go test 参数，本地过 = CI 过。此前三处口径漂移（CONTRIBUTING 称 test 含 vet /
+  CI 注释称三合一走 make lint / Makefile 无 race）一并清偿。
+- **CI 补 `arch` job**：分层白名单 + 组合根单向性 + 包文档守卫入流水线（v3.62.0 写进
+  门禁但未进 CI 的缺口闭环），分支保护可指名必需检查项。
+- **CONTRIBUTING.md**：门禁四连描述改为与 Makefile/CI 逐字一致（test=race 全量、
+  lint=三合一、arch/eval 不变；govulncheck 按发布窗口不阻塞日常提交）。
+- **mcpserver 门面单测 0%→80.6%**（22 例，`internal/channel/mcpserver/server_test.go`）：
+  消费侧窄接口 Core/ReviewQA/Copilot 三档替身，走 JSON-RPC `tools/call` 全路径——
+  工具注册面（无 Copilot 不挂死工具）/list_agents/get_report 字段与失败面/
+  review_pr 必填校验·创建失败·wait=false·done/stale/failed 终态·超时提示/
+  requirement_compliance 固定 kind/ask_argus 未启用·必填·纯数字门·Latest/Answer/
+  副驾三工具命中与未命中·fp 长度门与小写归一/argString·renderTerminalTask 注记/
+  marshalToolResult 错误面/轮询 ctx 取消。补 `internal/testkit.Shq`（POSIX 路径引号
+  单源）并收口四处 fake git/ocr 脚本裸拼——TMPDIR 含空格时夹具静默失真的隐患清偿。
+- **版本单源**：README 版本横幅 v3.13.0（停更 50+ 版）改为 v3.67.0，依赖括注删除——
+  产品版本以 CHANGELOG 头为准、依赖以 go.mod 为准，不再在 README 维护第二份清单。
+- 门禁：make test（race）+ make lint + make arch + make eval 绿。
+
 ## v3.66.1 (2026-09-30) — 治理面：SECURITY/CONTRIBUTING + 依赖漏洞扫描
 
 - **SECURITY.md**：私密披露渠道、支持范围（仅最新主干）、威胁模型概览（LLM 输出不可信、

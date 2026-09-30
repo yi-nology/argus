@@ -1,6 +1,7 @@
 package ocrdeleg
 
 import (
+	"argus/internal/testkit"
 	"context"
 	"fmt"
 	"os"
@@ -16,7 +17,7 @@ func fakeGitOnPath(t *testing.T) (probe string) {
 	t.Helper()
 	bin := t.TempDir()
 	probe = filepath.Join(bin, "called")
-	script := "#!/bin/sh\necho \"$@\" >> " + probe + "\n" +
+	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(probe) + "\n" +
 		`if [ "$1" = "-C" ]; then /bin/rm -f "$2/.git/shallow"; fi` + "\n" +
 		"exit 0\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
@@ -35,7 +36,7 @@ func fakeOCR(t *testing.T, bin, body string) (binPath, argvProbe string) {
 	if err := os.WriteFile(bodyFile, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"$@\" >> " + argvProbe + "\n/bin/cat " + bodyFile + "\n"
+	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(argvProbe) + "\n/bin/cat " + testkit.Shq(bodyFile) + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "ocr"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

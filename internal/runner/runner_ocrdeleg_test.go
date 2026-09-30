@@ -12,6 +12,7 @@ import (
 
 	"argus/internal/config"
 	"argus/internal/plugin"
+	"argus/internal/testkit"
 )
 
 const ocrdelegPreviewFixture = `{"schema_version":"1","mode":"range","merge_base":"abc123",` +
@@ -36,10 +37,10 @@ func ocrdelegFakeBin(t *testing.T) (binPath, argvProbe string) {
 	if err := os.WriteFile(rulesFile, []byte(ocrdelegRulesFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"$@\" >> " + argvProbe + "\n" +
+	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(argvProbe) + "\n" +
 		"case \"$*\" in\n" +
-		"  *preview*) /bin/cat " + previewFile + " ;;\n" +
-		"  *) /bin/cat " + rulesFile + " ;;\n" +
+		"  *preview*) /bin/cat " + testkit.Shq(previewFile) + " ;;\n" +
+		"  *) /bin/cat " + testkit.Shq(rulesFile) + " ;;\n" +
 		"esac\n"
 	binPath = filepath.Join(dir, "ocr")
 	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {

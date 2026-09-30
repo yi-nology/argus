@@ -9,8 +9,8 @@ help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
 	@echo "make build-ocrshim - 编译 ocrshim sidecar 二进制（bin/ocrshim）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
-	@echo "make test    - 单元测试（不联网）"
-	@echo "make lint    - staticcheck 静态检查（排除 biz/model 生成代码）"
+	@echo "make test    - 全量测试（-race，与 CI test job 同参）"
+	@echo "make lint    - 静态门禁三合一：vet + staticcheck + gofmt（与 CI lint job 同参）"
 	@echo "make arch    - 可执行架构守卫：分层白名单/组合根单向性/包文档完整性"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
 	@echo "make it      - 真实 LLM 集成测试（ARGUS_IT=1，走 lacus/.env 的 OPENAI_*）"
@@ -31,8 +31,10 @@ build-ocrshim:
 run: build
 	./bin/$(BINARY)
 
+# 与 CI test-sqlite/test-mysql job 同参：-race 抓数据竞争，-timeout 防挂死拖垮流水线。
+# 命令口径单源在此；CI 只调 make 目标，不各自拼参数。
 test:
-	go test ./... -count=1
+	go test ./... -count=1 -race -timeout=300s
 
 e2e:
 	go test ./test/e2e/ -count=1 -v
@@ -59,7 +61,9 @@ vet:
 # "新检查器报新问题"冒充代码回归；升级版本是显式动作（改这个变量 + 过一次全量）。
 STATICCHECK_VERSION ?= 2026.2.1
 
-lint:
+# 静态门禁三合一（与 CI lint job 同参）：vet + staticcheck + gofmt。
+# 命令口径单源在此——本地 make lint 过 = CI lint 过，不再各自拼参数。
+lint: vet
 	@command -v staticcheck >/dev/null 2>&1 || GOFLAGS= go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 	staticcheck $$(go list ./... | grep -v '/biz/model/')
 	@unformatted=$$(gofmt -l internal cmd test 2>/dev/null); \
