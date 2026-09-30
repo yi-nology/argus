@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.68.0 (2026-09-30) — poster 回帖面单测 13%→90.3% + InlinePosted 语义修正
+
+- **poster 降级面全覆盖**（`poster_flow_test.go`，fakePlatform + 真 sqlite Store +
+  `NewSDKCtxStubbed`）：prepareInline 候选过滤/唯一尾段路径归一化（含段边界防误配、
+  多义剔除）/严重度排序/max_comments 钳制；sendReview verdict→事件映射、
+  review_posted 库标记与平台锚点双短路、三级降级（blocking 拒绝→COMMENT→无行内）、
+  全失败不 panic；postSummary 四级降级（缓存 ID 原地更新/404 清缓存自愈/严格报告头
+  扫描+作者校验防劫持/KnownCommentIDs 新→旧直连兜底/扫描失败新建）；Post 主路径
+  staleness 门控 + 幂等二次回帖（评审只发一次、总结原地更新）。
+- **InlinePosted 语义修正**：无行内兜底（comments 被剥掉的纯评论评审）此前仍返回
+  `len(comments)`，与字段名「行内已投递条数」不符——改为按实际投递计数（主路径与
+  带 comments 的 COMMENT 降级返回 len，无行内兜底/幂等跳过/全失败返回 0）。
+  doc comment 同步为精确语义，不再写「降级路径均为 0」这种过粗表述。
+- **qa 纯函数补课**：systemPrompt strategy/历史 DataFence 注入面、chatModel 的
+  ARGUS_QA_MODEL 覆盖优先、numberLines 行号前缀、log() nil 安全。
+- 门禁：make test（race）+ make lint + make arch 绿；poster 覆盖率 13.0%→90.3%。
+
 ## v3.67.0 (2026-09-30) — 企业级门禁口径统一 + MCP 门面单测 + 版本单源
 
 - **门禁命令单源（Makefile）**：`make test` 对齐 CI（`-race -timeout=300s`）；

@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.67.0**（版本口径以 [CHANGELOG.md](CHANGELOG.md) 头为准；依赖以 `go.mod` 为准）。真实 Forgejo（git.example.com）
+当前版本 **v3.68.0**（版本口径以 [CHANGELOG.md](CHANGELOG.md) 头为准；依赖以 `go.mod` 为准）。真实 Forgejo（git.example.com）
 完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
 OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见

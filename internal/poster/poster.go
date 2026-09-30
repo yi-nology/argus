@@ -157,7 +157,8 @@ func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep
 
 // sendReview 评审事件投递：verdict 映射评审事件；幂等锚点查重（库标记短路 → 平台
 // 锚点查询回退）；CreateReview 三级降级（blocking 拒绝 → COMMENT → 无行内意见纯评论）。
-// 返回行内评论成功条数——仅首次 CreateReview 成功时非 0，幂等跳过与降级路径均为 0。
+// 返回实际投递的行内评论条数——主路径与 COMMENT 降级（仍带 comments）为 len(comments)，
+// 无行内兜底为 0，幂等跳过与全失败也为 0。
 func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep reportview.Report,
 	verdict string, comments []provider.ReviewComment) int {
 	// verdict 映射评审事件：request_changes→REQUEST_CHANGES / comment→COMMENT / approve→APPROVE。
@@ -197,6 +198,7 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 		return 0
 	}
 	reviewSent := false
+	postedInline := 0
 	if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 		provider.CreateReviewOptions{
 			CommitID: pr.HeadSHA,
@@ -232,13 +234,15 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 				p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
 				plugin.ReportPluginFailure("poster:review")
 			} else {
-				reviewSent = true
+				reviewSent = true // 无行内兜底：postedInline 保持 0
 			}
 		} else {
 			reviewSent = true
+			postedInline = len(comments)
 		}
 	} else {
 		reviewSent = true
+		postedInline = len(comments)
 	}
 	if reviewSent {
 		// 发成功落库标记（v3.36.0）：重跑短路平台锚点查询
@@ -246,7 +250,7 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 			p.Log.Warn("argus.poster.mark_posted_failed", "error", merr.Error(),
 				"hint", "未落库标记：重跑回退 ListReviews 锚点查询（幂等不丢）")
 		}
-		return len(comments)
+		return postedInline
 	}
 	return 0
 }
