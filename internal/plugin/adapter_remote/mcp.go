@@ -8,8 +8,10 @@
 //     workcopy_dir，对端目录内执行 OCR 同步回 findings JSON（旧契约，shim 无
 //     平台凭证自拉 diff 的能力，必须由 argus 喂目录）。
 //   - 非 working-copy（review-service mcp-server）：对端按 provider/repo/
-//     head_sha 自拉 PR，create_review（wait 同步等）→ get_review_findings
-//     工具编排，findings 走独立工具。
+//     head_sha 自拉 PR，异步编排 create_review(wait=false) → get_review 轮询
+//     终态 → get_review_findings 取明细。不走 wait=true 同步等：对端 transport
+//     WriteTimeout 60s（215 实测 101s 审查响应必然 EOF），长审查等不起；异步
+//     短请求正是 create/get 分离契约的设计意图。
 //
 // 分流键取 needs 而非 tool 名：需要工作副本的对端必然消费 payload.workcopy_dir，
 // 这是两形态的语义分界，tool 名只是配置巧合。
@@ -20,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -30,10 +33,9 @@ import (
 	"argus/internal/plugin"
 )
 
-// mcpSyncWaitSec create_review 同步等待秒数（服务端接受 [10,600]，600 为其上限）。
-// review-service 单 MR 审查数分钟内完成；插件 manifest timeout 应不小于此值，
-// 否则任务级 ctx 先取消、服务端 review 留在 DB running。
-const mcpSyncWaitSec = 600
+// mcpPollInterval get_review 终态轮询间隔。单次查询毫秒级，10s 对分钟级审查
+// 足够密；总预算由 manifest.Timeout 框住（ctx 透传）。包级 var 仅为测试可收窄。
+var mcpPollInterval = 10 * time.Second
 
 func (r *Remote) invokeMCP(ctx context.Context, task plugin.Task, workcopyDir string) (plugin.Result, error) {
 	opts := []transport.StreamableHTTPCOption{}
@@ -70,42 +72,46 @@ func (r *Remote) invokeMCP(ctx context.Context, task plugin.Task, workcopyDir st
 		return parseFindings(joined)
 	}
 
-	// mcp-server 编排契约：平铺参数创建审查，findings 走独立工具。
+	// mcp-server 编排契约：平铺参数创建审查（异步），轮询终态后取 findings。
 	created, err := r.mcpCreateReview(ctx, c, task)
 	if err != nil {
 		return plugin.Result{}, err
 	}
 	if created.ReviewID == "" {
-		return plugin.Result{}, fmt.Errorf("MCP create_review 响应缺 review_id: %.200s", logredact.Redact(created.raw))
+		return plugin.Result{}, fmt.Errorf("MCP create_review 响应缺 review_id: %s", created.Status)
+	}
+	final, err := r.mcpWaitReview(ctx, c, created.ReviewID)
+	if err != nil {
+		return plugin.Result{}, err
 	}
 	raw, err := r.mcpCall(ctx, c, "get_review_findings", map[string]any{"review_id": created.ReviewID})
 	if err != nil {
 		return plugin.Result{}, err
 	}
-	return mapMCPFindings(raw, created.Summary)
+	return mapMCPFindings(raw, final.Summary)
 }
 
-// mcpCreated create_review 同步响应的 argus 消费字段（服务端 JSONResult 子集：
-// 不含 findings 数组，只有 findings_count——明细必须再调 get_review_findings）。
-type mcpCreated struct {
+// mcpReviewStatus 服务端 review 主状态（create.go：queued/running/success/failed，
+// 另有 success_with_publish_failed=评审成功仅回写失败，findings 仍可消费）。
+type mcpReviewStatus struct {
 	ReviewID string `json:"review_id"`
 	Status   string `json:"status"`
 	Summary  string `json:"summary"`
-	raw      string
 }
+
+// mcpCreated create_review 异步响应的 argus 消费字段（服务端返回 queued +
+// review_id，等待由 argus 轮询承担）。
+type mcpCreated = mcpReviewStatus
 
 // mcpCreateReview 平铺 reviewRequestSchema 参数创建审查。GitLab 的 MR 编号与
 // GitHub/Gitea 系的 PR 编号是两套语义，服务端按平台取对应字段，故按平台分流。
-// wait=true + timeout_seconds：服务端同步等审查完成再返回；其 wait 超时
-// （wait_timeout，review 仍在后台跑）按插件失败上抛——降级走 Merger 部分失败
-// 容忍 + failed-retry 下轮重试，不在此自建轮询状态机。
+// wait=false：立即返回 review_id（status=queued），不占对端 transport 长请求。
 func (r *Remote) mcpCreateReview(ctx context.Context, c *client.Client, task plugin.Task) (mcpCreated, error) {
 	args := map[string]any{
-		"provider":        strings.ToLower(task.PR.Platform),
-		"repo":            task.PR.Owner + "/" + task.PR.Repo,
-		"head_sha":        task.PR.HeadSHA,
-		"wait":            true,
-		"timeout_seconds": mcpSyncWaitSec,
+		"provider": strings.ToLower(task.PR.Platform),
+		"repo":     task.PR.Owner + "/" + task.PR.Repo,
+		"head_sha": task.PR.HeadSHA,
+		"wait":     false,
 	}
 	if task.PR.Number != "" {
 		if strings.EqualFold(task.PR.Platform, "gitlab") {
@@ -125,8 +131,36 @@ func (r *Remote) mcpCreateReview(ctx context.Context, c *client.Client, task plu
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return mcpCreated{}, fmt.Errorf("create_review 响应非 JSON: %w（原文 %.200s）", err, logredact.Redact(raw))
 	}
-	out.raw = raw
 	return out, nil
+}
+
+// mcpWaitReview 轮询 get_review 到终态：success（含 success_with_publish_failed）
+// 返回；failed 上抛；预算=任务级 ctx（manifest.Timeout），超时上抛并带 review_id
+// 便于人工按 list_reviews 追踪——review 在对端仍在跑，不盲等也不取消。
+func (r *Remote) mcpWaitReview(ctx context.Context, c *client.Client, reviewID string) (mcpReviewStatus, error) {
+	ticker := time.NewTicker(mcpPollInterval)
+	defer ticker.Stop()
+	for {
+		raw, err := r.mcpCall(ctx, c, "get_review", map[string]any{"review_id": reviewID})
+		if err != nil {
+			return mcpReviewStatus{}, err
+		}
+		var st mcpReviewStatus
+		if err := json.Unmarshal([]byte(raw), &st); err != nil {
+			return mcpReviewStatus{}, fmt.Errorf("get_review 响应非 JSON: %w（原文 %.200s）", err, logredact.Redact(raw))
+		}
+		switch st.Status {
+		case "success", "success_with_publish_failed":
+			return st, nil
+		case "failed":
+			return mcpReviewStatus{}, fmt.Errorf("mcp-server review %s 失败: %.200s", reviewID, logredact.Redact(st.Summary))
+		}
+		select {
+		case <-ctx.Done():
+			return mcpReviewStatus{}, fmt.Errorf("轮询 review %s 超预算（对端仍在跑，可稍后按 list_reviews 追踪）: %w", reviewID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // mcpFinding get_review_findings 单条裁剪 finding（服务端 trimFindingForLLM 形态）。

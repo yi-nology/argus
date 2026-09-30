@@ -68,12 +68,22 @@ func TestScenario24_SquadConsensusConverges(t *testing.T) {
 
 // ---- 场景 25：remote(mcp) 插件全链路 ----
 
-// newRemoteMCPStub 进程内 MCP streamable-http server：review 工具返回固定 findings。
+// newRemoteMCPStub 进程内 MCP streamable-http server：review-service mcp-server
+// 编排契约 stub——create_review(wait=false) 回 review_id → get_review 直返
+// success → get_review_findings 返回固定 findings（path/body 裁剪形态）。
 func newRemoteMCPStub(t TestingT, findingsJSON string) *httptest.Server {
 	t.Helper()
 	s := mcpserver.NewMCPServer("remote-reviewer-stub", "1.0.0",
 		mcpserver.WithToolCapabilities(false))
-	s.AddTool(mcp.NewTool("review", mcp.WithDescription("远程审查专家")),
+	s.AddTool(mcp.NewTool("create_review", mcp.WithDescription("创建审查")),
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(`{"review_id":"rev-e2e","status":"queued"}`), nil
+		})
+	s.AddTool(mcp.NewTool("get_review", mcp.WithDescription("查状态")),
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(`{"review_id":"rev-e2e","status":"success","summary":"e2e"}`), nil
+		})
+	s.AddTool(mcp.NewTool("get_review_findings", mcp.WithDescription("取 findings")),
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return mcp.NewToolResultText(findingsJSON), nil
 		})
@@ -83,7 +93,7 @@ func newRemoteMCPStub(t TestingT, findingsJSON string) *httptest.Server {
 func TestScenario25_RemoteMCPPluginReview(t *testing.T) {
 	const comment = "remote 专家发现的事务遗漏"
 	srv := newRemoteMCPStub(t, fmt.Sprintf(
-		`{"findings":[{"file":"a.go","line":3,"severity":"medium","comment":%q}],"notes":""}`, comment))
+		`{"review_id":"rev-e2e","findings":[{"path":"a.go","line":3,"severity":"medium","title":"","body":%q}],"total":1,"truncated":false}`, comment))
 	t.Cleanup(srv.Close)
 
 	s := newStack(t, stackOpts{
@@ -91,7 +101,7 @@ func TestScenario25_RemoteMCPPluginReview(t *testing.T) {
 		extraAgents: []plugin.AgentDecl{{
 			Name: "remote-reviewer", Kind: "remote", Protocol: "mcp",
 			Skills:   []string{plugin.SkillCodeReview},
-			Endpoint: srv.URL + "/mcp", Tool: "review",
+			Endpoint: srv.URL + "/mcp", Tool: "create_review",
 			Cost: plugin.CostStandard, Timeout: "30s",
 		}},
 	})

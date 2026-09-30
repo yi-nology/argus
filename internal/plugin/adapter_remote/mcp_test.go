@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,13 +15,19 @@ import (
 	"argus/internal/plugin"
 )
 
+func TestMain(m *testing.M) {
+	mcpPollInterval = 20 * time.Millisecond // 测试收窄轮询间隔，语义不变
+	os.Exit(m.Run())
+}
+
 // capturedCreateArgs 记录 create_review 收到的平铺参数（分流断言用）。
 var capturedCreateArgs map[string]any
 
 // spawnMCPServer 进程内起一个 MCP server（streamable http），按 review-service
-// mcp-server 编排契约 mock：create_review 校验平铺参数（wait 同步语义）回
-// review_id，get_review_findings 回裁剪 findings。fail=true 时 create_review
-// 返回工具错误（Merger 部分失败容忍路径）。
+// mcp-server 编排契约 mock：create_review(wait=false) 校验平铺参数回 queued
+// review_id → get_review 前两轮 running 第三轮 success → get_review_findings
+// 回裁剪 findings。fail=true 时 create_review 返回工具错误（Merger 部分失败
+// 容忍路径）。
 func spawnMCPServer(t *testing.T, fail bool) *httptest.Server {
 	t.Helper()
 	s := server.NewMCPServer("test-reviewer", "1.0")
@@ -33,10 +41,26 @@ func spawnMCPServer(t *testing.T, fail bool) *httptest.Server {
 			if provider == "" || repo == "" || sha == "" {
 				return mcp.NewToolResultError("平铺参数缺失（provider/repo/head_sha）"), nil
 			}
+			if args["wait"] != false {
+				return mcp.NewToolResultError("argus 应走异步模式 wait=false"), nil
+			}
 			if fail {
 				return mcp.NewToolResultError("远端内部错误"), nil
 			}
-			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"completed","summary":"3 处问题"}`), nil
+			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"queued"}`), nil
+		})
+	polls := 0
+	s.AddTool(mcp.NewTool("get_review", mcp.WithDescription("查状态")),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if req.GetArguments()["review_id"] != "rev-1" {
+				return mcp.NewToolResultError("review 不存在"), nil
+			}
+			polls++
+			st := "running"
+			if polls >= 3 {
+				st = "success"
+			}
+			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"` + st + `","summary":"3 处问题"}`), nil
 		})
 	s.AddTool(mcp.NewTool("get_review_findings", mcp.WithDescription("取 findings")),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -114,7 +138,10 @@ func TestRemoteMCPTwoWireContracts(t *testing.T) {
 		if _, ok := gotArgs["payload"]; ok {
 			return mcp.NewToolResultError("编排契约不应收到 payload"), nil
 		}
-		return mcp.NewToolResultText(`{"review_id":"rev-1","status":"completed","summary":"ok"}`), nil
+		return mcp.NewToolResultText(`{"review_id":"rev-1","status":"queued"}`), nil
+	})
+	s.AddTool(mcp.NewTool("get_review"), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText(`{"review_id":"rev-1","status":"success","summary":"ok"}`), nil
 	})
 	s.AddTool(mcp.NewTool("get_review_findings"), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if req.GetArguments()["review_id"] != "rev-1" {
@@ -157,6 +184,29 @@ func TestRemoteMCPTwoWireContracts(t *testing.T) {
 	}
 }
 
+// TestRemoteMCPWaitFailed get_review 终态 failed → 上抛（带 review_id），
+// 走 Merger 部分失败容忍 + failed-retry。
+func TestRemoteMCPWaitFailed(t *testing.T) {
+	s := server.NewMCPServer("test-reviewer", "1.0")
+	s.AddTool(mcp.NewTool("create_review"), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText(`{"review_id":"rev-x","status":"queued"}`), nil
+	})
+	s.AddTool(mcp.NewTool("get_review"), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText(`{"review_id":"rev-x","status":"failed","summary":"拉取 MR 失败"}`), nil
+	})
+	ts := httptest.NewServer(server.NewStreamableHTTPServer(s))
+	t.Cleanup(ts.Close)
+
+	r := newRemote(t, plugin.ProtocolMCP, ts.URL, "create_review")
+	_, err := r.Invoke(context.Background(), remoteTask())
+	if err == nil {
+		t.Fatal("failed 终态应上抛")
+	}
+	if !strings.Contains(err.Error(), "rev-x") {
+		t.Fatalf("错误应带 review_id: %v", err)
+	}
+}
+
 // TestRemoteMCPCreateParams PR/MR 编号按平台分流：gitea 走 pull_request_id，
 // gitlab 走 merge_request_iid；provider 归一小写。
 func TestRemoteMCPCreateParams(t *testing.T) {
@@ -168,7 +218,7 @@ func TestRemoteMCPCreateParams(t *testing.T) {
 	if capturedCreateArgs["pull_request_id"] != "7" {
 		t.Fatalf("gitea 应传 pull_request_id: %+v", capturedCreateArgs)
 	}
-	if capturedCreateArgs["author"] != "alice" || capturedCreateArgs["wait"] != true {
+	if capturedCreateArgs["author"] != "alice" || capturedCreateArgs["wait"] != false {
 		t.Fatalf("author/wait 参数不符: %+v", capturedCreateArgs)
 	}
 
@@ -209,7 +259,11 @@ func spawnAuthMCPServer(t *testing.T, token string) *httptest.Server {
 	s := server.NewMCPServer("test-reviewer", "1.0")
 	s.AddTool(mcp.NewTool("create_review", mcp.WithDescription("创建审查")),
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"completed","summary":"ok"}`), nil
+			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"queued"}`), nil
+		})
+	s.AddTool(mcp.NewTool("get_review", mcp.WithDescription("查状态")),
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(`{"review_id":"rev-1","status":"success","summary":"ok"}`), nil
 		})
 	s.AddTool(mcp.NewTool("get_review_findings", mcp.WithDescription("取 findings")),
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
