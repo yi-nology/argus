@@ -57,3 +57,38 @@ func TestSameSHAGuard(t *testing.T) {
 		t.Fatalf("防线应幂等: active=%v err=%v", active, err)
 	}
 }
+
+// 不同 kind 的任务同 PR 同 SHA 可并存（v3.74.2）：审查 15min 在飞期间
+// describe/changelog 应能建任务；last_head_sha（审查语义）不挡归因任务。
+func TestDifferentKindsCoexist(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+	sha := "sha-coexist-1"
+	mk := func(id, kind, status string) *Task {
+		return &Task{
+			ID: id, Kind: kind, Platform: "gitlab",
+			Owner: "acme", Repo: "app", Number: "9", HeadSHA: sha,
+			Status: status, CreatedAt: time.Now(),
+		}
+	}
+	if dup, _, err := s.CreateTaskForWebhook(ctx, mk("task-cr", "code_review", StatusPending)); err != nil || dup != "" {
+		t.Fatalf("审查任务应建: dup=%q err=%v", dup, err)
+	}
+	// 同 SHA 同 PR、不同 kind → 不判重
+	if dup, _, err := s.CreateTaskForWebhook(ctx, mk("task-ci", "ci_analysis", StatusPending)); err != nil || dup != "" {
+		t.Fatalf("ci_analysis 应与在飞审查并存: dup=%q err=%v", dup, err)
+	}
+	if dup, _, err := s.CreateTaskForWebhook(ctx, mk("task-de", "describe", StatusPending)); err != nil || dup != "" {
+		t.Fatalf("describe 应与在飞审查并存: dup=%q err=%v", dup, err)
+	}
+	// 同 kind 同 SHA → 仍判重
+	if dup, id, err := s.CreateTaskForWebhook(ctx, mk("task-cr2", "code_review", StatusPending)); err != nil || dup != "in_flight" || id != "task-cr" {
+		t.Fatalf("同 kind 在飞仍应拦: dup=%q id=%q err=%v", dup, id, err)
+	}
+	// 同 kind 不同 SHA（新 head）→ 不判重（新提交正常建任务）
+	t2 := mk("task-cr3", "code_review", StatusPending)
+	t2.HeadSHA = "sha-coexist-2"
+	if dup, _, err := s.CreateTaskForWebhook(ctx, t2); err != nil || dup != "" {
+		t.Fatalf("新 SHA 应正常建: dup=%q err=%v", dup, err)
+	}
+}

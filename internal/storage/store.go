@@ -366,6 +366,13 @@ func (s *Store) CreateTask(ctx context.Context, t *Task) error {
 
 // CreateTaskForWebhook 同步完成"同 SHA 去重检查 + 落库"（同一事务，§5.1 规则 4 的 TOCTOU 防线）。
 // 返回 dupReason 非空表示命中去重（"last_head_sha" | "in_flight"），existingID 给出可指向的任务。
+// isReviewKind 审查类任务（last_head_sha 去重语义的适用面）：R 系列审查三类。
+// 写作面（describe/changelog）与 ci_analysis 不适用——它们不写也不继承
+// LastHeadSHA，否则"MR 先审完、CI 再挂"时同 SHA 的归因任务会被误挡。
+func isReviewKind(kind string) bool {
+	return kind == "requirement_compliance" || kind == "code_review" || kind == "visual_check"
+}
+
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
 	s.writeLock()
 	defer s.writeUnlock()
@@ -384,15 +391,15 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err // 瞬时 DB 错误不能静默跳过去重检查
 		}
-		if err == nil && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
+		if err == nil && isReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
 			dupReason = "last_head_sha"
 			return nil
 		}
 		// 规则 4b：存在同 head_sha 的 pending/running 任务（防 in-flight 竞态）
 		var cnt int64
 		err = tx.Model(&Task{}).
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA, []string{StatusPending, StatusRunning}).
+			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA, []string{StatusPending, StatusRunning}).
 			Count(&cnt).Error
 		if err != nil {
 			return err
@@ -401,8 +408,8 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 			dupReason = "in_flight"
 			var existing Task
 			_ = tx.Select("id").Where(
-				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
 				[]string{StatusPending, StatusRunning}).First(&existing).Error
 			existingID = existing.ID
 			return nil
@@ -422,7 +429,7 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		if isDuplicateKeyErr(txErr) {
 			var existing Task
 			if e := s.quietDB().WithContext(ctx).Where(
-				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ? AND status IN ?",
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
 				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
 				[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
 				return "in_flight", existing.ID, nil
@@ -460,15 +467,15 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 		}
 		var cnt int64
 		if err := tx.Model(&Task{}).
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
 			Count(&cnt).Error; err != nil {
 			return err
 		}
 		if cnt > 0 {
 			existing = &Task{}
-			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
 				Order("created_at DESC, id DESC").First(existing).Error; err != nil {
 				return err
 			}
@@ -479,8 +486,8 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 			// 幂等语义；此前直接上抛 500，rerun 评论回帖"处理失败"（v3.8.0 修复）。
 			if isDuplicateKeyErr(err) {
 				existing = &Task{}
-				if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status IN ?",
-					t.Platform, t.Owner, t.Repo, t.Number, []string{StatusPending, StatusRunning}).
+				if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
 					Order("created_at DESC, id DESC").First(existing).Error; qerr != nil {
 					return err // 回查也失败：暴露原始错误
 				}
