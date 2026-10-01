@@ -210,10 +210,24 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	if owner == "" || repo == "" || number == "" {
 		return nil, http.StatusBadRequest
 	}
-	// number 必须是纯十进制数字（平台 PR 序号）；strconv.Atoi 会放过 "+123" 等带符号写法，
-	// 入库后运行期平台查询才失败。
-	if !isDigits(number) {
+	// owner/repo 白名单（2026-10-01 评测补缺）：平台标识允许字母数字、. _ - 与
+	// 子组斜杠（GitLab 多级组），拒掉引号/空白/控制符等进 API URL 的危险形态——
+	// 此前任意字符串可入库并进入平台查询路径（评测实测 SQL 注入形态被建任务）。
+	if !isPlatformPath(owner) || !isPlatformPath(repo) {
 		return nil, http.StatusBadRequest
+	}
+	// number 必须是纯十进制数字（平台 PR 序号）；strconv.Atoi 会放过 "+123" 等带符号写法，
+	// 入库后运行期平台查询才失败。长度上限 10：超出 int64 的 20 位数字此前也会被
+	// 建任务白跑一轮（评测实测）。
+	if !isDigits(number) || len(number) > 10 {
+		return nil, http.StatusBadRequest
+	}
+	// artifacts 总大小上限：任意大小 JSON 此前可直灌 DB（DoS 面）。
+	if len(artifacts) > 0 {
+		artifactsJSON, aerr := json.Marshal(artifacts)
+		if aerr != nil || len(artifactsJSON) > artifactsMaxBytes {
+			return nil, http.StatusBadRequest
+		}
 	}
 	artifactsJSON, _ := json.Marshal(artifacts)
 	task := &storage.Task{
@@ -698,6 +712,28 @@ func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery
 		Reason:  strPtr("installation event logged"),
 		EventId: strPtr(delivery),
 	}
+}
+
+// artifactsMaxBytes artifacts 序列化总量上限（16KB：正常注入面只有 testgen/
+// checkpoint 类小产物）。
+const artifactsMaxBytes = 16 * 1024
+
+// isPlatformPath 平台 owner/repo 标识白名单：字母数字、. _ -，repo 侧允许
+// 子组斜杠。拒绝引号/空白/控制符/unicode 异体等进平台 API URL 的形态。
+func isPlatformPath(s string) bool {
+	if s == "" || len(s) > 200 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '-', c == '/':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func isDigits(s string) bool {
