@@ -17,8 +17,12 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// sameSHAIndex SQLite 部分唯一索引名。
+// sameSHAIndex 旧版部分唯一索引名（v3.74.2 前不含 kind）——升级时删除。
 const sameSHAIndex = "idx_tasks_same_sha_live"
+
+// sameSHAIndexV2 现行部分唯一索引：含 kind 列——同 PR 不同 kind（审查/写作/
+// CI 归因）的任务允许并存，"在飞唯一"只约束同 kind 同 SHA。
+const sameSHAIndexV2 = "idx_tasks_same_sha_live_v2"
 
 // EnsureSameSHAGuard 建立在飞同 SHA 唯一防线。active=false + err=nil 表示因
 // 历史在飞重复未能建立（v3.5.12 之前无此约束）——双跑防线退化为事务内检查，
@@ -30,9 +34,12 @@ func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
 	if !s.sqlite {
 		return true, nil
 	}
+	// v3.74.2 索引升级：v1（不含 kind）删除，重建 v2（含 kind）。DROP 幂等，
+	// 每次启动执行一次，在飞行数少无锁窗风险。
+	_ = s.db.Exec("DROP INDEX IF EXISTS " + sameSHAIndex).Error
 	// 幂等：IF NOT EXISTS 对已存在的同名索引（含非唯一形态）不重建
-	cerr := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndex +
-		" ON tasks(platform, owner, repo, number, head_sha) " +
+	cerr := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndexV2 +
+		" ON tasks(platform, owner, repo, number, kind, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
 	if cerr == nil {
 		return true, nil
