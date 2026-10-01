@@ -667,31 +667,11 @@ func warnBadEnv(key, val string, def any) {
 	fmt.Fprintf(os.Stderr, "argus.config: 环境变量 %s=%q 非法，回退默认值 %v\n", key, val, def)
 }
 
-// LoadDotEnv 依次尝试常见位置的 .env（服务根目录、lacus/ 根目录；test 子目录多一级）。
-// 仅当环境变量尚不存在时写入，已 export 的优先。
+// LoadDotEnv 依次尝试常见位置的 .env（服务根目录、lacus/ 根目录；test 子目录
+// 多一级）。v3.81.0 实现下沉 ekit/config（服务开发期配置引导通用语义；
+// 候选路径与语义逐字保持：首个存在文件生效、已 export 的优先、无文件静默）。
 func LoadDotEnv() {
-	for _, path := range []string{"./.env", "../.env", "../../.env", "../../../.env"} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			k, v, ok := strings.Cut(line, "=")
-			if !ok {
-				continue
-			}
-			k = strings.TrimSpace(k)
-			v = strings.Trim(strings.TrimSpace(v), `"'`)
-			if os.Getenv(k) == "" {
-				_ = os.Setenv(k, v)
-			}
-		}
-		return
-	}
+	ekitconfig.LoadDotEnv()
 }
 
 // Validate 启动期校验：无 LLM 配置时 builtin 插件不可用，仍允许启动（cli 插件可独立工作）。
