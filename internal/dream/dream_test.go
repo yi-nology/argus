@@ -172,3 +172,40 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 		t.Fatalf("无低置信后记忆应退场，got %q", got)
 	}
 }
+
+func TestExportOrgMemoryCrossRepoAggregation(t *testing.T) {
+	// 同一 pattern 文本在两个仓出现 → 组织桶应聚合出一条跨仓模式
+	shared := "未检查 err 就继续使用返回值"
+	st := &fakeStore{
+		repos: []storage.RepoRef{
+			{Platform: "gitea", Owner: "acme", Repo: "app"},
+			{Platform: "gitea", Owner: "acme", Repo: "web"},
+		},
+		low: map[string][]learning.PatternState{
+			"acme/app": {{Pattern: shared, Plugin: "security", Confidence: 0.4, Samples: 5}},
+			"acme/web": {{Pattern: shared, Plugin: "security", Confidence: 0.3, Samples: 3}},
+		},
+	}
+	dir := t.TempDir()
+	d := &Dream{Store: st, Learning: learning.DefaultConfig(), MemoryDir: dir}
+	_, _, err := d.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgDir := filepath.Join(dir, "_org")
+	entries, rerr := os.ReadDir(orgDir)
+	if rerr != nil || len(entries) == 0 {
+		t.Fatalf("组织桶应有聚合文件: %v", rerr)
+	}
+	raw, _ := os.ReadFile(filepath.Join(orgDir, entries[0].Name()))
+	if !strings.Contains(string(raw), "2 仓共现") || !strings.Contains(string(raw), "acme/app") {
+		t.Fatalf("聚合内容不符: %s", raw)
+	}
+	// 单仓独有模式不应入组织桶
+	for _, e := range entries {
+		b, _ := os.ReadFile(filepath.Join(orgDir, e.Name()))
+		if strings.Contains(string(b), "1 仓共现") {
+			t.Fatalf("单仓模式不应入组织桶: %s", b)
+		}
+	}
+}

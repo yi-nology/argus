@@ -13,6 +13,9 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"git.example.com/enjoydream/agentkit/logredact"
+	"git.example.com/enjoydream/agentkit/procx"
+
 	"argus/internal/fixverifier"
 	"argus/internal/plugin"
 	"argus/internal/reportview"
@@ -261,5 +264,46 @@ func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin
 	if verified > 0 {
 		r.Log.Info("argus.runner.fix_verified", "task", task.ID,
 			"verified", verified, "total", len(results))
+		// push 环（v3.74.1，opt-in）：验证通过的修复自动 commit+push 到 PR 源
+		// 分支。push 失败（作者已推新提交/无权限）静默降级为不 push——下轮
+		// 审查在新的 head 上重新验证再战，绝不阻塞主链路。
+		if r.Cfg.FixPush {
+			r.pushVerifiedFixes(ctx, task, pr, dir, out.Merged.Findings, verified)
+		}
 	}
+}
+
+// pushVerifiedFixes 把验证通过的修复 commit 并 push 到 PR 源分支。
+// 多条修复合并为一个 commit（同一工作副本同一轮，拆分只会放大冲突面）；
+// commit message 带任务 ID 与条数可追溯。
+func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
+	pr *plugin.PRContext, dir string, findings []plugin.Finding, verified int) {
+
+	if _, err := fixverifier.Apply(ctx, dir, findings); err != nil {
+		r.Log.Warn("argus.runner.fix_apply_failed", "task", task.ID, "error", err.Error())
+		return
+	}
+	if pr.HeadBranch == "" {
+		return
+	}
+	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
+		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=1）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
+		verified, task.ID, pr.Owner, pr.Repo, pr.Number)
+	gitArgs := [][]string{
+		{"-C", dir, "add", "-A"},
+		{"-C", dir, "-c", "user.name=argus-bot", "-c", "user.email=argus@bot.local",
+			"commit", "-m", msg},
+		{"-C", dir, "push", "origin", "HEAD:" + pr.HeadBranch},
+	}
+	for _, argv := range gitArgs {
+		runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		_, stderr, code, err := procx.Run(runCtx, procx.RunRequest{Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute})
+		cancel()
+		if err != nil || code != 0 {
+			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", argv[0],
+				"code", code, "stderr", logredact.Redact(stderr))
+			return
+		}
+	}
+	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "branch", pr.HeadBranch, "fixes", verified)
 }

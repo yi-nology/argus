@@ -281,6 +281,10 @@ type Config struct {
 	// 应用+编译验证，通过者在回帖标「✅ 沙箱验证通过」。空 = 功能停用
 	//（findings 保持「未经编译验证」，零行为变更）。
 	FixVerifyCmd string
+	// FixPush 修复 push 环（v3.74.1，ARGUS_FIX_PUSH=1 显式 opt-in）：验证通过的
+	// 修复建议自动 commit 并 push 到 PR 源分支。默认关闭——bot 直接写用户分支
+	// 是信任面决策；依赖 FixVerifyCmd（没有验证环就没有 push 环）。
+	FixPush bool
 	// FixVerifyTimeout 包装命令硬上限（ARGUS_FIX_VERIFY_TIMEOUT，0 = 3m）。
 	FixVerifyTimeout time.Duration
 	// TestGenVerifyTimeout 包装命令硬上限（ARGUS_TESTGEN_VERIFY_TIMEOUT，0 = 5m）。
@@ -468,6 +472,7 @@ func Load() *Config {
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),
+		FixPush:                os.Getenv("ARGUS_FIX_PUSH") == "1",
 		FixVerifyTimeout:       envDuration("ARGUS_FIX_VERIFY_TIMEOUT", 0),
 		TestGenVerifyTimeout:   envDuration("ARGUS_TESTGEN_VERIFY_TIMEOUT", 0),
 		Platforms:              map[string]PlatformConfig{},

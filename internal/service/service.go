@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudwego/eino/schema"
 	"net/http"
 	"strings"
 	"sync"
@@ -866,4 +867,25 @@ func decodeArtifactsMap(s string) map[string]string {
 	}
 	_ = json.Unmarshal([]byte(s), &m)
 	return m
+}
+
+// ReviewDiff 本地 diff 审查（v3.74.1，argus-copilot pre-commit 路径）：
+// 单轮 LLM 审查任意 diff 文本，返回 markdown 意见列表。不建任务、不落库、
+// 不回帖——本地快审语义；模型未配置返回错误（调用方显式降级）。
+// diff 上限 120KB（与写作面同量级；超限截断由调用方负责，工具入参侧也拦）。
+func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
+	if s.Model == nil {
+		return "", fmt.Errorf("模型未配置（ARGUS_LLM_*），本地 diff 审查不可用")
+	}
+	if strings.TrimSpace(diff) == "" {
+		return "", fmt.Errorf("diff 为空")
+	}
+	prompt := "你是资深代码审查专家。审查以下 diff（提交前的本地预审），只报告有实际影响的" +
+		"问题（安全/逻辑/边界），宁缺毋滥；每条意见一行 `- file:line [severity] 说明`。" +
+		"无问题时只输出「✅ 未发现问题」。\n\n<diff>\n" + diff + "\n</diff>"
+	msg, err := s.Model.Generate(ctx, []*schema.Message{schema.UserMessage(prompt)})
+	if err != nil {
+		return "", fmt.Errorf("diff 审查失败: %w", err)
+	}
+	return strings.TrimSpace(msg.Content), nil
 }

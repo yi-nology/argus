@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -62,6 +63,7 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 	fp := fs.String("fp", "", "意见指纹短码（suggest）")
 	pr := fs.String("pr", "", "platform/owner/repo#number（ask）")
 	q := fs.String("q", "", "追问内容（ask 可选）")
+	diffFile := fs.String("f", "", "diff 文件路径（review；缺省读 stdin）")
 	_ = fs.Parse(rest)
 
 	switch cmd {
@@ -85,6 +87,27 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 			args["question"] = *q
 		}
 		return call(ctx, cli, "ask_argus", args)
+	case "review":
+		// pre-commit 本地预审（v3.74.1）：stdin 或 -f 文件给 diff → 服务端单轮
+		// LLM 审查 → 终端输出意见。典型接入 .git/hooks/pre-commit：
+		//   git diff --staged | argus-copilot review || true
+		var data []byte
+		var err error
+		if *diffFile != "" {
+			data, err = os.ReadFile(*diffFile)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			data, err = io.ReadAll(os.Stdin)
+			if err != nil {
+				return "", err
+			}
+		}
+		if len(strings.TrimSpace(string(data))) == 0 {
+			return "（无 diff 输入，跳过预审）", nil
+		}
+		return call(ctx, cli, "review_diff", map[string]any{"diff": string(data)})
 	default:
 		usage()
 		return "", nil
@@ -143,13 +166,16 @@ func fail(err error) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（只读）
+	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（只读；review 子命令为服务端审查面）
 
 用法:
   argus-copilot -url <mcp> -token <t> stages   -task <id>
   argus-copilot -url <mcp> -token <t> findings -task <id>
   argus-copilot -url <mcp> -token <t> suggest  -task <id> -fp <短码>
   argus-copilot -url <mcp> -token <t> ask      -pr platform/owner/repo#num [-q 问题]
+  git diff --staged | argus-copilot -url <mcp> -token <t> review [-f <diff文件>]
+                                  （pre-commit 本地预审：服务端单轮 LLM 审查，
+                                   不建任务不落库；模型未配置时返回错误）
 
 环境: ARGUS_MCP_URL / ARGUS_APITOKEN
 `)

@@ -119,3 +119,32 @@ func verifyOne(ctx context.Context, cfg Config, dir string, f plugin.Finding) Re
 	res.OK = code == 0
 	return res
 }
+
+// Apply 把已验证通过的修复应用进工作副本（不还原——push 环专用，Verify 的
+// 每条会还原，两者不可混用于同一批文件）。返回实际写入的文件集合。
+func Apply(_ context.Context, dir string, findings []plugin.Finding) (map[string]bool, error) {
+	written := map[string]bool{}
+	for _, f := range findings {
+		if !f.Verified || strings.TrimSpace(f.SuggestedFix) == "" {
+			continue
+		}
+		path := filepath.Join(dir, filepath.FromSlash(f.File))
+		if !strings.HasPrefix(path, filepath.Clean(dir)+string(os.PathSeparator)) {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return written, fmt.Errorf("读取 %s 失败: %w", f.File, err)
+		}
+		lines := strings.Split(string(raw), "\n")
+		if f.Line < 1 || f.Line > len(lines) {
+			continue // 锚定行漂移（作者已改），该条放弃
+		}
+		lines[f.Line-1] = strings.TrimRight(f.SuggestedFix, "\n")
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			return written, fmt.Errorf("写入 %s 失败: %w", f.File, err)
+		}
+		written[f.File] = true
+	}
+	return written, nil
+}

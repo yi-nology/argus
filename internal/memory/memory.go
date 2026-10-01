@@ -113,6 +113,9 @@ func LoadIndex(dir string, r Ref, budget int) string {
 
 // repoDir 仓库记忆目录（各段消毒，防平台 owner 嵌套组"/"等路径噪声）。
 func repoDir(dir string, r Ref) string {
+	if r.Owner == orgDirName {
+		return filepath.Join(dir, orgDirName) // 组织桶固定目录，无仓后缀
+	}
 	return filepath.Join(dir, sanitize(fmt.Sprintf("%s-%s-%s", r.Platform, r.Owner, r.Repo)))
 }
 

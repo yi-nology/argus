@@ -11,9 +11,12 @@ package dream
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,6 +72,8 @@ func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err
 	if err != nil {
 		return 0, 0, fmt.Errorf("dream: list repos: %w", err)
 	}
+	// 跨仓聚合收集：本轮各仓的低置信模式（组织桶写侧输入）
+	var allLow []repoPatterns
 	for _, r := range repos {
 		n, err := d.dedupRepo(ctx, r, at)
 		if err != nil {
@@ -76,19 +81,92 @@ func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err
 			continue
 		}
 		merged += n
-		ok, err := d.exportRepo(ctx, r, at)
+		ok, low, err := d.exportRepo(ctx, r, at)
 		if err != nil {
 			d.warn("argus.dream.export_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
 			continue
 		}
 		if ok {
 			exportedRepos++
+			allLow = append(allLow, repoPatterns{ref: r, low: low})
+		}
+	}
+	// 组织桶聚合（v3.74.1）：pattern 跨仓共现 ≥2 → 组织级模式，写入 _org 两级
+	// 记忆的上级段（R3 注入所有仓）。失败只告警，不阻断仓桶导出语义。
+	if d.MemoryDir != "" && len(allLow) > 0 {
+		if n := d.exportOrgMemory(allLow, at); n > 0 {
+			d.info("argus.dream.org_memory", "patterns", n)
 		}
 	}
 	if merged > 0 || exportedRepos > 0 {
 		d.info("argus.dream.done", "merged", merged, "exported_repos", exportedRepos)
 	}
 	return merged, exportedRepos, nil
+}
+
+// repoPatterns 单仓导出的低置信模式集（组织桶聚合输入）。
+type repoPatterns struct {
+	ref learning.RepoRef
+	low []learning.PatternState
+}
+
+// exportOrgMemory 跨仓共现聚合：归一 pattern 文本（trim）在 ≥2 个仓出现即组织级
+// 模式。幂等=先清 _org 后写；无共现时清空（陈旧组织模式不留场）。
+func (d *Dream) exportOrgMemory(all []repoPatterns, at time.Time) int {
+	type agg struct {
+		repos map[string]bool
+	}
+	byPattern := map[string]*agg{}
+	for _, rp := range all {
+		for _, p := range rp.low {
+			key := strings.TrimSpace(p.Pattern)
+			if key == "" {
+				key = strings.TrimSpace(p.PatternText)
+			}
+			if key == "" {
+				continue
+			}
+			a, ok := byPattern[key]
+			if !ok {
+				a = &agg{repos: map[string]bool{}}
+				byPattern[key] = a
+			}
+			a.repos[rp.ref.Owner+"/"+rp.ref.Repo] = true
+		}
+	}
+	if err := memory.ClearRepo(d.MemoryDir, memory.OrgRef); err != nil {
+		d.warn("argus.dream.org_clear_failed", "error", err.Error())
+		return 0
+	}
+	n := 0
+	for key, a := range byPattern {
+		if len(a.repos) < 2 {
+			continue
+		}
+		repos := make([]string, 0, len(a.repos))
+		for r := range a.repos {
+			repos = append(repos, r)
+		}
+		sort.Strings(repos)
+		sampleHead, _ := textutil.TruncRunes(key, 80)
+		desc := fmt.Sprintf("跨仓模式（%d 仓共现）：%s", len(a.repos), memory.SingleLine(sampleHead))
+		body := fmt.Sprintf("该审查模式在以下仓库均呈低置信（样本各自独立，跨仓共现提示组织级噪声源）：\n%s\n\n"+
+			"命中类似表述请提高举证标准。来源仓库：%s\n",
+			strings.Join(repos, "\n"), strings.Join(repos, ", "))
+		slug := fmt.Sprintf("cross-%s", shortHash(key))
+		if err := memory.Save(d.MemoryDir, memory.OrgRef, slug, "pattern", desc, body, at); err != nil {
+			d.warn("argus.dream.org_save_failed", "error", err.Error())
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// shortHash pattern 文本的短指纹（slug 稳定化，跨轮幂等覆盖同模式文件）。
+func shortHash(s string) string {
+	sum := sha1.Sum([]byte(s))
+	return hex.EncodeToString(sum[:4])
 }
 
 // dedupRepo 同 plugin + pattern_text 前缀相同 → 计数并入样本更多的一行。
@@ -144,7 +222,7 @@ func betterKeep(a, b storage.PatternSignal) bool {
 }
 
 // exportRepo 把低置信模式写成知识条目。无低置信样本时跳过（ok=false）。
-func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time) (bool, error) {
+func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time) (bool, []learning.PatternState, error) {
 	topN := d.ExportTopN
 	if topN <= 0 {
 		topN = 20
@@ -152,7 +230,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 	low, err := d.Store.ListLowConfidencePatterns(ctx, r.Platform, r.Owner, r.Repo,
 		d.Learning.MinSamples, d.Learning.SoftFloor, topN)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if len(low) == 0 {
 		// v3.8.0：仓库不再有低置信模式时覆盖旧导出——此前提前 return，
@@ -168,7 +246,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 		}
 		if d.KnowledgeDir != "" {
 			if err := writeLocalKnowledge(d.KnowledgeDir, r, clear); err != nil {
-				return false, err
+				return false, nil, err
 			}
 		}
 		// 记忆面同步退场（v3.8.0 只增不删教训的记忆侧同款修复）
@@ -177,7 +255,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 				d.warn("argus.dream.memory_clear_failed", "error", err.Error())
 			}
 		}
-		return false, nil
+		return false, nil, nil
 	}
 	body := renderKnowledge(r, low, at)
 
@@ -190,20 +268,21 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 			d.warn("argus.dream.milvus_failed", "error", err.Error())
 		}
 	}
-	if d.KnowledgeDir == "" {
-		return false, nil
-	}
-	if err := writeLocalKnowledge(d.KnowledgeDir, r, body); err != nil {
-		return false, err
-	}
 	// 记忆面双写（v3.35.0）：逐事实落 repo 记忆目录（索引注入 R3，感知面）；
-	// 与知识聚合文档（search_knowledge，检索面）互补。
+	// 与知识聚合文档（search_knowledge，检索面）互补。独立于知识导出面——
+	// v3.74.1 修复：KnowledgeDir 为空时此前整体跳过，记忆桶也断写。
 	if d.MemoryDir != "" {
 		if err := writeMemory(d.MemoryDir, r, low, at); err != nil {
 			d.warn("argus.dream.memory_failed", "error", err.Error())
 		}
 	}
-	return true, nil
+	if d.KnowledgeDir == "" {
+		return true, low, nil
+	}
+	if err := writeLocalKnowledge(d.KnowledgeDir, r, body); err != nil {
+		return false, nil, err
+	}
+	return true, low, nil
 }
 
 // writeMemory 逐事实写记忆文件（幂等：先清后写——模式集变化后旧文件不留场）。

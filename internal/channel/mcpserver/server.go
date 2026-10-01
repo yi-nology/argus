@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -31,6 +32,12 @@ type Core interface {
 		artifacts map[string]string) (*api.CreateTaskResponse, int)
 	GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int)
 	ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse
+}
+
+// DiffReviewer 可选扩展（v3.74.1）：review_diff 本地预审的数据面。
+// *service.Service 实现（单轮 LLM，不建任务不落库）。
+type DiffReviewer interface {
+	ReviewDiff(ctx context.Context, diff string) (string, error)
 }
 
 // ReviewQA 可选扩展（v3.3 P5）：ask_argus 的数据面。*service.Service 实现。
@@ -50,6 +57,27 @@ func New(core Core, version string) *server.MCPServer {
 		kind := argString(req, "kind", "requirement_compliance")
 		return runReview(ctx, core, req, kind)
 	})
+	// review_diff（v3.74.1）：本地 staged diff 预审（argus-copilot review 子命令
+	// 消费）；DiffReviewer 可选能力，模型未配置时不挂载该工具。
+	if dr, ok := core.(DiffReviewer); ok {
+		s.AddTool(mcp.NewTool("review_diff",
+			mcp.WithDescription("本地预审一段 diff（提交前检查）。入参 diff 为完整 diff 文本（≤120KB），返回 markdown 审查意见。"),
+			mcp.WithString("diff", mcp.Required(), mcp.Description("完整 diff 文本")),
+		), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			diff, _ := req.GetArguments()["diff"].(string)
+			if strings.TrimSpace(diff) == "" {
+				return mcp.NewToolResultError("diff 为空"), nil
+			}
+			if len(diff) > 120_000 {
+				diff = diff[:120_000]
+			}
+			out, err := dr.ReviewDiff(ctx, diff)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(out), nil
+		})
+	}
 	s.AddTool(requirementComplianceTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return runReview(ctx, core, req, "requirement_compliance")
 	})
