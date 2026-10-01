@@ -696,6 +696,17 @@ func (r *Runner) finalizeAndAnnounce(ctx context.Context, task *storage.Task, pr
 	}
 	r.announceTerminal(ctx, task, status, out.Verdict, out, "")
 	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
+	// 按仓趋势埋点（v3.73.0）：findings 密度 + 耗时分布，metrics 面按仓聚合。
+	if out.Merged != nil {
+		bySev := map[string]int{}
+		for _, f := range out.Merged.Findings {
+			bySev[f.Severity]++
+		}
+		for sev, n := range bySev {
+			plugin.ReportFindingsByRepo(pr.Platform, pr.Owner+"/"+pr.Repo, sev, n)
+		}
+	}
+	plugin.ReportTaskDurationByRepo(pr.Platform, pr.Owner+"/"+pr.Repo, task.Kind, time.Since(start).Seconds())
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", status,
 		"verdict", out.Verdict, "rule", out.Rule, "findings", findingsCount(out.Merged),
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)

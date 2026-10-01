@@ -192,6 +192,9 @@ func renderFindings(b *strings.Builder, r Report) {
 		if ann := plugin.SamplesAnnotation(f); ann != "" {
 			comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
 		}
+		if ann := plugin.ConfidenceAnnotation(f); ann != "" {
+			comment += ann
+		}
 		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
 			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
 			fence.EscapeUntrusted(by), fp)

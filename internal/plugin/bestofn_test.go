@@ -224,3 +224,16 @@ func TestDispatcher_RunBestOfN_OffByDefault(t *testing.T) {
 		t.Fatalf("reviewN=1 应只调用一次，got %d", p.calls)
 	}
 }
+
+func TestConfidenceAnnotation(t *testing.T) {
+	if ann := ConfidenceAnnotation(Finding{Confidence: 0}); ann != "" {
+		t.Fatalf("未提供信心应无标注: %q", ann)
+	}
+	if ann := ConfidenceAnnotation(Finding{Confidence: 0.9}); ann != "" {
+		t.Fatalf("高信心应无标注: %q", ann)
+	}
+	ann := ConfidenceAnnotation(Finding{Confidence: 0.4})
+	if ann == "" || !strings.Contains(ann, "40%") {
+		t.Fatalf("低信心应有百分比标注: %q", ann)
+	}
+}

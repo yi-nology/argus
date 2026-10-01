@@ -51,6 +51,10 @@ type Finding struct {
 	// 结构化字段而非 Comment 后缀：指纹/prints 原文/模式键由评语派生，标注文本
 	// 入键会让跨轮身份漂移（v3.9.1 错账同类教训）。渲染层经 SamplesAnnotation 展示。
 	Samples string `json:"samples,omitempty"`
+	// Confidence 模型自评信心（0-1，可选；0 = 未提供）。渲染层对低信心条目
+	// 加警示标注，供审阅者权重参考——不进指纹（指纹身份由 File+原始 comment+
+	// Line 派生，置信度是渲染属性不是身份属性）。
+	Confidence float64 `json:"confidence,omitempty"`
 }
 
 // PrintState 既有指纹状态。

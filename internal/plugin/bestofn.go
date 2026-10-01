@@ -127,6 +127,20 @@ func SamplesAnnotation(f Finding) string {
 	return "（单次采样，低复现）"
 }
 
+// confidenceLowThreshold 低信心警示阈值：模型自评低于此值时渲染层加注，
+// 提示审阅者对该条目降权（Cursor Bugbot"没把握就不说"的 argus 变体——
+// 说了但明示把握程度）。阈值 0.7：低于"较有把握"的直觉分界。
+const confidenceLowThreshold = 0.7
+
+// ConfidenceAnnotation 渲染层信心标注（数据来自 Finding.Confidence，可选）。
+// 返回空串 = 未提供信心或信心充足。
+func ConfidenceAnnotation(f Finding) string {
+	if f.Confidence <= 0 || f.Confidence >= confidenceLowThreshold {
+		return ""
+	}
+	return fmt.Sprintf("（⚠️ 模型低信心 %.0f%%，请审阅者自行验证）", f.Confidence*100)
+}
+
 func parseSamples(s string) (k, n int, ok bool) {
 	i := strings.IndexByte(s, '/')
 	if i <= 0 || i == len(s)-1 {

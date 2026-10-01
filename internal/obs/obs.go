@@ -40,6 +40,16 @@ var (
 		Name: "argus_findings_total", Help: "审查产出分布",
 	}, []string{"severity", "plugin"})
 
+	findingsByRepo = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_findings_by_repo_total", Help: "按仓 findings 趋势（密度/异常仓识别）",
+	}, []string{"platform", "repo", "severity"})
+
+	taskDurationByRepo = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "argus_task_duration_seconds_by_repo",
+		Help:    "按仓任务耗时分布（审查延迟趋势）",
+		Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 900, 1800},
+	}, []string{"platform", "repo", "kind"})
+
 	tasksPending = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "argus_tasks_pending", Help: "当前 pending 任务数（队列积压观测）",
 	})
@@ -181,6 +191,7 @@ func Init() {
 	ekitmetrics.Init("argus")
 	ekitmetrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
+		findingsByRepo, taskDurationByRepo,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
@@ -205,6 +216,12 @@ func Init() {
 	}
 	plugin.HookFindings = func(severity, name string, n int) {
 		findingsTotal.WithLabelValues(severity, name).Add(float64(n))
+	}
+	plugin.HookFindingsByRepo = func(platform, repo, severity string, n int) {
+		findingsByRepo.WithLabelValues(platform, repo, severity).Add(float64(n))
+	}
+	plugin.HookTaskDurationByRepo = func(platform, repo, kind string, seconds float64) {
+		taskDurationByRepo.WithLabelValues(platform, repo, kind).Observe(seconds)
 	}
 	plugin.HookReflectDrop = func(reason string) {
 		reflectDropped.WithLabelValues(reason).Inc()

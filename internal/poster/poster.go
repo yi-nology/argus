@@ -348,6 +348,9 @@ func inlineCommentBody(f plugin.Finding) string {
 		// best-of-N 复现计数（结构化字段渲染，非评语后缀——指纹身份不受影响）
 		body += ann
 	}
+	if ann := plugin.ConfidenceAnnotation(f); ann != "" {
+		body += ann
+	}
 	fix := strings.TrimSpace(f.SuggestedFix)
 	if fix != "" && !strings.Contains(fix, "```") {
 		if _, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {

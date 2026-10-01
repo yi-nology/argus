@@ -22,6 +22,11 @@ var (
 	HookLLMTokens func(stage, model string, tokens int)
 	// HookFindings 审查产出分布（severity, plugin）。
 	HookFindings func(severity, plugin string, n int)
+	// HookFindingsByRepo 按仓 findings 趋势（v3.73.0，repo=owner/name，severity）。
+	// 试点/企业内部环境 repo 基数可控；公共多租户部署应评估基数。
+	HookFindingsByRepo func(platform, repo, severity string, n int)
+	// HookTaskDurationByRepo 按仓任务耗时趋势秒数（repo, kind）。
+	HookTaskDurationByRepo func(platform, repo, kind string, seconds float64)
 	// HookReflectDrop R3.5 证据门 strict 丢弃。
 	HookReflectDrop func(reason string)
 	// HookReflectDegrade R3.5 证据门 soft 降级。
@@ -75,6 +80,20 @@ func ReportPluginFailure(name string) {
 }
 
 // ReportTaskTotal 供 runner 记任务终态。
+// ReportFindingsByRepo 按仓 findings 埋点（nil 钩子安全）。
+func ReportFindingsByRepo(platform, repo, severity string, n int) {
+	if HookFindingsByRepo != nil {
+		HookFindingsByRepo(platform, repo, severity, n)
+	}
+}
+
+// ReportTaskDurationByRepo 按仓耗时埋点（nil 钩子安全）。
+func ReportTaskDurationByRepo(platform, repo, kind string, seconds float64) {
+	if HookTaskDurationByRepo != nil {
+		HookTaskDurationByRepo(platform, repo, kind, seconds)
+	}
+}
+
 func ReportTaskTotal(platform, kind, status string) {
 	if HookTaskTotal != nil {
 		HookTaskTotal(platform, kind, status)
