@@ -18,6 +18,7 @@ import (
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/toolprior"
 
+	"argus/internal/codesearch"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 
@@ -534,6 +535,10 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 		table.Add(toolprior.Entry{Tool: getPoly, Priority: toolprior.PriorityCore,
 			When: "diff 涉及 Python/JS/TS 函数且需核实定义/参数时使用", Cost: "low"})
 	}
+	if st := w.r3SearchTool(); st != nil {
+		table.Add(toolprior.Entry{Tool: st, Priority: toolprior.PriorityCore,
+			When: "跨文件找调用方/相似实现/字符串或配置线索（符号定位之外的词法线索，含非 Go 文件）时使用", Cost: "low"})
+	}
 	if w.Knowledge != nil {
 		if kt := w.Knowledge.AsTool(); kt != nil {
 			table.Add(toolprior.Entry{Tool: kt, Priority: toolprior.PrioritySupport,
@@ -698,6 +703,38 @@ func (w *Workflow) r3CodeGraphTools() (getSymbol, getRefs, getCallers, getPoly t
 	return getSymbol, getRefs, getCallers, getPoly, nil
 }
 
+// r3SearchTool search_code 全文检索工具（v3.84.0）：工作副本上的受控正则搜索，
+// 覆盖符号索引到不了的词法线索（字符串/配置/非 Go 代码）。未注入工作副本路径
+// （功能关闭/无工作副本池/无纳入文件）时返回 nil（不进表）。
+func (w *Workflow) r3SearchTool() tool.BaseTool {
+	if w.CodeSearchDir == "" {
+		return nil
+	}
+	st, err := utils.InferTool("search_code",
+		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+		func(ctx context.Context, in *searchIn) (*searchOut, error) {
+			res, err := codesearch.Search(ctx, w.CodeSearchDir, in.Pattern,
+				codesearch.Options{Globs: searchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+			if err != nil {
+				return &searchOut{Result: plugin.ReminderNote("tool-error", err.Error())}, nil
+			}
+			return &searchOut{Result: DataFence("search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
+		})
+	if err != nil {
+		w.Log.Warn("argus.r3.search_tool_build_failed", "error", err.Error())
+		return nil
+	}
+	return st
+}
+
+// searchGlobs 可选 glob 入参归一（空串 → 无过滤）。
+func searchGlobs(glob string) []string {
+	if s := strings.TrimSpace(glob); s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
 // r3DetailTool get_detail（v3.39.0 大输出两级化）：被截断工具的全文取回通道。
 func (w *Workflow) r3DetailTool() (tool.BaseTool, error) {
 	return utils.InferTool("get_detail",
@@ -859,6 +896,14 @@ type symIn struct {
 	Name string `json:"name" jsonschema:"description=符号名（函数/方法/类型/变量名）"`
 }
 type symOut struct {
+	Result string `json:"result"`
+}
+type searchIn struct {
+	Pattern    string `json:"pattern" jsonschema:"description=Go 正则表达式（如 MyFunc\\(|TODO|apiKey）"`
+	Glob       string `json:"glob,omitempty" jsonschema:"description=可选文件过滤：无 / 按文件名（如 *.go），含 / 按仓库相对路径"`
+	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"description=忽略大小写"`
+}
+type searchOut struct {
 	Result string `json:"result"`
 }
 

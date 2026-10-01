@@ -174,6 +174,28 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 	r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
 }
 
+// injectCodeSearch 全文检索前置（v3.84.0）：就绪工作副本路径注入 Workflow，
+// 供 search_code 工具按需读取。注入只记路径不持引用——目录由 workcopy 池
+// TTL 兜底存活（任务时长远短于 TTL），读不到时工具侧按错误文本降级。
+// 未启用/无工作副本池/无纳入文件 → 跳过；失败告警降级，不阻断审查。
+func (r *Runner) injectCodeSearch(ctx context.Context, pr *plugin.PRContext,
+	diff *plugin.DiffContext, wf *requirement.Workflow) {
+	if !r.Cfg.CodeSearch || r.WC == nil {
+		return
+	}
+	if len(includedPaths(diff)) == 0 {
+		return
+	}
+	key := worktreeKey(pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		r.Log.Warn("argus.codesearch.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	defer r.WC.Release(key)
+	wf.CodeSearchDir = dir
+}
+
 // maxTouchedSymbols 触达符号清单上限（防巨型 PR 的清单吃预算）。
 const maxTouchedSymbols = 30
 

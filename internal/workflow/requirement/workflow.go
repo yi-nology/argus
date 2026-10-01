@@ -46,7 +46,8 @@ type Workflow struct {
 	//   ① 装配期构造字段——基础设施引用（LLM/Dispatcher/Merger/SDK/Tools/Knowledge），
 	//     buildWorkflow 一次构造；
 	//   ② 任务期预写字段——MemoryIndex/RepoGuide/ExternalToolCallLimit/OnStage/
-	//     CheckpointSink/SASTOutcomes/CodeGraph/RepoConfig：运行期数据而非装配常量，
+	//     CheckpointSink/SASTOutcomes/CodeGraph/CodeSearchDir/RepoConfig：运行期数据
+	//     而非装配常量，
 	//     runner 每任务 Run 前注入（这正是不用 Options 构造参数表达的原因，v3.54.0 复核定案）；
 	//   ③ 调用参数——Run/RunReviewOnly(ctx, task, budget) 携带任务本体与预算。
 	// 新增输入先问归属：装配常量→①，任务数据→②，禁止经钩子旁路绕开②。
@@ -125,6 +126,11 @@ type Workflow struct {
 	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
 	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
 	CodeGraph *codegraph.Index
+	// CodeSearchDir 工作副本根路径（v3.84.0：runner 就绪后注入；非空时 r3Tools/R4
+	// ReviewTools 挂 search_code 全文检索工具，覆盖符号索引到不了的词法线索）。
+	// 池语义：注入只记路径不持引用，目录由 workcopy TTL 兜底存活；工具侧读不到
+	// 时按工具错误文本降级，不中断 ReAct。
+	CodeSearchDir string
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。

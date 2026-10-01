@@ -270,6 +270,12 @@ type Config struct {
 	// 变更不含 Go 文件或无工作副本池时自动跳过。ARGUS_CODEGRAPH=0 关闭。
 	Codegraph bool
 
+	// CodeSearch 工作副本全文检索（v3.84.0）：为 R3/R4 审查 agent 挂 search_code
+	// 受控 grep 工具——跨文件词法线索（字符串/配置/非 Go 代码），零 LLM、
+	// 命中数/单文件/输出三重封顶。无纳入文件或无工作副本池时自动跳过。
+	// ARGUS_CODESEARCH=0 关闭。
+	CodeSearch bool
+
 	// TestGen 沙箱验证（v3.22.0）：@argus testgen 产物的工作副本编译验证。
 	// 纪律：argus 自身绝不直接执行待审代码——VerifyCmd 是部署方声明的隔离执行
 	// 包装命令（模板含 {dir} 占位符，如
@@ -470,6 +476,7 @@ func Load() *Config {
 		SASTSemgrepConfig:      os.Getenv("ARGUS_SAST_SEMGREP_CONFIG"),
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
+		CodeSearch:             envBool("ARGUS_CODESEARCH", true),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),
 		FixPush:                os.Getenv("ARGUS_FIX_PUSH") == "1",

@@ -148,6 +148,13 @@ argus 自身永不执行待审代码。`ARGUS_TESTGEN_VERIFY_TIMEOUT` 缺省 5m�
 codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`）与 Go 调用形态索引
 （`get_callers`）——词法级（非类型解析），工具描述已声明核实纪律。零新增依赖，`ARGUS_CODEGRAPH` 开关沿用。
 
+### 5.5.1 全文检索工具（v3.84.0，`ARGUS_CODESEARCH` 默认开）
+
+审查 agent（R3/R4/reviewer）额外获得 `search_code`：工作副本上的受控正则搜索（确定性、
+零 LLM），覆盖符号索引到不了的词法线索——字符串/配置/非 Go 代码。命中数、单文件大小、
+输出长度三重封顶，`.git`/vendor/node_modules/testdata 等目录自动排除；命中不等于结论，
+工具描述已声明"引用前须 get_file 核实"。
+
 ### 5.6 副驾参考客户端（v3.22.0）
 
 `cmd/argus-copilot`：MCP 只读客户端（stages/findings/suggest/ask 四命令），IDE 插件与脚本

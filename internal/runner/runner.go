@@ -597,6 +597,8 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 	r.injectSAST(ctx, pr, diff, wf)
 	// Go 符号索引（v3.15.0 P0-1）：get_symbol/get_references 工具 + 触达符号注入。
 	r.injectCodeGraph(ctx, pr, diff, &ptask, wf)
+	// 全文检索（v3.84.0）：search_code 受控 grep 工具的工作副本路径注入。
+	r.injectCodeSearch(ctx, pr, diff, wf)
 
 	// 仓库级行为配置进 workflow（v3.15.0）：min_severity 过滤在 finish 内执行；
 	// RepoConfig 非 nil 时 workflow 不再重复加载（省一次 API 往返）。
