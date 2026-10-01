@@ -20,6 +20,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"git.example.com/enjoydream/ekit/concurrency/async"
+	ekcache "git.example.com/enjoydream/ekit/data/cache"
 	mw "git.example.com/enjoydream/ekit/middleware"
 
 	api "argus/biz/model/api"
@@ -73,6 +74,12 @@ type Service struct {
 	commentOnce  sync.Once
 	commentSlots chan struct{}  // 有界并发（容量 Cfg.CommentConcurrency）
 	commentWG    sync.WaitGroup // 在途评论事件（DrainComments 等待）
+
+	// qaThrottle Q&A 评论 per-PR 30s 冷却缓存（v3.84.0 回归 per-Service 实例：
+	// v3.82.0 曾改进程级单例，e2e 同进程多 Service 场景互相污染节流窗口）。
+	// 懒建（qaThrottleMu 护栏），生产行为不变——进程内恒一个 Service。
+	qaThrottleMu  sync.Mutex
+	qaThrottleCch *ekcache.LocalCache[bool]
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。

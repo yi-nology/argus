@@ -216,12 +216,14 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 	// per-PR 节流（30 秒冷却）。v3.82.0 引入 ekit data/cache：TTL 过期 + 容量
 	// 上限由库接管，取代手写 map+mutex+「超 100 清 1h 前旧条目」驱逐循环。
+	// v3.84.0 起实例回归 per-Service（进程级单例曾令 e2e 同进程多 Service
+	// 互相污染节流窗口；生产行为不变）。
 	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
-	if v, _ := qaThrottleCache.Get(ctx, throttleKey); v != nil {
+	if v, _ := s.qaThrottle().Get(ctx, throttleKey); v != nil {
 		s.log().Warn("argus.qa.throttled", "pr", prRef, "question", question)
 		return
 	}
-	_ = qaThrottleCache.Set(ctx, throttleKey, &qaThrottled)
+	_ = s.qaThrottle().Set(ctx, throttleKey, &qaThrottled)
 
 	s.log().Info("argus.qa.received", "pr", prRef, "question", question,
 		"actor", ev.Actor.Username, "event_id", delivery)
@@ -421,12 +423,19 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 	s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, reply)
 }
 
-// qaThrottleCache Q&A 评论 per-PR 30s 冷却（进程级单例，与原 per-Service map
-// 语义一致——Service 全进程一个；TTL 过期 + MaxSize LRU 上限由库负责）。
-var (
-	qaThrottleCache = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
-		TTL:     30 * time.Second,
-		MaxSize: 200,
-	})
-	qaThrottled = true
-)
+// qaThrottle Q&A 评论 per-PR 30s 冷却缓存（per-Service 懒建，v3.84.0 起；
+// v3.82.0 的进程级单例曾破坏 e2e 测试隔离。TTL 过期 + MaxSize LRU 上限由
+// 库负责；qaThrottleMu 护并发首建）。
+func (s *Service) qaThrottle() *ekcache.LocalCache[bool] {
+	s.qaThrottleMu.Lock()
+	defer s.qaThrottleMu.Unlock()
+	if s.qaThrottleCch == nil {
+		s.qaThrottleCch = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
+			TTL:     30 * time.Second,
+			MaxSize: 200,
+		})
+	}
+	return s.qaThrottleCch
+}
+
+var qaThrottled = true
