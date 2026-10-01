@@ -18,6 +18,7 @@ const (
 	TaskKind_VISUAL_CHECK           TaskKind = 2
 	TaskKind_DESCRIBE               TaskKind = 3
 	TaskKind_CHANGELOG              TaskKind = 4
+	TaskKind_CI_ANALYSIS            TaskKind = 5
 )
 
 func (p TaskKind) String() string {
@@ -32,6 +33,8 @@ func (p TaskKind) String() string {
 		return "DESCRIBE"
 	case TaskKind_CHANGELOG:
 		return "CHANGELOG"
+	case TaskKind_CI_ANALYSIS:
+		return "CI_ANALYSIS"
 	}
 	return "<UNSET>"
 }
@@ -48,6 +51,8 @@ func TaskKindFromString(s string) (TaskKind, error) {
 		return TaskKind_DESCRIBE, nil
 	case "CHANGELOG":
 		return TaskKind_CHANGELOG, nil
+	case "CI_ANALYSIS":
+		return TaskKind_CI_ANALYSIS, nil
 	}
 	return TaskKind(0), fmt.Errorf("not a valid TaskKind string")
 }

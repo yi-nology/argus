@@ -87,3 +87,28 @@ func TestMergeDescription(t *testing.T) {
 		t.Fatalf("替换应保留作者段+新段: %q", got)
 	}
 }
+
+func TestAnalyzeCIFailure(t *testing.T) {
+	svc := newService(`{"conclusion":"代码问题","root_cause":"空指针","fix":"补判空"}`)
+	a, err := svc.AnalyzeCIFailure(context.Background(), CIInput{
+		Platform: "gitlab", Owner: "o", Repo: "r", Number: "1",
+		Jobs: []CIJob{{Name: "test", Stage: "test", Trace: "panic: nil deref"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Conclusion != "代码问题" || a.RootCause != "空指针" {
+		t.Fatalf("归因不符: %+v", a)
+	}
+	body := RenderCIAnalysis(a, "t-1")
+	if !strings.Contains(body, "CI 失败归因") || !strings.Contains(body, "t-1") {
+		t.Fatalf("评论渲染不符: %s", body)
+	}
+}
+
+func TestAnalyzeCIFailureNoJobs(t *testing.T) {
+	svc := newService(`{}`)
+	if _, err := svc.AnalyzeCIFailure(context.Background(), CIInput{}); err == nil {
+		t.Fatal("无失败 job 应报错")
+	}
+}

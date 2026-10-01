@@ -199,7 +199,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	artifacts map[string]string) (*api.CreateTaskResponse, int) {
 	switch kind {
 	case plugin.TaskKindRequirementCompliance, plugin.TaskKindCodeReview, plugin.TaskKindVisualCheck,
-		plugin.TaskKindDescribe, plugin.TaskKindChangelog:
+		plugin.TaskKindDescribe, plugin.TaskKindChangelog, plugin.TaskKindCIAnalysis:
 	default:
 		return nil, http.StatusBadRequest
 	}
@@ -616,6 +616,8 @@ func kindFromIDL(k api.TaskKind) (string, error) {
 		return plugin.TaskKindDescribe, nil
 	case api.TaskKind_CHANGELOG:
 		return plugin.TaskKindChangelog, nil
+	case api.TaskKind_CI_ANALYSIS:
+		return plugin.TaskKindCIAnalysis, nil
 	default:
 		return "", fmt.Errorf("未知任务类型 %d", int(k))
 	}

@@ -10,6 +10,7 @@ const (
 	TaskKindVisualCheck           = "visual_check"
 	// 写作面（v3.71.0，对标 PR-Agent /describe 与 /update_changelog）：
 	// 单步 LLM 写作，无 R 系列裁判与插件派发，产物直接平台写回。
-	TaskKindDescribe  = "describe"
-	TaskKindChangelog = "changelog"
+	TaskKindDescribe   = "describe"
+	TaskKindChangelog  = "changelog"
+	TaskKindCIAnalysis = "ci_analysis"
 )

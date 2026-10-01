@@ -435,6 +435,12 @@ func truncRunes(s string, n int) string {
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
 	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker) error {
 
+	// CI 失败归因（v3.71.0）：不依赖 MR 语义（push 的 commit 无 CR 可拉），
+	// 在 prepareContext 之前分派——输入是失败 job 日志而非 diff。
+	if task.Kind == plugin.TaskKindCIAnalysis {
+		return r.runCIAnalysis(ctx, task, start)
+	}
+
 	pr, rc, diff, stale, err := r.prepareContext(ctx, task)
 	if err != nil {
 		return err

@@ -64,6 +64,18 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), Reason: strPtr("qa comment")}, http.StatusOK
 	}
 
+	// CI 失败事件（v3.71.0，SDK Pipeline Hook 解析）：建 ci_analysis 任务走
+	// 写作面归因（失败 job 日志 → LLM → PR 评论）。pipeline 事件没有完整 CR
+	// 语义（可能无 MR），不过 CR 过滤链，走独立的轻量建任务分支。
+	if strings.HasPrefix(ev.Type, "pipeline.") {
+		if ev.CommitSHA == "" || ev.Repo == nil {
+			s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", "pipeline 事件缺 commit/repo 信息")
+			obs.IncrWebhookSkipped("pipeline_incomplete")
+			return &api.WebhookResponse{Status: "skipped", Reason: strPtr("pipeline 事件缺 commit/repo 信息"), EventId: strPtr(delivery)}, http.StatusOK
+		}
+		return s.pipelineCreateTask(ctx, ev, delivery, platform)
+	}
+
 	// §5.1 规则 1-3：事件白名单 / bot 自审 / draft 与异常事件防御
 	skipped := func(reason, why string) (*api.WebhookResponse, int) {
 		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
@@ -240,6 +252,54 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", ev.CR.HeadSHA, "event_id", delivery)
+	if s.Audit != nil {
+		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
+	}
+	s.publishCreated(task)
+	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
+}
+
+// pipelineCreateTask CI 失败事件 → ci_analysis 任务（写作面归因）。
+// 去重键=同 commit 失败只归因一次（last_head_sha 语义复用：pipeline 对同
+// SHA 只有一个终态，重复投递靠 event_id 幂等兜底）。Number 可空——无 MR 的
+// push pipeline 归因产物只落库不评论。
+func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
+	delivery, platform string) (*api.WebhookResponse, int) {
+	number := ""
+	if ev.CR != nil {
+		number = ev.CR.Number
+	}
+	task := &storage.Task{
+		ID:        storage.NewTaskID(),
+		Kind:      plugin.TaskKindCIAnalysis,
+		Platform:  platform,
+		Owner:     ev.Repo.Owner,
+		Repo:      ev.Repo.Name,
+		Number:    number,
+		HeadSHA:   ev.CommitSHA,
+		EventType: ev.Type,
+		Status:    storage.StatusPending,
+		Priority:  4, // CI 红了作者正盯着，略高于 poller 批量
+		CreatedAt: time.Now(),
+	}
+	if delivery != "" {
+		task.EventID = &delivery
+	}
+	dupReason, existingID, err := s.Store.CreateTaskForWebhook(ctx, task)
+	if err != nil {
+		s.log().Error("argus.webhook.pipeline_task_create_failed", "error", err.Error())
+		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
+	}
+	if dupReason == "event_id" {
+		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr("重复投递，命中既有任务"), EventId: strPtr(delivery)}
+		if existingID != "" {
+			resp.TaskId = strPtr(existingID)
+		}
+		return resp, http.StatusOK
+	}
+	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
+		"kind", task.Kind, "head", task.HeadSHA, "event_id", delivery)
 	if s.Audit != nil {
 		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")

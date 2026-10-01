@@ -180,3 +180,104 @@ func orNone(s string) string {
 	}
 	return s
 }
+
+// CIInput CI 失败归因的输入。
+type CIInput struct {
+	Platform string
+	Owner    string
+	Repo     string
+	Number   string // 关联 PR（可为空：无 MR 的 push pipeline）
+	Branch   string
+	Commit   string
+	Jobs     []CIJob
+}
+
+// CIJob 单个失败 job 的元数据与日志尾部。
+type CIJob struct {
+	Name    string
+	Stage   string
+	WebURL  string
+	Trace   string
+	Truncat bool
+}
+
+// ciAnalysisPrompt CI 失败归因写作指令：结构化产出（根因/归责/修复建议），
+// 面向贴回 PR 让作者直接行动。
+const ciAnalysisPrompt = `你是 CI 故障诊断工程师。一次流水线失败了，请基于失败日志给出归因分析。
+
+## 失败信息
+- 仓库：%s/%s（%s），分支 %s，提交 %s
+%s
+
+## 要求
+输出 Markdown，依次含：
+1. 「## 结论」：一句话定性——是代码问题、环境/依赖问题、还是基础设施抖动；
+2. 「## 根因」：引用日志中的关键报错行（代码块），指出失败的具体原因；
+3. 「## 修复建议」：给出作者可执行的下一步（改哪里/重跑/联系谁）。
+
+不确定时明确说不确定，禁止编造日志里没有的报错。中文。
+
+只输出 JSON：{"conclusion": "...", "root_cause": "...", "fix": "..."}`
+
+// CIAnalysis CI 失败归因产物。
+type CIAnalysis struct {
+	Conclusion string `json:"conclusion"`
+	RootCause  string `json:"root_cause"`
+	Fix        string `json:"fix"`
+}
+
+// AnalyzeCIFailure 归因失败 job 日志 → 结构化结论。
+func (s *Service) AnalyzeCIFailure(ctx context.Context, in CIInput) (CIAnalysis, error) {
+	var out CIAnalysis
+	if s.LLM == nil {
+		return out, fmt.Errorf("写作服务未接 LLM 生成器")
+	}
+	if len(in.Jobs) == 0 {
+		return out, fmt.Errorf("无失败 job 日志可归因")
+	}
+	var jobs strings.Builder
+	for _, j := range in.Jobs {
+		trunc := ""
+		if j.Truncat {
+			trunc = "（已截断，仅尾部）"
+		}
+		jobs.WriteString(fmt.Sprintf("- 失败 job：%s（stage=%s）%s\n<details><summary>日志尾部</summary>\n\n```\n%s\n```\n</details>\n\n",
+			j.Name, j.Stage, trunc, j.Trace))
+	}
+	pr := ""
+	if in.Number != "" {
+		pr = "关联 PR：#" + in.Number
+	}
+	prompt := fmt.Sprintf(ciAnalysisPrompt, in.Owner, in.Repo, in.Platform, in.Branch, shortSHA(in.Commit), pr+"\n\n"+jobs.String())
+	msgs := []*schema.Message{schema.UserMessage(prompt)}
+	if err := s.LLM.GenerateJSON(ctx, "ci_analysis", msgs, &out); err != nil {
+		return out, fmt.Errorf("ci_analysis 生成失败: %w", err)
+	}
+	if strings.TrimSpace(out.Conclusion) == "" {
+		return out, fmt.Errorf("ci_analysis 产物不完整（conclusion 为空）")
+	}
+	return out, nil
+}
+
+// RenderCIAnalysis 归因产物 → PR 评论正文。
+func RenderCIAnalysis(a CIAnalysis, taskID string) string {
+	var b strings.Builder
+	b.WriteString("## 🔴 CI 失败归因（by argus）\n\n")
+	b.WriteString("**结论**：" + a.Conclusion + "\n\n")
+	if a.RootCause != "" {
+		b.WriteString("**根因**：" + a.RootCause + "\n\n")
+	}
+	if a.Fix != "" {
+		b.WriteString("**修复建议**：" + a.Fix + "\n\n")
+	}
+	b.WriteString("<!-- argus:ci_analysis task_id=" + taskID + " -->")
+	return b.String()
+}
+
+// shortSHA 提交短 SHA 展示。
+func shortSHA(sha string) string {
+	if len(sha) > 10 {
+		return sha[:10]
+	}
+	return sha
+}
