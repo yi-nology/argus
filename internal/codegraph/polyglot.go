@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"git.example.com/enjoydream/agentkit/textutil"
 )
 
 // skipExts 索引的语言扩展（v1.5 起 JS/TS/Python 与 Go 并列）。
@@ -96,12 +98,12 @@ func scanPy(text, lang string) []PolySymbol {
 	var out []PolySymbol
 	for _, m := range pyFuncRe.FindAllStringSubmatchIndex(text, -1) {
 		name := text[m[4]:m[5]]
-		args := truncRunes(strings.TrimSpace(text[m[6]:m[7]]), 120)
+		args := textutil.TruncEllipsis(strings.TrimSpace(text[m[6]:m[7]]), 120)
 		line := 1 + strings.Count(text[:m[0]], "\n")
 		doc := ""
 		if i := strings.Index(text[m[2]:], "\n"); i >= 0 {
 			rest := strings.TrimSpace(text[m[2]+i+1:])
-			doc = truncRunes(strings.Split(rest, "\n")[0], 120)
+			doc = textutil.TruncEllipsis(strings.Split(rest, "\n")[0], 120)
 		}
 		out = append(out, PolySymbol{Name: name, Lang: lang, Line: line, Args: args, Doc: doc})
 	}

@@ -1,6 +1,9 @@
 package plugin
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 // 仓库侧生效状态词表（GET /agents 可观测，v3.0.1 评审项）。
 const (
@@ -46,7 +49,7 @@ func ObserveRepoConfig(reg *Registry, rc *RepoConfig) (statuses []PluginRepoStat
 
 		// routing 引用（先记，便于 selected/default 附注）
 		for i, rule := range rc.Routing {
-			if containsString(rule.Use, name) {
+			if slices.Contains(rule.Use, name) {
 				st.RoutedBy = append(st.RoutedBy, i)
 			}
 		}
@@ -87,15 +90,6 @@ func toSet(list []string) map[string]bool {
 		m[v] = true
 	}
 	return m
-}
-
-func containsString(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
 }
 
 func joinNote(a, b string) string {

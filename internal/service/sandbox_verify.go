@@ -17,6 +17,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/procx"
+	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
 )
@@ -178,13 +179,9 @@ func runVerifyCmd(ctx context.Context, cfg VerifyConfig, dir string) (bool, stri
 }
 
 // truncVerify 失败输出截断（回帖可见，防刷屏）。
+// v3.76.0 收敛 textutil.TruncNote：旧实现按字节切片会腰斩多字节 UTF-8。
 func truncVerify(s string) string {
-	s = strings.TrimSpace(s)
-	const max = 1500
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "\n…（截断）"
+	return textutil.TruncNote(strings.TrimSpace(s), 1500, "截断")
 }
 
 // renderVerifySection 验证结果段（含数据区纪律；空 = 全部成功也要透出结论）。

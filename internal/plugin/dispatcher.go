@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -149,7 +150,7 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 		}
 		// 空 mode 与未知 mode 一律按独立模式处理（配置宽容，行为可预期）
 		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
+			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels))
 		if !matched {
 			continue
 		}
@@ -175,7 +176,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 			continue
 		}
 		if (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels)) {
+			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels)) {
 			for _, m := range sq.Members {
 				consensus[m] = true
 			}
@@ -188,7 +189,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 		if consensus[reg.Manifest.Name] {
 			return
 		}
-		if !skillsIntersect(reg.Manifest.Skills, skills) {
+		if !listOverlap(reg.Manifest.Skills, skills) {
 			return
 		}
 		if seen[reg.Manifest.Name] { // 保留首个原因
@@ -215,7 +216,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 		if !reg.Enabled {
 			continue
 		}
-		if !skillsIntersect(reg.Manifest.Skills, skills) {
+		if !listOverlap(reg.Manifest.Skills, skills) {
 			continue
 		}
 		triggered := reg.Manifest.Triggers.Empty() ||
@@ -239,7 +240,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 	// routing 命中追加（routing 只引用已注册插件名——解析期已校验）
 	if rc != nil {
 		for i, rule := range rc.Routing {
-			matched := matchAnyGlob(rule.Paths, changedFiles) || matchAnyLabel(rule.Labels, pr.Labels)
+			matched := matchAnyGlob(rule.Paths, changedFiles) || listOverlap(rule.Labels, pr.Labels)
 			if !matched {
 				continue
 			}
@@ -270,7 +271,7 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 			continue
 		}
 		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels))
+			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels))
 		if !matched {
 			continue
 		}
@@ -288,17 +289,6 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 	return out
 }
 
-func skillsIntersect(a, b []string) bool {
-	for _, x := range a {
-		for _, y := range b {
-			if x == y {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func matchAnyGlob(pats, files []string) bool {
 	for _, f := range files {
 		for _, p := range pats {
@@ -310,12 +300,12 @@ func matchAnyGlob(pats, files []string) bool {
 	return false
 }
 
-func matchAnyLabel(want, have []string) bool {
-	for _, w := range want {
-		for _, h := range have {
-			if w == h {
-				return true
-			}
+// listOverlap 两列表是否有公共元素（技能交集/标签匹配共用谓词，v3.76.0
+// 由 skillsIntersect/matchAnyLabel 两份同逻辑合一）。
+func listOverlap(a, b []string) bool {
+	for _, x := range a {
+		if slices.Contains(b, x) {
+			return true
 		}
 	}
 	return false

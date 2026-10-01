@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,6 +10,7 @@ import (
 	"git.example.com/enjoydream/agentkit/reportutil"
 
 	"argus/internal/domain"
+	"argus/internal/learning"
 )
 
 // GetPrintState 实现 domain.PrintStore（别名一跳解析：新措辞指纹查到既有条目）。
@@ -117,7 +117,7 @@ func upsertPrintTx(tx *gorm.DB, platform, owner, repo, number, fingerprint strin
 			// 全新指纹
 			p = FindingPrint{
 				Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
-				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment, Plugin: firstBy(f.By),
+				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment, Plugin: learning.FirstBy(f.By),
 				Status:      PrintOpen,
 				FirstTaskID: taskID, LastTaskID: taskID, TimesSeen: 1,
 				FirstSeenAt: at, LastSeenAt: at,
@@ -133,7 +133,7 @@ func upsertPrintTx(tx *gorm.DB, platform, owner, repo, number, fingerprint strin
 	p.TimesSeen++
 	p.Severity = reportutil.Higher(p.Severity, f.Severity)
 	if p.Plugin == "" {
-		p.Plugin = firstBy(f.By)
+		p.Plugin = learning.FirstBy(f.By)
 	}
 	// 行号跟随：exact（完全同评语，含行号漂移）无条件跟随新值；
 	// near（近重复）保持 ±2 相容才跟随的保守语义。
@@ -163,14 +163,6 @@ func printStateOf(p *FindingPrint) *domain.PrintState {
 func isSQLite(tx *gorm.DB) bool {
 	name := tx.Dialector.Name()
 	return name == "sqlite" || name == "sqlite3"
-}
-
-func absDiff(a, b int) int {
-	d := a - b
-	if d < 0 {
-		d = -d
-	}
-	return d
 }
 
 var _ domain.PrintStore = (*Store)(nil)
@@ -290,13 +282,6 @@ func (s *Store) ResolvePrintRecord(ctx context.Context, platform, owner, repo, n
 	return p, true
 }
 
-func firstBy(by string) string {
-	if i := strings.IndexByte(by, ','); i > 0 {
-		return by[:i]
-	}
-	return by
-}
-
 // ListFindingPrints 观测辅助：某 PR 的全部指纹记录（GET 任务结果时可用）。
 func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, number string) ([]FindingPrint, error) {
 	var out []FindingPrint
@@ -330,7 +315,7 @@ func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, nu
 				Platform: platform, Owner: owner, Repo: repo, Number: number,
 				Print: fingerprint,
 				File:  f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
-				Plugin:      firstBy(f.By),
+				Plugin:      learning.FirstBy(f.By),
 				Status:      PrintOpen,
 				RegretCount: 1,
 				FirstTaskID: "reflect", LastTaskID: "reflect", TimesSeen: 0,

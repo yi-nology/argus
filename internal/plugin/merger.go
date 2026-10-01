@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/reportutil"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/domain"
@@ -324,7 +325,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			// v3.8.0：不再 sort.Strings——展示序决定记账键（PatternPosted/matchLowPattern
 			// 取 By 首段=评语作者）。字母序会让 a-max 持续消费 z-review 写的评语的
 			// 学习历史（误报模式跨插件串门）。
-			f.By = joinNames(a.byOrder)
+			f.By = strings.Join(a.byOrder, ",")
 		}
 		batch = append(batch, domain.PrintUpsert{FP: a.fp, Finding: f})
 		pendings = append(pendings, pending{f: f})
@@ -369,7 +370,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		if m.learn.Enabled && f.Severity == SeverityLow {
 			if hit := lookupLow(lowIdx, pkey, m.learn.HardFloor); hit != nil {
 				out.Degraded = append(out.Degraded, fmt.Sprintf(
-					"学习环抑制：%s/%s（模式置信度 %.2f）", hit.Plugin, truncateText(hit.PatternText, 40), hit.Confidence))
+					"学习环抑制：%s/%s（模式置信度 %.2f）", hit.Plugin, textutil.TruncEllipsis(hit.PatternText, 40), hit.Confidence))
 				// 记 posted 以外：被闸门吃掉不记 posted，避免抬高置信度
 				continue
 			}
@@ -418,12 +419,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 	return out, nil
 }
 
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
+func abs(n int) int { return max(n, -n) }
 
 // patternIndex 把低置信模式列表建成 key → *PatternState 索引（仅保留够样本的项）。
 func patternIndex(low []learning.PatternState, minSamples int) map[string]*learning.PatternState {
@@ -448,27 +444,4 @@ func lookupLow(idx map[string]*learning.PatternState, key string, floor float64)
 		return hit
 	}
 	return nil
-}
-
-func truncateText(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
-
-func joinNames(names []string) string {
-	switch len(names) {
-	case 0:
-		return ""
-	case 1:
-		return names[0]
-	default:
-		out := names[0]
-		for _, n := range names[1:] {
-			out += "," + n
-		}
-		return out
-	}
 }

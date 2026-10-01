@@ -1,7 +1,8 @@
 // Package learning 模式级后悔学习环的确定性数学、状态投影与消费阈值（v3.47.0 自
 // plugin 归位——本域消费方是 storage/dream/health/exportdata/config，与插件语义无关）。
-// 本包是纯叶子：仅依赖 stdlib，零内部依赖；config 可安全引用（config 保持叶子位的
-// 约定是"不 import plugin 等重组件"，纯数学叶子是许可例外）。
+// 本包是纯叶子：零内部 argus 依赖（文本原语走 agentkit/textutil，与 domain 委托
+// reportutil 同纪律）；config 可安全引用（config 保持叶子位的约定是"不 import
+// plugin 等重组件"，纯数学叶子是许可例外）。
 //
 // 设计：docs/review-closed-loop-design.md §3.2/§3.7。键不含 file/line——同一类问题在
 // 不同文件聚成同一模式；含 plugin 分量——不同审查来源的信任历史不混用。
@@ -13,6 +14,8 @@ import (
 	"encoding/hex"
 	"regexp"
 	"strings"
+
+	"git.example.com/enjoydream/agentkit/textutil"
 )
 
 // PatternTextMax 存入 pattern_signals.pattern_text 的人读样本上限（rune）。
@@ -39,7 +42,8 @@ func normalizePatternComment(comment string) string {
 	s = spaceRe.ReplaceAllString(s, " ")
 	s = strings.TrimSpace(s)
 
-	return truncateRunes(s, PatternTextMax)
+	out, _ := textutil.TruncRunes(s, PatternTextMax)
+	return out
 }
 
 var (
@@ -64,7 +68,8 @@ func PatternKey(pluginName, comment string) string {
 
 // PatternSample 返回入库的人读样本（规范化后截断），便于审计与提示词注入展示。
 func PatternSample(comment string) string {
-	return truncateRunes(normalizePatternComment(comment), PatternTextMax)
+	out, _ := textutil.TruncRunes(normalizePatternComment(comment), PatternTextMax)
+	return out
 }
 
 // FirstBy 返回 By 串的首段：Merge 阶段多插件命中同题会把 By 拼成 "a,b"，
@@ -76,17 +81,6 @@ func FirstBy(by string) string {
 		return by[:i]
 	}
 	return by
-}
-
-func truncateRunes(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }
 
 // Confidence 由 posted/regret/suppress/restore 计数推 Beta 后验置信度。

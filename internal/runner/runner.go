@@ -405,10 +405,10 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		switch {
 		case r.Cfg.TaskMaxRetries > 0 && cur.Attempt < r.Cfg.TaskMaxRetries:
 			body = fmt.Sprintf("⚠️ Argus 审查中断（第 %d 次尝试失败），数分钟后将自动重试。\n> %s\n\n<!-- argus:start task_id=%s -->",
-				cur.Attempt, truncRunes(errMsg, 300), task.ID)
+				cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
 		default:
 			body = fmt.Sprintf("❌ Argus 审查失败（已尝试 %d 次）：\n> %s\n\npush 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
-				cur.Attempt, truncRunes(errMsg, 300), task.ID)
+				cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
 		}
 		r.setStartMarker(ctx, task, body)
 	} else {
@@ -417,15 +417,6 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	return nil // 已终结为 failed，不再向 worker 上抛
-}
-
-// truncRunes rune 安全截断（失败告知正文限长防刷屏）。
-func truncRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
 }
 
 // run 单任务管线执行体。v3.58.0 拆分为四个命名子步骤（顺序即语义）：
@@ -1157,7 +1148,7 @@ func (r *Runner) prevFindingsSection(ctx context.Context, pr *plugin.PRContext) 
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("- %s:%d [%s] %s",
-			p.File, p.Line, strings.ToUpper(p.Severity), truncRunes(p.Comment, 160)))
+			p.File, p.Line, strings.ToUpper(p.Severity), textutil.TruncEllipsis(p.Comment, 160)))
 		if len(lines) >= 15 {
 			break
 		}

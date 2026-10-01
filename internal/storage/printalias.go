@@ -127,6 +127,9 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.F
 	return nil, false, nil
 }
 
+// absDiff 行距（v3.76.0 用内建 max 惯用法替代手写分支）。
+func absDiff(a, b int) int { return max(a-b, b-a) }
+
 func linesClose(a, b int) bool { return absDiff(a, b) <= 2 }
 
 // SuppressPrintNear 抑制通道的 file+原文 形态（API 请求无行号，无法直算 v2 指纹）：

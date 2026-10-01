@@ -69,6 +69,8 @@ func TestReportPostsAndRetries(t *testing.T) {
 		buf := make([]byte, r.ContentLength)
 		_, _ = r.Body.Read(buf)
 		gotBody = string(buf)
+		// 对端契约：成功恒回 JSON 对象（review-service IngestHandler 形态）
+		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -76,7 +78,7 @@ func TestReportPostsAndRetries(t *testing.T) {
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Token: "tok-1"}
 	pr := &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"}
 	p := BuildPayload("task-9", pr, sampleFindings(), "approve", []string{"ocr"}, 100, 1, time.Now())
-	r.reportWithRetry(p) // 直调内部同步版本，绕过 goroutine
+	r.report(p) // 直调内部同步版本，绕过 goroutine
 
 	if calls.Load() != 2 {
 		t.Fatalf("500 后应重试一次，got %d 次", calls.Load())

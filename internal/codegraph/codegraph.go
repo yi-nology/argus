@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"git.example.com/enjoydream/agentkit/textutil"
 )
 
 // Symbol 一个顶层符号定义。
@@ -154,7 +156,7 @@ func (x *Index) collectDefs(fset *token.FileSet, af *ast.File, src []byte, rel s
 	line := func(p token.Pos) int { return fset.Position(p).Line }
 	srcSeg := func(from, to token.Pos) string {
 		s := src[fset.Position(from).Offset:fset.Position(to).Offset]
-		return truncRunes(strings.TrimSpace(string(s)), 200)
+		return textutil.TruncEllipsis(strings.TrimSpace(string(s)), 200)
 	}
 	add := func(name string, s Symbol) {
 		s.Name = name
@@ -260,13 +262,5 @@ func (x *Index) SkippedFiles() int { return x.skip }
 
 // IndexedFiles 成功索引文件数。
 func (x *Index) IndexedFiles() int { return x.idxed }
-
-func truncRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
 
 func itoa(n int) string { return strconv.Itoa(n) }

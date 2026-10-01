@@ -7,13 +7,12 @@
 package sink
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/httpx"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/plugin"
@@ -95,50 +94,46 @@ func BuildPayload(taskID string, pr *plugin.PRContext, findings []plugin.Finding
 	return p
 }
 
-// Report 上报（带 10s 超时 + 1 次重试；错误仅记日志）。
+// Report 上报（带 10s 预算 + 网络错/5xx/429 各 1 次重试；错误仅记日志）。
 func (r *Reporter) Report(payload *Payload) {
 	if !r.Enabled() {
 		return
 	}
-	go r.reportWithRetry(payload)
+	go r.report(payload)
 }
 
-func (r *Reporter) reportWithRetry(payload *Payload) {
+// report 单次上报执行体。v3.76.0 收敛 agentkit httpx（ctx 感知/限容读体/状态码
+// 检查/UTF-8 安全错误摘要单源）：旧手写 post 不读不限响应体、4xx 也盲目重试、
+// 每次尝试独立 10s 超时（最坏 ~20s）；现在总预算 10s，4xx 参数错不重试，
+// 成功要求对端返回合法 JSON（review-service 承接端恒回 JSON 对象，契约内）。
+func (r *Reporter) report(payload *Payload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		r.logWarn("序列化失败", err)
 		return
 	}
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		if lastErr = r.post(body); lastErr == nil {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	r.logWarn("上报失败（重试耗尽）", lastErr)
-}
-
-func (r *Reporter) post(body []byte) error {
+	var ack json.RawMessage // 只验合法性不取值；对端 Resp 形态演进不耦合本包
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.URL, bytes.NewReader(body))
+	err = httpx.DoJSONWithRetry(ctx, http.DefaultClient,
+		func() (httpx.Request, error) {
+			return httpx.Request{
+				Method: http.MethodPost,
+				URL:    r.URL,
+				Body:   body,
+				Header: func(h http.Header) {
+					h.Set("Content-Type", "application/json")
+					if r.Token != "" {
+						h.Set("Authorization", "Bearer "+r.Token)
+					}
+				},
+			}, nil
+		},
+		httpx.RetryConfig{MaxAttempts: 2, BaseDelay: 500 * time.Millisecond},
+		&ack)
 	if err != nil {
-		return err
+		r.logWarn("上报失败（重试耗尽）", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if r.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+r.Token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("sink 返回 %s", resp.Status)
-	}
-	return nil
 }
 
 func (r *Reporter) logWarn(msg string, err error) {

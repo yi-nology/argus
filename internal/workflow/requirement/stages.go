@@ -905,11 +905,7 @@ func renderACs(spec *plugin.RequirementSpec) string {
 }
 
 func truncSummary(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if out, truncated := textutil.TruncRunes(s, n); truncated {
-		return out + "…"
-	}
-	return s
+	return textutil.TruncEllipsis(strings.TrimSpace(s), n)
 }
 
 func firstNonEmpty(vals ...string) string {

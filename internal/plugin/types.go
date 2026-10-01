@@ -5,6 +5,7 @@ package plugin
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"argus/internal/domain"
@@ -122,13 +123,13 @@ func (t Trigger) Match(changedFiles, labels []string, eventType string) bool {
 	if t.Empty() {
 		return true
 	}
-	if len(t.Events) > 0 && eventType != "" && !contains(t.Events, eventType) {
+	if len(t.Events) > 0 && eventType != "" && !slices.Contains(t.Events, eventType) {
 		return false
 	}
 	if len(t.Paths) > 0 && !matchAnyGlob(t.Paths, changedFiles) {
 		return false
 	}
-	if len(t.Labels) > 0 && !matchAnyLabel(t.Labels, labels) {
+	if len(t.Labels) > 0 && !listOverlap(t.Labels, labels) {
 		return false
 	}
 	return true
@@ -264,15 +265,6 @@ type Task struct {
 	// Budget 任务级 token 预算（Dispatcher.Run 注入）。插件内的 LLM 调用应计入，
 	// 否则 R4 审查插件（成本大头）对预算不可见，PruneByBudget/预算门形同虚设。
 	Budget *TokenBudget
-}
-
-func contains(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
 }
 
 // Finding 单条审查意见（领域模型住在 internal/domain；此处别名保持既有 API）。

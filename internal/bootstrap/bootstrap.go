@@ -9,11 +9,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
+
+	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/skill"
+	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"argus/internal/config"
 	"argus/internal/plugin"
@@ -21,9 +26,6 @@ import (
 	"argus/internal/plugin/adapter_builtin"
 	"argus/internal/plugin/adapter_cli"
 	"argus/internal/plugin/adapter_remote"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
 )
 
 // Deps 构造插件所需的共享依赖。
@@ -150,7 +152,7 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (
 	plugin.AgentPlugin, bool, error) {
 	if strings.EqualFold(decl.Name, "requirement-compliance") ||
-		containsSkill(decl.Skills, plugin.SkillRequirementCompliance) {
+		slices.Contains(decl.Skills, plugin.SkillRequirementCompliance) {
 		if d.WorkflowFactory == nil {
 			return nil, false, fmt.Errorf("requirement-compliance 插件缺少 workflow factory")
 		}
@@ -268,20 +270,11 @@ func newACPXAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest
 // reviewerFocus 不同 builtin 审查插件的人设差异（§3.2：correctness / security）。
 func reviewerFocus(name string, skills []string) string {
 	switch {
-	case containsSkill(skills, "security") || strings.Contains(strings.ToLower(name), "security"):
+	case slices.Contains(skills, "security") || strings.Contains(strings.ToLower(name), "security"):
 		return "聚焦安全审查：注入（SQL/命令/XSS）、越权、敏感信息泄漏、不安全反序列化、路径穿越、弱随机、错误处理中的信息泄露。"
 	default:
 		return "聚焦正确性审查：逻辑错误、边界条件、并发与竞态、资源泄漏、错误被吞、空指针/越界。"
 	}
-}
-
-func containsSkill(skills []string, want string) bool {
-	for _, s := range skills {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 // loadPluginsFile 插件清单统一加载（缺文件回退内置默认，告警一次）。

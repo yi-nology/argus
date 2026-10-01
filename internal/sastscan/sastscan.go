@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/reportutil"
+	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
 )
@@ -274,10 +275,8 @@ var sastEnvAllow = []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"}
 
 // truncLine 错误输出截断（进 Err 链，最终上报告警）。
+// v3.76.0 收敛 textutil.TruncEllipsis：旧实现按字节切片会腰斩多字节 UTF-8，
+// 错误链进入 LLM prompt 可能 400。
 func truncLine(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
+	return textutil.TruncEllipsis(strings.TrimSpace(s), n)
 }

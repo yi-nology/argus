@@ -53,7 +53,7 @@ func (d *Dispatcher) ConsensusSquads(pr *PRContext, changedFiles []string) []Squ
 			continue
 		}
 		if (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && matchAnyLabel(sq.Labels, pr.Labels)) {
+			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels)) {
 			out = append(out, sq)
 		}
 	}
@@ -339,18 +339,11 @@ func renderBoardView(entries []blackboard.Entry) string {
 			fmt.Fprintf(&b, "- [%s] %s\n", e.Author, e.Content)
 		default:
 			// task 种子：成员本就持有完整任务上下文，只留一行锚点
-			fmt.Fprintf(&b, "- [任务] %s\n", firstBoardLine(e.Content))
+			anchor, _, _ := strings.Cut(e.Content, "\n")
+			fmt.Fprintf(&b, "- [任务] %s\n", anchor)
 		}
 	}
 	return strings.TrimSpace(b.String())
-}
-
-// firstBoardLine 取首行（种子锚点）。
-func firstBoardLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
 
 // copyArtifacts 拷贝 Artifacts map（nil 安全）。

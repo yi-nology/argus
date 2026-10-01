@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -302,7 +304,7 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 		return
 	}
 	// 只 add Apply 实际写入的文件——包装命令产生的未跟踪产物绝不进 commit。
-	addArgs := append([]string{"-C", dir, "add", "--"}, mapKeys(written)...)
+	addArgs := append([]string{"-C", dir, "add", "--"}, slices.Sorted(maps.Keys(written))...)
 	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
 		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=1）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
 		verified, task.ID, pr.Owner, pr.Repo, pr.Number)
@@ -335,13 +337,4 @@ func (r *Runner) gitRun(ctx context.Context, dir string, argv []string) (int, st
 		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
 	})
 	return code, stderr, err == nil && code == 0
-}
-
-// mapKeys map 键切片（go1.22 前的兼容写法）。
-func mapKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
