@@ -142,7 +142,8 @@ const (
 // RenderDescription describe 产物 → 写回 PR 的正文段（管理段 marker 包裹）。
 func RenderDescription(d Description, taskID string) string {
 	var b strings.Builder
-	b.WriteString(describeBegin + " task_id=" + taskID + "\n\n")
+	// task_id 放进注释内部（HTML 注释在平台页不可见；拼在 --> 外会漏成可见文本）
+	b.WriteString("<!-- argus:describe begin task_id=" + taskID + " -->\n\n")
 	b.WriteString(d.Body + "\n\n" + describeEnd)
 	return b.String()
 }
