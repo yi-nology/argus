@@ -98,7 +98,7 @@ var layering = map[string][]string{
 		"argus/internal/ocrdeleg", "argus/internal/plugin", "argus/internal/poster",
 		"argus/internal/progress", "argus/internal/reportview", "argus/internal/sastscan",
 		"argus/internal/sink", "argus/internal/storage", "argus/internal/toolpool",
-		"argus/internal/workflow/requirement",
+		"argus/internal/workflow/requirement", "argus/internal/writing",
 	},
 	"argus/internal/service": {
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",

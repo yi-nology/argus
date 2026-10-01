@@ -443,6 +443,12 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		return nil // stale 终态已落地
 	}
 
+	// 写作面分支（v3.71.0）：describe/changelog 不进 R 系列审查管线与插件派发，
+	// 单步 LLM 写作 → 平台写回，独立收口。
+	if task.Kind == plugin.TaskKindDescribe || task.Kind == plugin.TaskKindChangelog {
+		return r.runWriting(ctx, task, pr, diff, start)
+	}
+
 	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
 
 	var out *requirement.Output
@@ -784,6 +790,16 @@ func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plug
 // repoGuideMaxBytes 仓库评审规范单文件上限（ZCode AGENTS.md 同款 100KB）。
 const repoGuideMaxBytes = 100_000
 
+// repoGuideAgentMaxBytes 业界标准 agent 规范文件的单文件上限（AGENTS.md 等多为
+// 项目级通用指引而非审查专属，注入预算给小一些，防多源叠加挤占 R3/R4 窗口）。
+const repoGuideAgentMaxBytes = 32_000
+
+// repoGuideAgentFiles 业界标准 agent 规范文件（2026 事实标准，兼容读第一个存在的）：
+// AGENTS.md（跨工具通用）/ CLAUDE.md（Claude Code）/ .cursorrules（Cursor）。
+// 全部命中时仍只取第一个——同一仓库多份 agent 规范的内容通常高度重叠，
+// 全拼只会稀释注入预算。
+var repoGuideAgentFiles = []string{"AGENTS.md", "CLAUDE.md", ".cursorrules"}
+
 // repoGuideCache 评审规范缓存（repo@sha → 内容；同 sha 多任务/重试复用，
 // 负缓存空串防同 sha 反复打平台 API）。
 var (
@@ -791,9 +807,11 @@ var (
 	repoGuideCache = map[string]string{}
 )
 
-// RepoGuideFor 读取被评审仓库的评审规范 .argus/REVIEW.md @ head（v3.38.0）。
-// 经平台 API 取 blob——tree 作用域天然无本地 symlink 逃逸面；100KB 头截断 +
-// 提醒标签转义（半可信输入）；缺失/失败返回空串（常态，debug 留痕）。
+// RepoGuideFor 读取被评审仓库的评审规范 @ head（v3.38.0，v3.71.0 多源）：
+// .argus/REVIEW.md（argus 专属）+ 业界标准 agent 规范（AGENTS.md/CLAUDE.md/
+// .cursorrules，第一个存在的）。两源独立截断后拼接，REVIEW.md 在前。
+// 经平台 API 取 blob——tree 作用域天然无本地 symlink 逃逸面；头截断 + 提醒
+// 标签转义（半可信输入）；缺失/失败返回空段（常态，debug 留痕）。
 func (r *Runner) RepoGuideFor(ctx context.Context, platform, owner, repo, headSHA string) string {
 	if r.SDK == nil || r.Cfg.RepoGuideOff || headSHA == "" {
 		return ""
@@ -805,23 +823,42 @@ func (r *Runner) RepoGuideFor(ctx context.Context, platform, owner, repo, headSH
 	if ok {
 		return cached
 	}
-	content := ""
-	if raw, err := r.SDK.GetFileContent(ctx, platform, owner, repo, ".argus/REVIEW.md", headSHA); err == nil && strings.TrimSpace(raw) != "" {
-		if len(raw) > repoGuideMaxBytes {
-			raw = raw[:repoGuideMaxBytes] + "\n…（截断：评审规范超 100KB 上限）"
-		}
-		content = plugin.EscapeReminderTags(raw)
-		r.Log.Info("argus.runner.repo_guide_loaded", "repo", owner+"/"+repo, "bytes", len(content))
-	} else if err != nil {
+	var sections []string
+	content := r.repoGuideFile(ctx, platform, owner, repo, headSHA, ".argus/REVIEW.md", repoGuideMaxBytes)
+	if content != "" {
+		sections = append(sections, content)
+	} else {
 		r.Log.Debug("argus.runner.repo_guide_absent", "repo", owner+"/"+repo)
 	}
+	for _, path := range repoGuideAgentFiles {
+		agent := r.repoGuideFile(ctx, platform, owner, repo, headSHA, path, repoGuideAgentMaxBytes)
+		if agent != "" {
+			r.Log.Info("argus.runner.agent_guide_loaded", "repo", owner+"/"+repo, "file", path)
+			sections = append(sections, "## Agent 通用规范（来自 "+path+"）\n\n"+agent)
+			break
+		}
+	}
+	merged := strings.Join(sections, "\n\n")
 	repoGuideMu.Lock()
 	if len(repoGuideCache) >= 64 {
 		repoGuideCache = map[string]string{} // 粗暴整体换防膨胀（键含 sha，天然有限）
 	}
-	repoGuideCache[key] = content
+	repoGuideCache[key] = merged
 	repoGuideMu.Unlock()
-	return content
+	return merged
+}
+
+// repoGuideFile 单文件拉取 + 截断 + 提醒标签转义；缺失/失败返回空串。
+func (r *Runner) repoGuideFile(ctx context.Context, platform, owner, repo, headSHA, path string, maxBytes int) string {
+	raw, err := r.SDK.GetFileContent(ctx, platform, owner, repo, path, headSHA)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	if len(raw) > maxBytes {
+		raw = raw[:maxBytes] + "\n…（截断：" + path + " 超上限）"
+	}
+	r.Log.Info("argus.runner.repo_guide_loaded", "repo", owner+"/"+repo, "file", path, "bytes", len(raw))
+	return plugin.EscapeReminderTags(raw)
 }
 
 // costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。

@@ -1,0 +1,182 @@
+// Package writing 写作面（v3.71.0，对标 PR-Agent /describe 与 /update_changelog）：
+// describe 任务生成 PR 标题+描述、changelog 任务生成变更日志条目。
+// 单步 LLM 写作，无 R 系列裁判与插件派发——审查面判"代码对不对"，
+// 写作面管"该怎么说"；输入即 diff 与 PR 元数据，输出即平台可写回的文本。
+package writing
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/cloudwego/eino/schema"
+)
+
+// diffMaxChars 写作输入的 diff 截断上限。describe/changelog 消费的是"改了什么"
+// 的语义而非逐行细节，60KB 头部足够覆盖绝大多数 MR 的变更意图。
+const diffMaxChars = 60_000
+
+// Service 写作面服务。LLM 为 nil 时调用返回错误（装配缺失语义，与 runner 各
+// 模型槽位同风格）。
+type Service struct {
+	LLM llm.Generator
+}
+
+// Input 写作输入。
+type Input struct {
+	Platform      string
+	Owner         string
+	Repo          string
+	Number        string
+	Title         string
+	Body          string
+	Author        string
+	SourceBranch  string
+	TargetBranch  string
+	ChangeSummary string // diffprep 产出的结构化变更摘要（可为空）
+	DiffText      string
+}
+
+// Description describe 任务的产物：标题与正文。
+type Description struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// describePrompt describe 的写作指令。输出 JSON（title/body），约束对齐
+// PR-Agent /describe 的产出语义：变更动机 → 变更内容 → 影响面，不虚构。
+const describePrompt = `你是资深软件工程师，为一次代码变更撰写 Pull Request 描述。
+
+## 变更信息
+- 仓库：%s/%s（%s #%s）
+- 分支：%s → %s
+- 作者：%s
+- 当前标题（可能是不规范的临时名）：%s
+- 当前描述（可能为空或草稿）：
+%s
+
+## 变更摘要
+%s
+
+## Diff（可能截断）
+` + "```diff\n%s\n```" + `
+
+## 要求
+1. title：一行、动词开头、概括本次变更的核心目的（≤50 字，不用行尾标点）。
+2. body：Markdown，依次含「## 变更动机」「## 变更内容」「## 影响面」三节；
+   只依据上面给出的信息，禁止虚构未出现的文件/接口/行为；diff 里看不出动机时
+   基于"改了什么"合理推断并克制表述。
+3. 保持原文语言风格（中文 diff/标题用中文，英文用英文）。
+
+只输出 JSON：{"title": "...", "body": "..."}`
+
+// changelogPrompt changelog 条目写作指令：面向最终用户的变更记录，
+// 一条一个要点，类别前缀（Features/Fixes/Docs/Chore…）由模型按变更性质归。
+const changelogPrompt = `你是发布管理员，为一次代码变更撰写 CHANGELOG 条目。
+
+## 变更信息
+- 仓库：%s/%s（%s #%s），作者 %s
+- 标题：%s
+- 描述：
+%s
+
+## 变更摘要
+%s
+
+## Diff（可能截断）
+` + "```diff\n%s\n```" + `
+
+## 要求
+输出 Markdown 无序列表（每行以 "- " 开头，1~5 条），每条 = 面向使用者的变更
+效果（不是实现细节），中文，一条不超过 40 字。可加粗类别前缀，如
+"- **Features:** 支持xxx"。只输出列表本身，不加标题或代码围栏。`
+
+// Describe 生成 PR 标题与描述。
+func (s *Service) Describe(ctx context.Context, in Input) (Description, error) {
+	var out Description
+	if s.LLM == nil {
+		return out, fmt.Errorf("写作服务未接 LLM 生成器")
+	}
+	prompt := fmt.Sprintf(describePrompt, in.Owner, in.Repo, in.Platform, in.Number,
+		in.SourceBranch, in.TargetBranch, in.Author, in.Title, orNone(in.Body),
+		orNone(in.ChangeSummary), truncateDiff(in.DiffText))
+	msgs := []*schema.Message{schema.UserMessage(prompt)}
+	if err := s.LLM.GenerateJSON(ctx, "describe", msgs, &out); err != nil {
+		return out, fmt.Errorf("describe 生成失败: %w", err)
+	}
+	out.Title = strings.TrimSpace(out.Title)
+	out.Body = strings.TrimSpace(out.Body)
+	if out.Title == "" || out.Body == "" {
+		return out, fmt.Errorf("describe 产物不完整（title/body 存空）")
+	}
+	return out, nil
+}
+
+// Changelog 生成 changelog 条目（Markdown 列表）。
+func (s *Service) Changelog(ctx context.Context, in Input) (string, error) {
+	if s.LLM == nil {
+		return "", fmt.Errorf("写作服务未接 LLM 生成器")
+	}
+	prompt := fmt.Sprintf(changelogPrompt, in.Owner, in.Repo, in.Platform, in.Number,
+		in.Author, in.Title, orNone(in.Body), orNone(in.ChangeSummary), truncateDiff(in.DiffText))
+	msgs := []*schema.Message{schema.UserMessage(prompt)}
+	msg, err := s.LLM.Generate(ctx, "update_changelog", msgs)
+	if err != nil {
+		return "", fmt.Errorf("changelog 生成失败: %w", err)
+	}
+	text := strings.TrimSpace(msg.Content)
+	if text == "" {
+		return "", fmt.Errorf("changelog 产物为空")
+	}
+	return text, nil
+}
+
+// describeBegin/describeEnd argus 管理段边界（HTML 注释对，平台渲染不可见）。
+// 替换定位靠这对标记：旧段整段换新，作者手写内容永不被覆盖。
+const (
+	describeBegin = "<!-- argus:describe begin -->"
+	describeEnd   = "<!-- argus:describe end -->"
+)
+
+// RenderDescription describe 产物 → 写回 PR 的正文段（管理段 marker 包裹）。
+func RenderDescription(d Description, taskID string) string {
+	var b strings.Builder
+	b.WriteString(describeBegin + " task_id=" + taskID + "\n\n")
+	b.WriteString(d.Body + "\n\n" + describeEnd)
+	return b.String()
+}
+
+// MergeDescription 把 argus 管理段合并进现有 PR 描述：已有管理段则整段替换
+// （幂等更新），否则原文保留、追加管理段——绝不覆盖作者手写内容。
+func MergeDescription(existing, section string) string {
+	existing = strings.TrimSpace(existing)
+	start := strings.Index(existing, describeBegin)
+	if start < 0 {
+		if existing == "" {
+			return section
+		}
+		return existing + "\n\n---\n\n" + section
+	}
+	head := strings.TrimSpace(existing[:start])
+	if head == "" {
+		return section
+	}
+	return head + "\n\n---\n\n" + section
+}
+
+// truncateDiff 写作输入的 diff 截断。
+func truncateDiff(diff string) string {
+	if len(diff) > diffMaxChars {
+		return diff[:diffMaxChars] + "\n…（diff 截断，超出部分不影响写作语义）"
+	}
+	return diff
+}
+
+// orNone 空串占位。
+func orNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "（无）"
+	}
+	return s
+}

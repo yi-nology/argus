@@ -16,6 +16,8 @@ const (
 	TaskKind_REQUIREMENT_COMPLIANCE TaskKind = 0
 	TaskKind_CODE_REVIEW            TaskKind = 1
 	TaskKind_VISUAL_CHECK           TaskKind = 2
+	TaskKind_DESCRIBE               TaskKind = 3
+	TaskKind_CHANGELOG              TaskKind = 4
 )
 
 func (p TaskKind) String() string {
@@ -26,6 +28,10 @@ func (p TaskKind) String() string {
 		return "CODE_REVIEW"
 	case TaskKind_VISUAL_CHECK:
 		return "VISUAL_CHECK"
+	case TaskKind_DESCRIBE:
+		return "DESCRIBE"
+	case TaskKind_CHANGELOG:
+		return "CHANGELOG"
 	}
 	return "<UNSET>"
 }
@@ -38,6 +44,10 @@ func TaskKindFromString(s string) (TaskKind, error) {
 		return TaskKind_CODE_REVIEW, nil
 	case "VISUAL_CHECK":
 		return TaskKind_VISUAL_CHECK, nil
+	case "DESCRIBE":
+		return TaskKind_DESCRIBE, nil
+	case "CHANGELOG":
+		return TaskKind_CHANGELOG, nil
 	}
 	return TaskKind(0), fmt.Errorf("not a valid TaskKind string")
 }
