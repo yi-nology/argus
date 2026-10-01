@@ -291,8 +291,15 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 		s.log().Error("argus.webhook.pipeline_task_create_failed", "error", err.Error())
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
 	}
-	if dupReason == "event_id" {
-		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr("重复投递，命中既有任务"), EventId: strPtr(delivery)}
+	if dupReason == "event_id" || dupReason == "in_flight" {
+		// in_flight 必须处理（v3.75.3 修复）：同 commit 的 retry pipeline 是新
+		// delivery，event_id 拦不住第二次；漏判会以未落库的 task.ID 回 accepted
+		// 并向 SSE 广播幽灵任务（对照 webhookCreateTask 的同款处理）。
+		reason := "重复投递，命中既有任务"
+		if dupReason == "in_flight" {
+			reason = "同 commit 同类任务审查中，幂等跳过"
+		}
+		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr(reason), EventId: strPtr(delivery)}
 		if existingID != "" {
 			resp.TaskId = strPtr(existingID)
 		}

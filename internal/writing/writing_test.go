@@ -66,7 +66,7 @@ func TestChangelog(t *testing.T) {
 }
 
 func TestMergeDescription(t *testing.T) {
-	section := describeBegin + " task_id=t-1\n\n新正文\n\n" + describeEnd
+	section := RenderDescription(Description{Title: "", Body: "新正文"}, "t-1")
 
 	// 空描述 → 直接放管理段
 	if got := MergeDescription("", section); got != section {
@@ -78,13 +78,37 @@ func TestMergeDescription(t *testing.T) {
 		t.Fatalf("追加语义破坏: %q", got)
 	}
 	// 已有管理段 → 整段替换，旧正文不残留
-	old := "作者写的说明\n\n---\n\n" + describeBegin + " task_id=t-0\n\n旧正文\n\n" + describeEnd
+	old := "作者写的说明\n\n---\n\n" + RenderDescription(Description{Title: "", Body: "旧正文"}, "t-0")
 	got = MergeDescription(old, section)
 	if strings.Contains(got, "旧正文") {
 		t.Fatalf("旧管理段应被整段替换: %q", got)
 	}
 	if !strings.Contains(got, "作者写的说明") || !strings.Contains(got, "新正文") {
 		t.Fatalf("替换应保留作者段+新段: %q", got)
+	}
+}
+
+// TestRenderMergeRoundTrip Render 的真实输出（begin 带任务号）过 Merge 必须命中
+// 替换分支——v3.75.3 修复的契约漂移回归（此前 Merge 找精确串永不命中，反复追加）。
+func TestRenderMergeRoundTrip(t *testing.T) {
+	first := RenderDescription(Description{Title: "t1", Body: "第一版"}, "task-a")
+	withAuthor := "作者原始描述"
+	once := MergeDescription(withAuthor, first)
+	if !strings.Contains(once, "作者原始描述") || !strings.Contains(once, "第一版") {
+		t.Fatalf("首写应追加保留作者段: %q", once)
+	}
+	second := RenderDescription(Description{Title: "t2", Body: "第二版"}, "task-b")
+	twice := MergeDescription(once, second)
+	if strings.Contains(twice, "第一版") {
+		t.Fatalf("二次 describe 应替换旧管理段: %q", twice)
+	}
+	if !strings.Contains(twice, "第二版") || !strings.Contains(twice, "作者原始描述") {
+		t.Fatalf("二次应保留新段+作者段: %q", twice)
+	}
+	// 管理段之后的作者内容不被吞（v3.75.3 修复的尾段丢失回归）
+	afterAuthor := MergeDescription(once+"\n\n作者后补说明", second)
+	if !strings.Contains(afterAuthor, "作者后补说明") {
+		t.Fatalf("管理段之后的作者内容应保留: %q", afterAuthor)
 	}
 }
 

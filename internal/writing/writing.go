@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -132,27 +133,31 @@ func (s *Service) Changelog(ctx context.Context, in Input) (string, error) {
 	return text, nil
 }
 
-// describeBegin/describeEnd argus 管理段边界（HTML 注释对，平台渲染不可见）。
-// 替换定位靠这对标记：旧段整段换新，作者手写内容永不被覆盖。
+// describeBeginPrefix/describeEnd argus 管理段边界（HTML 注释对，平台渲染不可见）。
+// begin 是前缀：Render 写入的完整注释为 "<!-- argus:describe begin task_id=... -->"，
+// Merge 按前缀定位（读写两端契约单一出处，v3.75.3 修复此前精确串永不命中导致
+// 管理段反复追加的漂移）；end 必须精确匹配，用于保住管理段之后的作者内容。
 const (
-	describeBegin = "<!-- argus:describe begin -->"
-	describeEnd   = "<!-- argus:describe end -->"
+	describeBeginPrefix = "<!-- argus:describe begin"
+	describeEnd         = "<!-- argus:describe end -->"
 )
 
 // RenderDescription describe 产物 → 写回 PR 的正文段（管理段 marker 包裹）。
+// task_id 放进注释内部（HTML 注释在平台页不可见；拼在 --> 外会漏成可见文本）。
 func RenderDescription(d Description, taskID string) string {
 	var b strings.Builder
-	// task_id 放进注释内部（HTML 注释在平台页不可见；拼在 --> 外会漏成可见文本）
-	b.WriteString("<!-- argus:describe begin task_id=" + taskID + " -->\n\n")
+	b.WriteString(describeBeginPrefix + " task_id=" + taskID + " -->\n\n")
 	b.WriteString(d.Body + "\n\n" + describeEnd)
 	return b.String()
 }
 
-// MergeDescription 把 argus 管理段合并进现有 PR 描述：已有管理段则整段替换
-// （幂等更新），否则原文保留、追加管理段——绝不覆盖作者手写内容。
+// MergeDescription 把 argus 管理段合并进现有 PR 描述：已有管理段则只替换
+// [begin, end] 区间（幂等更新），管理段前后的作者手写内容原样保留——绝不覆盖。
+// 找不到 end marker（历史脏数据/人为截断）时保守跳过替换、只追加？不——按
+// begin 截到文末（旧行为），旧段必然是 argus 写的，丢弃安全。
 func MergeDescription(existing, section string) string {
 	existing = strings.TrimSpace(existing)
-	start := strings.Index(existing, describeBegin)
+	start := strings.Index(existing, describeBeginPrefix)
 	if start < 0 {
 		if existing == "" {
 			return section
@@ -160,16 +165,29 @@ func MergeDescription(existing, section string) string {
 		return existing + "\n\n---\n\n" + section
 	}
 	head := strings.TrimSpace(existing[:start])
-	if head == "" {
-		return section
+	tail := ""
+	if end := strings.Index(existing[start:], describeEnd); end >= 0 {
+		tail = strings.TrimSpace(existing[start+end+len(describeEnd):])
 	}
-	return head + "\n\n---\n\n" + section
+	// 拼装顺序：作者前段 → 管理段 → 作者尾段
+	var parts []string
+	sectionAndTail := section
+	if tail != "" {
+		sectionAndTail = section + "\n\n" + tail
+	}
+	if head != "" {
+		parts = append(parts, head)
+	}
+	parts = append(parts, sectionAndTail)
+	return strings.Join(parts, "\n\n---\n\n")
 }
 
-// truncateDiff 写作输入的 diff 截断。
+// truncateDiff 写作输入的 diff 截断（rune 安全：字节切分会把多字节 UTF-8
+// 腰斩出非法序列，直进 LLM prompt 可能 400）。
 func truncateDiff(diff string) string {
 	if len(diff) > diffMaxChars {
-		return diff[:diffMaxChars] + "\n…（diff 截断，超出部分不影响写作语义）"
+		out, _ := textutil.TruncRunes(diff, diffMaxChars/3) // rune≈3 字节，换算后与旧字节预算同量级
+		return out + "\n…（diff 截断，超出部分不影响写作语义）"
 	}
 	return diff
 }

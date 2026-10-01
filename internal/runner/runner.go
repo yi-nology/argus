@@ -16,6 +16,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"git.example.com/enjoydream/agentkit/logredact"
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
@@ -877,7 +878,10 @@ func (r *Runner) repoGuideFile(ctx context.Context, platform, owner, repo, headS
 		return ""
 	}
 	if len(raw) > maxBytes {
-		raw = raw[:maxBytes] + "\n…（截断：" + path + " 超上限）"
+		// rune 安全截断：字节切分会腰斩多字节 UTF-8 出非法序列进 R3/R4 prompt。
+		var trunc string
+		trunc, _ = textutil.TruncRunes(raw, maxBytes/3) // rune≈3 字节，与旧字节预算同量级
+		raw = trunc + "\n…（截断：" + path + " 超上限）"
 	}
 	r.Log.Info("argus.runner.repo_guide_loaded", "repo", owner+"/"+repo, "file", path, "bytes", len(raw))
 	return plugin.EscapeReminderTags(raw)

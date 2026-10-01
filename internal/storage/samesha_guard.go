@@ -42,6 +42,10 @@ func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
 		" ON tasks(platform, owner, repo, number, kind, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
 	if cerr == nil {
+		// v2 建成后清一次 v1 残留：滚动升级窗口里旧副本可能按旧镜像重启把 v1
+		// 复活（CREATE IF NOT EXISTS），v1 存在会误杀跨 kind 同 SHA 并发（v2 明确
+		// 放行的组合）。DROP 幂等零成本，每次启动顺带执行。
+		_ = s.db.Exec("DROP INDEX IF EXISTS " + sameSHAIndex).Error
 		return true, nil
 	}
 	if isDuplicateKeyErr(cerr) {

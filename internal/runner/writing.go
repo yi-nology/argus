@@ -279,31 +279,69 @@ func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin
 func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 	pr *plugin.PRContext, dir string, findings []plugin.Finding, verified int) {
 
-	if _, err := fixverifier.Apply(ctx, dir, findings); err != nil {
+	// 先清场再应用（v3.75.3）：工作副本可能有前轮残留（Apply 中途失败/push 失败
+	// 未回滚）与 Verify 期包装命令产物（go build 二进制/coverage）——git add -A
+	// 会把这些一并推到作者分支。reset --hard + clean -fd 把树恢复到 checkout 态，
+	// Apply 的修改随后写入；push 失败路径同样收尾清场。
+	for _, cleanup := range [][]string{
+		{"-C", dir, "reset", "--hard"},
+		{"-C", dir, "clean", "-fd"},
+	} {
+		if code, stderr, ok := r.gitRun(ctx, dir, cleanup); !ok {
+			r.Log.Warn("argus.runner.fix_clean_failed", "task", task.ID,
+				"step", cleanup[2], "code", code, "stderr", logredact.Redact(stderr))
+			return
+		}
+	}
+	written, err := fixverifier.Apply(ctx, dir, findings)
+	if err != nil {
 		r.Log.Warn("argus.runner.fix_apply_failed", "task", task.ID, "error", err.Error())
 		return
 	}
-	if pr.HeadBranch == "" {
+	if pr.HeadBranch == "" || len(written) == 0 {
 		return
 	}
+	// 只 add Apply 实际写入的文件——包装命令产生的未跟踪产物绝不进 commit。
+	addArgs := append([]string{"-C", dir, "add", "--"}, mapKeys(written)...)
 	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
 		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=1）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
 		verified, task.ID, pr.Owner, pr.Repo, pr.Number)
 	gitArgs := [][]string{
-		{"-C", dir, "add", "-A"},
+		addArgs,
 		{"-C", dir, "-c", "user.name=argus-bot", "-c", "user.email=argus@bot.local",
 			"commit", "-m", msg},
 		{"-C", dir, "push", "origin", "HEAD:" + pr.HeadBranch},
 	}
 	for _, argv := range gitArgs {
-		runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		_, stderr, code, err := procx.Run(runCtx, procx.RunRequest{Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute})
-		cancel()
-		if err != nil || code != 0 {
-			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", argv[0],
+		code, stderr, ok := r.gitRun(ctx, dir, argv)
+		if !ok {
+			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", argv[2],
 				"code", code, "stderr", logredact.Redact(stderr))
+			// push/commit 失败：清场收尾，不给同 SHA 后续任务留污染树
+			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
+			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
 			return
 		}
 	}
-	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "branch", pr.HeadBranch, "fixes", verified)
+	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "branch", pr.HeadBranch,
+		"fixes", verified, "files", len(written))
+}
+
+// gitRun 单条 git 命令执行（2min 超时；ok=false = 非零退出或启动失败）。
+func (r *Runner) gitRun(ctx context.Context, dir string, argv []string) (int, string, bool) {
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	_, stderr, code, err := procx.Run(runCtx, procx.RunRequest{
+		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
+	})
+	return code, stderr, err == nil && code == 0
+}
+
+// mapKeys map 键切片（go1.22 前的兼容写法）。
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

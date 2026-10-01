@@ -50,6 +50,31 @@ func (c Config) timeoutResolved() time.Duration {
 // outputTailBytes 包装命令输出保留尾部（诊断信息在尾部）。
 const outputTailBytes = 4000
 
+// resolveSafePath 工作副本内的 symlink 安全路径解析：EvalSymlinks 归一后必须
+// 仍落在 dir 内——仓库可携带指向沙箱外的 symlink（恶意 PR 提交 link ->
+// /etc/cron.d），os.WriteFile 跟随 symlink 即以 bot 权限写出沙箱。解析失败
+// （含断链）一律拒绝。
+func resolveSafePath(dir, rel string) (string, error) {
+	joined := filepath.Join(dir, filepath.FromSlash(rel))
+	if !strings.HasPrefix(joined, filepath.Clean(dir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("路径越界: %s", rel)
+	}
+	// dir 本身也可能经由符号链接到达（macOS /var、容器挂载路径），归一后比较，
+	// 否则合法文件被误判逃逸。
+	root, err := filepath.EvalSymlinks(filepath.Clean(dir))
+	if err != nil {
+		return "", fmt.Errorf("副本根解析失败: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(joined)
+	if err != nil {
+		return "", fmt.Errorf("路径解析失败: %w", err)
+	}
+	if !strings.HasPrefix(resolved, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("symlink 逃逸: %s", rel)
+	}
+	return resolved, nil
+}
+
 // Verify 对 findings 中带 SuggestedFix 的条目做应用→验证→还原。
 // dir 为工作副本根；每条验证独立进行（前一条的文件修改已还原，互不污染）。
 func Verify(ctx context.Context, cfg Config, dir string, findings []plugin.Finding) []Result {
@@ -73,9 +98,9 @@ func Verify(ctx context.Context, cfg Config, dir string, findings []plugin.Findi
 
 // verifyOne 单条验证：读文件 → 锚定行替换为建议 → 跑包装命令 → 还原。
 func verifyOne(ctx context.Context, cfg Config, dir string, f plugin.Finding) Result {
-	path := filepath.Join(dir, filepath.FromSlash(f.File))
-	if !strings.HasPrefix(path, filepath.Clean(dir)+string(os.PathSeparator)) {
-		return Result{Finding: f, Skipped: "路径越界（拒绝验证）"}
+	path, perr := resolveSafePath(dir, f.File)
+	if perr != nil {
+		return Result{Finding: f, Skipped: perr.Error()}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -128,9 +153,9 @@ func Apply(_ context.Context, dir string, findings []plugin.Finding) (map[string
 		if !f.Verified || strings.TrimSpace(f.SuggestedFix) == "" {
 			continue
 		}
-		path := filepath.Join(dir, filepath.FromSlash(f.File))
-		if !strings.HasPrefix(path, filepath.Clean(dir)+string(os.PathSeparator)) {
-			continue
+		path, perr := resolveSafePath(dir, f.File)
+		if perr != nil {
+			return written, perr
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {

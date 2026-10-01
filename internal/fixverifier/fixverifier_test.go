@@ -37,7 +37,7 @@ func TestVerify(t *testing.T) {
 	if !strings.Contains(string(raw), `"hi"`) || strings.Contains(string(raw), `"hello"`) {
 		t.Fatalf("验证后文件应还原: %s", raw)
 	}
-	for i, want := range []string{"锚定行越界", "文件不在工作副本", "无修复建议", "路径越界"} {
+	for i, want := range []string{"锚定行越界", "路径解析失败", "无修复建议", "路径越界"} {
 		if results[i+1].OK || results[i+1].Skipped == "" || !strings.Contains(results[i+1].Skipped, want) {
 			t.Fatalf("第 %d 条应跳过(%s): %+v", i+1, want, results[i+1])
 		}
