@@ -277,6 +277,12 @@ type Config struct {
 	// ），隔离责任（网络/文件系统/资源限制）在包装命令侧，与 cli 插件 §8 供应链
 	// 同构。空 = 关闭（缺省），testgen 回帖保持「未经编译验证」声明。
 	TestGenVerifyCmd string
+	// FixVerify 沙箱修复验证（v3.74.0）：审查意见 suggested_fix 的工作副本
+	// 应用+编译验证，通过者在回帖标「✅ 沙箱验证通过」。空 = 功能停用
+	//（findings 保持「未经编译验证」，零行为变更）。
+	FixVerifyCmd string
+	// FixVerifyTimeout 包装命令硬上限（ARGUS_FIX_VERIFY_TIMEOUT，0 = 3m）。
+	FixVerifyTimeout time.Duration
 	// TestGenVerifyTimeout 包装命令硬上限（ARGUS_TESTGEN_VERIFY_TIMEOUT，0 = 5m）。
 	TestGenVerifyTimeout time.Duration
 
@@ -461,6 +467,8 @@ func Load() *Config {
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
+		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),
+		FixVerifyTimeout:       envDuration("ARGUS_FIX_VERIFY_TIMEOUT", 0),
 		TestGenVerifyTimeout:   envDuration("ARGUS_TESTGEN_VERIFY_TIMEOUT", 0),
 		Platforms:              map[string]PlatformConfig{},
 		PollInterval:           envDuration("ARGUS_POLL_INTERVAL", 0),

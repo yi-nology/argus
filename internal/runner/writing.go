@@ -13,6 +13,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"argus/internal/fixverifier"
 	"argus/internal/plugin"
 	"argus/internal/reportview"
 	"argus/internal/storage"
@@ -230,4 +231,35 @@ func (r *Runner) runCIAnalysis(ctx context.Context, task *storage.Task, start ti
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
 	return nil
+}
+
+// verifyFixes 修复验证环（v3.74.0）：fixverifier 对带 suggested_fix 的意见做
+// 沙箱应用+编译验证并回写 f.Verified。未配置包装命令 / 无工作副本 / 全失败
+// 均静默跳过——功能是加分项，永不阻断审查主链路。
+func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin.PRContext, out *requirement.Output) {
+	if r.Cfg == nil || r.Cfg.FixVerifyCmd == "" || out.Merged == nil || len(out.Merged.Findings) == 0 || r.WC == nil {
+		return
+	}
+	key := plugin.PRToKey(*pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		r.Log.Debug("argus.runner.fix_verify_skip", "task", task.ID, "reason", err.Error())
+		return
+	}
+	defer r.WC.Release(key)
+	results := fixverifier.Verify(ctx, fixverifier.Config{
+		Cmd:     r.Cfg.FixVerifyCmd,
+		Timeout: r.Cfg.FixVerifyTimeout,
+	}, dir, out.Merged.Findings)
+	verified := 0
+	for i := range results {
+		if results[i].OK {
+			out.Merged.Findings[i].Verified = true
+			verified++
+		}
+	}
+	if verified > 0 {
+		r.Log.Info("argus.runner.fix_verified", "task", task.ID,
+			"verified", verified, "total", len(results))
+	}
 }

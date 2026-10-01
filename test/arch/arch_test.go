@@ -94,11 +94,11 @@ var layering = map[string][]string{
 	},
 	"argus/internal/runner": {
 		"argus/internal/codegraph", "argus/internal/config", "argus/internal/context",
-		"argus/internal/learning", "argus/internal/memory", "argus/internal/notify",
-		"argus/internal/ocrdeleg", "argus/internal/plugin", "argus/internal/poster",
-		"argus/internal/progress", "argus/internal/reportview", "argus/internal/sastscan",
-		"argus/internal/sink", "argus/internal/storage", "argus/internal/toolpool",
-		"argus/internal/workflow/requirement", "argus/internal/writing",
+		"argus/internal/fixverifier", "argus/internal/learning", "argus/internal/memory",
+		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
+		"argus/internal/poster", "argus/internal/progress", "argus/internal/reportview",
+		"argus/internal/sastscan", "argus/internal/sink", "argus/internal/storage",
+		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
 	},
 	"argus/internal/service": {
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",

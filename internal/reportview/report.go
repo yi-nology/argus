@@ -195,6 +195,9 @@ func renderFindings(b *strings.Builder, r Report) {
 		if ann := plugin.ConfidenceAnnotation(f); ann != "" {
 			comment += ann
 		}
+		if f.Verified {
+			comment += "（✅ 沙箱验证通过）"
+		}
 		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
 			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
 			fence.EscapeUntrusted(by), fp)

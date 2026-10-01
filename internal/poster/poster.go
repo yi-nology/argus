@@ -351,6 +351,9 @@ func inlineCommentBody(f plugin.Finding) string {
 	if ann := plugin.ConfidenceAnnotation(f); ann != "" {
 		body += ann
 	}
+	if f.Verified {
+		body += "（✅ 沙箱验证通过）"
+	}
 	fix := strings.TrimSpace(f.SuggestedFix)
 	if fix != "" && !strings.Contains(fix, "```") {
 		if _, truncated := textutil.TruncRunes(fix, suggestionMaxRunes); !truncated {

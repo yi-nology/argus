@@ -477,6 +477,11 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
 	rep.MaxInlineComments = rc.Review.MaxComments
 
+	// 修复验证环（v3.74.0）：配置了隔离包装命令且本次审查有工作副本可用时，
+	// 对带 suggested_fix 的意见做沙箱应用+编译验证，通过者渲染「✅ 沙箱验证
+	// 通过」。任何失败都静默降级为不标注——验证环绝不阻断审查主链路。
+	r.verifyFixes(ctx, task, pr, out)
+
 	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
 	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
 	plugin.ReportLayerExec(plugin.LayerPoster)

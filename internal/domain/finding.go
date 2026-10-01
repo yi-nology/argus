@@ -55,6 +55,9 @@ type Finding struct {
 	// 加警示标注，供审阅者权重参考——不进指纹（指纹身份由 File+原始 comment+
 	// Line 派生，置信度是渲染属性不是身份属性）。
 	Confidence float64 `json:"confidence,omitempty"`
+	// Verified 沙箱验证环（v3.74.0）：suggested_fix 已在隔离包装命令下应用
+	// 并通过编译/测试。渲染属性不入指纹；仅 runner 侧 fixverifier 写定。
+	Verified bool `json:"verified,omitempty"`
 }
 
 // PrintState 既有指纹状态。
