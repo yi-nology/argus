@@ -751,7 +751,7 @@ func (s *Service) qa() *qa.Engine {
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论
 		if s.Cfg != nil && s.Cfg.MemoryDir != "" {
 			e.MemoryIndexFor = func(platform, owner, repo string) string {
-				return memory.LoadIndex(s.Cfg.MemoryDir, memory.Ref{Platform: platform, Owner: owner, Repo: repo}, 0)
+				return memory.LoadIndexWithOrg(s.Cfg.MemoryDir, memory.Ref{Platform: platform, Owner: owner, Repo: repo}, 0)
 			}
 		}
 		s.qaEng = e

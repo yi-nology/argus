@@ -88,3 +88,32 @@ func TestLoadIndexEmptyDir(t *testing.T) {
 		t.Fatalf("不存在目录索引应为空串，got %q", got)
 	}
 }
+
+func TestLoadIndexWithOrg(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	// 组织桶 + 仓桶各一条
+	if err := Save(dir, OrgRef, "nil-deref", "pattern", "组织级：Go 项目空指针高发于 handler 层", "正文", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(dir, Ref{Platform: "gitlab", Owner: "o", Repo: "r"}, "sql-n-plus-one", "pattern", "本仓：列表接口 N+1 已修过两次", "正文", now); err != nil {
+		t.Fatal(err)
+	}
+	idx := LoadIndexWithOrg(dir, Ref{Platform: "gitlab", Owner: "o", Repo: "r"}, 0)
+	if !strings.Contains(idx, "跨仓常见模式") || !strings.Contains(idx, "空指针") {
+		t.Fatalf("组织段缺失: %q", idx)
+	}
+	if !strings.Contains(idx, "本仓记忆") || !strings.Contains(idx, "N+1") {
+		t.Fatalf("仓段缺失: %q", idx)
+	}
+	// 组织桶跨仓共享：任何仓都应读到（组织桶语义即如此），换独立目录模拟
+	// 无组织桶形态 → 纯仓段，无空节头
+	dir2 := t.TempDir()
+	if err := Save(dir2, Ref{Platform: "gitlab", Owner: "x", Repo: "y"}, "only-repo", "pattern", "另一仓的私有记忆", "正文", now); err != nil {
+		t.Fatal(err)
+	}
+	idx2 := LoadIndexWithOrg(dir2, Ref{Platform: "gitlab", Owner: "x", Repo: "y"}, 0)
+	if strings.Contains(idx2, "跨仓常见模式") {
+		t.Fatalf("无组织桶不应出现组织节头: %q", idx2)
+	}
+}

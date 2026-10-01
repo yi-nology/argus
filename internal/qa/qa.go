@@ -25,6 +25,8 @@ import (
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/toolprior"
 
+	"github.com/yi-nology/go-git-platform/provider"
+
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -227,6 +229,30 @@ type fileOut struct {
 	Content string `json:"content,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
+type similarIn struct {
+	Keywords string `json:"keywords" jsonschema:"description=检索关键词（报错类型/模块名）"`
+}
+type similarItem struct {
+	Number string   `json:"number"`
+	Title  string   `json:"title"`
+	State  string   `json:"state,omitempty"`
+	URL    string   `json:"url,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+}
+type similarOut struct {
+	Issues []similarItem `json:"issues,omitempty"`
+	Error  string        `json:"error,omitempty"`
+}
+
+// searchManager 取平台 SearchManager 可选能力（type assertion；未实现返回 false）。
+func searchManager(sdk *argusctx.SDKCtx, platform string) (provider.SearchManager, bool) {
+	p, err := sdk.Provider(platform)
+	if err != nil {
+		return nil, false
+	}
+	sm, ok := p.(provider.SearchManager)
+	return sm, ok
+}
 
 // tools Q&A 工具表（复用 R3 同源纪律：内容截断 + 数据区围栏防注入）。
 func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string) ([]tool.BaseTool, string, error) {
@@ -273,11 +299,47 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 		return nil, "", err
 	}
 
+	// search_similar_issues（v3.73.0，对标 PR-Agent /similar_issue）：仓库内
+	// 相似 issue 检索——"这个问题之前报过吗/和 #x 是一回事吗"。SearchManager
+	// 是可选能力，未实现的平台不加该工具（ReAct 面自然收窄）。
+	var similarIssue tool.BaseTool
+	if sm, ok := searchManager(e.SDK, platform); ok {
+		si, terr := toolutils.InferTool("search_similar_issues",
+			"在本仓库内搜索与某个问题/报错相似的历史 issue（判断问题是否已知/重复）。参数 keywords 为检索关键词（如报错类型、模块名）。",
+			func(ctx context.Context, in *similarIn) (*similarOut, error) {
+				res, _, serr := sm.SearchIssues(ctx, provider.SearchIssuesOptions{
+					Query: in.Keywords, Repo: owner + "/" + repo, PerPage: 10,
+				})
+				if serr != nil {
+					return &similarOut{Error: plugin.ReminderNote("tool-error", serr.Error())}, nil
+				}
+				items := make([]similarItem, 0, len(res))
+				for _, r := range res {
+					if r == nil {
+						continue
+					}
+					items = append(items, similarItem{
+						Number: r.Number, Title: r.Title, State: string(r.State),
+						URL: r.WebURL, Labels: r.Labels,
+					})
+				}
+				return &similarOut{Issues: items}, nil
+			})
+		if terr != nil {
+			return nil, "", terr
+		}
+		similarIssue = si
+	}
+
 	table := toolprior.NewTable()
 	table.Add(toolprior.Entry{Tool: getDiff, Priority: toolprior.PriorityCore,
 		When: "回答涉及具体代码改动的问题前先通读", Cost: "low"})
 	table.Add(toolprior.Entry{Tool: getFile, Priority: toolprior.PriorityCore,
 		When: "核实 diff 看不到的调用方/实现细节时使用", Cost: "low"})
+	if similarIssue != nil {
+		table.Add(toolprior.Entry{Tool: similarIssue, Priority: toolprior.PrioritySupport,
+			When: "用户问『有没有类似问题/是否已知』时检索历史 issue", Cost: "low"})
+	}
 	if e.Knowledge != nil {
 		if kt := e.Knowledge.AsTool(); kt != nil {
 			table.Add(toolprior.Entry{Tool: kt, Priority: toolprior.PrioritySupport,

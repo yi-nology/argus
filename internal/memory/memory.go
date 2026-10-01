@@ -37,7 +37,7 @@ type Ref struct {
 
 // Save 写入/覆盖一条事实（幂等；同名 slug 覆盖）。description 须单行。
 func Save(dir string, r Ref, slug, factType, description, body string, at time.Time) error {
-	if dir == "" || r.Owner == "" || r.Repo == "" || slug == "" {
+	if dir == "" || r.Owner == "" || slug == "" || (r.Repo == "" && r.Owner != orgDirName) {
 		return fmt.Errorf("memory: dir/ref/slug 不可空")
 	}
 	d := repoDir(dir, r)
@@ -150,4 +150,66 @@ func SingleLine(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.TrimSpace(s)
+}
+
+// orgDirName 组织级记忆桶：跨仓共享的模式/教训（dream 周期聚合或运维工具
+// 手工放入）。与仓桶同文件形态；读取时先于仓桶注入，前缀区分来源。
+const orgDirName = "_org"
+
+// OrgRef 组织桶归属（Save/LoadIndex 共用；Owner=orgDirName 由本常量统一）。
+var OrgRef = Ref{Owner: orgDirName}
+
+// LoadIndexWithOrg 读组织桶 + 仓桶两级记忆索引：组织段（跨仓模式）在前，
+// 仓段在后，共用同一预算（组织段超预算时确定性截断，仓段保底 60%）。
+// 无组织桶时零开销（读不到目录直接跳过）。
+func LoadIndexWithOrg(dir string, r Ref, budget int) string {
+	if budget <= 0 {
+		budget = IndexBudgetRunes
+	}
+	orgBudget := budget * 2 / 5 // 组织段上限 40%，防跨仓噪声挤占本仓记忆
+	org := loadIndexFrom(repoDir(dir, OrgRef), orgBudget)
+	if org != "" {
+		org = "## 跨仓常见模式（组织级）\n" + org
+	}
+	repo := loadIndexFrom(repoDir(dir, r), budget-len([]rune(org)))
+	if org == "" {
+		return repo
+	}
+	if repo == "" {
+		return org
+	}
+	return org + "\n## 本仓记忆\n" + repo
+}
+
+// loadIndexFrom 单目录索引拼装（LoadIndex 原逻辑抽出复用；budget<=0 视为空）。
+func loadIndexFrom(d string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		return ""
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		desc := readDescription(filepath.Join(d, n))
+		if desc == "" {
+			continue
+		}
+		line := "- " + desc
+		if b.Len()+len([]rune(line)) > budget {
+			b.WriteString("…（其余记忆已省略，全量见 search_knowledge 检索）")
+			return b.String()
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

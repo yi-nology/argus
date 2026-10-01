@@ -331,7 +331,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	wf := r.buildWorkflow(budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
 	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
-	wf.MemoryIndex = memory.LoadIndex(r.Cfg.MemoryDir, memory.Ref{
+	wf.MemoryIndex = memory.LoadIndexWithOrg(r.Cfg.MemoryDir, memory.Ref{
 		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
 	}, r.Cfg.MemoryIndexBudget)
 	// 外部工具调用上限可配（v3.41.0）
