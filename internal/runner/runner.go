@@ -927,7 +927,7 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 			view := reportview.ACCheckView{ID: ac.ID, Text: ac.Text, Status: plugin.ACUnverifiable, Evid: "未判定"}
 			if c, ok := checkMap[ac.ID]; ok {
 				view.Status = c.Status
-				view.Evid = firstNonEmpty(c.Evidence, c.Detail)
+				view.Evid = textutil.FirstNonEmpty(c.Evidence, c.Detail)
 			}
 			rep.ACs = append(rep.ACs, view)
 		}
@@ -1092,15 +1092,6 @@ func findingsCount(m *plugin.MergedFindings) int {
 		return 0
 	}
 	return len(m.Findings)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // reviewHints 渲染本仓库历史高误报模式提示词（学习环关闭或无样本时返回空）。

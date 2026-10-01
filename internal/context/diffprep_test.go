@@ -334,24 +334,30 @@ func TestPrepareIncremental_RawDiffBackfill(t *testing.T) {
 	}
 }
 
-func TestParseDiffByFile(t *testing.T) {
+func TestFillFromRawDiff(t *testing.T) {
 	raw := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ +1 @@\n+line1\ndiff --git b/b.go b/b.go\n+++ b/b.go\n@@ +1 @@\n+line2\n"
-	m := parseDiffByFile(raw)
-	if len(m) != 2 {
-		t.Fatalf("应解析出 2 个文件，got %d", len(m))
+	files := []*provider.ChangedFile{{NewPath: "a.go"}, {NewPath: "b.go"}}
+	out := fillFromRawDiff(files, raw)
+	if len(out) != 2 {
+		t.Fatalf("应回填 2 个文件，got %d", len(out))
 	}
-	if _, ok := m["a.go"]; !ok {
-		t.Fatal("缺 a.go")
+	// 存储值不带 "diff --git " 前缀（与 ChangedFile.Diff 形态一致，读写两端契约）
+	if strings.HasPrefix(out[0].Diff, "diff --git ") || !strings.Contains(out[0].Diff, "+line1") {
+		t.Fatalf("a.go 回填错误: %q", out[0].Diff)
 	}
-	if _, ok := m["b.go"]; !ok {
-		t.Fatal("缺 b.go")
+	if !strings.Contains(out[1].Diff, "+line2") {
+		t.Fatalf("b.go 回填错误: %q", out[1].Diff)
+	}
+	// 不改动调用方切片（浅拷贝语义）
+	if files[0].Diff != "" {
+		t.Fatalf("不得改写调用方原文件: %q", files[0].Diff)
 	}
 }
 
-func TestParseDiffByFile_Empty(t *testing.T) {
-	m := parseDiffByFile("")
-	if len(m) != 0 {
-		t.Fatalf("空输入应返回空 map，got %d", len(m))
+func TestFillFromRawDiff_Empty(t *testing.T) {
+	files := []*provider.ChangedFile{{NewPath: "a.go"}}
+	if out := fillFromRawDiff(files, ""); out[0].Diff != "" {
+		t.Fatalf("空 RawDiff 不应回填, got %q", out[0].Diff)
 	}
 }
 

@@ -180,7 +180,7 @@ func (w *Workflow) collectReqSegments(ctx context.Context, pr plugin.PRContext,
 func (w *Workflow) applyR1Guardrails(spec *plugin.RequirementSpec, refs []string, truncNotes []string,
 	digested bool, segmentCount, totalRunes int) {
 	if spec.Source == "" {
-		spec.Source = firstNonEmpty(refs2source(refs), "PR 描述")
+		spec.Source = textutil.FirstNonEmpty(refs2source(refs), "PR 描述")
 	}
 	if warnings := SanitizeSpec(spec); len(warnings) > 0 {
 		for _, wn := range warnings {
@@ -907,15 +907,6 @@ func renderACs(spec *plugin.RequirementSpec) string {
 
 func truncSummary(s string, n int) string {
 	return textutil.TruncEllipsis(strings.TrimSpace(s), n)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // numberLines 逐行加 4 位宽行号前缀（"   1|"，深挖 P0：get_file 无行号逼模型编

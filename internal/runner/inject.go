@@ -6,11 +6,10 @@ package runner
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	"git.example.com/enjoydream/agentkit/diffx"
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
@@ -169,47 +168,14 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	wf.CodeGraph = idx
-	if s := renderTouchedSymbols(idx, parseHunkLines(diff.Text)); s != "" {
+	if s := renderTouchedSymbols(idx, diffx.HunkLines(diff.Text)); s != "" {
 		ptask.Artifacts[plugin.ArtifactCodegraphTouched] = s
 	}
 	r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
 }
 
-// hunkRe unified diff hunk 头：@@ -oldStart,oldLines +newStart,newLines @@。
-var hunkRe = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
-
 // maxTouchedSymbols 触达符号清单上限（防巨型 PR 的清单吃预算）。
 const maxTouchedSymbols = 30
-
-// parseHunkLines 从清洗后 diff 文本提取每个文件的新行区间（闭区间 [start,end]）。
-func parseHunkLines(diffText string) map[string][][2]int {
-	out := map[string][][2]int{}
-	curFile := ""
-	for _, line := range strings.Split(diffText, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++ b/"):
-			curFile = line[len("+++ b/"):]
-			if i := strings.IndexByte(curFile, '\t'); i >= 0 {
-				curFile = curFile[:i]
-			}
-		case curFile != "" && strings.HasPrefix(line, "@@"):
-			m := hunkRe.FindStringSubmatch(line)
-			if m == nil {
-				continue
-			}
-			start, err1 := strconv.Atoi(m[1])
-			cnt := 1
-			if m[2] != "" {
-				cnt, _ = strconv.Atoi(m[2])
-			}
-			if err1 != nil || cnt <= 0 {
-				continue // 纯删除块：新文件侧无行
-			}
-			out[curFile] = append(out[curFile], [2]int{start, start + cnt - 1})
-		}
-	}
-	return out
-}
 
 // renderTouchedSymbols 汇总触达符号并渲染提示词 section（含可用性提示与数据区纪律）。
 func renderTouchedSymbols(idx *codegraph.Index, ranges map[string][][2]int) string {

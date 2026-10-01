@@ -8,6 +8,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"git.example.com/enjoydream/agentkit/diffx"
 	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
@@ -277,7 +278,7 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 	}
 
 	// 解析上次 diff 为 per-file map
-	lastByPath := parseDiffByFile(lastDiffText)
+	lastByPath := diffx.SplitUnifiedDiff(lastDiffText)
 
 	exclude := repoFilter(opts)
 	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
@@ -376,38 +377,11 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 	return dc
 }
 
-// parseDiffByFile 将拼接的 unified diff 按文件路径切分为 map[path]diffText。
-// 与 fillFromRawDiff 不同，这里保留 "diff --git " 前缀，使存储值与 ChangedFile.Diff 一致。
-func parseDiffByFile(raw string) map[string]string {
-	result := make(map[string]string)
-	if raw == "" {
-		return result
-	}
-	const sep = "diff --git "
-	chunks := strings.Split(raw, "\n"+sep)
-	for i, chunk := range chunks {
-		if i == 0 {
-			if strings.HasPrefix(chunk, sep) {
-				// 已有前缀，保留原样
-			} else if strings.TrimSpace(chunk) == "" {
-				continue
-			} else {
-				// 无前缀（罕见），补回
-				chunk = sep + chunk
-			}
-		} else {
-			chunk = sep + chunk
-		}
-		path := rawDiffPath(chunk)
-		if path != "" {
-			result[path] = chunk
-		}
-	}
-	return result
-}
-
-// fillFromRawDiff 把拼接的 unified diff 按 "diff --git" 切块回填到各 ChangedFile.Diff。
-// 路径对齐优先 NewPath（含 +++ b/<path> 行），删除文件回退 OldPath；未匹配的块忽略。
+// fillFromRawDiff 把拼接的 unified diff 按文件块回填到各 ChangedFile.Diff。
+// 路径对齐优先 NewPath（含 +++ b/<path> 行），删除文件回退 OldPath；未匹配的
+// 块忽略。v3.79.0 解析下沉 diffx：SplitChunks 保序切块（同路径块后者覆盖的
+// 确定性语义保持），DiffPath 提路径；存储值与 ChangedFile.Diff 一致不带
+// "diff --git " 前缀，故切块后剥前缀。
 func fillFromRawDiff(files []*provider.ChangedFile, raw string) []*provider.ChangedFile {
 	if len(files) == 0 {
 		return files
@@ -424,52 +398,12 @@ func fillFromRawDiff(files []*provider.ChangedFile, raw string) []*provider.Chan
 			byPath[cp.OldPath] = &cp
 		}
 	}
-	const sep = "diff --git "
-	chunks := strings.Split(raw, "\n"+sep)
-	for i, chunk := range chunks {
-		if i == 0 {
-			if strings.HasPrefix(chunk, sep) {
-				chunk = strings.TrimPrefix(chunk, sep)
-			} else if strings.TrimSpace(chunk) == "" {
-				continue
-			}
-		} else {
-			chunk = sep + chunk
-		}
-		path := rawDiffPath(chunk)
-		if path == "" {
+	for _, chunk := range diffx.SplitChunks(raw) {
+		f, ok := byPath[diffx.DiffPath(chunk)]
+		if !ok {
 			continue
 		}
-		if f, ok := byPath[path]; ok {
-			f.Diff = chunk
-		}
+		f.Diff = strings.TrimPrefix(chunk, "diff --git ")
 	}
 	return out
-}
-
-// rawDiffPath 从单文件 diff 块提取目标路径（+++ b/<path>，删除文件回退 --- a/<path>）。
-func rawDiffPath(chunk string) string {
-	var minus, plus string
-	for _, line := range strings.Split(chunk, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++ b/"):
-			plus = strings.TrimPrefix(line, "+++ b/")
-		case strings.HasPrefix(line, "--- a/"):
-			minus = strings.TrimPrefix(line, "--- a/")
-		}
-		if plus != "" {
-			break
-		}
-	}
-	// 去掉行尾制表符附加信息（如 "+++ b/x.go\t2026-01-02"）
-	if i := strings.IndexByte(plus, '\t'); i >= 0 {
-		plus = plus[:i]
-	}
-	if plus != "" && plus != "/dev/null" {
-		return plus
-	}
-	if i := strings.IndexByte(minus, '\t'); i >= 0 {
-		minus = minus[:i]
-	}
-	return minus
 }
