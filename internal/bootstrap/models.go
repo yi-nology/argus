@@ -333,8 +333,15 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 		// 限速最内层（v3.36.0）：直调旁路（ReAct/RawModel）与 Generator 链同桶，
 		// ARGUS_LLM_RATE_LIMIT 此前对旁路无效的缺口闭合；Limiter nil = 直通。
 		bm = argusctx.NewRateModel(bm, m.Limiter)
-		bm = argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
-		return argusctx.NewContinueModel(bm, stage, continueOnEvent)
+		fm := argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
+		// v3.77.0 下沉后观测回调化：构成分解在装配点接 Prometheus（此前在实现内
+		// 硬连 obs，SDK 不可携带 argus 指标）。
+		fm.OnBreakdown = func(stage string, byRole map[string]int) {
+			for role, n := range byRole {
+				obs.AddCtxBreakdown(stage, role, n)
+			}
+		}
+		return argusctx.NewContinueModel(fm, stage, continueOnEvent)
 	}
 	m.React = wrapStage(m.React, "chat", cfg.LLM.ContextToken)
 	if m.ReviewerGen == nil {

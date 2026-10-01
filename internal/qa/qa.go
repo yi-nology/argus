@@ -388,11 +388,12 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
 		"上一次执行因错误中断，请重新完整执行本任务并给出最终回答。")
 	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
-		Name:          "argus-qa",
-		Description:   "PR 问答助手",
-		Instruction:   instruction,
-		Model:         e.chatModel(),
-		MaxIterations: 8,
+		Name:             "argus-qa",
+		DisableStreaming: true, // v3.77.0 显式关流：agentkit v0.10.32 起 ReAct 默认开流，argus 消费面未接 delta 事件，保真沿用整段语义（流式采纳另批评估）
+		Description:      "PR 问答助手",
+		Instruction:      instruction,
+		Model:            e.chatModel(),
+		MaxIterations:    8,
 		ToolsFactory: func() []tool.BaseTool {
 			t, _, e2 := e.tools(ctx, platform, owner, repo, number)
 			if e2 != nil {

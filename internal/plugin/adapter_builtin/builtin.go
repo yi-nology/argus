@@ -254,11 +254,12 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		maxIter = 12 // 兼容未注入（直构/旧装配）：保持历史默认
 	}
 	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
-		Name:          r.manifest.Name,
-		Description:   "代码审查专家（" + r.focus + "）",
-		Instruction:   sys,
-		Model:         r.reviewerReactModel(),
-		MaxIterations: maxIter,
+		DisableStreaming: true, // v3.77.0 显式关流（agentkit v0.10.32 起默认开流，消费面未接 delta 事件）
+		Name:             r.manifest.Name,
+		Description:      "代码审查专家（" + r.focus + "）",
+		Instruction:      sys,
+		Model:            r.reviewerReactModel(),
+		MaxIterations:    maxIter,
 		ToolsFactory: func() []tool.BaseTool {
 			// 每次尝试重建：WithCallLimit 限流计数按尝试重置（agentrun v0.7.0）
 			t, _, e := r.toolsHook(ctx, task, task.Budget)

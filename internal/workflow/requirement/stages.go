@@ -467,12 +467,13 @@ func (w *Workflow) runAgent(ctx context.Context, instruction, query string, tool
 	// 提示整体重跑（副作用守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel
 	// 兜底，此处是会话级（迭代耗尽/末次模型失败）的最后一道回收。
 	return agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
-		Name:          "argus-compliance",
-		Description:   "需求完成度判定专家",
-		Instruction:   instruction,
-		Model:         reactModel,
-		MaxIterations: maxIterations,
-		ToolsFactory:  toolsFactory,
+		DisableStreaming: true, // v3.77.0 显式关流（agentkit v0.10.32 起默认开流，消费面未接 delta 事件）
+		Name:             "argus-compliance",
+		Description:      "需求完成度判定专家",
+		Instruction:      instruction,
+		Model:            reactModel,
+		MaxIterations:    maxIterations,
+		ToolsFactory:     toolsFactory,
 	}, query, query+plugin.ReactRetryHint, plugin.ToolTraceLogger(w.Log, "argus.r3"))
 }
 
