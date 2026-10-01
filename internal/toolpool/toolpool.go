@@ -4,8 +4,6 @@ package toolpool
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	"git.example.com/enjoydream/agentkit/mcp"
@@ -62,11 +60,13 @@ func NewRealPool(decls []plugin.MCPServerDecl, log logx.Logger) *mcp.Pool {
 			probe = 0 // agentkit 缺省 5s（v0.10.20 探活独立预算，不误吃连接级 30s）
 		}
 		cfgs = append(cfgs, mcp.ServerConfig{
-			Name:         d.Name,
-			Command:      d.Command,
-			Env:          d.Env,
-			URL:          d.URL,
-			Headers:      expandHeaders(d.Headers, log),
+			Name:    d.Name,
+			Command: d.Command,
+			Env:     d.Env,
+			URL:     d.URL,
+			Headers: mcp.ExpandEnvRefs(d.Headers, func(name string) {
+				log.Warn("argus.mcp.env_ref_missing", "var", name, "action", "保留原样")
+			}),
 			Timeout:      timeout,
 			ProbeTimeout: probe,
 		})
@@ -81,20 +81,12 @@ func NewRealPool(decls []plugin.MCPServerDecl, log logx.Logger) *mcp.Pool {
 	return pool
 }
 
-// callMetaKey 任务级 MCP 调用元数据的 ctx 键。
-type callMetaKey struct{}
-
-// WithCallMeta 注入任务级调用元数据（runner.Execute 在任务 ctx 上挂一次，
-// 随 ctx 流入该任务全部 MCP 工具调用）。
-func WithCallMeta(ctx context.Context, meta map[string]any) context.Context {
-	return context.WithValue(ctx, callMetaKey{}, meta)
-}
-
-// CallMeta 从 ctx 取调用元数据；无注入返回 nil（metaClient 对空不注入 _meta）。
-func CallMeta(ctx context.Context) map[string]any {
-	meta, _ := ctx.Value(callMetaKey{}).(map[string]any)
-	return meta
-}
+// WithCallMeta/CallMeta v3.80.0 实现下沉 agentkit/mcp（任务级 _meta ctx 键
+// 标准实现），本包保留别名——runner 调用方零改动。
+var (
+	WithCallMeta = mcp.WithCallMeta
+	CallMeta     = mcp.CallMeta
+)
 
 // SpecsFromDecls 汇总 plugins.yaml tools 白名单段为 runner 形态。
 func SpecsFromDecls(decls []plugin.ToolSpecDecl) []ToolSpec {
@@ -105,58 +97,21 @@ func SpecsFromDecls(decls []plugin.ToolSpecDecl) []ToolSpec {
 	return specs
 }
 
-// expandHeaders 头部值 ${VAR} 环境引用展开（token 不落配置文件）。
-// 未定义变量保留原样并告警——显式可见优于静默空值。
-func expandHeaders(headers map[string]string, log logx.Logger) map[string]string {
-	if len(headers) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(headers))
-	for k, v := range headers {
-		out[k] = expandEnvRef(v, log)
-	}
-	return out
-}
-
-func expandEnvRef(v string, log logx.Logger) string {
-	const marker = "${"
-	var b strings.Builder
-	for {
-		start := strings.Index(v, marker)
-		if start < 0 {
-			b.WriteString(v)
-			return b.String()
-		}
-		end := strings.Index(v[start:], "}")
-		if end < 0 {
-			b.WriteString(v)
-			return b.String()
-		}
-		end += start
-		name := v[start+len(marker) : end]
-		if val, ok := os.LookupEnv(name); ok {
-			b.WriteString(v[:start])
-			b.WriteString(val)
-		} else {
-			log.Warn("argus.mcp.env_ref_missing", "var", name, "action", "保留原样")
-			b.WriteString(v[:end+1]) // 未定义保留原样：扫描位置跳过本标记，防死循环
-		}
-		v = v[end+1:]
-	}
-}
-
 // RealAdapter agentkit/mcp.Pool 的 toolpool.Pool 适配（spec 词表映射 MCP→Allow）。
 type RealAdapter struct {
 	Pool *mcp.Pool
 }
 
 // Tools 按白名单返回 eino 工具（Argus ToolSpec → agentkit ToolSpec 映射）。
+// v0.10.38 起 Pool.Tools 返回 ToolsResult：失败面已容忍且经 OnError 同源发射
+// （NewRealPool 装配为 argus.mcp.server_error 日志），此处取成功集即可。
 func (a *RealAdapter) Tools(ctx context.Context, specs []ToolSpec) ([]tool.BaseTool, error) {
 	mspecs := make([]mcp.ToolSpec, len(specs))
 	for i, s := range specs {
 		mspecs[i] = mcp.ToolSpec{Server: s.MCP, Allow: s.Allow}
 	}
-	return a.Pool.Tools(ctx, mspecs)
+	res, err := a.Pool.Tools(ctx, mspecs)
+	return res.Tools, err
 }
 
 // Hints 汇总各 server 的目录注解为消费侧投影（v0.10.19 ToolHints）。

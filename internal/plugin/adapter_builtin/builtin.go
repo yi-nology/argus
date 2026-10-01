@@ -253,7 +253,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 	if maxIter <= 0 {
 		maxIter = 12 // 兼容未注入（直构/旧装配）：保持历史默认
 	}
-	final, err := agentrun.RunWithEventsAndRetry(ctx, agentrun.Config{
+	final, err := agentrun.Run(ctx, agentrun.Config{
 		DisableStreaming: true, // v3.77.0 显式关流（agentkit v0.10.32 起默认开流，消费面未接 delta 事件）
 		Name:             r.manifest.Name,
 		Description:      "代码审查专家（" + r.focus + "）",
@@ -268,7 +268,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 			}
 			return t
 		},
-	}, user, user+plugin.ReactRetryHint, onEvent)
+	}, user, agentrun.WithOnEvent(onEvent), agentrun.WithRetry(user+plugin.ReactRetryHint))
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
 	}

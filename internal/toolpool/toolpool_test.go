@@ -2,7 +2,6 @@ package toolpool
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"git.example.com/enjoydream/ekit/observability/logx"
@@ -23,27 +22,6 @@ func TestSpecsFromDecls(t *testing.T) {
 	}
 	if specs[1].MCP != "lint" || specs[1].Allow != nil {
 		t.Fatalf("spec[1] 不符: %+v", specs[1])
-	}
-}
-
-func TestExpandEnvRef(t *testing.T) {
-	t.Setenv("TEST_MCP_TOKEN", "tok-123")
-	log := logx.NewSlogLogger("test")
-
-	got := expandEnvRef("Bearer ${TEST_MCP_TOKEN}", log)
-	if got != "Bearer tok-123" {
-		t.Fatalf("展开失败: %q", got)
-	}
-
-	// 未定义变量保留原样
-	got = expandEnvRef("Bearer ${DEFINITELY_UNDEFINED_VAR_XYZ}", log)
-	if !strings.Contains(got, "DEFINITELY_UNDEFINED_VAR_XYZ") {
-		t.Fatalf("未定义变量应保留原样: %q", got)
-	}
-
-	// 无引用直通
-	if got := expandEnvRef("plain", log); got != "plain" {
-		t.Fatalf("无引用应直通: %q", got)
 	}
 }
 
