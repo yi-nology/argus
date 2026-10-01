@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
+	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/ekit/network/octopus"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
@@ -105,11 +105,8 @@ func renderMarkdown(e TaskEvent) string {
 			pr, e.Verdict, e.Rule, e.Findings, e.Elapsed.Round(time.Second), e.Tokens, e.TaskID)
 	case "failed":
 		// v3.8.0：FailReason 可能含上游错误串（端点/URL 细节），IM 推送截断防泄露长串
-		reason := e.FailReason
-		if rc := utf8.RuneCountInString(reason); rc > 300 {
-			r := []rune(reason)
-			reason = string(r[:300]) + "…"
-		}
+		//（v3.82.0 收敛 textutil.TruncEllipsis，消除 []rune 全量拷贝）
+		reason := textutil.TruncEllipsis(e.FailReason, 300)
 		return fmt.Sprintf("**Argus 审查失败** %s\n- 原因: %s\n- task: %s", pr, reason, e.TaskID)
 	default:
 		return "" // pending/running 不推送

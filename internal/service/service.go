@@ -63,9 +63,6 @@ type Service struct {
 	// WC 工作副本池（v3.22.0 testgen 沙箱验证；nil = 验证不可用）。
 	WC *workcopy.Pool
 
-	// Q&A 节流：per PR 30 秒冷却，防评论风暴。
-	qaThrottleMu sync.Mutex
-	qaThrottles  map[string]time.Time // PR 级 30s 节流
 	// qaEngine 问答引擎单例（Engine 无自有状态、字段全共享引用，会话在 Store）。
 	// 此前每次 Ask 都重建，纯浪费；sync.Once 保证并发首建安全。
 	qaOnce sync.Once

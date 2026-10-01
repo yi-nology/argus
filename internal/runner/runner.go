@@ -17,6 +17,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/textutil"
+	ekcache "git.example.com/enjoydream/ekit/data/cache"
 	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
@@ -35,6 +36,7 @@ import (
 	"argus/internal/workflow/requirement"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
+	llmwrap "git.example.com/enjoydream/agentkit/llm/wrap"
 	"github.com/cloudwego/eino/callbacks"
 
 	"git.example.com/enjoydream/agentkit/obsx"
@@ -307,7 +309,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
-			argusctx.RecordUsage(rec.Model, rec.PromptTokens) // ctxfit 真实 usage 校准回灌
+			llmwrap.RecordUsage(rec.Model, rec.PromptTokens) // ctxfit 真实 usage 校准回灌
 			// 旁路用量回灌任务预算（v3.36.0）：ReAct/RawModel 直调不经 Client
 			// 预算注入，硬截断此前对其失效。callbacks 侧只收旁路调用（Client
 			// 记账调用被防重跳过），恰好无双计。
@@ -815,11 +817,10 @@ const repoGuideAgentMaxBytes = 32_000
 var repoGuideAgentFiles = []string{"AGENTS.md", "CLAUDE.md", ".cursorrules"}
 
 // repoGuideCache 评审规范缓存（repo@sha → 内容；同 sha 多任务/重试复用，
-// 负缓存空串防同 sha 反复打平台 API）。
-var (
-	repoGuideMu    sync.Mutex
-	repoGuideCache = map[string]string{}
-)
+// 负缓存空串防同 sha 反复打平台 API）。v3.82.0 引入 ekit data/cache：
+// MaxSize LRU 精确淘汰（键含 sha 天然有限），取代手写 mutex+map+
+// 「满 64 整体清空」换防——热条目不再被无差别逐出。
+var repoGuideCache = ekcache.NewLocalCache(ekcache.LocalConfig[string]{MaxSize: 64})
 
 // RepoGuideFor 读取被评审仓库的评审规范 @ head（v3.38.0，v3.71.0 多源）：
 // .argus/REVIEW.md（argus 专属）+ 业界标准 agent 规范（AGENTS.md/CLAUDE.md/
@@ -831,11 +832,8 @@ func (r *Runner) RepoGuideFor(ctx context.Context, platform, owner, repo, headSH
 		return ""
 	}
 	key := platform + "/" + owner + "/" + repo + "@" + headSHA
-	repoGuideMu.Lock()
-	cached, ok := repoGuideCache[key]
-	repoGuideMu.Unlock()
-	if ok {
-		return cached
+	if cached, _ := repoGuideCache.Get(ctx, key); cached != nil {
+		return *cached
 	}
 	var sections []string
 	content := r.repoGuideFile(ctx, platform, owner, repo, headSHA, ".argus/REVIEW.md", repoGuideMaxBytes)
@@ -853,12 +851,7 @@ func (r *Runner) RepoGuideFor(ctx context.Context, platform, owner, repo, headSH
 		}
 	}
 	merged := strings.Join(sections, "\n\n")
-	repoGuideMu.Lock()
-	if len(repoGuideCache) >= 64 {
-		repoGuideCache = map[string]string{} // 粗暴整体换防膨胀（键含 sha，天然有限）
-	}
-	repoGuideCache[key] = merged
-	repoGuideMu.Unlock()
+	_ = repoGuideCache.Set(ctx, key, &merged)
 	return merged
 }
 

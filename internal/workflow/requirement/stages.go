@@ -21,7 +21,7 @@ import (
 	"argus/internal/obs"
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/jsonrepair"
+	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
 )
 
 // issueRefRe 从分支名/PR 描述中提取关联 issue（需求源三入口之一）。

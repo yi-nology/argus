@@ -26,7 +26,7 @@ import (
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/jsonrepair"
+	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
 )
 
 // ErrBinaryMissing agent 可执行文件不存在（插件停用而非报错启动）。

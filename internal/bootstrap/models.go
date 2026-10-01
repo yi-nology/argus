@@ -11,10 +11,10 @@ import (
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/config"
-	argusctx "argus/internal/context"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"git.example.com/enjoydream/agentkit/llm"
+	"git.example.com/enjoydream/agentkit/llm/wrap"
 )
 
 // Models 装配期一次解析完成的模型栈。原散在 main.go 的 ~270 行 if/else 收敛于此：
@@ -310,7 +310,7 @@ func (m *Models) wrapFailover(cfg *config.Config, log logx.Logger) {
 // Generator 链已有 Client.fitInput，重叠路径双重拟合无副作用。
 // 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
 func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
-	fitOnEvent := func(stage string, res argusctx.FitResult) {
+	fitOnEvent := func(stage string, res wrap.FitResult) {
 		obs.IncrCtxFit(stage, string(res.Action))
 		log.Warn("argus.ctxfit", "stage", stage, "action", string(res.Action),
 			"before_runes", res.Before, "after_runes", res.After, "limit_runes", res.Limit,
@@ -332,8 +332,8 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 		}
 		// 限速最内层（v3.36.0）：直调旁路（ReAct/RawModel）与 Generator 链同桶，
 		// ARGUS_LLM_RATE_LIMIT 此前对旁路无效的缺口闭合；Limiter nil = 直通。
-		bm = argusctx.NewRateModel(bm, m.Limiter)
-		fm := argusctx.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
+		bm = wrap.NewRateModel(bm, m.Limiter)
+		fm := wrap.NewFitModel(bm, stage, cfg.LLM.Model, window, cfg.MaxTokensResolved(), fitOnEvent)
 		// v3.77.0 下沉后观测回调化：构成分解在装配点接 Prometheus（此前在实现内
 		// 硬连 obs，SDK 不可携带 argus 指标）。
 		fm.OnBreakdown = func(stage string, byRole map[string]int) {
@@ -341,7 +341,7 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 				obs.AddCtxBreakdown(stage, role, n)
 			}
 		}
-		return argusctx.NewContinueModel(fm, stage, continueOnEvent)
+		return wrap.NewContinueModel(fm, stage, continueOnEvent)
 	}
 	m.React = wrapStage(m.React, "chat", cfg.LLM.ContextToken)
 	if m.ReviewerGen == nil {

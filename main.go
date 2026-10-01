@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -20,6 +19,7 @@ import (
 
 	ekitbootstrap "git.example.com/enjoydream/ekit/bootstrap"
 	"git.example.com/enjoydream/ekit/concurrency/async"
+	ekcache "git.example.com/enjoydream/ekit/data/cache"
 	ekithertz "git.example.com/enjoydream/ekit/hertz"
 	hertzmetrics "git.example.com/enjoydream/ekit/hertz/metrics"
 	"git.example.com/enjoydream/ekit/middleware/traceid/hmw"
@@ -229,24 +229,22 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 // llmReachableClient readyz 探针复用的 HTTP 客户端（避免每次 new transport 泄漏）。
 var llmReachableClient = &http.Client{Timeout: 3 * time.Second}
 
-var (
-	llmReachableMu   sync.Mutex
-	llmReachableOk   bool
-	llmReachableTime time.Time
-)
+// llmProbeCache LLM 端点连通性缓存（readyz 用；30s TTL + single-flight 合并，
+// 避免每 10s 真实请求 LLM 浪费配额）。v3.82.0 引入 ekit data/cache——手写
+// mutex+read-check-write 状态机（探针期间全串行阻塞）由库接管：并发探针
+// GetOrLoad 合并为一次回源。
+var llmProbeCache = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
+	TTL: 30 * time.Second,
+	Source: func(ctx context.Context, key string) (*bool, error) {
+		ok := llmReachable(key)
+		return &ok, nil
+	},
+})
 
-// llmReachableCached LLM 端点连通性（readyz 用；30s TTL 缓存，避免每 10s 真实请求 LLM 浪费配额）。
-// mutex 保护 read-check-write 原子性，防止并发探针写入陈旧结果。
+// llmReachableCached LLM 端点连通性（30s TTL，任意 HTTP 响应均视为可达）。
 func llmReachableCached(baseURL string) bool {
-	llmReachableMu.Lock()
-	defer llmReachableMu.Unlock()
-	if time.Since(llmReachableTime) < 30*time.Second {
-		return llmReachableOk
-	}
-	ok := llmReachable(baseURL)
-	llmReachableOk = ok
-	llmReachableTime = time.Now()
-	return ok
+	v, _ := llmProbeCache.GetOrLoad(context.Background(), baseURL)
+	return v != nil && *v
 }
 
 // llmReachable LLM 端点连通性（任意 HTTP 响应均视为可达）。

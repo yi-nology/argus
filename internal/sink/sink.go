@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/httpx"
 	"git.example.com/enjoydream/ekit/observability/logx"
+	"git.example.com/enjoydream/ekit/pkg/httpjson"
 
 	"argus/internal/plugin"
 )
@@ -115,9 +115,9 @@ func (r *Reporter) report(payload *Payload) {
 	var ack json.RawMessage // 只验合法性不取值；对端 Resp 形态演进不耦合本包
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
-	err = httpx.DoJSONWithRetry(ctx, http.DefaultClient,
-		func() (httpx.Request, error) {
-			return httpx.Request{
+	err = httpjson.DoJSONWithRetry(ctx, http.DefaultClient,
+		func() (httpjson.Request, error) {
+			return httpjson.Request{
 				Method: http.MethodPost,
 				URL:    r.URL,
 				Body:   body,
@@ -129,7 +129,7 @@ func (r *Reporter) report(payload *Payload) {
 				},
 			}, nil
 		},
-		httpx.RetryConfig{MaxAttempts: 2, BaseDelay: 500 * time.Millisecond},
+		httpjson.RetryConfig{MaxAttempts: 2, BaseDelay: 500 * time.Millisecond},
 		&ack)
 	if err != nil {
 		r.logWarn("上报失败（重试耗尽）", err)

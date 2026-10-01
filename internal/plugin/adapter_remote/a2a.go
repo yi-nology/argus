@@ -7,12 +7,12 @@ package adapter_remote
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	ekuidgen "git.example.com/enjoydream/ekit/pkg/uidgen"
 
 	"argus/internal/plugin"
 )
@@ -178,10 +178,10 @@ func a2aDoJSON(req *http.Request, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// a2aMessageID v3.82.0 引入 ekit ekuidgen.ShortUUID（16 位短 ID；旧实现
+// crypto/rand 静默忽略读取错误，弱随机时产出重复 ID）。
 func a2aMessageID() string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return "argus-" + hex.EncodeToString(b)
+	return "argus-" + ekuidgen.ShortUUID()
 }
 
 func trimRight(s string) string {

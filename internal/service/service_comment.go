@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	ekcache "git.example.com/enjoydream/ekit/data/cache"
+
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
@@ -212,27 +214,14 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	prNum := fmt.Sprintf("%d", meta.PRNumber)
 	prRef := ev.Repo.Owner + "/" + ev.Repo.Name + "#" + prNum
 
-	// per-PR 节流（30 秒冷却）
+	// per-PR 节流（30 秒冷却）。v3.82.0 引入 ekit data/cache：TTL 过期 + 容量
+	// 上限由库接管，取代手写 map+mutex+「超 100 清 1h 前旧条目」驱逐循环。
 	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
-	s.qaThrottleMu.Lock()
-	if s.qaThrottles == nil {
-		s.qaThrottles = make(map[string]time.Time)
-	}
-	if last, ok := s.qaThrottles[throttleKey]; ok && time.Since(last) < 30*time.Second {
-		s.qaThrottleMu.Unlock()
+	if v, _ := qaThrottleCache.Get(ctx, throttleKey); v != nil {
 		s.log().Warn("argus.qa.throttled", "pr", prRef, "question", question)
 		return
 	}
-	s.qaThrottles[throttleKey] = time.Now()
-	// 防内存泄漏：map 超100 条时清理 1 小时前的旧条目
-	if len(s.qaThrottles) > 100 {
-		for k, t := range s.qaThrottles {
-			if time.Since(t) > time.Hour {
-				delete(s.qaThrottles, k)
-			}
-		}
-	}
-	s.qaThrottleMu.Unlock()
+	_ = qaThrottleCache.Set(ctx, throttleKey, &qaThrottled)
 
 	s.log().Info("argus.qa.received", "pr", prRef, "question", question,
 		"actor", ev.Actor.Username, "event_id", delivery)
@@ -431,3 +420,13 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 	}
 	s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, reply)
 }
+
+// qaThrottleCache Q&A 评论 per-PR 30s 冷却（进程级单例，与原 per-Service map
+// 语义一致——Service 全进程一个；TTL 过期 + MaxSize LRU 上限由库负责）。
+var (
+	qaThrottleCache = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
+		TTL:     30 * time.Second,
+		MaxSize: 200,
+	})
+	qaThrottled = true
+)
