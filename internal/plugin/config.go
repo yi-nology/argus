@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -138,11 +139,12 @@ func (d *AgentDecl) ParseTimeout() (time.Duration, error) {
 
 // RepoConfigFile 仓库侧文件（design §3.4：按敌对输入对待）。
 type RepoConfigFile struct {
-	Use      []string         `yaml:"use"`
-	Disable  []string         `yaml:"disable"`
-	Routing  []RoutingRule    `yaml:"routing"`
-	Review   ReviewSettings   `yaml:"review"`   // v3.15.0 评审行为开关（路径过滤/严重度阈值/评论上限/附加指令）
-	Describe DescribeSettings `yaml:"describe"` // v3.15.0 @argus describe 的标签词表
+	Use      []string          `yaml:"use"`
+	Disable  []string          `yaml:"disable"`
+	Routing  []RoutingRule     `yaml:"routing"`
+	Review   ReviewSettings    `yaml:"review"`   // v3.15.0 评审行为开关（路径过滤/严重度阈值/评论上限/附加指令）
+	Describe DescribeSettings  `yaml:"describe"` // v3.15.0 @argus describe 的标签词表
+	Related  []RelatedContract `yaml:"related"`  // v3.90.0 跨仓契约快照声明
 }
 
 // ReviewSettings 仓库级评审行为配置（v3.15.0 主流差距收口：对标 .coderabbit.yaml
@@ -205,10 +207,55 @@ func ParseRepoConfig(data []byte) (*RepoConfig, error) {
 	if len(f.Describe.Labels) > maxList {
 		return nil, fmt.Errorf(".reviewagents.yaml describe.labels 超长（>%d），拒绝加载", maxList)
 	}
+	related, err := sanitizeRelatedContracts(f.Related, maxList)
+	if err != nil {
+		return nil, err
+	}
 	return &RepoConfig{
 		Use: f.Use, Disable: f.Disable, Routing: f.Routing,
-		Review: review, Describe: f.Describe, Loaded: true,
+		Review: review, Describe: f.Describe, Related: related, Loaded: true,
 	}, nil
+}
+
+// related 段硬上限（解析期与运行期共用；调整须过评测）。
+const (
+	maxRelatedContracts = 3
+	maxRelatedPathsEach = 8
+)
+
+// sanitizeRelatedContracts related 段敌对输入钳制（v3.90.0）：仓数/路径数/长度
+// 硬上限，repo 形状必须 owner/name，路径拒绝绝对形态与目录穿越。非法整份拒绝
+// ——LoadRepoConfig 侧降级为无配置+告警，不会炸任务。
+func sanitizeRelatedContracts(cs []RelatedContract, maxList int) ([]RelatedContract, error) {
+	const maxContractLen = 256
+	if len(cs) > maxRelatedContracts {
+		return nil, fmt.Errorf(".reviewagents.yaml related 仓数超上限（>%d），拒绝加载", maxRelatedContracts)
+	}
+	for i, c := range cs {
+		parts := strings.Split(strings.TrimSpace(c.Repo), "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf(".reviewagents.yaml related[%d].repo 形状须为 owner/name: %q", i, c.Repo)
+		}
+		if len(c.Repo) > maxContractLen || len(c.Ref) > maxContractLen {
+			return nil, fmt.Errorf(".reviewagents.yaml related[%d] repo/ref 超长", i)
+		}
+		if len(c.Paths) == 0 {
+			return nil, fmt.Errorf(".reviewagents.yaml related[%d].paths 为空（声明了关联仓却不给契约文件）", i)
+		}
+		if len(c.Paths) > maxRelatedPathsEach {
+			return nil, fmt.Errorf(".reviewagents.yaml related[%d].paths 超上限（>%d）", i, maxRelatedPathsEach)
+		}
+		for _, p := range c.Paths {
+			if p == "" || len(p) > maxContractLen {
+				return nil, fmt.Errorf(".reviewagents.yaml related[%d].paths 含空/超长路径", i)
+			}
+			clean := path.Clean(p)
+			if path.IsAbs(p) || clean == ".." || strings.HasPrefix(clean, "../") {
+				return nil, fmt.Errorf(".reviewagents.yaml related[%d].paths 路径越界: %q", i, p)
+			}
+		}
+	}
+	return cs, nil
 }
 
 // sanitizeReviewSettings review 段敌对输入钳制：glob 数量/长度上限、severity 词表
@@ -251,14 +298,25 @@ func sanitizeReviewSettings(r ReviewSettings, maxList int) (ReviewSettings, erro
 	return r, nil
 }
 
+// RelatedContract 跨仓契约快照声明（v3.90.0）：审查时拉取关联仓的契约面
+// 文件（openapi/proto 等显式相对路径，无 glob——防路径枚举）注入审查上下文。
+// 信任边界：服务级 ARGUS_RELATED_REPOS 开启才生效；解析期敌对输入整份拒绝
+// （与 review 段同纪律），运行期单文件失败降级注明。
+type RelatedContract struct {
+	Repo  string   `yaml:"repo"`  // 同平台 owner/name
+	Ref   string   `yaml:"ref"`   // 空 = 该仓默认分支
+	Paths []string `yaml:"paths"` // 显式契约文件相对路径
+}
+
 // RepoConfig 解析后供 Dispatcher 使用的仓库配置（RepoConfigFile 的运行时形态）。
 type RepoConfig struct {
 	Use      []string
 	Disable  []string
 	Routing  []RoutingRule
-	Review   ReviewSettings   // v3.15.0 评审行为开关
-	Describe DescribeSettings // v3.15.0 describe 标签词表
-	Loaded   bool             // 是否成功读到文件（读不到 = 全部默认启用）
+	Review   ReviewSettings    // v3.15.0 评审行为开关
+	Describe DescribeSettings  // v3.15.0 describe 标签词表
+	Related  []RelatedContract // v3.90.0 跨仓契约快照（服务级开关门控）
+	Loaded   bool              // 是否成功读到文件（读不到 = 全部默认启用）
 }
 
 // EmptyRepoConfig 未加载到仓库配置时的默认值。

@@ -377,7 +377,7 @@ func guidelinesPrompt(task plugin.Task) string {
 			"若你判断某条已不成立或不再适用，直接不输出；除此之外不要因这份清单新增泛化意见。" +
 			"文件路径仍须遵守【路径纪律】。\n")
 	}
-	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched} {
+	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched, plugin.ArtifactRelatedContracts} {
 		if s := strings.TrimSpace(task.Artifacts[key]); s != "" {
 			b.WriteString("\n\n")
 			b.WriteString(s)

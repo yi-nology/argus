@@ -312,6 +312,12 @@ const ArtifactChangeSummary = "change_summary"
 // 变更不含 Go 文件 / 关闭 ARGUS_CODEGRAPH / 无工作副本时无此键。
 const ArtifactCodegraphTouched = "codegraph_touched"
 
+// ArtifactRelatedContracts Task.Artifacts 键：跨仓契约快照（v3.90.0）。
+// runner 按 .reviewagents.yaml related 段拉取关联仓契约文件后渲染（数据区
+// 围栏 + 逐文件段），经 guidelinesPrompt 注入 R4。服务级 ARGUS_RELATED_REPOS
+// 未开 / 仓库未声明 / 全部拉取失败时无此键。
+const ArtifactRelatedContracts = "related_contracts"
+
 // 任务级阶段产物 checkpoint 键（v3.12.0 G2 断点续审）：workflow 成功完成 R1/R2
 // 后经 CheckpointSink 持久化到 tasks.stage_artifacts，同任务重试时复用——省掉
 // 已成功阶段的重复 LLM 调用。只在任务内有效，新任务永远全量重跑。

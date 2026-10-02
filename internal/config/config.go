@@ -276,6 +276,11 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// RelatedRepos 跨仓契约快照（v3.90.0）：允许 .reviewagents.yaml related 段
+	// 生效——审查时拉取关联仓契约文件注入 R4。服务级总门（仓库声明只是必要
+	// 条件）：跨仓读取扩大数据访问面，由部署方显式授权。ARGUS_RELATED_REPOS=1 开。
+	RelatedRepos bool
+
 	// TestGen 沙箱验证（v3.22.0）：@argus testgen 产物的工作副本编译验证。
 	// 纪律：argus 自身绝不直接执行待审代码——VerifyCmd 是部署方声明的隔离执行
 	// 包装命令（模板含 {dir} 占位符，如
@@ -490,6 +495,7 @@ func Load() *Config {
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		CodeSearch:             envBool("ARGUS_CODESEARCH", true),
+		RelatedRepos:           envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),
 		FixPush:                os.Getenv("ARGUS_FIX_PUSH") == "1",

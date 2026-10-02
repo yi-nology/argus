@@ -404,6 +404,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / 90s | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4，审查循环仍归 argus |
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
+| `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
+| `ARGUS_RELATED_REPOS` | false | 跨仓契约快照总门（v3.90.0）：允许 .reviewagents.yaml related 段拉取关联仓契约文件注入审查（扩大数据访问面，部署方显式授权）|
 | `ARGUS_REFLECTION_EVIDENCE` | off | R3.5 反思证据门模式（strict = 剔除证据不足条目）|
 | `ARGUS_REGRET_LEARNING` | false | 模式级 regret 学习环（低置信标注 SoftFloor / 抑制 HardFloor；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go）|
 | `ARGUS_DREAM_INTERVAL` | 0（关闭） | 长期记忆整合周期（internal/dream）|
@@ -425,6 +427,9 @@ disable: [correctness]
 routing:
   - {paths: ["web/**", "*.vue"], use: [frontend-visual]}
   - {labels: ["ui"], use: [frontend-visual]}
+related:                                # 跨仓契约快照（v3.90.0，服务级 ARGUS_RELATED_REPOS=1 才生效）
+  - repo: acme/api-contracts            # 同平台 owner/name；ref 缺省借本仓默认分支
+    paths: ["openapi.yaml", "proto/user.proto"]   # 显式路径（无 glob，≤3 仓 × ≤8 文件）
 ```
 
 只能"选"不能"增"——引用未注册插件会被忽略并告警；`lockRepoConfig` 插件关不掉。
