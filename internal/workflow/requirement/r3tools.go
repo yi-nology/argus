@@ -109,11 +109,11 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.PRContext,
 	fileMax, issueMax, diffMax int) (getFile, getIssue, getDiff tool.BaseTool, err error) {
 	getFile, err = utils.InferTool("get_file",
-		"读取仓库某文件在 PR head 提交时的完整内容，用于核实 diff 中看不到的实现。参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。",
-		func(ctx context.Context, in *getFileIn) (*getFileOut, error) {
+		plugin.ToolGetFileDesc,
+		func(ctx context.Context, in *plugin.ToolFileIn) (*plugin.ToolFileOut, error) {
 			content, err := w.SDK.GetFileContent(ctx, pr.Platform, pr.Owner, pr.Repo, in.Path, pr.HeadSHA)
 			if err != nil {
-				return &getFileOut{Error: plugin.ReminderNote("tool-error", err.Error())}, nil // 工具错误回注文本（提醒信封），不中断 ReAct
+				return &plugin.ToolFileOut{Error: plugin.ReminderNote("tool-error", err.Error())}, nil // 工具错误回注文本（提醒信封），不中断 ReAct
 			}
 			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
 			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
@@ -122,7 +122,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 			// 进上下文的只留上限内正文 + 取回指引
 			content = w.stashOverflowAt(content, fileMax)
 			// 文件内容是 PR 作者完全可控的注入面：回注 agent 前必须包数据区（防线 #1）
-			return &getFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
+			return &plugin.ToolFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, err
@@ -248,13 +248,13 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 		return nil
 	}
 	st, err := utils.InferTool("search_code", codesearch.ToolDescription,
-		func(ctx context.Context, in *searchIn) (*searchOut, error) {
+		func(ctx context.Context, in *codesearch.ToolIn) (*codesearch.ToolOut, error) {
 			res, err := codesearch.Search(ctx, w.CodeSearchDir, in.Pattern,
 				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 			if err != nil {
-				return &searchOut{Result: plugin.ReminderNote("tool-error", err.Error())}, nil
+				return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", err.Error())}, nil
 			}
-			return &searchOut{Result: DataFence("search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
+			return &codesearch.ToolOut{Result: DataFence("search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		w.Log.Warn("argus.r3.search_tool_build_failed", "error", err.Error())
@@ -349,15 +349,6 @@ func sortToolsByName(ctx context.Context, tools []tool.BaseTool) {
 
 // ---------- 大输出两级化（v3.39.0） ----------
 
-type getFileIn struct {
-	Path string `json:"path" jsonschema:"description=仓库相对路径"`
-}
-
-type getFileOut struct {
-	Content string `json:"content,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
 type getIssueIn struct {
 	Number string `json:"number" jsonschema:"description=issue 编号（纯数字）"`
 }
@@ -383,15 +374,5 @@ type symIn struct {
 }
 
 type symOut struct {
-	Result string `json:"result"`
-}
-
-type searchIn struct {
-	Pattern    string `json:"pattern" jsonschema:"description=Go 正则表达式（如 MyFunc\\(|TODO|apiKey）"`
-	Glob       string `json:"glob,omitempty" jsonschema:"description=可选文件过滤：无 / 按文件名（如 *.go），含 / 按仓库相对路径"`
-	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"description=忽略大小写"`
-}
-
-type searchOut struct {
 	Result string `json:"result"`
 }

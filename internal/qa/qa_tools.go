@@ -26,15 +26,6 @@ type diffOut struct {
 	Diff string `json:"diff,omitempty"`
 }
 
-type fileIn struct {
-	Path string `json:"path" jsonschema:"description=仓库相对路径"`
-}
-
-type fileOut struct {
-	Content string `json:"content,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
 type similarIn struct {
 	Keywords string `json:"keywords" jsonschema:"description=检索关键词（报错类型/模块名）"`
 }
@@ -84,14 +75,14 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 
 	getFile, err := toolutils.InferTool("get_file",
 		"读取仓库某文件在 PR head 提交时的完整内容（核实 diff 看不到的实现上下文）。参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。",
-		func(ctx context.Context, in *fileIn) (*fileOut, error) {
+		func(ctx context.Context, in *plugin.ToolFileIn) (*plugin.ToolFileOut, error) {
 			ref := ""
 			if cr, err := e.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
 				ref = cr.HeadSHA
 			}
 			content, ferr := e.SDK.GetFileContent(ctx, platform, owner, repo, in.Path, ref)
 			if ferr != nil {
-				return &fileOut{Error: plugin.ReminderNote("tool-error", ferr.Error())}, nil // 工具错误回注（提醒信封），不中断 ReAct
+				return &plugin.ToolFileOut{Error: plugin.ReminderNote("tool-error", ferr.Error())}, nil // 工具错误回注（提醒信封），不中断 ReAct
 			}
 			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
 			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
@@ -101,7 +92,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 				trunc, _ = textutil.TruncRunes(content, 20_000)
 				content = trunc + "\n…（截断）"
 			}
-			return &fileOut{Content: plugin.DataFence("get_file 文件内容（数据）", content)}, nil
+			return &plugin.ToolFileOut{Content: plugin.DataFence("get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
 		return nil, "", err
@@ -194,14 +185,14 @@ func (e *Engine) workcopyDir(ctx context.Context, platform, owner, repo, number 
 
 // searchCodeExec search_code 执行体（惰性/绑定目录两构造器单源；目录由调用方
 // 解析，检索、错误回执与超长截断语义在此统一）。
-func searchCodeExec(ctx context.Context, dir string, in *qaSearchIn) *qaSearchOut {
+func searchCodeExec(ctx context.Context, dir string, in *codesearch.ToolIn) *codesearch.ToolOut {
 	res, serr := codesearch.Search(ctx, dir, in.Pattern,
 		codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 	if serr != nil {
-		return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}
+		return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", serr.Error())}
 	}
 	text, _ := textutil.TruncRunes(res.Render(), 4000)
-	return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}
+	return &codesearch.ToolOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}
 }
 
 // searchCodeTool 惰性构造 search_code 工具（v3.91.1）：目录解析（含冷克隆
@@ -219,10 +210,10 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 		return dir
 	}
 	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
-		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
+		func(ctx context.Context, in *codesearch.ToolIn) (*codesearch.ToolOut, error) {
 			d := resolve(ctx)
 			if d == "" {
-				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
+				return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
 			}
 			return searchCodeExec(ctx, d, in), nil
 		})
@@ -240,7 +231,7 @@ func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 		return nil
 	}
 	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
-		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
+		func(ctx context.Context, in *codesearch.ToolIn) (*codesearch.ToolOut, error) {
 			return searchCodeExec(ctx, dir, in), nil
 		})
 	if err != nil {
@@ -248,16 +239,4 @@ func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 		return nil
 	}
 	return st
-}
-
-// qaSearchIn/qaSearchOut search_code 入出参（与审查面同形；qa 包独立声明
-// 避免依赖 workflow 内部类型）。
-type qaSearchIn struct {
-	Pattern    string `json:"pattern" jsonschema:"description=Go 正则表达式（如 MyFunc\\(|TODO|apiKey）"`
-	Glob       string `json:"glob,omitempty" jsonschema:"description=可选文件过滤：无 / 按文件名（如 *.go），含 / 按仓库相对路径"`
-	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"description=忽略大小写"`
-}
-
-type qaSearchOut struct {
-	Result string `json:"result"`
 }

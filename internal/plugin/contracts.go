@@ -61,3 +61,21 @@ type WorkflowFactory func(budget *TokenBudget) WorkflowRunner
 // ToolsHook R4 复用审查工具表的钩子（bootstrap 由 runner 注入；nil = 单轮调用模式）。
 // 返回 (工具表, 策略提示, 错误)；每次调用应重建工具表（toolprior 限流计数按尝试重置）。
 type ToolsHook func(ctx context.Context, task Task, budget *TokenBudget) ([]tool.BaseTool, string, error)
+
+// ---------- R3/R4 与 QA 共用工具 wire 契约（v3.102.0 单源） ----------
+
+// ToolGetFileDesc get_file 工具描述（两面共用，防措辞漂移——此前 R3/QA 各持
+// 一份已经走样）。
+const ToolGetFileDesc = "读取仓库某文件在 PR head 提交时的完整内容，用于核实 diff 中看不到的实现。" +
+	"参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。"
+
+// ToolFileIn/ToolFileOut get_file 工具入出参（此前 requirement/qa 各持同形
+// getFileIn/getFileOut 与 fileIn/fileOut）。
+type ToolFileIn struct {
+	Path string `json:"path" jsonschema:"description=仓库相对路径"`
+}
+
+type ToolFileOut struct {
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}

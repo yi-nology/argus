@@ -32,7 +32,15 @@
 
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
 - `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。
+- search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
+  get_detail / QA 定长截断），只单源 wire 契约不强行合执行。
 - `BearerMiddleware`/obs Prometheus 中间件/`toolpool.Pool` 接口等历史裁定见各提交信息。
+
+## 已收口记录（后续勿当新发现）
+
+- v3.102.0 工具 wire 契约单源：`codesearch.ToolIn/ToolOut`（search_code schema
+  与 ToolDescription 同居）+ `plugin.ToolFileIn/ToolFileOut/ToolGetFileDesc`
+  （get_file 描述此前两面措辞已漂移，取合并措辞为正）。deadcode -test 复扫归零。
 
 ## 复测方法
 

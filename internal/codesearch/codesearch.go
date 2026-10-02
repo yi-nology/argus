@@ -75,6 +75,19 @@ func NormalizeGlobs(glob string) []string {
 	return nil
 }
 
+// ToolIn/ToolOut search_code 工具 wire 契约（v3.102.0 单源：与 ToolDescription
+// 同居本包，R3/R4 与 QA 两面共用——此前两包各持同形结构体，schema 描述存在
+// 漂移风险）。执行体留在各消费包（R3 两级暂存 / QA 定长截断的包装语义不同）。
+type ToolIn struct {
+	Pattern    string `json:"pattern" jsonschema:"description=Go 正则表达式（如 MyFunc\\(|TODO|apiKey）"`
+	Glob       string `json:"glob,omitempty" jsonschema:"description=可选文件过滤：无 / 按文件名（如 *.go），含 / 按仓库相对路径"`
+	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"description=忽略大小写"`
+}
+
+type ToolOut struct {
+	Result string `json:"result"`
+}
+
 // scanner Search 的遍历状态（re/上限/结果集），WalkDir 回调挂其上。
 type scanner struct {
 	root    string
