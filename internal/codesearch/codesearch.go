@@ -60,6 +60,85 @@ type Result struct {
 	outputMax int
 }
 
+// NormalizeGlobs 工具入参的 glob 归一（可选 glob 串 → Options.Globs；空串/纯
+// 空白 = 无过滤返回 nil）。R3/R4 与 QA 的 search_code 工具共用单源（v3.98.0，
+// 此前 requirement/qa 各持一份同形 helper）。
+func NormalizeGlobs(glob string) []string {
+	if s := strings.TrimSpace(glob); s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// scanner Search 的遍历状态（re/上限/结果集），WalkDir 回调挂其上。
+type scanner struct {
+	root    string
+	re      *regexp.Regexp
+	globs   []string
+	maxHits int
+	maxFile int64
+	res     *Result
+}
+
+// visit WalkDir 回调：目录排除 → glob 过滤 → 大小/二进制跳过 → 逐行匹配。
+// 单点不可读（权限/竞态删除）跳过，不中断整体扫描。
+func (s *scanner) visit(p string, d fs.DirEntry, err error) error {
+	if err != nil {
+		return nil
+	}
+	if d.IsDir() {
+		if skipDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	if !d.Type().IsRegular() {
+		return nil
+	}
+	rel, err := filepath.Rel(s.root, p)
+	if err != nil {
+		return nil
+	}
+	rel = filepath.ToSlash(rel)
+	if len(s.globs) > 0 && !matchGlob(s.globs, rel, d.Name()) {
+		return nil
+	}
+	info, err := d.Info()
+	if err != nil || info.Size() > s.maxFile {
+		s.res.Skipped++
+		return nil
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		s.res.Skipped++
+		return nil
+	}
+	sniff := binarySniffLen
+	if len(data) < sniff {
+		sniff = len(data)
+	}
+	if bytes.IndexByte(data[:sniff], 0) >= 0 {
+		s.res.Skipped++
+		return nil
+	}
+	s.res.Scanned++
+	for i, ln := range bytes.Split(data, []byte{'\n'}) {
+		if !s.re.Match(ln) {
+			continue
+		}
+		s.res.Hits = append(s.res.Hits, Hit{
+			File: rel,
+			Line: i + 1,
+			Text: truncRunes(strings.TrimSpace(string(ln)), hitTextMaxRunes),
+		})
+		if len(s.res.Hits) >= s.maxHits {
+			s.res.Truncated = true
+			return filepath.SkipAll
+		}
+	}
+	return nil
+}
+
 // Search 在 root 下按正则逐文件扫描（字典序遍历，输出顺序确定）。
 // pattern 为空/超长、root 非目录、glob 非法返回错误；ctx 取消中止扫描并
 // 上抛 ctx.Err()（工具侧按工具错误降级，不产出半截结果）。
@@ -104,66 +183,13 @@ func Search(ctx context.Context, root, pattern string, opts Options) (*Result, e
 		res.outputMax = DefaultMaxOutputRuns
 	}
 
-	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // 单点不可读（权限/竞态删除）跳过，不中断整体扫描
-		}
+	sc := &scanner{root: root, re: re, globs: opts.Globs, maxHits: maxHits, maxFile: maxFile, res: res}
+	if walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if d.IsDir() {
-			if skipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if len(opts.Globs) > 0 && !matchGlob(opts.Globs, rel, d.Name()) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil || info.Size() > maxFile {
-			res.Skipped++
-			return nil
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			res.Skipped++
-			return nil
-		}
-		sniff := binarySniffLen
-		if len(data) < sniff {
-			sniff = len(data)
-		}
-		if bytes.IndexByte(data[:sniff], 0) >= 0 {
-			res.Skipped++
-			return nil
-		}
-		res.Scanned++
-		for i, ln := range bytes.Split(data, []byte{'\n'}) {
-			if !re.Match(ln) {
-				continue
-			}
-			res.Hits = append(res.Hits, Hit{
-				File: rel,
-				Line: i + 1,
-				Text: truncRunes(strings.TrimSpace(string(ln)), hitTextMaxRunes),
-			})
-			if len(res.Hits) >= maxHits {
-				res.Truncated = true
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-	if walkErr != nil {
+		return sc.visit(p, d, err)
+	}); walkErr != nil {
 		return nil, walkErr
 	}
 	return res, nil

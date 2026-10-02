@@ -158,37 +158,115 @@ func normalizeCommentEvent(ev *provider.NormalizedEvent) {
 	}
 }
 
-// HandleComment 处理 @argus ask 评论：提取问题 → 加载 PR 上下文 → LLM 回答 → 回帖。
-// 轻量路径：不建 task、不入 DB、不走 worker pool。
-func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEvent, delivery string) {
+// admitComment 评论事件准入守卫：模型在位 → 负载归一化 → 解析评论要素 →
+// bot 自身评论防循环 → delivery 幂等 → 仓库存世。任一不通过返回 ok=false
+// （调用方静默忽略）。delivery 幂等 v3.8.0 下沉 DB（comment_deliveries 主键
+// 冲突=已处理）：纯内存 map 在多副本共库与单实例重启场景下全部失效。落库失败
+// fail-open（继续处理）——回帖重复可容忍，丢单不可容忍。
+func (s *Service) admitComment(ctx context.Context, ev *provider.NormalizedEvent,
+	delivery string) (commentMeta, bool) {
 	if s.Model == nil {
 		s.log().Warn("argus.qa.no_model", "hint", "LLM 未配置，Q&A 评论忽略")
-		return
+		return commentMeta{}, false
 	}
 	normalizeCommentEvent(ev)
-
 	meta, ok := parseCommentMeta(ev)
 	if !ok {
-		return // 解析失败或非 PR 评论（系统注释/commit/普通 issue），静默忽略
+		return commentMeta{}, false // 解析失败或非 PR 评论（系统注释/commit/普通 issue）
 	}
-
 	// bot 自身评论防循环
 	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
-		return
+		return commentMeta{}, false
 	}
-	// delivery 幂等：防平台重试导致重复 LLM 调用 + 重复回复。
-	// v3.8.0 下沉 DB（comment_deliveries 主键冲突=已处理）：纯内存 map 在多副本
-	// 共库与单实例重启场景下全部失效。落库失败 fail-open（继续处理）——回帖重复
-	// 可容忍，丢单不可容忍。
 	if delivery != "" {
 		fresh, err := s.Store.MarkCommentDelivery(ctx, delivery, time.Now())
 		if err != nil {
 			s.log().Warn("argus.qa.delivery_mark_failed", "delivery", delivery, "error", err.Error())
 		} else if !fresh {
-			return
+			return commentMeta{}, false
 		}
 	}
 	if ev.Repo == nil {
+		return commentMeta{}, false
+	}
+	return meta, true
+}
+
+// dispatchSuppression 抑制类评论指令（restore/suppress）：免 Q&A 节流——误报
+// 反馈与恢复是低频运营动作且结果回流知识库，节流窗口把它们挡掉会丢反馈。
+// 返回 true 表示已消费该评论。
+func (s *Service) dispatchSuppression(ctx context.Context, ev *provider.NormalizedEvent,
+	meta commentMeta, question string) bool {
+	// /argus restore fp:xxxxxxxx —— 误抑制恢复（suppress 反向，误杀可撤销）：
+	// 将 suppressed 指纹置回 open，后续轮次重新可见。评论轻量路径，不建任务。
+	if fp, ok := extractRestoreFP(question); ok {
+		s.handleRestoreComment(ctx, ev, meta.PRNumber, fp)
+		return true
+	}
+	// /argus suppress fp:xxxxxxxx —— 误报反馈（v3.3 知识飞轮入口）：
+	// 抑制该指纹后续轮次 + 结论回流知识库。评论轻量路径，不建任务。
+	if fp, ok := extractSuppressFP(question); ok {
+		s.handleSuppressComment(ctx, ev, meta.PRNumber, fp, meta.Body)
+		return true
+	}
+	return false
+}
+
+// dispatchWriting 写作面与修复类评论指令（describe/testgen/fix，v3.15.0/v3.85.0）：
+// 显式命令免意图路由，与 Q&A 同享节流与 delivery 幂等（节流已在上一步取得）。
+// 返回 true 表示已消费该评论。
+func (s *Service) dispatchWriting(ctx context.Context, ev *provider.NormalizedEvent,
+	question, platform, prNum, prRef, delivery string) bool {
+	if hint, ok := extractDescribe(question); ok {
+		s.handleDescribe(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
+		return true
+	}
+	if target, ok := extractTestGen(question); ok {
+		s.handleTestGen(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, target, delivery)
+		return true
+	}
+	// @argus fix fp:短码（v3.85.0）：acpx 编码 agent 沙箱修复，异步执行。
+	if fp, ok := extractFix(question); ok {
+		s.handleFix(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, fp, delivery)
+		return true
+	}
+	return false
+}
+
+// answerComment Q&A 终态分派：意图路由关闭时单轮直答（与 v3.3 行为一致）；
+// 开启时先分类再分派——review 建全量复审任务，其余一律 Q&A（Fallback 也是 Q&A）。
+func (s *Service) answerComment(ctx context.Context, ev *provider.NormalizedEvent,
+	question, platform, prNum, prRef, delivery string) {
+	owner, repo := ev.Repo.Owner, ev.Repo.Name
+	if !s.Cfg.CommentRouter {
+		answer, err := s.qa().Answer(ctx, platform, owner, repo, prNum, prRef, question)
+		if err != nil {
+			obs.IncrQAFailure("llm")
+			s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
+			s.postQAError(ctx, platform, owner, repo, prNum, "LLM 调用失败: "+err.Error())
+			return
+		}
+		s.postCommentReply(ctx, platform, owner, repo, prNum, prRef,
+			"> "+question+"\n\n"+answer+"\n\n<!-- argus:qa delivery="+delivery+" -->",
+			question, len(answer))
+		return
+	}
+
+	reply, err := s.routeAndReply(ctx, platform, owner, repo, prNum, prRef, question, delivery)
+	if err != nil {
+		obs.IncrQAFailure("llm")
+		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
+		s.postQAError(ctx, platform, owner, repo, prNum, "处理失败: "+err.Error())
+		return
+	}
+	s.postCommentReply(ctx, platform, owner, repo, prNum, prRef, reply, question, len(reply))
+}
+
+// HandleComment 处理 @argus 评论：准入守卫 → 指令分派（抑制类免节流 → 节流 →
+// 写作/修复类）→ Q&A 终态。轻量路径：不建 task、不入 DB、不走 worker pool。
+func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEvent, delivery string) {
+	meta, ok := s.admitComment(ctx, ev, delivery)
+	if !ok {
 		return
 	}
 
@@ -196,18 +274,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	if question == "" {
 		return // 不含 @argus 指令，忽略
 	}
-
-	// /argus restore fp:xxxxxxxx —— 误抑制恢复（suppress 反向，误杀可撤销）：
-	// 将 suppressed 指纹置回 open，后续轮次重新可见。评论轻量路径，不建任务。
-	if fp, ok := extractRestoreFP(question); ok {
-		s.handleRestoreComment(ctx, ev, meta.PRNumber, fp)
-		return
-	}
-
-	// /argus suppress fp:xxxxxxxx —— 误报反馈（v3.3 知识飞轮入口）：
-	// 抑制该指纹后续轮次 + 结论回流知识库。评论轻量路径，不建任务。
-	if fp, ok := extractSuppressFP(question); ok {
-		s.handleSuppressComment(ctx, ev, meta.PRNumber, fp, meta.Body)
+	if s.dispatchSuppression(ctx, ev, meta, question) {
 		return
 	}
 
@@ -228,48 +295,10 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	s.log().Info("argus.qa.received", "pr", prRef, "question", question,
 		"actor", ev.Actor.Username, "event_id", delivery)
 
-	platform := string(ev.Source)
-
-	// @argus describe / testgen（v3.15.0）：显式命令免意图路由，与 Q&A 同享
-	// 节流与 delivery 幂等（节流已在上一步取得）。
-	if hint, ok := extractDescribe(question); ok {
-		s.handleDescribe(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
+	if s.dispatchWriting(ctx, ev, question, string(ev.Source), prNum, prRef, delivery) {
 		return
 	}
-	if target, ok := extractTestGen(question); ok {
-		s.handleTestGen(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, target, delivery)
-		return
-	}
-	// @argus fix fp:短码（v3.85.0）：acpx 编码 agent 沙箱修复，异步执行。
-	if fp, ok := extractFix(question); ok {
-		s.handleFix(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, fp, delivery)
-		return
-	}
-
-	// 意图路由（v3.4）：ARGUS_COMMENT_ROUTER=1 时先分类再分派——review 建全量
-	// 复审任务，其余一律 Q&A（Fallback 也是 Q&A）。关闭时行为与 v3.3 完全一致。
-	if !s.Cfg.CommentRouter {
-		answer, err := s.qa().Answer(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question)
-		if err != nil {
-			obs.IncrQAFailure("llm")
-			s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
-			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "LLM 调用失败: "+err.Error())
-			return
-		}
-		s.postCommentReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef,
-			"> "+question+"\n\n"+answer+"\n\n<!-- argus:qa delivery="+delivery+" -->",
-			question, len(answer))
-		return
-	}
-
-	reply, err := s.routeAndReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, question, delivery)
-	if err != nil {
-		obs.IncrQAFailure("llm")
-		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
-		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, "处理失败: "+err.Error())
-		return
-	}
-	s.postCommentReply(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, reply, question, len(reply))
+	s.answerComment(ctx, ev, question, string(ev.Source), prNum, prRef, delivery)
 }
 
 // postCommentReply 回帖 + 留痕（Q&A 与意图路由分派的共用出口）。

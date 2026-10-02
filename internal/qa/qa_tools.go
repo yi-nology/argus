@@ -3,7 +3,6 @@ package qa
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -96,7 +95,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			}
 			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
 			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
-			content = numberLines(content)
+			content = textutil.NumberLines(content)
 			if rc := utf8.RuneCountInString(content); rc > 20_000 {
 				var trunc string
 				trunc, _ = textutil.TruncRunes(content, 20_000)
@@ -215,7 +214,7 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
 			}
 			res, serr := codesearch.Search(ctx, d, in.Pattern,
-				codesearch.Options{Globs: qaSearchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 			if serr != nil {
 				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
 			}
@@ -239,7 +238,7 @@ func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
 		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
 			res, serr := codesearch.Search(ctx, dir, in.Pattern,
-				codesearch.Options{Globs: qaSearchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 			if serr != nil {
 				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
 			}
@@ -263,12 +262,4 @@ type qaSearchIn struct {
 
 type qaSearchOut struct {
 	Result string `json:"result"`
-}
-
-// qaSearchGlobs 可选 glob 入参归一（空串 → 无过滤）。
-func qaSearchGlobs(glob string) []string {
-	if s := strings.TrimSpace(glob); s != "" {
-		return []string{s}
-	}
-	return nil
 }

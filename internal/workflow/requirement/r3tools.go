@@ -117,7 +117,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 			}
 			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
 			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
-			content = numberLines(content)
+			content = textutil.NumberLines(content)
 			// 大输出两级化（v3.39.0）：超限全文入任务级详情库（get_detail 取回），
 			// 进上下文的只留上限内正文 + 取回指引
 			content = w.stashOverflowAt(content, fileMax)
@@ -251,7 +251,7 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
 		func(ctx context.Context, in *searchIn) (*searchOut, error) {
 			res, err := codesearch.Search(ctx, w.CodeSearchDir, in.Pattern,
-				codesearch.Options{Globs: searchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 			if err != nil {
 				return &searchOut{Result: plugin.ReminderNote("tool-error", err.Error())}, nil
 			}
@@ -262,14 +262,6 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 		return nil
 	}
 	return st
-}
-
-// searchGlobs 可选 glob 入参归一（空串 → 无过滤）。
-func searchGlobs(glob string) []string {
-	if s := strings.TrimSpace(glob); s != "" {
-		return []string{s}
-	}
-	return nil
 }
 
 // r3DetailTool get_detail（v3.39.0 大输出两级化）：被截断工具的全文取回通道。

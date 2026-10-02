@@ -135,6 +135,13 @@ func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
 	return d
 }
 
+// squadTriggered 编队触发谓词：paths 命中变更文件或 labels 命中 PR 标签
+// （ActiveSquadMembers 与 Select 的 consensus 排除/编队追加共用单源）。
+func squadTriggered(sq SquadDecl, changedFiles []string, labels []string) bool {
+	return (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
+		(len(sq.Labels) > 0 && listOverlap(sq.Labels, labels))
+}
+
 // ActiveSquadMembers 命中触发条件的编队成员名（去重、保序；交叉审查分歧标注用）。
 // 仅统计独立（互盲）模式编队——consensus 编队成员互看过彼此发现，不存在
 // "盲审分歧"，标注反而误导（v3.4）。
@@ -149,9 +156,7 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 			continue // consensus 编队成员互看过彼此发现，无盲审分歧可标
 		}
 		// 空 mode 与未知 mode 一律按独立模式处理（配置宽容，行为可预期）
-		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels))
-		if !matched {
+		if !squadTriggered(sq, changedFiles, pr.Labels) {
 			continue
 		}
 		for _, m := range sq.Members {
@@ -164,129 +169,161 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 	return members
 }
 
-func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
-	var out []Selection
-	seen := map[string]bool{} // O(1) 去重，替代 O(N) 线性扫描
-	// consensus 编队成员不进 fan-out（v3.4 语义）：此前注释声称 Select 已排除、
-	// 代码却漏了——同一专家会被盲审一次、黑板共识再跑一次（双倍 token + 结果
-	// 双路径入库）。触发条件命中才排除：编队未触发时成员照常走基础选择。
-	consensus := map[string]bool{}
-	for _, sq := range d.squads {
-		if sq.Mode != SquadModeConsensus {
-			continue
-		}
-		if (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels)) {
-			for _, m := range sq.Members {
-				consensus[m] = true
-			}
-		}
-	}
-	add := func(reg *Registration, reason string) {
-		if !reg.Enabled {
-			return
-		}
-		if consensus[reg.Manifest.Name] {
-			return
-		}
-		if !listOverlap(reg.Manifest.Skills, skills) {
-			return
-		}
-		if seen[reg.Manifest.Name] { // 保留首个原因
-			return
-		}
-		seen[reg.Manifest.Name] = true
-		out = append(out, Selection{Reg: reg, Reason: reason})
-	}
+// selector Select 的累积状态机：add 去重门 + base/routing/squads 三条入选通道
+// （v3.98.0 由 Select 单体收口，语义逐行保真）。
+type selector struct {
+	d            *Dispatcher
+	pr           *PRContext
+	changedFiles []string
+	skills       []string
+	rc           *RepoConfig
+	out          []Selection
+	seen         map[string]bool
+	consensus    map[string]bool // consensus 编队成员不进 fan-out（v3.4 语义）
+	useSet       map[string]bool
+	disableSet   map[string]bool
+}
 
-	useSet := map[string]bool{}
+func (d *Dispatcher) newSelector(pr *PRContext, changedFiles, skills []string, rc *RepoConfig) *selector {
+	s := &selector{d: d, pr: pr, changedFiles: changedFiles, skills: skills, rc: rc,
+		seen: map[string]bool{}, consensus: map[string]bool{},
+		useSet: map[string]bool{}, disableSet: map[string]bool{}}
 	if rc != nil {
 		for _, n := range rc.Use {
-			useSet[n] = true
+			s.useSet[n] = true
 		}
-	}
-	disableSet := map[string]bool{}
-	if rc != nil {
 		for _, n := range rc.Disable {
-			disableSet[n] = true
+			s.disableSet[n] = true
 		}
 	}
+	return s
+}
 
-	for _, reg := range d.reg.Snapshot() {
+// add 入选门：enabled × consensus 排除 × skills 交集 × 去重（保留首个原因）。
+func (s *selector) add(reg *Registration, reason string) {
+	if !reg.Enabled {
+		return
+	}
+	if s.consensus[reg.Manifest.Name] {
+		return
+	}
+	if !listOverlap(reg.Manifest.Skills, s.skills) {
+		return
+	}
+	if s.seen[reg.Manifest.Name] { // 保留首个原因
+		return
+	}
+	s.seen[reg.Manifest.Name] = true
+	s.out = append(s.out, Selection{Reg: reg, Reason: reason})
+}
+
+// base 基础通道：Triggers 命中的注册插件（lock 无视仓库配置；use 白名单/disable
+// 黑名单只约束普通插件）。
+func (s *selector) base() {
+	for _, reg := range s.d.reg.Snapshot() {
 		if !reg.Enabled {
 			continue
 		}
-		if !listOverlap(reg.Manifest.Skills, skills) {
+		if !listOverlap(reg.Manifest.Skills, s.skills) {
 			continue
 		}
 		triggered := reg.Manifest.Triggers.Empty() ||
-			reg.Manifest.Triggers.Match(changedFiles, pr.Labels, pr.EventType)
+			reg.Manifest.Triggers.Match(s.changedFiles, s.pr.Labels, s.pr.EventType)
 		if !triggered {
 			continue
 		}
 		if reg.LockRepoConfig {
-			add(reg, "lock")
+			s.add(reg, "lock")
 			continue
 		}
-		if disableSet[reg.Manifest.Name] {
+		if s.disableSet[reg.Manifest.Name] {
 			continue
 		}
-		if len(useSet) > 0 && !useSet[reg.Manifest.Name] {
+		if len(s.useSet) > 0 && !s.useSet[reg.Manifest.Name] {
 			continue
 		}
-		add(reg, "base")
+		s.add(reg, "base")
 	}
+}
 
-	// routing 命中追加（routing 只引用已注册插件名——解析期已校验）
-	if rc != nil {
-		for i, rule := range rc.Routing {
-			matched := matchAnyGlob(rule.Paths, changedFiles) || listOverlap(rule.Labels, pr.Labels)
-			if !matched {
+// routing 通道：仓库 routing 规则命中（paths/labels）追加其 use 引用的插件
+// （routing 只引用已注册插件名——解析期已校验）。
+func (s *selector) routing() {
+	if s.rc == nil {
+		return
+	}
+	for i, rule := range s.rc.Routing {
+		if !matchAnyGlob(rule.Paths, s.changedFiles) && !listOverlap(rule.Labels, s.pr.Labels) {
+			continue
+		}
+		for _, n := range rule.Use {
+			reg, ok := s.d.reg.Get(n)
+			if !ok {
 				continue
 			}
-			for _, n := range rule.Use {
-				reg, ok := d.reg.Get(n)
-				if !ok {
-					continue
-				}
-				if reg.LockRepoConfig {
-					add(reg, "lock")
-					continue
-				}
-				if disableSet[n] {
-					continue
-				}
-				add(reg, fmt.Sprintf("routing[%d]", i))
+			if reg.LockRepoConfig {
+				s.add(reg, "lock")
+				continue
 			}
+			if s.disableSet[n] {
+				continue
+			}
+			s.add(reg, fmt.Sprintf("routing[%d]", i))
 		}
 	}
+}
 
-	// 交叉审查编队追加（v3.3）：触发条件命中时把成员追加进本轮（skills 词表
-	// 不做限制——编队是"额外专家"，不受仓库 use/disable 白名单约束，
-	// 但插件必须在注册表且启用中；成员已在表中的不重复追加）。
-	// v3.4：consensus 模式编队的成员不进 fan-out——他们走 RunConsensus
-	// 黑板互看（workflow 在 fan-out 后单独召集），盲审并发对它们反而是错误语义。
-	for _, sq := range d.squads {
+// squads 通道：交叉审查编队追加（v3.3）。skills 词表不做限制——编队是"额外专家"，
+// 不受仓库 use/disable 白名单约束，但插件必须在注册表且启用中；已在表中的不重复。
+// v3.4：consensus 模式编队成员不进 fan-out——他们走 RunConsensus 黑板互看
+// （workflow 在 fan-out 后单独召集），盲审并发对它们反而是错误语义。
+func (s *selector) squads() {
+	for _, sq := range s.d.squads {
 		if sq.Mode == SquadModeConsensus {
 			continue
 		}
-		matched := (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels))
-		if !matched {
+		if !squadTriggered(sq, s.changedFiles, s.pr.Labels) {
 			continue
 		}
 		for _, n := range sq.Members {
-			reg, ok := d.reg.Get(n)
-			if !ok || !reg.Enabled || seen[n] {
+			reg, ok := s.d.reg.Get(n)
+			if !ok || !reg.Enabled || s.seen[n] {
 				continue
 			}
-			seen[n] = true
-			out = append(out, Selection{Reg: reg, Reason: "squad:" + sq.Name})
+			s.seen[n] = true
+			s.out = append(s.out, Selection{Reg: reg, Reason: "squad:" + sq.Name})
 		}
 	}
+}
 
-	// 稳定顺序：lock > base/use > routing > squad，同类按名称字母序（Registry.Snapshot 已排序）
-	return out
+// Select 按 `技能需求 × 仓库配置 × Triggers` 选出插件集合（确定性，无 LLM）。
+// 语义：
+//   - 全局 enabled=false 的插件永不参与；
+//   - Triggers 为空的插件是默认候选；有 Triggers 的仅命中时参与；
+//   - lockRepoConfig 插件无视仓库配置，只要触发即参与（红线 3）；
+//   - 仓库 use 非空 = 白名单（锁定插件除外）；disable 黑名单；
+//   - routing 命中（paths/labels）追加其 use 引用的插件。
+//
+// 稳定顺序：lock > base/use > routing > squad，同类按名称字母序（Registry.Snapshot 已排序）。
+func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
+	s := d.newSelector(pr, changedFiles, skills, rc)
+	// consensus 编队成员不进 fan-out（v3.4 语义）：此前注释声称 Select 已排除、
+	// 代码却漏了——同一专家会被盲审一次、黑板共识再跑一次（双倍 token + 结果
+	// 双路径入库）。触发条件命中才排除：编队未触发时成员照常走基础选择。
+	for _, sq := range d.squads {
+		if sq.Mode != SquadModeConsensus {
+			continue
+		}
+		if squadTriggered(sq, changedFiles, pr.Labels) {
+			for _, m := range sq.Members {
+				s.consensus[m] = true
+			}
+		}
+	}
+	s.base()
+	s.routing()
+	s.squads()
+	return s.out
 }
 
 func matchAnyGlob(pats, files []string) bool {

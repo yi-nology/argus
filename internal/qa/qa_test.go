@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"git.example.com/enjoydream/agentkit/conversation"
+	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/storage"
 )
@@ -105,11 +106,11 @@ func TestChatModel_Override(t *testing.T) {
 
 // numberLines：行号前缀（证据 file:line 的前提），空串安全。
 func TestNumberLines(t *testing.T) {
-	out := numberLines("a\nb")
+	out := textutil.NumberLines("a\nb")
 	if !strings.Contains(out, "1|a") || !strings.Contains(out, "2|b") {
 		t.Fatalf("应带行号前缀: %q", out)
 	}
-	if numberLines("") != "" {
+	if textutil.NumberLines("") != "" {
 		t.Fatalf("空串应原样返回")
 	}
 }

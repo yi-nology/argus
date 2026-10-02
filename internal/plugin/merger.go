@@ -188,42 +188,50 @@ func (m *Merger) AnnotateLowConfidence(ctx context.Context, pr PRContext, mf *Me
 	}
 }
 
-// Merge 执行合并。pluginNameOf 提供 finding 归属（ Outcome 遍历时注入）。
-func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcomes []Outcome, at time.Time) (*MergedFindings, error) {
-	defer ReportLayerExec(LayerMerger)
-	out := &MergedFindings{}
-	type acc struct {
-		finding Finding
-		fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
-		bys     map[string]bool
-		byOrder []string // 来源插件按合并发生序（首见者=评语作者，学习环记账键依赖此序）
-	}
-	byFP := map[string]*acc{} // fp → 首个 acc（轮内指纹去重探测）
-	byNC := map[string]*acc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
-	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
-	byLoc := map[string]*acc{} // "file|line" → 该位置首个 acc（跨措辞合并用）
-	var order []*acc
+// mergeAcc 轮内归并 accumulator：同一问题多插件/多措辞命中时共享一个 acc。
+type mergeAcc struct {
+	finding Finding
+	fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
+	bys     map[string]bool
+	byOrder []string // 来源插件按合并发生序（首见者=评语作者，学习环记账键依赖此序）
+}
 
-	// mergeInto 把后到的同类发现并入既有条目：severity 冲突取高、行号 ±2 内采纳新行号、
-	// by 追加来源插件；意见文本不同且非互相包含时拼接（不同专家措辞各保留）。
-	mergeInto := func(a *acc, f Finding) {
-		a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
-		if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
-			a.finding.Line = f.Line
-		}
-		// best-of-N 采样复现计数随条目透传（多插件命中同题时保留首个非空，
-		// 数据在结构化字段——入 Comment 会污染指纹/模式键，v3.10.0）
-		if a.finding.Samples == "" {
-			a.finding.Samples = f.Samples
-		}
-		if !a.bys[f.By] { // 首次出现的插件才进 byOrder（与 bys 去重语义一致）
-			a.byOrder = append(a.byOrder, f.By)
-		}
-		a.bys[f.By] = true
-		if !strings.Contains(a.finding.Comment, f.Comment) && !strings.Contains(f.Comment, a.finding.Comment) {
-			a.finding.Comment += "\n\n（" + f.By + " 同位置补充）" + f.Comment
-		}
+// mergePending 待入库条目及其入库结果（跨轮历史/抑制判定在此回填）。
+type mergePending struct {
+	f   Finding
+	res domain.PrintUpsertResult
+}
+
+// mergeInto 把后到的同类发现并入既有条目：severity 冲突取高、行号 ±2 内采纳新行号、
+// by 追加来源插件；意见文本不同且非互相包含时拼接（不同专家措辞各保留）。
+func (a *mergeAcc) mergeInto(f Finding) {
+	a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
+	if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
+		a.finding.Line = f.Line
 	}
+	// best-of-N 采样复现计数随条目透传（多插件命中同题时保留首个非空，
+	// 数据在结构化字段——入 Comment 会污染指纹/模式键，v3.10.0）
+	if a.finding.Samples == "" {
+		a.finding.Samples = f.Samples
+	}
+	if !a.bys[f.By] { // 首次出现的插件才进 byOrder（与 bys 去重语义一致）
+		a.byOrder = append(a.byOrder, f.By)
+	}
+	a.bys[f.By] = true
+	if !strings.Contains(a.finding.Comment, f.Comment) && !strings.Contains(f.Comment, a.finding.Comment) {
+		a.finding.Comment += "\n\n（" + f.By + " 同位置补充）" + f.Comment
+	}
+}
+
+// mergeInRound 轮内归并：三通道探测（指纹 / file+规范化评语 / file+line），
+// 命中既有条目即并入，否则新建。返回按首见序排列的 acc 清单，同时把插件
+// 失败/降级注记写进 out.Degraded。
+func (m *Merger) mergeInRound(outcomes []Outcome, out *MergedFindings) []*mergeAcc {
+	byFP := map[string]*mergeAcc{} // fp → 首个 acc（轮内指纹去重探测）
+	byNC := map[string]*mergeAcc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
+	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
+	byLoc := map[string]*mergeAcc{} // "file|line" → 该位置首个 acc（跨措辞合并用）
+	var order []*mergeAcc
 
 	for _, o := range outcomes {
 		if note := o.Notes(); note != "" {
@@ -263,16 +271,16 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 				// 行号相容闸门（收尾批修复）：指纹不含行号，同文件两处不同位置的
 				// 同模板意见（OCR/规则型插件常见）此前被误并为一条、第二条永久
 				// 丢失——行号不相容时保留为独立条目。
-				mergeInto(a, f)
+				a.mergeInto(f)
 				continue
 			}
 			// 同文件 + 规范化评语相同 + 行号相容 → 同一问题（v1 容差语义的承接）
 			ncKey := f.File + "|" + reportutil.NormalizeComment(f.Comment)
 			if a, dup := byNC[ncKey]; dup && linesCompatible(a.finding.Line, f.Line) {
-				mergeInto(a, f)
+				a.mergeInto(f)
 				continue
 			}
-			a2 := &acc{finding: f, fp: fp, bys: map[string]bool{f.By: true}, byOrder: []string{f.By}}
+			a2 := &mergeAcc{finding: f, fp: fp, bys: map[string]bool{f.By: true}, byOrder: []string{f.By}}
 			// 位置合并兜底：不同专家对同一 file:line 用不同措辞描述时（指纹必不同），
 			// 按位置归并为一条——「不同专家发现同一问题只报一次」的确定性兜底；
 			// 不同行号不并（保守，两个真正不同的问题常落在相邻行）。
@@ -282,7 +290,7 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			if f.Line > 0 {
 				loc := f.File + "|" + strconv.Itoa(f.Line)
 				if a, seen := byLoc[loc]; seen {
-					mergeInto(a, f)
+					a.mergeInto(f)
 					continue
 				}
 				byLoc[loc] = a2
@@ -296,8 +304,42 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			order = append(order, a2)
 		}
 	}
+	return order
+}
 
-	// 跨轮次入库与抑制过滤
+// persistPrints 先归一化 By 并批量入库：整批共用一次 writeMu（SQLite 多意见 PR
+// 显著降锁竞争），返回逐条 Prior/suppressed 待消费清单。
+func (m *Merger) persistPrints(ctx context.Context, pr PRContext, taskID string, at time.Time,
+	order []*mergeAcc) []mergePending {
+	pendings := make([]mergePending, 0, len(order))
+	batch := make([]domain.PrintUpsert, 0, len(order))
+	for _, a := range order {
+		f := a.finding
+		if len(a.bys) > 1 { // 多插件报了同一问题：by 按合并发生序拼接展示
+			// v3.8.0：不再 sort.Strings——展示序决定记账键（PatternPosted/matchLowPattern
+			// 取 By 首段=评语作者）。字母序会让 a-max 持续消费 z-review 写的评语的
+			// 学习历史（误报模式跨插件串门）。
+			f.By = strings.Join(a.byOrder, ",")
+		}
+		batch = append(batch, domain.PrintUpsert{FP: a.fp, Finding: f})
+		pendings = append(pendings, mergePending{f: f})
+	}
+	if m.store != nil && len(batch) > 0 {
+		results := m.store.UpsertPrints(ctx,
+			pr.Platform, pr.Owner, pr.Repo, pr.Number, taskID, at, batch)
+		for i := range pendings {
+			if i < len(results) {
+				pendings[i].res = results[i]
+			}
+		}
+	}
+	return pendings
+}
+
+// applyLearning 学习环闸门与标注（顺序不变量：HardFloor 丢弃 → PatternPosted 记账
+// → SoftFloor 标注 → 展示标注，错账史见 v3.9.0/v3.9.1）。
+func (m *Merger) applyLearning(ctx context.Context, pr PRContext, at time.Time,
+	out *MergedFindings, pendings []mergePending) {
 	// 学习环：一次性拉本仓库低置信模式（HardFloor），供丢弃与标注共用；
 	// 建 key 索引后循环内 O(1) 查表（原 matchLowPattern 为 O(n·m) 线扫 + 每条
 	// finding 重算 PatternKey，意见多的 PR 在热路径上）。
@@ -309,34 +351,6 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 			m.log.Warn("argus.merger.pattern_list_failed", "error", err.Error())
 		} else {
 			lowIdx = patternIndex(ps, m.learn.MinSamples)
-		}
-	}
-	// 先归一化 By 并批量入库：整批共用一次 writeMu（SQLite 多意见 PR 显著降锁竞争），
-	// 返回逐条 Prior/suppressed，后续学习环与展示标注在同一趟消费。
-	type pending struct {
-		f   Finding
-		res domain.PrintUpsertResult
-	}
-	batch := make([]domain.PrintUpsert, 0, len(order))
-	pendings := make([]pending, 0, len(order))
-	for _, a := range order {
-		f := a.finding
-		if len(a.bys) > 1 { // 多插件报了同一问题：by 按合并发生序拼接展示
-			// v3.8.0：不再 sort.Strings——展示序决定记账键（PatternPosted/matchLowPattern
-			// 取 By 首段=评语作者）。字母序会让 a-max 持续消费 z-review 写的评语的
-			// 学习历史（误报模式跨插件串门）。
-			f.By = strings.Join(a.byOrder, ",")
-		}
-		batch = append(batch, domain.PrintUpsert{FP: a.fp, Finding: f})
-		pendings = append(pendings, pending{f: f})
-	}
-	if m.store != nil && len(batch) > 0 {
-		results := m.store.UpsertPrints(ctx,
-			pr.Platform, pr.Owner, pr.Repo, pr.Number, taskID, at, batch)
-		for i := range pendings {
-			if i < len(results) {
-				pendings[i].res = results[i]
-			}
 		}
 	}
 	for _, p := range pendings {
@@ -406,6 +420,15 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 		}
 		out.Findings = append(out.Findings, f)
 	}
+}
+
+// Merge 执行合并。pluginNameOf 提供 finding 归属（ Outcome 遍历时注入）。
+func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcomes []Outcome, at time.Time) (*MergedFindings, error) {
+	defer ReportLayerExec(LayerMerger)
+	out := &MergedFindings{}
+	order := m.mergeInRound(outcomes, out)
+	pendings := m.persistPrints(ctx, pr, taskID, at, order)
+	m.applyLearning(ctx, pr, at, out, pendings)
 
 	sort.SliceStable(out.Findings, func(i, j int) bool {
 		if SeverityRank(out.Findings[i].Severity) != SeverityRank(out.Findings[j].Severity) {

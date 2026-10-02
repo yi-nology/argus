@@ -571,10 +571,3 @@ func renderACs(spec *plugin.RequirementSpec) string {
 func truncSummary(s string, n int) string {
 	return textutil.TruncEllipsis(strings.TrimSpace(s), n)
 }
-
-// numberLines 逐行加 4 位宽行号前缀（"   1|"，深挖 P0：get_file 无行号逼模型编
-// 造 file:line 证据）。行号从 1 起，与平台侧评论定位语义一致。v3.13.0 下沉
-// agentkit textutil.NumberLines（qa 与 requirement 两处克隆收敛），保留薄委托。
-func numberLines(s string) string {
-	return textutil.NumberLines(s)
-}

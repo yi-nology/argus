@@ -361,13 +361,6 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 	return strings.TrimSpace(resp.Content), true
 }
 
-// numberLines 逐行加 4 位宽行号前缀（"   1|"；深挖 P0：无行号原文逼模型凭空
-// 编 file:line 证据）。v3.13.0 下沉 agentkit textutil.NumberLines（qa 与
-// requirement 两处克隆收敛），本包保留同名薄委托。
-func numberLines(s string) string {
-	return textutil.NumberLines(s)
-}
-
 // loadContext 获取 PR 标题、描述、变更文件列表的轻量摘要（不含 diff 内容）。
 func (e *Engine) loadContext(ctx context.Context, platform, owner, repo, number string) (string, error) {
 	cr, err := e.SDK.GetCR(ctx, platform, owner, repo, number)
