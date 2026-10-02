@@ -285,9 +285,7 @@ func (s *Store) ResolvePrintRecord(ctx context.Context, platform, owner, repo, n
 // ListFindingPrints 观测辅助：某 PR 的全部指纹记录（GET 任务结果时可用）。
 func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, number string) ([]FindingPrint, error) {
 	var out []FindingPrint
-	err := s.db.WithContext(ctx).Where(
-		"platform = ? AND owner = ? AND repo = ? AND number = ?",
-		platform, owner, repo, number).Order("last_seen_at DESC").Find(&out).Error
+	err := wherePR(s.db.WithContext(ctx), platform, owner, repo, number).Order("last_seen_at DESC").Find(&out).Error
 	return out, err
 }
 

@@ -2,7 +2,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 
 	api "argus/biz/model/api"
@@ -97,13 +96,3 @@ func isDigits(s string) bool {
 }
 
 // ---------- Q&A 评论交互（@argus ask）----------
-
-// decodeArtifactsMap JSON 对象解码（坏数据安全返回空表）。
-func decodeArtifactsMap(s string) map[string]string {
-	m := map[string]string{}
-	if s == "" {
-		return m
-	}
-	_ = json.Unmarshal([]byte(s), &m)
-	return m
-}

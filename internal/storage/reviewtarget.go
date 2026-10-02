@@ -20,8 +20,7 @@ func (s *Store) ClearReviewTargetComment(ctx context.Context, platform, owner, r
 	s.writeLock()
 	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
-		return tx.Model(&ReviewTarget{}).
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number).
+		return wherePR(tx.Model(&ReviewTarget{}), platform, owner, repo, number).
 			Update("last_summary_comment_id", 0).Error
 	})
 }
@@ -40,8 +39,7 @@ func (s *Store) AppendReviewTargetComment(ctx context.Context, platform, owner, 
 	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		var t ReviewTarget
-		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-			platform, owner, repo, number).First(&t).Error
+		err := wherePR(tx, platform, owner, repo, number).First(&t).Error
 		if err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
@@ -73,8 +71,7 @@ func (s *Store) AppendReviewTargetComment(ctx context.Context, platform, owner, 
 // KnownReviewTargetComments 返回缓存的历史评论 ID（新→旧排列供逐个尝试；无缓存返回 nil）。
 func (s *Store) KnownReviewTargetComments(ctx context.Context, platform, owner, repo, number string) ([]int64, error) {
 	var t ReviewTarget
-	err := s.db.WithContext(ctx).Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-		platform, owner, repo, number).First(&t).Error
+	err := wherePR(s.db.WithContext(ctx), platform, owner, repo, number).First(&t).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

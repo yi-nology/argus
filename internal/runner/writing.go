@@ -45,7 +45,7 @@ func (r *Runner) runWriting(ctx context.Context, task *storage.Task, pr *plugin.
 		TargetBranch: pr.BaseBranch,
 		DiffText:     diff.Text,
 	}
-	if m := decodeArtifacts(task.ArtifactsJSON); m != nil {
+	if m := storage.DecodeJSONMap(task.ArtifactsJSON); m != nil {
 		in.ChangeSummary = m[plugin.ArtifactChangeSummary]
 	}
 

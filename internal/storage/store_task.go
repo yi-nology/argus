@@ -88,8 +88,7 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		// 封多副本租约过期窗口的 TOCTOU（深挖 P0；SQLite 单写串行无需锁）。
 		// 首审 PR 的 target 行尚不存在、无锚可锁——残余竞窗仅影响 PR 首审，可接受。
 		var target ReviewTarget
-		targetQ := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-			t.Platform, t.Owner, t.Repo, t.Number)
+		targetQ := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number)
 		if !s.sqlite {
 			targetQ = targetQ.Clauses(clause.Locking{Strength: "UPDATE"})
 		}
@@ -164,8 +163,7 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 		//（v3.8.0 修复）。首审无锚行时残余竞窗由下方 duplicate 回查兜底。
 		if !s.sqlite {
 			var anchor ReviewTarget
-			aq := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-				t.Platform, t.Owner, t.Repo, t.Number).
+			aq := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number).
 				Clauses(clause.Locking{Strength: "UPDATE"}).First(&anchor)
 			if aq.Error != nil && !errors.Is(aq.Error, gorm.ErrRecordNotFound) {
 				return aq.Error

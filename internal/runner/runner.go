@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/components/tool"
 	"golang.org/x/time/rate"
 
 	"git.example.com/enjoydream/agentkit/audit"
@@ -111,229 +110,30 @@ type Runner struct {
 	skillRefresh time.Time // 下次刷新时间（10 分钟周期，与 RAG rescan 对齐）
 }
 
-// skillText 惰性解析 skillRef（§9.1：含 checksum，防内容漂移难排查），10 分钟周期刷新。
-// 改 skill 文件后无需重启，下一个任务自动加载新内容。
-// 锁只护缓存字段；SkillProvider I/O 在锁外执行，避免多任务 R3 装配互相阻塞。
-func (r *Runner) skillText(_ context.Context) string {
-	if r.SkillProvider == nil || len(r.SkillRefs) == 0 {
-		return ""
-	}
-	r.skillMu.Lock()
-	if r.skillLoaded && time.Now().Before(r.skillRefresh) {
-		cached := r.skillCache
-		r.skillMu.Unlock()
-		return cached
-	}
-	r.skillMu.Unlock()
-
-	// 用 Background ctx：skill 是本地文件读取，不需要任务级取消。
-	bgCtx := context.Background()
-	text := r.loadSkillText(bgCtx)
-
-	r.skillMu.Lock()
-	r.skillCache = text
-	r.skillLoaded = true
-	r.skillRefresh = time.Now().Add(10 * time.Minute)
-	r.skillMu.Unlock()
-	return text
-}
-
-// loadSkillText 实际解析 skill 内容（无锁；结果由 skillText 写回缓存）。
-func (r *Runner) loadSkillText(bgCtx context.Context) string {
-	var parts []string
-	toolMode := r.Cfg.SkillMode == "tool"
-	if toolMode {
-		// 渐进披露：清单用 agentkit skill.ListPrompt 渲染——加粗主词是规范引用名
-		//（use_skill 加载依据），frontmatter 展示名降为括注；模型用展示名回填时
-		// AsSkillTool 会别名归一化（v0.7.0 起闭环）
-		lister, ok := r.SkillProvider.(skill.Lister)
-		if !ok {
-			r.Log.Warn("argus.runner.skill_list_failed", "error", "provider 不支持 ListSkills")
-			return ""
-		}
-		metas, err := lister.ListSkills(bgCtx)
-		if err != nil {
-			r.Log.Warn("argus.runner.skill_list_failed", "error", err.Error())
-			return ""
-		}
-		allowed := map[string]bool{}
-		for _, ref := range r.SkillRefs {
-			if i := strings.Index(ref, "@"); i >= 0 {
-				ref = ref[:i]
-			}
-			allowed[ref] = true
-		}
-		var filtered []skill.Meta
-		for _, m := range metas {
-			if len(allowed) == 0 || allowed[m.Name] {
-				filtered = append(filtered, m)
-			}
-		}
-		// 两级预算降级（v0.10.18，对标 ZCode skills 注入预算）：清单超 20K 字节
-		// 先降纯名单、仍超再截断注明；预算内渲染与 ListPrompt 完全一致。
-		return skill.RenderList(filtered, skill.DefaultListBudget)
-	}
-	for _, ref := range r.SkillRefs {
-		name, ver := ref, ""
-		if i := strings.Index(ref, "@"); i >= 0 {
-			name, ver = ref[:i], ref[i+1:]
-		}
-		s, err := r.SkillProvider.Resolve(bgCtx, skill.Ref{Name: name, Version: ver, Source: "file"})
-		if err != nil {
-			r.Log.Warn("argus.runner.skill_resolve_failed", "ref", ref, "error", err.Error())
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
-	}
-	return strings.Join(parts, "\n")
-}
-
-// WorkflowFor 导出每任务 Workflow 构造（ReviewTools 钩子复用 R3 的工具基础设施；
-// 构造成本可忽略——字段全部共享引用）。
-func (r *Runner) WorkflowFor(budget *plugin.TokenBudget) *requirement.Workflow {
-	return r.buildWorkflow(budget)
-}
-
-// WorkflowFactory 每任务构造 Workflow（供 requirement-compliance 插件与 runner 共用）。
-// budget 决定该任务 LLM 客户端的预算累计器；nil = 不限（协议重入路径）。
-// 契约类型用 plugin.WorkflowFactory（v3.5.6 上提）——编排层不再 import 具体适配器。
-func (r *Runner) WorkflowFactory() plugin.WorkflowFactory {
-	return func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
-		return r.buildWorkflow(budget)
-	}
-}
-
-// buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
-// 其余字段全部共享引用，构造成本可忽略。
-func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow {
-	// 决策使用模式：use_skill 工具进 R3 工具表（与静态注入互斥，ARGUS_SKILL_MODE）
-	var skillTool tool.BaseTool
-	if r.Cfg.SkillMode == "tool" && r.SkillProvider != nil && len(r.SkillRefs) > 0 {
-		// 显式内容上限（v3.39.0）：与清单 RenderList 预算构成两级纪律
-		if st, e := skill.AsSkillTool(r.SkillProvider, r.SkillRefs,
-			skill.WithContentCap(r.Cfg.SkillContentCap)); e == nil {
-			skillTool = st
-		} else {
-			r.Log.Warn("argus.runner.skill_tool_failed", "error", e.Error(), "fallback", "静态注入")
-		}
-	}
-	// 优先使用装配期构造的 Generator（*llm.Client 或 *llm.Resilient 降级链）；
-	// 通过 BudgetInjector 注入任务级预算（Resilient 副本共享熔断状态，Client 浅拷贝）。
-	var gen llm.Generator
-	if r.LLM != nil {
-		gen = r.LLM
-		if budget != nil {
-			if bi, ok := gen.(llm.BudgetInjector); ok {
-				gen = bi.WithBudget(budget)
-			}
-		}
-		// P6 阶段路由：R1/R2 覆盖链各自注入任务预算后注册（精确/前缀匹配，
-		// "R1" 命中 "R1a"）；未覆盖阶段走缺省链
-		if len(r.StageLLMs) > 0 {
-			sr := llm.NewStageRouter(gen)
-			for stage, sg := range r.StageLLMs {
-				if bi, ok := sg.(llm.BudgetInjector); ok && budget != nil {
-					sg = bi.WithBudget(budget)
-				}
-				sr.Use(stage, sg)
-			}
-			gen = sr
-		}
-	} else {
-		c := llm.NewClient(r.Model, r.ModelName, budget)
-		// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
-		c.ContextTokens = r.Cfg.LLM.ContextToken
-		c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
-		c.Limiter = r.LLMLimiter
-		// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
-		c.OnUsage = func(stage string, prompt, completion int) {
-			plugin.ReportLLMTokens(stage, r.ModelName, prompt+completion)
-		}
-		gen = c
-	}
-	// R3 ReAct 模型解析：阶段覆盖 > RawModel；配置了备模型则包 FailoverModel
-	//（ADK 直调 BaseChatModel，不走 Resilient 链）。
-	r3Chat := r.R3Model
-	if r3Chat == nil && r.LLM != nil {
-		r3Chat = r.LLM.RawModel()
-	}
-	if r3Chat != nil && r.FallbackModel != nil {
-		// v0.10.11：链节结构化（ChainLink{Model,Name}），消平行切片错位
-		fm := llm.NewFailoverModel(
-			llm.ChainLink{Model: r3Chat, Name: r.ModelName},
-			llm.ChainLink{Model: r.FallbackModel, Name: r.FallbackName},
-		)
-		if r.Log != nil {
-			fm.OnFailover = func(from, to, reason string) {
-				r.Log.Warn("argus.llm.failover", "from", from, "to", to,
-					"stage", "R3(react)", "reason", reason)
-			}
-		}
-		r3Chat = fm
-	}
-	return &requirement.Workflow{
-		LLM:                gen,
-		R3ChatModel:        r3Chat,
-		SkillTool:          skillTool,
-		SDK:                r.SDK,
-		Dispatcher:         r.Dispatcher,
-		Merger:             r.Merger,
-		Tools:              r.ToolPool,
-		ToolSpecs:          r.ToolSpecs,
-		Knowledge:          r.Knowledge,
-		SkillText:          r.skillText,
-		Log:                r.Log,
-		ReqBodyMaxChars:    r.Cfg.ReqBodyMaxChars(),
-		ReqIssueMaxChars:   r.Cfg.ReqIssueMaxChars(),
-		GetFileMaxChars:    r.Cfg.GetFileMaxRunes(),
-		GetIssueMaxChars:   r.Cfg.GetIssueMaxRunes(),
-		GetDiffMaxChars:    r.Cfg.GetDiffMaxRunes(),
-		ReflectRounds:      r.ReflectRounds,
-		ReflectModel:       r.ReflectModel,
-		ReflectEvidence:    r.ReflectEvidence,
-		CompletenessPolicy: r.CompletenessPolicy,
-		CompletenessRetry:  r.CompletenessRetry,
-	}
-}
-
-// Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
-// 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
-func (r *Runner) Execute(ctx context.Context, taskID string) error {
-	// 任务级成本记账（P0）：回收全部 eino 模型调用的真实 usage。v0.10.12 记账
-	// 单源化——obsx OnUsage 退役，trace 与 usage 两个 handler 一次 InitCallbacks
-	// 并注入；UsageHandler 只补 ReAct/RawModel 旁路（Generate 直连已由
-	// llm.Client.OnUsage 记账，handler 内防重跳过，两侧不双计）。旁路无 stage
-	// 语义（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
-	// PreviewLen 刻意留 0（不落消息内容），勿"调观测"时误设。
-	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
-	taskCost := llm.NewCostTracker()
+// execContext 注入任务级回调链并返回新 ctx：观测 tracing + 旁路用量记账
+// （v0.10.12 记账单源化——obsx OnUsage 退役，trace 与 usage 两个 handler 一次
+// InitCallbacks 注入；UsageHandler 只补 ReAct/RawModel 旁路，Generate 直连已由
+// llm.Client.OnUsage 记账，handler 内防重跳过，两侧不双计）。旁路用量回灌任务
+// 预算（v3.36.0）并记任务级/进程级成本。PreviewLen 刻意留 0（不落消息内容）。
+func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, taskCost *llm.CostTracker) context.Context {
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
 			// v3.94.0：agentkit v0.12 起校准内化为 FitModel 实例槽（主路径自动
-			// 校准），原 wrap.RecordUsage 回灌调用点删除。旁路用量回灌任务预算
-			//（v3.36.0）：ReAct/RawModel 直调不经 Client 预算注入，硬截断此前
-			// 对其失效。callbacks 侧只收旁路调用（Client 记账调用被防重跳过），
-			// 恰好无双计。
+			// 校准），原 wrap.RecordUsage 回灌调用点删除。旁路无 stage 语义
+			//（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
 			budget.Add(rec.PromptTokens + rec.CompletionTokens)
 			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 		}))
 	}
-	ctx = callbacks.InitCallbacks(ctx, nil, handlers...)
-	task, err := r.Store.GetTask(ctx, taskID)
-	if err != nil {
-		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
-	}
-	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
-	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
-	ctx = toolpool.WithCallMeta(ctx, map[string]any{
-		"task_id": taskID,
-		"repo":    task.Owner + "/" + task.Repo,
-		"mr":      task.Number,
-	})
-	start := time.Now()
+	return callbacks.InitCallbacks(ctx, nil, handlers...)
+}
+
+// wireWorkflow 组装任务级工作流并接线任务侧注入：评审记忆索引（dream 导出）/
+// 外部工具调用上限/仓库级评审规范（.argus/REVIEW.md）/阶段进度事件。
+func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget) *requirement.Workflow {
 	wf := r.buildWorkflow(budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
 	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
@@ -346,65 +146,65 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
 	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示
 	wf.OnStage = func(stage string) { r.publishStage(task, stage) }
-	r.publish("task.running", task, "", "")
+	return wf
+}
 
-	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
-	r.postStartMarker(ctx, task)
-
-	// 仓库级月度预算门控（v3.1）：超限在调 LLM 前短路，任务直接 failed。
-	if r.Cfg.RepoMonthlyTokenBudget > 0 {
-		now := time.Now()
-		used, err := r.Store.RepoMonthlyTokens(ctx, task.Platform, task.Owner, task.Repo,
-			time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
-		if err != nil {
-			r.Log.Warn("argus.runner.budget_check_failed", "task", taskID, "error", err.Error())
-		} else if used >= int64(r.Cfg.RepoMonthlyTokenBudget) {
-			r.Log.Warn("argus.runner.repo_budget_exceeded", "task", taskID,
-				"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
-			reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
-			if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
-				r.Log.Warn("argus.runner.finish_failed", "task", taskID, "error", ferr.Error())
-			} else if fenced {
-				r.Log.Warn("argus.runner.finish_fenced", "task", taskID,
-					"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
-			}
-			// 预算路径不重试（刻意）→ 直接终态告知（v3.30.1）
-			r.setStartMarker(ctx, task, fmt.Sprintf(
-				"❌ Argus 审查失败：%s——下月预算重置后 push 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
-				reason, task.ID))
-			r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
-			plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
-			return nil
-		}
+// repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed
+// 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。预算路径不重试
+// （刻意）→ 直接终态告知（v3.30.1）。
+func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task) bool {
+	if r.Cfg.RepoMonthlyTokenBudget <= 0 {
+		return false
 	}
-
-	err = r.run(ctx, task, wf, budget, start, taskCost)
-	if err == nil {
-		return nil
+	now := time.Now()
+	used, err := r.Store.RepoMonthlyTokens(ctx, task.Platform, task.Owner, task.Repo,
+		time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
+	if err != nil {
+		r.Log.Warn("argus.runner.budget_check_failed", "task", task.ID, "error", err.Error())
+		return false
 	}
-	// 停机硬取消：显式保持 running（不写终态），依赖"心跳过期重置"重跑。
-	// 此前语义靠"ctx 已死 → FinishTask 写库必然失败"的副作用成立，组件意图矛盾且脆弱。
-	if ctx.Err() != nil {
-		r.Log.Warn("argus.runner.task_cancelled", "task", taskID,
-			"action", "保持 running，待心跳过期重置回 pending")
-		return nil
+	if used < int64(r.Cfg.RepoMonthlyTokenBudget) {
+		return false
 	}
-	// §10.2：上下文/LLM 阶段失败 → task=failed + 指标 + 日志 + PR 侧告知（v3.30.1：
-	// 此前「不在 PR 评论」导致 MR 作者只见「审查中」挂死——失败必须显式告之）。
-	// 错误链可能携带平台 SDK/工作副本侧的带凭据 URL（https://user:token@host/...），
-	// 日志、入库、IM 推送三路消费统一先脱敏（agentkit logredact）。
-	errMsg := logredact.Redact(err.Error())
-	r.Log.Error("argus.runner.task_failed", "task", taskID, "error", errMsg)
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, budget.Used(), 0); ferr != nil {
-		r.Log.Warn("argus.runner.finish_failed", "task", taskID, "error", ferr.Error())
+	r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
+		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
+	reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
+	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
+		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 	} else if fenced {
-		// stale 重置后新执行体已接管：本次写入归属失效，属预期而非错误
-		r.Log.Warn("argus.runner.finish_fenced", "task", taskID,
+		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
 			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
 	}
-	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：未超重试上限=「中断，
-	// 将自动重试」（failed-retry 扫 5m×3^n 退避后重排）；超限/禁用=「最终失败，
-	// push 新提交可重新触发」。
+	r.setStartMarker(ctx, task, fmt.Sprintf(
+		"❌ Argus 审查失败：%s——下月预算重置后 push 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
+		reason, task.ID))
+	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
+	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	return true
+}
+
+// handleRunFailure 任务失败收尾：停机硬取消显式保持 running（依赖心跳过期重置
+// 回 pending，此前靠"ctx 已死 → 写库必然失败"的副作用成立，语义脆弱已改）；
+// 其余落 failed 终态（fenced）+ PR 侧失败告知（未超重试上限=中断将自动重试，
+// 超限/禁用=最终失败，v3.30.1：失败必须显式告之，不许 MR 作者只见「审查中」
+// 挂死）+ 终态播报。错误链可能携带带凭据 URL，三路消费统一先脱敏（logredact）。
+func (r *Runner) handleRunFailure(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget, runErr error) {
+	if ctx.Err() != nil {
+		r.Log.Warn("argus.runner.task_cancelled", "task", task.ID,
+			"action", "保持 running，待心跳过期重置回 pending")
+		return
+	}
+	errMsg := logredact.Redact(runErr.Error())
+	r.Log.Error("argus.runner.task_failed", "task", task.ID, "error", errMsg)
+	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, budget.Used(), 0); ferr != nil {
+		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
+	} else if fenced {
+		// stale 重置后新执行体已接管：本次写入归属失效，属预期而非错误
+		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
+			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+	}
+	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：failed-retry 扫
+	// 5m×3^n 退避后重排。
 	if cur, gerr := r.Store.GetTask(ctx, task.ID); gerr == nil {
 		var body string
 		switch {
@@ -417,10 +217,44 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		}
 		r.setStartMarker(ctx, task, body)
 	} else {
-		r.Log.Warn("argus.runner.fail_notify_skip", "task", taskID, "error", gerr.Error())
+		r.Log.Warn("argus.runner.fail_notify_skip", "task", task.ID, "error", gerr.Error())
 	}
 	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+}
+
+// Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
+// 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
+func (r *Runner) Execute(ctx context.Context, taskID string) error {
+	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
+	taskCost := llm.NewCostTracker()
+	ctx = r.execContext(ctx, budget, taskCost)
+	task, err := r.Store.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
+	}
+	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
+	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
+	ctx = toolpool.WithCallMeta(ctx, map[string]any{
+		"task_id": taskID,
+		"repo":    task.Owner + "/" + task.Repo,
+		"mr":      task.Number,
+	})
+	start := time.Now()
+	wf := r.wireWorkflow(ctx, task, budget)
+	r.publish("task.running", task, "", "")
+
+	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
+	r.postStartMarker(ctx, task)
+
+	if r.repoBudgetGate(ctx, task) {
+		return nil
+	}
+
+	if err = r.run(ctx, task, wf, budget, start, taskCost); err == nil {
+		return nil
+	}
+	r.handleRunFailure(ctx, task, budget, err)
 	return nil // 已终结为 failed，不再向 worker 上抛
 }
 
@@ -544,7 +378,7 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 		Kind:      task.Kind,
 		PR:        *pr,
 		Diff:      diff,
-		Artifacts: decodeArtifacts(task.ArtifactsJSON),
+		Artifacts: storage.DecodeJSONMap(task.ArtifactsJSON),
 	}
 	if ptask.Artifacts == nil {
 		ptask.Artifacts = map[string]string{}
@@ -552,7 +386,7 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 	// G2 断点续审（v3.12.0）：同任务重试时回流已持久化的 R1/R2 阶段产物，
 	// 跳过已成功阶段的重复 LLM 调用（跨任务不生效——新任务无 checkpoint 键）。
 	if task.StageArtifacts != "" {
-		if m := decodeArtifacts(task.StageArtifacts); len(m) > 0 {
+		if m := storage.DecodeJSONMap(task.StageArtifacts); len(m) > 0 {
 			for k, v := range m {
 				ptask.Artifacts[k] = v
 			}

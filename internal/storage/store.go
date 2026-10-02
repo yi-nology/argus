@@ -8,6 +8,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -304,6 +305,24 @@ func NewTaskID() string {
 	return "t-" + strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:16] + time.Now().Format("01021504")
 }
 
+// DecodeJSONMap 解码 Task 的 JSON 对象列（artifacts/debug/stage_artifacts）：
+// 空串/坏数据安全返回空表。runner 写入与 service/MCP 读取共用单源（v3.99.0，
+// 此前两端各持一份同形解码，字段契约无钉）。
+func DecodeJSONMap(s string) map[string]string {
+	m := map[string]string{}
+	if s == "" {
+		return m
+	}
+	_ = json.Unmarshal([]byte(s), &m)
+	return m
+}
+
+// wherePR PR 四元组定位条件（storage 各表通用单源，v3.99.0：8 处同形
+// Where 字符串收敛）。
+func wherePR(q *gorm.DB, platform, owner, repo, number string) *gorm.DB {
+	return q.Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number)
+}
+
 // quietDB 预期内"查无记录"的路径专用：GORM 默认把 ErrRecordNotFound 打成红色错误日志，
 // worker 每 500ms 空轮询一次会刷屏掩盖真实告警——这些路径静默。
 func (s *Store) quietDB() *gorm.DB {
@@ -325,9 +344,7 @@ func retryBackoff(base time.Duration, attempt int) time.Duration {
 // GetReviewTarget 查询（不存在返回 nil,nil）。
 func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, number string) (*ReviewTarget, error) {
 	var t ReviewTarget
-	err := s.quietDB().WithContext(ctx).Where(
-		"platform = ? AND owner = ? AND repo = ? AND number = ?",
-		platform, owner, repo, number).First(&t).Error
+	err := wherePR(s.quietDB().WithContext(ctx), platform, owner, repo, number).First(&t).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -344,8 +361,7 @@ func (s *Store) UpsertReviewTarget(ctx context.Context, platform, owner, repo, n
 	defer s.writeUnlock()
 	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
 		var t ReviewTarget
-		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
-			platform, owner, repo, number).First(&t).Error
+		err := wherePR(tx, platform, owner, repo, number).First(&t).Error
 		if err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err

@@ -3,7 +3,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -113,15 +112,6 @@ func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
 	// 详情消费方（报告页/副驾/IDE 插件）无需解析 markdown 即可拿到
 	p.Completeness = out.Completeness
 	return p
-}
-
-func decodeArtifacts(s string) map[string]string {
-	if s == "" {
-		return map[string]string{}
-	}
-	m := map[string]string{}
-	_ = json.Unmarshal([]byte(s), &m)
-	return m
 }
 
 func authorName(u *provider.CRUser) string {
