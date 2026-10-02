@@ -167,7 +167,7 @@ v3.74.1 `ARGUS_FIX_PUSH=1` 管线环的职权）。服务启用后报告意见�
 
 ### 5.7 副驾参考客户端（v3.22.0）
 
-`cmd/argus-copilot`：MCP 只读客户端（stages/findings/suggest/ask 四命令），IDE 插件与脚本
+`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix 六命令），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)；脚本
 集成的参考实现：
 
 ```bash
@@ -348,6 +348,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `get_task_stages` | 任务阶段时间线（R1→R5 完成状态，v3.15.0）——「审得全不全」可观测 |
 | `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
+| `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；ARGUS_FIX_AGENT 启用时注册，v3.89.0）|
 
 ### 4. API 一览
 
@@ -358,6 +359,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `POST /webhook/{gitea\|github\|gitlab}` | HMAC 签名 | 平台事件入口，delivery 幂等 |
 | `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
 | `GET /reports/:ref` | 🔒 Bearer | 按 head SHA 查最近一次成功报告（CI 门禁联动）|
+| `GET /stats/overview` | 🔒 Bearer(read) | 按仓聚合任务量/verdict 分布/抑制计数（?days=30&platform=&owner=&repo=，v3.88.0 仪表盘数据面）|
 | `GET /usage/monthly` | 🔒 Bearer | 本月各仓库 token 用量 |
 | `GET /events` | 🔒 Bearer | SSE 任务进度流（阶段事件实时推送）|
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|

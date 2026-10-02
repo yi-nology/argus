@@ -108,6 +108,16 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 			return "（无 diff 输入，跳过预审）", nil
 		}
 		return call(ctx, cli, "review_diff", map[string]any{"diff": string(data)})
+	case "fix":
+		// 沙箱修复（v3.89.0）：按 PR+fp 同步执行自动修复，输出 diff 与验证结论
+		need(*pr != "" && *fp != "", "-pr 与 -fp 必填")
+		platform, owner, repo, number, err := splitPR(*pr)
+		if err != nil {
+			return "", err
+		}
+		return call(ctx, cli, "fix_finding", map[string]any{
+			"platform": platform, "owner": owner, "repo": repo, "number": number, "fp": *fp,
+		})
 	default:
 		usage()
 		return "", nil
@@ -166,7 +176,7 @@ func fail(err error) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（只读；review 子命令为服务端审查面）
+	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（数据面只读；review/fix 为服务端审查/修复面）
 
 用法:
   argus-copilot -url <mcp> -token <t> stages   -task <id>
@@ -176,6 +186,9 @@ func usage() {
   git diff --staged | argus-copilot -url <mcp> -token <t> review [-f <diff文件>]
                                   （pre-commit 本地预审：服务端单轮 LLM 审查，
                                    不建任务不落库；模型未配置时返回错误）
+  argus-copilot -url <mcp> -token <t> fix      -pr platform/owner/repo#num -fp <短码>
+                                  （沙箱修复：服务端编码 agent 出 patch + 确定性
+                                   验证，回显 diff；需 ARGUS_FIX_AGENT 启用，ci+ 档 token）
 
 环境: ARGUS_MCP_URL / ARGUS_APITOKEN
 `)

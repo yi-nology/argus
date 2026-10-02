@@ -94,7 +94,6 @@ func (s *Service) handleFix(ctx context.Context, platform, owner, repo, prNum, p
 		s.postQAError(ctx, platform, owner, repo, prNum, "该 finding 未关联具体文件，无法自动修复。")
 		return
 	}
-	ff := fixFinding{File: rec.File, Line: rec.Line, Severity: rec.Severity, Comment: rec.Comment}
 
 	key := platform + "/" + owner + "/" + repo + "#" + prNum + "/" + fp
 	if _, busy := s.fixInflight.LoadOrStore(key, true); busy {
@@ -103,45 +102,64 @@ func (s *Service) handleFix(ctx context.Context, platform, owner, repo, prNum, p
 	}
 	s.Audit.Log(auditFindingFixReq, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "agent", s.Cfg.FixAgent)
-	// head SHA 同步段取（评论 ctx 有效期内）；取不到回落默认分支（降级可修复，
-	// 摘录行号可能漂移，agent 以意见上下文为准）。
-	headSHA := ""
-	if cr, err := s.SDK.GetCR(ctx, platform, owner, repo, prNum); err == nil && cr != nil {
-		headSHA = cr.HeadSHA
-	}
 	s.postQAError(ctx, platform, owner, repo, prNum,
 		fmt.Sprintf("修复任务已受理（fp:%s，agent %s）——异步执行中，完成后回帖结果。\n\n<!-- argus:fix delivery=%s phase=accepted -->",
 			shortFP(fp), s.Cfg.FixAgent, delivery))
-	go s.runFixReply(key, platform, owner, repo, prNum, fp, ff, headSHA, delivery)
+	go s.runFixReply(key, platform, owner, repo, prNum, fp, delivery)
 }
 
-// runFixReply 后台执行段：独立 ctx（评论链 ctx 随 handler 返回即取消），结果/
-// 失败都回帖，用户永远有感知。工作副本经池 Ensure（已被 Sweep 回收会自动重建，
-// 引用覆盖 agent 全程），修复沙箱再从其本地克隆——源目录零写入。
-func (s *Service) runFixReply(key, platform, owner, repo, prNum, fp string, ff fixFinding,
-	headSHA, delivery string) {
+// fixExec 修复同步执行体（守卫 + 工作副本就绪 + 沙箱运行），评论链与 MCP
+// fix_finding 共用。工作副本经池 Ensure（已被 Sweep 回收会自动重建，引用
+// 覆盖 agent 全程），修复沙箱再从其本地克隆——源目录零写入。
+func (s *Service) fixExec(ctx context.Context, platform, owner, repo, number, fp string) (*fixResult, *fixFinding, error) {
+	if s.Cfg == nil || s.Cfg.FixAgent == "" {
+		return nil, nil, fmt.Errorf("修复功能未启用（ARGUS_FIX_AGENT 未配置）")
+	}
+	if s.WC == nil {
+		return nil, nil, fmt.Errorf("修复不可用：服务未配置工作副本池")
+	}
+	rec, ok := s.Store.ResolvePrintRecord(ctx, platform, owner, repo, number, fp)
+	if !ok {
+		return nil, nil, fmt.Errorf("未找到匹配的 finding（fp:%s），请核对报告短码", fp)
+	}
+	if rec.File == "" {
+		return nil, nil, fmt.Errorf("该 finding 未关联具体文件，无法自动修复")
+	}
+	ff := &fixFinding{File: rec.File, Line: rec.Line, Severity: rec.Severity, Comment: rec.Comment}
+	// head SHA 取不到回落默认分支（降级可修复，摘录行号可能漂移，agent 以意见上下文为准）
+	headSHA := ""
+	if cr, err := s.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
+		headSHA = cr.HeadSHA
+	}
+	wcKey := workcopy.WorktreeKey{Platform: platform, Owner: owner, Repo: repo, Number: number, HeadSHA: headSHA}
+	dir, err := s.WC.Ensure(ctx, wcKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("工作副本不可用: %w", err)
+	}
+	defer s.WC.Release(wcKey)
+	res, err := runFixSandbox(ctx, fixRunConfig{
+		SrcDir:    dir,
+		WorkRoot:  s.Cfg.WorkRoot,
+		AgentName: s.Cfg.FixAgent,
+		Verify:    VerifyConfig{Cmd: s.Cfg.FixVerifyCmd, Timeout: s.Cfg.FixVerifyTimeout},
+		Finding:   *ff,
+		Timeout:   s.fixAgentTimeout(),
+		Log:       s.log(),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return res, ff, nil
+}
+
+// runFixReply 评论链后台段：独立 ctx（评论链 ctx 随 handler 返回即取消），
+// 结果/失败都回帖，用户永远有感知。
+func (s *Service) runFixReply(key, platform, owner, repo, prNum, fp, delivery string) {
 	defer s.fixInflight.Delete(key)
 	ctx, cancel := context.WithTimeout(context.Background(), s.fixAgentTimeout())
 	defer cancel()
 
-	srcDir := ""
-	wcKey := workcopy.WorktreeKey{Platform: platform, Owner: owner, Repo: repo, Number: prNum, HeadSHA: headSHA}
-	if dir, err := s.WC.Ensure(ctx, wcKey); err != nil {
-		s.log().Warn("argus.fix.workcopy_failed", "error", logredact.Redact(err.Error()))
-	} else {
-		srcDir = dir
-		defer s.WC.Release(wcKey)
-	}
-
-	res, err := runFixSandbox(ctx, fixRunConfig{
-		SrcDir:    srcDir,
-		WorkRoot:  s.Cfg.WorkRoot,
-		AgentName: s.Cfg.FixAgent,
-		Verify:    VerifyConfig{Cmd: s.Cfg.FixVerifyCmd, Timeout: s.Cfg.FixVerifyTimeout},
-		Finding:   ff,
-		Timeout:   s.fixAgentTimeout(),
-		Log:       s.log(),
-	})
+	res, ff, err := s.fixExec(ctx, platform, owner, repo, prNum, fp)
 	if err != nil {
 		s.log().Error("argus.fix.failed", "pr", fmt.Sprintf("%s/%s/%s#%s", platform, owner, repo, prNum),
 			"fp", shortFP(fp), "error", logredact.Redact(err.Error()))
@@ -154,7 +172,7 @@ func (s *Service) runFixReply(key, platform, owner, repo, prNum, fp string, ff f
 	}
 	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "ok", res.Verified, "agent", res.AgentName)
-	s.postQAError(ctx, platform, owner, repo, prNum, renderFixReply(fp, ff, res, delivery))
+	s.postQAError(ctx, platform, owner, repo, prNum, renderFixReply(fp, *ff, res, delivery))
 }
 
 // fixRunConfig 修复沙箱执行配置（runFixSandbox 可独立单测）。
@@ -417,4 +435,50 @@ func (s *Service) fixAgentTimeout() time.Duration {
 		return s.Cfg.FixTimeout
 	}
 	return fixDefaultTimout
+}
+
+// FixFinding 修复同步入口（MCP fix_finding，v3.89.0）：评论链 handleFix 的
+// 同步孪生——同一执行体（fixExec），进程内在途去重跨通道互斥。结果面为
+// JSON 友好 map（mcpserver 零 internal 依赖，只吃 map）。超时同 ARGUS_FIX_TIMEOUT。
+func (s *Service) FixFinding(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
+	fp = strings.ToLower(strings.TrimSpace(fp))
+	if len(fp) < 6 {
+		return nil, fmt.Errorf("fp 须为报告中的指纹短码（≥6 位十六进制）")
+	}
+	key := platform + "/" + owner + "/" + repo + "#" + number + "/" + fp
+	if _, busy := s.fixInflight.LoadOrStore(key, true); busy {
+		return nil, fmt.Errorf("同一条 finding 的修复已在执行中，请稍后查询")
+	}
+	defer s.fixInflight.Delete(key)
+	ctx, cancel := context.WithTimeout(ctx, s.fixAgentTimeout())
+	defer cancel()
+	res, ff, err := s.fixExec(ctx, platform, owner, repo, number, fp)
+	if err != nil {
+		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+			"number", number, "fingerprint", fp, "ok", false, "channel", "mcp", "error", err.Error())
+		return nil, err
+	}
+	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+		"number", number, "fingerprint", fp, "ok", res.Verified, "channel", "mcp", "agent", res.AgentName)
+	return fixResultMap(*ff, res), nil
+}
+
+// fixResultMap 结果 JSON 面（MCP/CLI 消费；字段语义与评论回帖一致）。
+func fixResultMap(ff fixFinding, res *fixResult) map[string]any {
+	return map[string]any{
+		"finding": map[string]any{
+			"file": ff.File, "line": ff.Line, "severity": ff.Severity, "comment": ff.Comment,
+		},
+		"agent":          res.AgentName,
+		"took_seconds":   int(res.Took.Seconds()),
+		"fixed":          res.Fixed,
+		"summary":        res.Summary,
+		"files":          res.Files,
+		"diff_stat":      res.DiffStat,
+		"diff":           res.Diff,
+		"diff_truncated": res.DiffTrunc,
+		"verified":       res.Verified,
+		"verify_output":  res.VerifyOut,
+		"pushed":         false, // 修复命令绝不 push（写分支是 ARGUS_FIX_PUSH 管线环职权）
+	}
 }

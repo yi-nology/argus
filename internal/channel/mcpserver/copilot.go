@@ -98,6 +98,50 @@ func getSuggestionTool() mcp.Tool {
 	)
 }
 
+// Fixer 修复执行扩展（v3.89.0 可选接口）：core 未实现时 fix_finding 不注册。
+// 修复面是 /mcp 唯一的写侧工具：只落在隔离沙箱、绝不 push，结果由客户端/人确认。
+type Fixer interface {
+	// FixFinding 同步执行单条意见的沙箱修复（含确定性验证），返回结果 JSON 面。
+	FixFinding(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error)
+}
+
+// NewFixerTool 注册 fix_finding（New 内调用；core 未实现 Fixer 时跳过注册）。
+func NewFixerTool(s *server.MCPServer, core Core) {
+	fix, ok := core.(Fixer)
+	if !ok {
+		return
+	}
+	s.AddTool(fixFindingTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var argv [5]string
+		for i, k := range []string{"platform", "owner", "repo", "number", "fp"} {
+			v, err := req.RequireString(k)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			argv[i] = v
+		}
+		if len(argv[4]) < 6 || len(argv[4]) > 64 {
+			return mcp.NewToolResultError("fp 须为报告中的指纹短码（6-64 位十六进制）"), nil
+		}
+		data, err := fix.FixFinding(ctx, argv[0], argv[1], argv[2], argv[3], strings.ToLower(argv[4]))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return marshalToolResult(data)
+	})
+}
+
+func fixFindingTool() mcp.Tool {
+	return mcp.NewTool("fix_finding",
+		mcp.WithDescription("按 PR 与指纹短码执行单条审查意见的自动修复：隔离沙箱内编码 agent 出 patch + 确定性验证（ARGUS_FIX_VERIFY_CMD），返回 diff 与验证结论。绝不推送分支；服务未启用 ARGUS_FIX_AGENT 时返回错误"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),
+		mcp.WithString("fp", mcp.Required(), mcp.Description("意见指纹短码（报告/list_findings 中 fp: 后的十六进制串）")),
+	)
+}
+
 // marshalToolResult 统一 JSON 缩进输出（与既有工具同风格）。
 func marshalToolResult(data any) (*mcp.CallToolResult, error) {
 	b, err := json.MarshalIndent(data, "", "  ")

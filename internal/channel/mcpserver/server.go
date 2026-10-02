@@ -163,6 +163,7 @@ func New(core Core, version string) *server.MCPServer {
 		return mcp.NewToolResultText(ans), nil
 	})
 	NewCopilotTools(s, core)
+	NewFixerTool(s, core) // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
 	return s
 }
 
