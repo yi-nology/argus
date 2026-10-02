@@ -37,7 +37,6 @@ import (
 	"argus/internal/workflow/requirement"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
-	llmwrap "git.example.com/enjoydream/agentkit/llm/wrap"
 	"github.com/cloudwego/eino/callbacks"
 
 	"git.example.com/enjoydream/agentkit/obsx"
@@ -313,10 +312,11 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
-			llmwrap.RecordUsage(rec.Model, rec.PromptTokens) // ctxfit 真实 usage 校准回灌
-			// 旁路用量回灌任务预算（v3.36.0）：ReAct/RawModel 直调不经 Client
-			// 预算注入，硬截断此前对其失效。callbacks 侧只收旁路调用（Client
-			// 记账调用被防重跳过），恰好无双计。
+			// v3.94.0：agentkit v0.12 起校准内化为 FitModel 实例槽（主路径自动
+			// 校准），原 wrap.RecordUsage 回灌调用点删除。旁路用量回灌任务预算
+			//（v3.36.0）：ReAct/RawModel 直调不经 Client 预算注入，硬截断此前
+			// 对其失效。callbacks 侧只收旁路调用（Client 记账调用被防重跳过），
+			// 恰好无双计。
 			budget.Add(rec.PromptTokens + rec.CompletionTokens)
 			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
 			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
