@@ -404,11 +404,45 @@ func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, 
 
 // UpdateIssueComment 更新总结评论（SDK v0.49.0 全后端可用，§7-7）。
 // 直接走 IssueManager.UpdateIssueComment；不走 DiffManager.CreateNote（那是新建，不是更新）。
+// v3.91.2 GitLab 降级：IssueManager.UpdateIssueComment 与 Create 同源地走 Issues
+// Notes API，对 MR 必 404（当年只特判了 Create——List/Update 漏改，GitLab 上
+// 同 head 重审每次新建、报告评论重复）。DiffManager 可用时原子换新：先
+// CreateNote 新评论、成功后 DeleteNote 旧评论——先建后删，建失败不动旧评论。
+// 返回新评论 ID，调用方据此回写缓存定位。
 func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
-	return callIface(s, ctx, platform, "IssueManager",
+	c, err := callIface(s, ctx, platform, "IssueManager",
 		func(ctx context.Context, im provider.IssueManager) (*provider.IssueComment, error) {
 			return im.UpdateIssueComment(ctx, owner, repo, number, commentID, body)
 		})
+	if err == nil {
+		return c, nil
+	}
+	fallback, ferr := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
+		dm, ok := p.(provider.DiffManager)
+		if !ok {
+			return nil, err
+		}
+		nid, cerr := dm.CreateNote(ctx, owner, repo, number, body)
+		if cerr != nil {
+			s.log.Warn("argus.sdkctx.update_swap_create_failed", "platform", platform, "error", cerr.Error())
+			return nil, err
+		}
+		newID, perr := strconv.ParseInt(nid, 10, 64)
+		if perr != nil {
+			// 新评论已建但 ID 不可解析：删旧保新（缓存定位失效属可容忍降级）
+			s.log.Warn("argus.sdkctx.note_id_unparsable", "platform", platform, "note_id", nid, "error", perr.Error())
+			newID = 0
+		}
+		if derr := dm.DeleteNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10)); derr != nil {
+			s.log.Warn("argus.sdkctx.update_swap_delete_failed", "platform", platform,
+				"comment_id", commentID, "error", derr.Error())
+		}
+		return &provider.IssueComment{ID: newID, Body: body}, nil
+	})
+	if ferr == nil {
+		return fallback, nil
+	}
+	return c, err
 }
 
 // CreateReview 提交行内评论 review。

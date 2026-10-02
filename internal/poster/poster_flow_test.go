@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -135,6 +136,24 @@ func (f *fakePlatform) CreateIssueComment(_ context.Context, _, _, _, body strin
 	c := &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
 	f.comments = append(f.comments, c)
 	return c, nil
+}
+
+// DeleteNote v3.91.2：sdkctx UpdateIssueComment 的 GitLab 换新降级
+// （CreateNote+DeleteNote）会触达本方法——未实现会踩嵌入接口 panic 兜底。
+func (f *fakePlatform) DeleteNote(_ context.Context, _, _, _ string, noteID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id, err := strconv.ParseInt(noteID, 10, 64)
+	if err != nil {
+		return err
+	}
+	for i, c := range f.comments {
+		if c.ID == id {
+			f.comments = append(f.comments[:i], f.comments[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("note %d not found", id)
 }
 
 func (f *fakePlatform) UpdateIssueComment(_ context.Context, _, _, _ string, id int64, body string) (*provider.IssueComment, error) {
@@ -467,6 +486,16 @@ func TestPostSummary_CachedGoneClearsAndCreates(t *testing.T) {
 	if target != nil && target.LastSummaryCommentID == 42 {
 		t.Fatalf("404 后应清除缓存: %+v", target)
 	}
+	// v3.91.2 GitLab 换新降级：Update 404 → CreateNote+DeleteNote——旧评论应被
+	// 删除（消灭重复报告），定位回写到新 ID。
+	for _, c := range fp.comments {
+		if c.ID == 42 {
+			t.Fatalf("旧评论 42 应被换新删除，仍存在: %+v", fp.comments)
+		}
+	}
+	if target == nil || target.LastSummaryCommentID != id {
+		t.Fatalf("定位应回写新 ID %d: %+v", id, target)
+	}
 }
 
 // 扫描兜底：严格报告头 + 最新匹配胜出；第三方同前缀评论不劫持。
@@ -519,17 +548,25 @@ func TestPostSummary_KnownCommentsFallback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 缓存新→旧：先试 32（失败）再 31（成功），30 不再触达
+	// 缓存新→旧：先试 32（失败→v3.91.2 换新成功）——换新直接命中，31/30 不再触达
 	fp.updateErrs[32] = fmt.Errorf("500")
 	id, err := p.postSummary(context.Background(), mkPR(), "## 缓存兜底")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != 31 {
-		t.Fatalf("应跳过失败的 32 命中 31: id=%d", id)
+	if id == 32 || id == 0 {
+		t.Fatalf("32 换新成功应返回新 ID: %d", id)
+	}
+	if _, tried := fp.updated[31]; tried {
+		t.Fatal("32 换新成功后不应再试 31")
 	}
 	if _, tried := fp.updated[30]; tried {
-		t.Fatal("32→31 成功后不应再试更旧的 30")
+		t.Fatal("32 换新成功后不应再试更旧的 30")
+	}
+	for _, c := range fp.comments {
+		if c.ID == 32 {
+			t.Fatalf("旧评论 32 应被换新删除: %+v", fp.comments)
+		}
 	}
 }
 

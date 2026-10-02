@@ -210,8 +210,14 @@ func renderFindings(b *strings.Builder, r Report) {
 			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
 			fence.EscapeUntrusted(by), fpnote)
 		if f.SuggestedFix != "" {
-			fix := fence.EscapeUntrusted(f.SuggestedFix)
-			fmt.Fprintf(b, "  \n  **建议修复：**\n  ```\n  %s\n  ```\n", strings.ReplaceAll(fix, "\n", "\n  "))
+			// v3.91.2 围栏安全渲染：裸内容 + 按内容中最长反引号串动态加长围栏。
+			// 此前经 EscapeUntrusted 再进围栏——零宽实体（&#8203;）在围栏内
+			// 原样可见、反引号被 ′ 替换污染复制内容；围栏内本无 markdown 语义，
+			// 正文流转义在这里帮倒忙（与 poster 行内 suggestion 的裸内容纪律对齐）。
+			n := codeFenceLen(f.SuggestedFix)
+			fenceStr := strings.Repeat("`", n)
+			fix := strings.ReplaceAll(f.SuggestedFix, "\n", "\n  ")
+			fmt.Fprintf(b, "  \n  **建议修复：**\n  %s\n  %s\n  %s\n", fenceStr, fix, fenceStr)
 		}
 	}
 }
@@ -261,4 +267,21 @@ func VerdictText(rule string, missingPartial int) string {
 	default:
 		return "✅ 通过"
 	}
+}
+
+// codeFenceLen 围栏安全长度（v3.91.2）：内容中最长反引号串 +1（下限 3）——
+// CommonMark 下内容再含 ``` 也不会提前闭合围栏。
+func codeFenceLen(s string) int {
+	n, cur := 3, 0
+	for _, r := range s {
+		if r == '`' {
+			cur++
+			if cur >= n {
+				n = cur + 1
+			}
+		} else {
+			cur = 0
+		}
+	}
+	return n
 }

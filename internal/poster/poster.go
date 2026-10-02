@@ -260,10 +260,10 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	// ① review_targets.last_summary_comment_id
 	if target, _ := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); target != nil &&
 		target.LastSummaryCommentID > 0 {
-		_, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		c, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			target.LastSummaryCommentID, body)
 		if err == nil {
-			return target.LastSummaryCommentID, nil
+			return p.repointIfSwapped(ctx, pr, target.LastSummaryCommentID, c), nil
 		}
 		// 评论被删（404）是持久故障：不清缓存则每轮都先撞一次失败更新再降级。
 		// 清除缓存直走 ②/③，③ 新建成功后回写自愈（深挖修复）。
@@ -302,8 +302,10 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 			found = c.ID // 列表升序，取最后一个匹配（最新）
 		}
 		if found > 0 {
-			if _, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, found, body); err == nil {
-				return found, nil
+			c, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, found, body)
+			if err == nil {
+				// v3.91.2 换新语义：取返回 ID 并回写定位（同 ①）
+				return p.repointIfSwapped(ctx, pr, found, c), nil
 			}
 			p.Log.Warn("argus.poster.summary_scan_update_failed", "comment_id", found, "fallback", "create")
 		}
@@ -321,9 +323,11 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 			if id == lastTried { // ① 已试过
 				continue
 			}
-			if _, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, id, body); err == nil {
+			c, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, id, body)
+			if err == nil {
 				p.Log.Info("argus.poster.summary_cached_updated", "comment_id", id, "source", "known_comment_ids")
-				return id, nil
+				// v3.91.2 换新语义：取返回 ID 并回写定位（同 ①）
+				return p.repointIfSwapped(ctx, pr, id, c), nil
 			}
 		}
 	} else {
@@ -336,6 +340,21 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 		return 0, err
 	}
 	return c.ID, nil
+}
+
+// repointIfSwapped v3.91.2 GitLab 换新语义：sdkctx UpdateIssueComment 降级为
+// CreateNote+DeleteNote 时返回新评论 ID——回写定位缓存并返回新 ID；原地更新
+// （返回原 ID）时原样返回。
+func (p *Poster) repointIfSwapped(ctx context.Context, pr plugin.PRContext, requested int64,
+	c *provider.IssueComment) int64 {
+	if c == nil || c.ID <= 0 || c.ID == requested {
+		return requested
+	}
+	if uerr := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		c.ID, pr.HeadSHA); uerr != nil {
+		p.Log.Warn("argus.poster.target_repoint_failed", "comment_id", c.ID, "error", uerr.Error())
+	}
+	return c.ID
 }
 
 // inlineCommentBody 拼行内评论正文：严重级 + 意见 + 修复建议。

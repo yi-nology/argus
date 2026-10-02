@@ -159,3 +159,36 @@ func TestRenderFixHint(t *testing.T) {
 		t.Fatalf("FixHint=false 不应附修复入口:\n%s", mk(false))
 	}
 }
+
+// v3.91.2：建议修复块围栏安全渲染——裸内容（无 &#8203; 实体、反引号不被 ′
+// 替换），内容含 ``` 时围栏自动加长不截断。
+func TestRenderSuggestedFixFenceSafe(t *testing.T) {
+	rep := Report{
+		TaskID: "t-1", Version: "v",
+		Findings: []plugin.Finding{{
+			File: "a.md", Line: 27, Severity: "medium", Comment: "c",
+			SuggestedFix: "| init_host.sh | 新增映射 `127.0.0.1 x` |\n2. 有序列表项",
+		}},
+		VerdictText: "⚠️",
+	}
+	out := Render(rep)
+	if strings.Contains(out, "&#8203;") {
+		t.Fatalf("围栏内不应出现零宽实体:\n%s", out)
+	}
+	if !strings.Contains(out, "`127.0.0.1 x`") {
+		t.Fatalf("反引号应原样保留（复制内容不被污染）:\n%s", out)
+	}
+	if !strings.Contains(out, "\n  ```\n  | init_host.sh |") {
+		t.Fatalf("应以普通围栏承载裸内容:\n%s", out)
+	}
+	// 内容含 ```：围栏加长为 ````
+	rep2 := rep
+	rep2.Findings = []plugin.Finding{{File: "a", Line: 1, Comment: "c", SuggestedFix: "code\n```\nstill code"}}
+	out2 := Render(rep2)
+	if !strings.Contains(out2, "  ````\n  code") {
+		t.Fatalf("内容含 ``` 时围栏应加长:\n%s", out2)
+	}
+	if strings.Count(out2, "  ````") != 2 {
+		t.Fatalf("开闭围栏应各一条四反引线:\n%s", out2)
+	}
+}
