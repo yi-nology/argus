@@ -86,7 +86,8 @@ func (g *guardedTool) InvokableRun(ctx context.Context, argumentsInJSON string, 
 
 // wrapAnomalyGuard 给整表套循环异常守卫（不可调用或无名字的工具原样透传）。
 // 守卫在 LimitCalls 之外层：被拦截的调用不消耗外部工具的调用限额。
-func wrapAnomalyGuard(guard *anomalyGuard, tools []tool.BaseTool) []tool.BaseTool {
+// ctx 贯穿 Info 元数据调用（包裹发生在请求路径上）。
+func wrapAnomalyGuard(ctx context.Context, guard *anomalyGuard, tools []tool.BaseTool) []tool.BaseTool {
 	out := make([]tool.BaseTool, 0, len(tools))
 	for _, t := range tools {
 		it, ok := t.(tool.InvokableTool)
@@ -94,7 +95,7 @@ func wrapAnomalyGuard(guard *anomalyGuard, tools []tool.BaseTool) []tool.BaseToo
 			out = append(out, t)
 			continue
 		}
-		info, err := t.Info(context.Background())
+		info, err := t.Info(ctx)
 		if err != nil || info == nil || info.Name == "" {
 			out = append(out, t)
 			continue

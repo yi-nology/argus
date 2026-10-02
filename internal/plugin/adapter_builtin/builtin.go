@@ -180,26 +180,35 @@ func (r *Reviewer) systemPrompt() string {
 }
 
 // ensureSkillText 惰性解析 skillRef（含 checksum 头，防内容漂移难排查 §9.1），10 分钟刷新。
-func (r *Reviewer) ensureSkillText(_ context.Context) {
+// 刷新 IO 在锁外进行（skillMu 只护缓存字段——Resolve 是文件读，握锁会阻塞并发
+// Invoke 的读者）；ctx 取值保留、取消/截止剥离——后台刷新不随单次请求死亡，
+// 但以 10s 封顶防悬挂。并发双刷新无碍：同输入同输出，后写者胜。
+func (r *Reviewer) ensureSkillText(ctx context.Context) {
 	if r.skills == nil || len(r.skillRefs) == 0 {
 		return
 	}
 	r.skillMu.Lock()
-	defer r.skillMu.Unlock()
-	if r.skillLoaded && time.Now().Before(r.skillRefresh) {
+	fresh := r.skillLoaded && time.Now().Before(r.skillRefresh)
+	r.skillMu.Unlock()
+	if fresh {
 		return
 	}
+	ioCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	var parts []string
 	for _, ref := range r.skillRefs {
-		s, err := r.skills.Resolve(context.Background(), ref)
+		s, err := r.skills.Resolve(ioCtx, ref)
 		if err != nil {
 			continue
 		}
 		parts = append(parts, fmt.Sprintf("--- skill:%s (checksum=%s) ---\n%s", s.Name, s.Checksum, s.Content))
 	}
-	r.skillText = strings.Join(parts, "\n")
+	text := strings.Join(parts, "\n")
+	r.skillMu.Lock()
+	r.skillText = text
 	r.skillLoaded = true
 	r.skillRefresh = time.Now().Add(10 * time.Minute)
+	r.skillMu.Unlock()
 }
 
 // Invoke 执行审查：toolsHook 非 nil 走 ReAct（模型可经 get_file 等工具核实上下文），
@@ -320,10 +329,18 @@ func (r *Reviewer) buildReviewSystem(task plugin.Task, strategy string) string {
 	if strategy != "" {
 		sys += "\n\n===【工具使用策略】===\n" + strategy
 	}
-	if r.skillText != "" {
-		sys += "\n\n===【审查方法论（skill 注入）】===\n" + r.skillText
+	if text := r.skillPromptText(); text != "" {
+		sys += "\n\n===【审查方法论（skill 注入）】===\n" + text
 	}
 	return sys
+}
+
+// skillPromptText 缓存的 skill 方法论（skillMu 保护读——写入方 ensureSkillText
+// 在并发 Invoke 下与其他读者的锁外读构成数据竞争）。
+func (r *Reviewer) skillPromptText() string {
+	r.skillMu.Lock()
+	defer r.skillMu.Unlock()
+	return r.skillText
 }
 
 // buildReviewUser 数据区公共段（两路径单源）：diff 围栏（带路径纪律）→ 变更摘要

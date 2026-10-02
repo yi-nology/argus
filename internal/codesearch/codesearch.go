@@ -34,6 +34,11 @@ var skipDirs = map[string]bool{
 	".venv": true, "venv": true, "target": true,
 }
 
+// ToolDescription search_code 工具描述单源（qa 面两处构造器 + 审查面
+// r3SearchTool 共用）。描述会进 prompt 影响模型的工具选择，措辞变更须过
+// golden 评测。
+const ToolDescription = "在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。"
+
 // Hit 单条命中（File 为仓库相对斜杠路径）。
 type Hit struct {
 	File string

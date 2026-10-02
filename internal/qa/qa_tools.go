@@ -192,6 +192,18 @@ func (e *Engine) workcopyDir(ctx context.Context, platform, owner, repo, number 
 	return dir, true
 }
 
+// searchCodeExec search_code 执行体（惰性/绑定目录两构造器单源；目录由调用方
+// 解析，检索、错误回执与超长截断语义在此统一）。
+func searchCodeExec(ctx context.Context, dir string, in *qaSearchIn) *qaSearchOut {
+	res, serr := codesearch.Search(ctx, dir, in.Pattern,
+		codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+	if serr != nil {
+		return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}
+	}
+	text, _ := textutil.TruncRunes(res.Render(), 4000)
+	return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}
+}
+
 // searchCodeTool 惰性构造 search_code 工具（v3.91.1）：目录解析（含冷克隆
 // 30s 预算）推迟到工具首调，构造期零成本；解析失败时调用返回工具错误文本
 // （ReAct 面自然降级，与其他工具错误同型）。
@@ -206,20 +218,13 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 		})
 		return dir
 	}
-	st, err := toolutils.InferTool("search_code",
-		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
 		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
 			d := resolve(ctx)
 			if d == "" {
 				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
 			}
-			res, serr := codesearch.Search(ctx, d, in.Pattern,
-				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
-			if serr != nil {
-				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
-			}
-			text, _ := textutil.TruncRunes(res.Render(), 4000)
-			return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}, nil
+			return searchCodeExec(ctx, d, in), nil
 		})
 	if err != nil {
 		e.log().Warn("argus.qa.search_tool_build_failed", "error", err.Error())
@@ -234,16 +239,9 @@ func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 	if dir == "" {
 		return nil
 	}
-	st, err := toolutils.InferTool("search_code",
-		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
 		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
-			res, serr := codesearch.Search(ctx, dir, in.Pattern,
-				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
-			if serr != nil {
-				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
-			}
-			text, _ := textutil.TruncRunes(res.Render(), 4000)
-			return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}, nil
+			return searchCodeExec(ctx, dir, in), nil
 		})
 	if err != nil {
 		e.log().Warn("argus.qa.search_tool_build_failed", "error", err.Error())

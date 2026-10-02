@@ -45,8 +45,21 @@ func TestScenario20_GitLabNoteComment(t *testing.T) {
 		}
 		t.Fatal(msg)
 	}
-	// settle 等后台 goroutine 跑完（跑完后断言"没变化"才有意义）
-	settle := func() { time.Sleep(150 * time.Millisecond) }
+	// settle 等后台静默：相隔 100ms 两次采样计数不变才继续——「无变化」类断言
+	// 只在静默后有统计学意义（固定睡一觉会被慢背景 goroutine 偶发击穿）。
+	settle := func() {
+		count := func() int { return len(replyBodies()) + countPending() }
+		prev := count()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+			cur := count()
+			if cur == prev {
+				return
+			}
+			prev = cur
+		}
+	}
 
 	// ① MR note「@argus-bot 请重新审查」→ 回执评论 + 建全量复审任务（platform=gitlab）
 	s.setGitLabNoteEvent("@argus-bot 请重新审查", "alice", false)

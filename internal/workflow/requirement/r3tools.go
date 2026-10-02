@@ -101,7 +101,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 
 	strategy := table.StrategyPrompt(ctx)
 	// 循环异常守卫（v3.37.0）：整表套连续同参调用拦截——ReAct 死循环的唯一防线
-	return wrapAnomalyGuard(newAnomalyGuard(), table.Ordered(ctx)), strategy, nil
+	return wrapAnomalyGuard(ctx, newAnomalyGuard(), table.Ordered(ctx)), strategy, nil
 }
 
 // r3RepoTools 仓库内容三工具：get_file（行号前缀 + 大输出两级化 + 数据区）、
@@ -247,8 +247,7 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 	if w.CodeSearchDir == "" {
 		return nil
 	}
-	st, err := utils.InferTool("search_code",
-		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+	st, err := utils.InferTool("search_code", codesearch.ToolDescription,
 		func(ctx context.Context, in *searchIn) (*searchOut, error) {
 			res, err := codesearch.Search(ctx, w.CodeSearchDir, in.Pattern,
 				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})

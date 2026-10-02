@@ -44,8 +44,8 @@ func Events(ctx context.Context, c *app.RequestContext) {
 	c.Header("X-Accel-Buffering", "no") // Nginx 反代不缓冲（Content-Type/Cache-Control 由 sse.Writer 设置）
 
 	s := hertzsse.NewStream(c)
-	defer s.Close()
-	_ = s.KeepAlive() // 连接即注释行探测（SSE 规范：冒号开头为注释，客户端忽略）
+	defer func() { _ = s.Close() }() // 关闭错误对客户端不可见（连接已在断开路径上）
+	_ = s.KeepAlive()                // 连接即注释行探测（SSE 规范：冒号开头为注释，客户端忽略）
 
 	keepalive := time.NewTicker(sseKeepalive)
 	defer keepalive.Stop()
