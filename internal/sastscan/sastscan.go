@@ -18,9 +18,6 @@ import (
 // Config SAST 工具配置（SDK 形态别名；全部来自服务级 env，默认全空 = 关闭）。
 type Config = sast.Config
 
-// Enabled 任一工具 bin 已配置即启用。
-func Enabled(c Config) bool { return c.Enabled() }
-
 // sastEnvAllow SAST 子进程环境白名单（按名透传当前进程变量，叠加在 procx
 // 基础集之上）——部署纪律留在 argus（§8 供应链：绝不继承 ARGUS_*/OPENAI_*）。
 var sastEnvAllow = []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",

@@ -40,11 +40,9 @@ func TestVerdictScoped(t *testing.T) {
 	if _, rule, n := VerdictScoped(nil, nil, []plugin.Finding{{File: "", Severity: "high"}}, scope); rule != "R5.2" || n != 0 {
 		t.Fatalf("无 file 的 high 不应被 scope 闸门拦截: rule=%s n=%d", rule, n)
 	}
-	// nil scope 与 Verdict 等价
-	v1, r1 := Verdict(nil, nil, outOfScopeF)
-	v2, r2, n2 := VerdictScoped(nil, nil, outOfScopeF, nil)
-	if v1 != v2 || r1 != r2 || n2 != 0 {
-		t.Fatalf("nil scope 应与 Verdict 等价: %s/%s vs %s/%s n=%d", v1, r1, v2, r2, n2)
+	// nil scope（inScope=nil）不受闸门影响：裁决不变且越界计数恒 0
+	if _, _, n := VerdictScoped(nil, nil, outOfScopeF, nil); n != 0 {
+		t.Fatalf("nil scope 越界计数应恒 0, got %d", n)
 	}
 }
 
@@ -52,41 +50,41 @@ func TestVerdictScoped(t *testing.T) {
 func TestVerdictTruthTable(t *testing.T) {
 	t.Run("R5.1_missing_一票否决", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented, plugin.ACMissing)
-		v, rule := Verdict(s, r, nil)
+		v, rule, _ := VerdictScoped(s, r, nil, nil)
 		if v != "request_changes" || rule != "R5.1" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.1_优先于R5.2_high", func(t *testing.T) {
 		s, r := acSpec(plugin.ACMissing)
-		v, rule := Verdict(s, r, []plugin.Finding{finding("high")})
+		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.1" {
 			t.Fatalf("want R5.1 短路，got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.2_high_finding", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
-		v, rule := Verdict(s, r, []plugin.Finding{finding("medium"), finding("high")})
+		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("medium"), finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.2" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.3_unverifiable", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented, plugin.ACUnverifiable)
-		v, rule := Verdict(s, r, nil)
+		v, rule, _ := VerdictScoped(s, r, nil, nil)
 		if v != "comment" || rule != "R5.3" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.3_模糊需求", func(t *testing.T) {
 		s := &plugin.RequirementSpec{Ambiguous: []string{"原文"}}
-		v, rule := Verdict(s, nil, nil)
+		v, rule, _ := VerdictScoped(s, nil, nil, nil)
 		if v != "comment" || rule != "R5.3" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.3_空清单", func(t *testing.T) {
-		v, rule := Verdict(&plugin.RequirementSpec{}, &plugin.ComplianceReport{}, nil)
+		v, rule, _ := VerdictScoped(&plugin.RequirementSpec{}, &plugin.ComplianceReport{}, nil, nil)
 		if v != "comment" || rule != "R5.3" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
@@ -94,33 +92,33 @@ func TestVerdictTruthTable(t *testing.T) {
 	t.Run("R5.3_scope_creep", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
 		r.ScopeCreep = []plugin.ScopeCreepItem{{File: "extra.go", Note: "需求外"}}
-		v, rule := Verdict(s, r, nil)
+		v, rule, _ := VerdictScoped(s, r, nil, nil)
 		if v != "comment" || rule != "R5.3" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.4_medium_low", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
-		v, rule := Verdict(s, r, []plugin.Finding{finding("low")})
+		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("low")}, nil)
 		if v != "comment" || rule != "R5.4" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.5_全绿通过", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
-		v, rule := Verdict(s, r, nil)
+		v, rule, _ := VerdictScoped(s, r, nil, nil)
 		if v != "approve" || rule != "R5.5" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("code_review_only_无清单_high", func(t *testing.T) {
-		v, rule := Verdict(nil, nil, []plugin.Finding{finding("high")})
+		v, rule, _ := VerdictScoped(nil, nil, []plugin.Finding{finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.2" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
 	})
 	t.Run("code_review_only_无清单_干净通过", func(t *testing.T) {
-		v, rule := Verdict(nil, nil, nil)
+		v, rule, _ := VerdictScoped(nil, nil, nil, nil)
 		if v != "approve" || rule != "R5.5" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
@@ -152,14 +150,14 @@ func TestAntiInjection(t *testing.T) {
 }
 
 // TestEnforceEvidence 反注入防线 #2：无证据不判 implemented。
-func TestEnforceEvidence(t *testing.T) {
+func TestEnforceEvidenceNilScope(t *testing.T) {
 	rep := &plugin.ComplianceReport{Checks: []plugin.ACCheck{
 		{ID: "AC-1", Status: plugin.ACImplemented, Evidence: "src/login.go:42"},
 		{ID: "AC-2", Status: plugin.ACImplemented, Evidence: "已经实现了"},
 		{ID: "AC-3", Status: plugin.ACPartial, Evidence: ""},
 		{ID: "AC-4", Status: plugin.ACMissing},
 	}}
-	down := EnforceEvidence(rep)
+	down := EnforceEvidenceScoped(rep, nil)
 	if down != 2 {
 		t.Fatalf("期望降级 2 条，got %d", down)
 	}
@@ -230,7 +228,7 @@ func TestAlignChecksBackfill(t *testing.T) {
 				t.Fatalf("%s 应为 unverifiable，got %s", c.ID, c.Status)
 			}
 		}
-		if v, rule := Verdict(spec, rep, nil); v != "comment" || rule != "R5.3" {
+		if v, rule, _ := VerdictScoped(spec, rep, nil, nil); v != "comment" || rule != "R5.3" {
 			t.Fatalf("少报必须落人工确认，got %s/%s", v, rule)
 		}
 	})
@@ -243,7 +241,7 @@ func TestAlignChecksBackfill(t *testing.T) {
 		if fixed != 1 || len(rep.Checks) != 2 {
 			t.Fatalf("应补齐 1 条，got fixed=%d kept=%d", fixed, len(rep.Checks))
 		}
-		if v, rule := Verdict(spec, rep, nil); rule != "R5.3" {
+		if v, rule, _ := VerdictScoped(spec, rep, nil, nil); rule != "R5.3" {
 			t.Fatalf("补齐的 unverifiable 应触发 R5.3，got %s/%s", v, rule)
 		}
 	})
@@ -260,7 +258,7 @@ func TestAlignChecksBackfill(t *testing.T) {
 		if rep.Checks[1].Status != plugin.ACUnverifiable {
 			t.Fatalf("词表外 status 应为 unverifiable，got %s", rep.Checks[1].Status)
 		}
-		if v, _ := Verdict(spec, rep, nil); v != "comment" {
+		if v, _, _ := VerdictScoped(spec, rep, nil, nil); v != "comment" {
 			t.Fatalf("归一后应落 comment，got %s", v)
 		}
 	})

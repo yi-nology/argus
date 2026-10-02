@@ -70,7 +70,7 @@ func TestCheckComplianceDegradedOnUnparseable(t *testing.T) {
 		}
 	}
 	// 降级报告驱动真值表必须落 R5.3 comment（unverifiable>0 → 人工确认），不许 APPROVE
-	verdict, rule := Verdict(spec, report, nil)
+	verdict, rule, _ := VerdictScoped(spec, report, nil, nil)
 	if verdict != VerdictComment || rule != "R5.3" {
 		t.Fatalf("降级报告应落 R5.3 comment，实得 %s/%s", verdict, rule)
 	}

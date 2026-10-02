@@ -192,7 +192,7 @@ func TestR1_ACCap31(t *testing.T) {
 		t.Fatal("31条应触发上限留痕")
 	}
 	// 条目超限 → Ambiguous → R5.3 人工确认
-	if v, _ := Verdict(spec, nil, nil); v != VerdictComment {
+	if v, _, _ := VerdictScoped(spec, nil, nil, nil); v != VerdictComment {
 		t.Fatalf("条目超限应落 R5.3 COMMENT，got %s", v)
 	}
 }

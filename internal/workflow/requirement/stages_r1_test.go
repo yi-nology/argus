@@ -145,7 +145,7 @@ func TestParseRequirement_TwoStage(t *testing.T) {
 		t.Fatalf("两级提炼必须留痕 Ambiguous，got %v", spec.Ambiguous)
 	}
 	// Ambiguous 非空 → R5.3 人工确认
-	if v, _ := Verdict(spec, nil, nil); v != VerdictComment {
+	if v, _, _ := VerdictScoped(spec, nil, nil, nil); v != VerdictComment {
 		t.Fatalf("两级提炼后应落 R5.3 COMMENT，got %s", v)
 	}
 }
@@ -198,7 +198,7 @@ func TestParseRequirement_ACCap(t *testing.T) {
 	if !hasPrefixIn(spec.Ambiguous, "[条目超限]") {
 		t.Fatalf("条目超限必须留痕，got %v", spec.Ambiguous)
 	}
-	if v, _ := Verdict(spec, nil, nil); v != VerdictComment {
+	if v, _, _ := VerdictScoped(spec, nil, nil, nil); v != VerdictComment {
 		t.Fatalf("条目超限应落 R5.3 COMMENT，got %s", v)
 	}
 }

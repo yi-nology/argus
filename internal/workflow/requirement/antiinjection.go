@@ -203,13 +203,9 @@ func ValidEvidence(e string) bool {
 	return false
 }
 
-// EnforceEvidence 防线 #2 校验器：implemented/partial 无 file:line 证据 → 一律降级
-// unverifiable（从字段约定上升为代码级校验——LLM 输出不可信）。返回降级条数。
-func EnforceEvidence(report *plugin.ComplianceReport) (downgraded int) {
-	return EnforceEvidenceScoped(report, nil)
-}
-
-// EnforceEvidenceScoped 防线 #2 + 证据指向校验（深挖修复）：格式校验之上，交叉核对
+// EnforceEvidenceScoped 防线 #2 + 证据指向校验（深挖修复）：implemented/partial
+// 无 file:line 证据一律降级 unverifiable（从字段约定上升为代码级校验——LLM 输出
+// 不可信）；格式校验之上，交叉核对
 // 证据引用的路径必须落在本次变更文件集内——编造一条格式合法的 "src/a.go:1" 畅通无阻
 // 的口子堵上。changedPaths 为空时（Diff 缺席，无从核对）退化为纯格式校验。
 // 判定口径：证据条目里至少有一条路径在变更集内即通过（合法场景：主证据指向变更

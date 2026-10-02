@@ -36,7 +36,7 @@ func TestBuildModelsFullStack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
-	if !m.Ready() {
+	if m.React == nil {
 		t.Fatal("已配置 OPENAI_* 应 Ready")
 	}
 	if m.React == nil || m.Generate == nil {
@@ -68,7 +68,7 @@ func TestBuildModelsNoLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("未配置 LLM 不应报错: %v", err)
 	}
-	if m.Ready() || m.Generate != nil || m.Fallback != nil || len(m.StageLLMs) != 0 {
+	if m.React != nil || m.Generate != nil || m.Fallback != nil || len(m.StageLLMs) != 0 {
 		t.Fatal("无 LLM 配置应返回空栈")
 	}
 }
@@ -84,7 +84,7 @@ func TestBuildModelsMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
-	if !m.Ready() || m.Generate == nil {
+	if m.React == nil || m.Generate == nil {
 		t.Fatal("主模型缺失")
 	}
 	if m.Fallback != nil || m.StageLLMs != nil || m.R3 != nil || m.QA != nil || m.Router != nil {

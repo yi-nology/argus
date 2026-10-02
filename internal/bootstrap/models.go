@@ -60,9 +60,6 @@ type Models struct {
 	Router model.BaseChatModel
 }
 
-// Ready LLM 是否已配置（false = OPENAI_* 缺失，builtin 插件与 Q&A 不可用）。
-func (m *Models) Ready() bool { return m.React != nil }
-
 // BuildModels 解析全部模型角色。构造失败返回 error（调用方决定终止方式）；
 // 未配置 OPENAI_* 不是错误——返回空栈并告警（仅 cli 插件形态）。
 func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Models, error) {
