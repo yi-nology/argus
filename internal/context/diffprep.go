@@ -174,86 +174,133 @@ func appendTruncationNote(dc *plugin.DiffContext) {
 	dc.Text += "\n" + plugin.DataFence("截断说明（未纳入审查的文件清单）", strings.TrimRight(b.String(), "\n"))
 }
 
-// Prepare 从 SDK 的 MergeDiff 构建 plugin.DiffContext：
-// 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
-// totalLimit <=0 表示不截断总量（单测用）。opts 为仓库级过滤选项（v3.15.0，
-// 变参向后兼容既有调用方）。
-// 兼容性兜底（v3.0.1 真实试点发现）：gitea 后端的 ChangedFile.Diff 为空、内容在 RawDiff
-// （BuildRawDiff 拼接）——此时按 "diff --git" 切块回填到各文件，否则下游拿到空 diff。
-func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+// resolveFiles RawDiff 兜底回填后返回文件清单（gitea 后端 ChangedFile.Diff 为空、
+// 内容在 RawDiff——BuildRawDiff 拼接；Prepare 与 PrepareIncremental 共用单源）。
+func resolveFiles(md *provider.MergeDiff) []*provider.ChangedFile {
 	files := md.Files
 	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
 		files = fillFromRawDiff(files, md.RawDiff)
 	}
-	exclude := repoFilter(opts)
-	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
-	var b strings.Builder
-	remaining := totalLimit
-	if totalLimit > 0 {
-		b.Grow(totalLimit / 2)
-	}
-	singleMax := singleFileLimit(totalLimit)
+	return files
+}
 
-	for _, f := range files {
-		entry := plugin.DiffFile{
-			Path:      f.NewPath,
-			Additions: f.Additions,
-			Deletions: f.Deletions,
-			IsBinary:  f.IsBinary,
-			IsNew:     f.IsNew,
-			IsDeleted: f.IsDeleted,
-			IsRenamed: f.IsRenamed,
-		}
-		if f.NewPath == "" {
-			entry.Path = f.OldPath
-		}
-		// 仓库级排除（用户主动配置）：标记后与噪声同路，但不进截断清单
-		if exclude != nil && exclude(entry.Path) {
-			entry.RepoExcluded = true
-			dc.Files = append(dc.Files, entry)
-			continue
-		}
-		// 噪声（lockfile/vendor/生成物/二进制）：不进文本，元信息保留
-		if f.IsBinary || noise(entry.Path) {
-			dc.Files = append(dc.Files, entry)
-			continue
-		}
-		if totalLimit > 0 && remaining <= 0 {
-			entry.Included = false
-			dc.Files = append(dc.Files, entry)
-			dc.Truncated = true
-			continue
-		}
-		text := f.Diff
-		// rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占
-		// Prepare CPU ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再
-		// 重数全文——remaining 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
-		rc := utf8.RuneCountInString(text)
-		if rc > singleMax {
-			text, _ = textutil.TruncRunes(text, singleMax)
-			note := fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
-			text += note
-			rc = singleMax + utf8.RuneCountInString(note)
-		}
-		if totalLimit > 0 {
-			if rc > remaining {
-				text, _ = textutil.TruncRunes(text, remaining)
-				text += totalTruncNote
-				rc = remaining + utf8.RuneCountInString(totalTruncNote)
-				dc.Truncated = true
-			}
-			remaining -= rc
-		}
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(text)
-		entry.Included = true
-		dc.Files = append(dc.Files, entry)
+// diffBuild DiffContext 装配器（Prepare 与 PrepareIncremental 单源，v3.95.0 收敛
+// 此前两份逐行复制的装配循环）。管线四阶段：仓库级排除 → 噪声/二进制 →
+// 总量预算 → 文本追加（含单文件截断与注记），调用方只保留自己的分支语义。
+type diffBuild struct {
+	dc        *plugin.DiffContext
+	b         strings.Builder
+	total     int
+	remaining int
+	singleMax int
+	exclude   func(string) bool
+}
+
+func newDiffBuild(totalLimit, capFiles int, opts []PrepareOptions) *diffBuild {
+	d := &diffBuild{dc: &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, capFiles)},
+		total: totalLimit, remaining: totalLimit, singleMax: singleFileLimit(totalLimit)}
+	if totalLimit > 0 {
+		d.b.Grow(totalLimit / 2)
 	}
-	dc.Text = b.String()
-	appendTruncationNote(dc)
-	return dc
+	d.exclude = repoFilter(opts)
+	return d
+}
+
+// entryOf 由 ChangedFile 构建 DiffFile 元信息（路径 NewPath 优先，删除回退 OldPath）。
+func entryOf(f *provider.ChangedFile) plugin.DiffFile {
+	entry := plugin.DiffFile{
+		Path:      f.NewPath,
+		Additions: f.Additions,
+		Deletions: f.Deletions,
+		IsBinary:  f.IsBinary,
+		IsNew:     f.IsNew,
+		IsDeleted: f.IsDeleted,
+		IsRenamed: f.IsRenamed,
+	}
+	if f.NewPath == "" {
+		entry.Path = f.OldPath
+	}
+	return entry
+}
+
+// metaOnly 只留元信息类文件（仓库级排除/二进制/噪声）：入列后返回 true，
+// 不进 diff 文本、仓库级排除不进截断清单。
+func (d *diffBuild) metaOnly(entry plugin.DiffFile, f *provider.ChangedFile) bool {
+	if d.exclude != nil && d.exclude(entry.Path) {
+		entry.RepoExcluded = true
+		d.dc.Files = append(d.dc.Files, entry)
+		return true
+	}
+	if f.IsBinary || noise(entry.Path) {
+		d.dc.Files = append(d.dc.Files, entry)
+		return true
+	}
+	return false
+}
+
+// skipByBudget 总量预算耗尽：入列并标记未纳入（模型不可见），置 Truncated。
+func (d *diffBuild) skipByBudget(entry plugin.DiffFile) bool {
+	if d.total > 0 && d.remaining <= 0 {
+		entry.Included = false
+		d.dc.Files = append(d.dc.Files, entry)
+		d.dc.Truncated = true
+		return true
+	}
+	return false
+}
+
+// addText 追加一段 diff 文本：单文件截断 + 总量预算扣减。
+// rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占 Prepare CPU
+// ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再重数全文——remaining
+// 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
+func (d *diffBuild) addText(entry plugin.DiffFile, f *provider.ChangedFile) {
+	text := f.Diff
+	rc := utf8.RuneCountInString(text)
+	if rc > d.singleMax {
+		text, _ = textutil.TruncRunes(text, d.singleMax)
+		note := fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
+		text += note
+		rc = d.singleMax + utf8.RuneCountInString(note)
+	}
+	if d.total > 0 {
+		if rc > d.remaining {
+			text, _ = textutil.TruncRunes(text, d.remaining)
+			text += totalTruncNote
+			rc = d.remaining + utf8.RuneCountInString(totalTruncNote)
+			d.dc.Truncated = true
+		}
+		d.remaining -= rc
+	}
+	if d.b.Len() > 0 {
+		d.b.WriteString("\n")
+	}
+	d.b.WriteString(text)
+	entry.Included = true
+	d.dc.Files = append(d.dc.Files, entry)
+}
+
+// finish 收尾：回填文本 + 截断清单数据区。
+func (d *diffBuild) finish() *plugin.DiffContext {
+	d.dc.Text = d.b.String()
+	appendTruncationNote(d.dc)
+	return d.dc
+}
+
+// Prepare 从 SDK 的 MergeDiff 构建 plugin.DiffContext：
+// 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
+// totalLimit <=0 表示不截断总量（单测用）。opts 为仓库级过滤选项（v3.15.0，
+// 变参向后兼容既有调用方）。
+func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+	files := resolveFiles(md)
+	d := newDiffBuild(totalLimit, len(files), opts)
+	for _, f := range resolveFiles(md) {
+		entry := entryOf(f)
+		if d.metaOnly(entry, f) || d.skipByBudget(entry) {
+			continue
+		}
+		d.addText(entry, f)
+	}
+	return d.finish()
 }
 
 // minIncrementalChars 增量 diff 的最小有效长度。
@@ -272,99 +319,31 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 		return Prepare(md, totalLimit, opts...)
 	}
 
-	files := md.Files
-	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
-		files = fillFromRawDiff(files, md.RawDiff)
-	}
-
 	// 解析上次 diff 为 per-file map
 	lastByPath := diffx.SplitUnifiedDiff(lastDiffText)
 
-	exclude := repoFilter(opts)
-	dc := &plugin.DiffContext{Files: make([]plugin.DiffFile, 0, len(files))}
-	var b strings.Builder
-	remaining := totalLimit
-	if totalLimit > 0 {
-		b.Grow(totalLimit / 2)
-	}
-	singleMax := singleFileLimit(totalLimit)
-
+	files := resolveFiles(md)
+	d := newDiffBuild(totalLimit, len(files), opts)
 	hasChanges := false
 	for _, f := range files {
-		entry := plugin.DiffFile{
-			Path:      f.NewPath,
-			Additions: f.Additions,
-			Deletions: f.Deletions,
-			IsBinary:  f.IsBinary,
-			IsNew:     f.IsNew,
-			IsDeleted: f.IsDeleted,
-			IsRenamed: f.IsRenamed,
-		}
-		if f.NewPath == "" {
-			entry.Path = f.OldPath
-		}
-
-		// 仓库级排除（用户主动配置）：标记后与噪声同路，但不进截断清单
-		if exclude != nil && exclude(entry.Path) {
-			entry.RepoExcluded = true
-			dc.Files = append(dc.Files, entry)
+		entry := entryOf(f)
+		if d.metaOnly(entry, f) {
 			continue
 		}
-
-		// 噪声/二进制：不进文本，元信息保留（与 Prepare 一致）
-		if f.IsBinary || noise(entry.Path) {
-			dc.Files = append(dc.Files, entry)
-			continue
-		}
-
-		// 比对：当前文件 diff 与上次是否一致
-		lastDiff, existed := lastByPath[entry.Path]
-		if existed && f.Diff == lastDiff {
-			// 完全一致 → 标记已审查，不进文本
+		// 比对：当前文件 diff 与上次完全一致 → 标记已审查，不进文本
+		if lastDiff, existed := lastByPath[entry.Path]; existed && f.Diff == lastDiff {
 			entry.AlreadyReviewed = true
-			dc.Files = append(dc.Files, entry)
+			d.dc.Files = append(d.dc.Files, entry)
 			continue
 		}
-
 		// 文件有变化（新增/修改/删除），或上次不存在该文件
 		hasChanges = true
-
-		if totalLimit > 0 && remaining <= 0 {
-			entry.Included = false
-			dc.Files = append(dc.Files, entry)
-			dc.Truncated = true
+		if d.skipByBudget(entry) {
 			continue
 		}
-		text := f.Diff
-		// rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占
-		// Prepare CPU ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再
-		// 重数全文——remaining 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
-		rc := utf8.RuneCountInString(text)
-		if rc > singleMax {
-			text, _ = textutil.TruncRunes(text, singleMax)
-			note := fmt.Sprintf("\n…（%s 截断，原 %d 字符）", entry.Path, len(f.Diff))
-			text += note
-			rc = singleMax + utf8.RuneCountInString(note)
-		}
-		if totalLimit > 0 {
-			if rc > remaining {
-				text, _ = textutil.TruncRunes(text, remaining)
-				text += totalTruncNote
-				rc = remaining + utf8.RuneCountInString(totalTruncNote)
-				dc.Truncated = true
-			}
-			remaining -= rc
-		}
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(text)
-		entry.Included = true
-		dc.Files = append(dc.Files, entry)
+		d.addText(entry, f)
 	}
-
-	dc.Text = b.String()
-	appendTruncationNote(dc)
+	dc := d.finish()
 
 	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
 	if hasChanges && utf8.RuneCountInString(dc.Text) < minIncrementalChars {

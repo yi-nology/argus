@@ -32,16 +32,8 @@ const testgenSystem = "【Argus TESTGEN】你是测试工程师助手。基于�
 const testgenFooter = "\n\n> ⚠️ 以上测试为骨架建议，未经编译验证，请人工核对后采用。"
 
 // extractTestGen 解析 testgen 命令（前缀 "testgen"，可带目标文件路径过滤）。
-// 词边界判定同 extractDescribe（TrimSpace 之前）。
 func extractTestGen(question string) (string, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(question), "testgen")
-	if !ok {
-		return "", false
-	}
-	if rest != "" && isWordByte(rest[0]) {
-		return "", false
-	}
-	return strings.TrimSpace(rest), true
+	return cutCommand(question, "testgen")
 }
 
 // handleTestGen 执行 testgen 命令：拉 diff（target 非空时只留命中文件）→ 单次 LLM → 回帖。
@@ -50,10 +42,7 @@ func extractTestGen(question string) (string, bool) {
 func (s *Service) handleTestGen(ctx context.Context, platform, owner, repo, number, prRef,
 	target, delivery string) {
 
-	mdl := s.QAModel
-	if mdl == nil {
-		mdl = s.Model
-	}
+	mdl := s.replyModel()
 	if mdl == nil {
 		return
 	}

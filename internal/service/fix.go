@@ -38,27 +38,11 @@ const (
 // extractFix 解析 "fix fp:xxxxxxxx" 指令（词边界 + fp 短码 ≥6 位十六进制）。
 // 不匹配时返回 false（落回后续路由，不吞其他意图）。
 func extractFix(question string) (string, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(question), "fix")
-	if !ok || (rest != "" && isWordByte(rest[0])) {
+	rest, ok := cutCommand(question, "fix")
+	if !ok {
 		return "", false
 	}
-	rest = strings.TrimSpace(rest)
-	if !strings.HasPrefix(strings.ToLower(rest), "fp:") {
-		return "", false
-	}
-	fp := strings.TrimSpace(rest[len("fp:"):])
-	if i := strings.IndexAny(fp, " \t\n"); i >= 0 {
-		fp = fp[:i]
-	}
-	if len(fp) < 6 || len(fp) > 64 {
-		return "", false
-	}
-	for _, r := range fp {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
-			return "", false
-		}
-	}
-	return strings.ToLower(fp), true
+	return parseFPHex(rest)
 }
 
 // fixFinding 修复目标（prints 表回查产物；suggested_fix 不入库，修复以

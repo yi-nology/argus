@@ -208,3 +208,11 @@ func (s *Service) routerChatModel() model.BaseChatModel {
 	}
 	return s.Model
 }
+
+// replyModel 写作面命令（describe/testgen）回帖模型：QA 专用模型优先，主模型兜底。
+func (s *Service) replyModel() model.BaseChatModel {
+	if s.QAModel != nil {
+		return s.QAModel
+	}
+	return s.Model
+}

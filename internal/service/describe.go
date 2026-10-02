@@ -28,22 +28,8 @@ const describeSystem = "【Argus DESCRIBE】你是 PR 描述撰写助手。基�
 	"### 建议标签\n- <标签列表，来自词表时只从词表选>\n中文输出。"
 
 // extractDescribe 解析 describe 命令（前缀 "describe"，其余为可选补充要求）。
-// 词边界拒绝："describex" 等以 describe 为前缀的其他单词不命中；边界判定必须在
-// TrimSpace 之前做（参数本身可以字母开头，如 "testgen internal/x.go"）。
 func extractDescribe(question string) (string, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(question), "describe")
-	if !ok {
-		return "", false
-	}
-	if rest != "" && isWordByte(rest[0]) {
-		return "", false
-	}
-	return strings.TrimSpace(rest), true
-}
-
-// isWordByte 词边界判定（describe 后紧跟字母/数字/下划线 = 其他单词）。
-func isWordByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
+	return cutCommand(question, "describe")
 }
 
 // handleDescribe 执行 describe 命令：拉 diff →（词表标签提示）单次 LLM → 回帖。
@@ -51,10 +37,7 @@ func isWordByte(b byte) bool {
 func (s *Service) handleDescribe(ctx context.Context, platform, owner, repo, number, prRef,
 	hint, delivery string) {
 
-	mdl := s.QAModel
-	if mdl == nil {
-		mdl = s.Model
-	}
+	mdl := s.replyModel()
 	if mdl == nil {
 		return
 	}

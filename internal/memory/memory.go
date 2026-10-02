@@ -78,37 +78,12 @@ func ClearRepo(dir string, r Ref) error {
 
 // LoadIndex 渲染索引（"- description" 行，文件名序确定性）；目录不存在或为空
 // 返回 ""。超预算截断并注明——索引是感知面，不是检索面。
+// 拼装逻辑单源于 loadIndexFrom（组织桶 LoadIndexWithOrg 同路）。
 func LoadIndex(dir string, r Ref, budget int) string {
-	d := repoDir(dir, r)
-	entries, err := os.ReadDir(d)
-	if err != nil {
-		return ""
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
 	if budget <= 0 {
 		budget = IndexBudgetRunes
 	}
-	var b strings.Builder
-	for _, n := range names {
-		desc := readDescription(filepath.Join(d, n))
-		if desc == "" {
-			continue
-		}
-		line := "- " + desc
-		if b.Len()+len([]rune(line)) > budget {
-			b.WriteString("…（其余记忆已省略，全量见 search_knowledge 检索）")
-			return b.String()
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return loadIndexFrom(repoDir(dir, r), budget)
 }
 
 // repoDir 仓库记忆目录（各段消毒，防平台 owner 嵌套组"/"等路径噪声）。

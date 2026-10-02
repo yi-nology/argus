@@ -293,22 +293,7 @@ func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, p
 // extractSuppressFP 解析 "suppress fp:xxxxxxxx" 指令（fp 短码 ≥6 位十六进制）。
 func extractSuppressFP(question string) (string, bool) {
 	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), "suppress"))
-	if !strings.HasPrefix(strings.ToLower(rest), "fp:") {
-		return "", false
-	}
-	fp := strings.TrimSpace(rest[len("fp:"):])
-	if i := strings.IndexAny(fp, " \t\n"); i >= 0 {
-		fp = fp[:i]
-	}
-	if len(fp) < 6 || len(fp) > 64 {
-		return "", false
-	}
-	for _, r := range fp {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
-			return "", false
-		}
-	}
-	return strings.ToLower(fp), true
+	return parseFPHex(rest)
 }
 
 // handleSuppressComment 处理 MR 评论里的误报反馈：短码解析完整指纹 → 抑制入库 →
@@ -369,25 +354,10 @@ func (s *Service) postQAError(ctx context.Context, platform, owner, repo, number
 }
 
 // extractRestoreFP 解析 "restore fp:xxxxxxxx" 指令（fp 短码 ≥6 位十六进制）。
-// 与 extractSuppressFP 同形但独立实现：restore 指令不得被 suppress 分支截胡。
+// 与 extractSuppressFP 同形但路由独立：restore 指令不得被 suppress 分支截胡。
 func extractRestoreFP(question string) (string, bool) {
 	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), "restore"))
-	if !strings.HasPrefix(strings.ToLower(rest), "fp:") {
-		return "", false
-	}
-	fp := strings.TrimSpace(rest[len("fp:"):])
-	if i := strings.IndexAny(fp, " \t\n"); i >= 0 {
-		fp = fp[:i]
-	}
-	if len(fp) < 6 || len(fp) > 64 {
-		return "", false
-	}
-	for _, r := range fp {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
-			return "", false
-		}
-	}
-	return strings.ToLower(fp), true
+	return parseFPHex(rest)
 }
 
 // handleRestoreComment 处理 MR 评论里的恢复指令：短码解析 → 置回 open → 回帖确认。

@@ -348,15 +348,7 @@ func includedPaths(diff *plugin.DiffContext) []string {
 	return paths
 }
 
-// worktreeKey 将 PRContext 转为 workcopy.WorktreeKey（与 adapter_cli.prToKey 同构；
-// 4 行结构体不值得为它反向依赖插件适配器包）。
+// worktreeKey 将 PRContext 转为 workcopy.WorktreeKey（单源 plugin.PRToKey）。
 func worktreeKey(pr *plugin.PRContext) workcopy.WorktreeKey {
-	return workcopy.WorktreeKey{
-		Platform:      pr.Platform,
-		Owner:         pr.Owner,
-		Repo:          pr.Repo,
-		Number:        pr.Number,
-		HeadSHA:       pr.HeadSHA,
-		DefaultBranch: pr.DefaultBranch,
-	}
+	return plugin.PRToKey(*pr)
 }
