@@ -992,3 +992,47 @@ func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
 	}
 	return strings.TrimSpace(msg.Content), nil
 }
+
+// StatsOverview 审查概览聚合（GET /stats/overview，🔒 read 档，v3.88.0）：
+// 按仓任务量 / verdict 分布 / token 用量 / 抑制计数。days 窗口缺省 30，
+// 钳制 1..365；platform/owner/repo 过滤可选。仪表盘（review-service 前端）
+// 的数据面——argus 自身不做 UI（v3.84 轮裁定）。
+func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo string, days int) (map[string]any, int) {
+	if days <= 0 {
+		days = 30
+	}
+	if days > 365 {
+		days = 365
+	}
+	rows, err := s.Store.StatsOverview(ctx, time.Now().AddDate(0, 0, -days), platform, owner, repo)
+	if err != nil {
+		s.log().Error("argus.api.stats_failed", "error", err.Error())
+		return nil, http.StatusInternalServerError
+	}
+	var totals struct {
+		repos, tasks, approved, commented, rejected, tokens, suppressed int64
+	}
+	for _, r := range rows {
+		totals.repos++
+		totals.tasks += r.TasksDone
+		totals.approved += r.Approved
+		totals.commented += r.Commented
+		totals.rejected += r.Rejected
+		totals.tokens += r.Tokens
+		totals.suppressed += r.Suppressed
+	}
+	return map[string]any{
+		"window_days":  days,
+		"generated_at": time.Now().Format(time.RFC3339),
+		"repos":        rows,
+		"repo_count":   totals.repos,
+		"tasks_done":   totals.tasks,
+		"verdicts": map[string]int64{
+			"approve":         totals.approved,
+			"comment":         totals.commented,
+			"request_changes": totals.rejected,
+		},
+		"tokens_used":         totals.tokens,
+		"findings_suppressed": totals.suppressed,
+	}, http.StatusOK
+}

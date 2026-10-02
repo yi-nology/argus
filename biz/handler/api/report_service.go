@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"strconv"
 
 	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -38,6 +39,26 @@ func UsageMonthly(ctx context.Context, c *app.RequestContext) {
 	data, status := Svc.UsageMonthly(ctx)
 	if status != consts.StatusOK {
 		mw.ErrorResp(c, status, "用量查询失败")
+		return
+	}
+	mw.SuccessRespMsg(c, data, "ok")
+}
+
+// StatsOverview 审查概览聚合（按仓任务量/verdict 分布/抑制计数，仪表盘数据面）。
+// @router /stats/overview [GET]
+func StatsOverview(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	days := 0
+	if raw := c.Query("days"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			days = n
+		}
+	}
+	data, status := Svc.StatsOverview(ctx, c.Query("platform"), c.Query("owner"), c.Query("repo"), days)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "概览查询失败")
 		return
 	}
 	mw.SuccessRespMsg(c, data, "ok")

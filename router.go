@@ -17,4 +17,6 @@ func customizedRegister(r *server.Hertz) {
 	r.GET("/reports/:ref", append(routerapi.Auth(), api.ReportByRef)...)
 	r.GET("/usage/monthly", append(routerapi.Auth(), api.UsageMonthly)...)
 	r.GET("/events", append(routerapi.Auth(), api.Events)...)
+	// v3.88.0 审查概览聚合（🔒 read 档；数据面供仪表盘/报告消费）
+	r.GET("/stats/overview", append(routerapi.Auth(), api.StatsOverview)...)
 }

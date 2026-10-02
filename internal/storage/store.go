@@ -965,3 +965,92 @@ var jsonUnmarshal = jsonUnmarshalFn
 func jsonUnmarshalFn(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
+
+// RepoStats 仓库维度审查概览聚合行（GET /stats/overview，v3.88.0）。
+type RepoStats struct {
+	Platform   string `json:"platform"`
+	Owner      string `json:"owner"`
+	Repo       string `json:"repo"`
+	TasksDone  int64  `json:"tasks_done"`
+	Approved   int64  `json:"verdict_approve"`
+	Commented  int64  `json:"verdict_comment"`
+	Rejected   int64  `json:"verdict_request_changes"`
+	Tokens     int64  `json:"tokens_used"`
+	Suppressed int64  `json:"findings_suppressed"`
+}
+
+// StatsOverview 窗口内按仓聚合任务量 / verdict 分布 / token 用量 / 抑制计数。
+// tasks 与 prints 两表各自 GROUP BY 后在 Go 侧合并——抑制计数口径 = 窗口内
+// 首次出现的意见中当前处于 suppressed 状态的数量（抑制时刻不入库，以首次
+// 出现时间近似）。verdict 分布在 SQL 层用 CASE WHEN（SQLite/MySQL 通用）。
+func (s *Store) StatsOverview(ctx context.Context, since time.Time, platform, owner, repo string) ([]RepoStats, error) {
+	var aggs []struct {
+		Platform  string
+		Owner     string
+		Repo      string
+		TasksDone int64
+		Approved  int64
+		Commented int64
+		Rejected  int64
+		Tokens    int64
+	}
+	tq := s.quietDB().WithContext(ctx).Model(&Task{}).
+		Select("platform, owner, repo, COUNT(*) AS tasks_done, "+
+			"COALESCE(SUM(CASE WHEN verdict = 'approve' THEN 1 ELSE 0 END),0) AS approved, "+
+			"COALESCE(SUM(CASE WHEN verdict = 'comment' THEN 1 ELSE 0 END),0) AS commented, "+
+			"COALESCE(SUM(CASE WHEN verdict = 'request_changes' THEN 1 ELSE 0 END),0) AS rejected, "+
+			"COALESCE(SUM(tokens_used),0) AS tokens").
+		Where("status = ? AND created_at >= ?", StatusDone, since).
+		Group("platform, owner, repo")
+	if platform != "" {
+		tq = tq.Where("platform = ?", platform)
+	}
+	if owner != "" {
+		tq = tq.Where("owner = ?", owner)
+	}
+	if repo != "" {
+		tq = tq.Where("repo = ?", repo)
+	}
+	if err := tq.Order("tasks_done DESC").Find(&aggs).Error; err != nil {
+		return nil, err
+	}
+
+	var sups []struct {
+		Platform string
+		Owner    string
+		Repo     string
+		N        int64
+	}
+	sq := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
+		Select("platform, owner, repo, COUNT(*) AS n").
+		Where("status = ? AND first_seen_at >= ?", PrintSuppressed, since).
+		Group("platform, owner, repo")
+	if platform != "" {
+		sq = sq.Where("platform = ?", platform)
+	}
+	if owner != "" {
+		sq = sq.Where("owner = ?", owner)
+	}
+	if repo != "" {
+		sq = sq.Where("repo = ?", repo)
+	}
+	if err := sq.Find(&sups).Error; err != nil {
+		return nil, err
+	}
+
+	supMap := make(map[string]int64, len(sups))
+	for _, x := range sups {
+		supMap[x.Platform+"/"+x.Owner+"/"+x.Repo] = x.N
+	}
+	out := make([]RepoStats, 0, len(aggs))
+	for _, a := range aggs {
+		row := RepoStats{
+			Platform: a.Platform, Owner: a.Owner, Repo: a.Repo,
+			TasksDone: a.TasksDone, Approved: a.Approved,
+			Commented: a.Commented, Rejected: a.Rejected, Tokens: a.Tokens,
+			Suppressed: supMap[a.Platform+"/"+a.Owner+"/"+a.Repo],
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
