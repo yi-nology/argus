@@ -370,7 +370,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 |---|---|---|
 | `ARGUS_ADDR` | `:8899` | 监听地址 |
 | `ARGUS_DB_DSN` | `argus.db` | SQLite 文件；切 MySQL DSN 即集群化（多副本必须）|
-| `ARGUS_APITOKEN` | 空 | 🔒 路由 Bearer；空则 fail-closed 503 |
+| `ARGUS_APITOKEN` | 空 | 🔒 路由 Bearer（等价 admin 档）；与 ARGUS_API_TOKENS 全空则 fail-closed 503 |
+| `ARGUS_API_TOKENS` | 空 | 🔒 多 token 分级（v3.87.0）：`tok1:admin,tok2:ci,tok3:read`——read 只读 / ci 可建任务与 MCP / admin 全权（含误报抑制） |
 | `ARGUS_BOT_USERNAME` | - | bot 账号名（自审保护；生产建议独立账号）|
 | `ARGUS_MAX_CONCURRENT_TASKS` | 2 | worker 数，按 LLM 配额调 |
 | `ARGUS_PLUGIN_MAX_CONCURRENT` | 2 | 单任务内插件 fan-out 并发上限（防 API burst 429） |

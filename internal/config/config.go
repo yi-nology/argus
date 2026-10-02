@@ -291,6 +291,11 @@ type Config struct {
 	// 修复建议自动 commit 并 push 到 PR 源分支。默认关闭——bot 直接写用户分支
 	// 是信任面决策；依赖 FixVerifyCmd（没有验证环就没有 push 环）。
 	FixPush bool
+	// APITokens 多 token 分级（v3.87.0，ARGUS_API_TOKENS）：逗号分隔的
+	// "token:scope" 列表，scope ∈ read|ci|admin（admin ⊇ ci ⊇ read）。旧
+	// ARGUS_APITOKEN 等价一条 admin 条目，两者可并存；两者全空 = 🔒 路由
+	// 503 fail-closed（语义不变）。
+	APITokens []APITokenScope
 	// FixAgent @argus fix 修复命令的编码 agent（v3.85.0，ARGUS_FIX_AGENT，空 =
 	// 关闭）。值为 acpx agent 名（claude/codex/gemini 族——fixer 需要 workspace-
 	// write 沙箱档，无沙箱旗标的 agent 显式拒绝）。修复在隔离沙箱执行，验证走
@@ -464,6 +469,7 @@ func Load() *Config {
 		Addr:                   envStr("ARGUS_ADDR", ":8899"),
 		DBDSN:                  envStr("ARGUS_DB_DSN", "argus.db"),
 		APIToken:               os.Getenv("ARGUS_APITOKEN"),
+		APITokens:              ParseAPITokens(os.Getenv("ARGUS_API_TOKENS")),
 		BotUsername:            envStr("ARGUS_BOT_USERNAME", "argus-bot"),
 		SkipDraft:              envBool("ARGUS_SKIP_DRAFT", true),
 		MaxConcurrentTasks:     envInt("ARGUS_MAX_CONCURRENT_TASKS", 2),
@@ -679,6 +685,39 @@ func envFloat(key string, def float64) float64 {
 // warnBadEnv 非法环境变量值回退默认时必须留痕——静默回退会让
 // "以为开了 SKIP_TLS/DEBUG/MAX_CONCURRENT 实际没开"的配置漂移无从排查
 // （config 包此时还没有 logger，直接 stderr）。
+// APITokenScope 一条 API token 及其权限档（read < ci < admin）。
+type APITokenScope struct {
+	Token string
+	Scope string // read | ci | admin
+}
+
+// apiTokenScopeRank scope→覆盖等级（闭集校验单源；未知 scope = 0 = 不覆盖任何要求）。
+var apiTokenScopeRank = map[string]int{"read": 1, "ci": 2, "admin": 3}
+
+// ParseAPITokens 解析 ARGUS_API_TOKENS（"tok:scope,tok2:scope2"）。坏条目
+// 告警跳过——fail-closed：只认完全合法条目，绝不猜默认档。
+func ParseAPITokens(raw string) []APITokenScope {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []APITokenScope
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		tok, scope, ok := strings.Cut(part, ":")
+		tok, scope = strings.TrimSpace(tok), strings.TrimSpace(strings.ToLower(scope))
+		if !ok || tok == "" || apiTokenScopeRank[scope] == 0 {
+			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope（scope ∈ read|ci|admin）")
+			continue
+		}
+		out = append(out, APITokenScope{Token: tok, Scope: scope})
+	}
+	return out
+}
+
+// warnBadEnv 非法环境变量统一告警。
 func warnBadEnv(key, val string, def any) {
 	fmt.Fprintf(os.Stderr, "argus.config: 环境变量 %s=%q 非法，回退默认值 %v\n", key, val, def)
 }
