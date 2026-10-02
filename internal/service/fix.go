@@ -153,26 +153,29 @@ func (s *Service) fixExec(ctx context.Context, platform, owner, repo, number, fp
 }
 
 // runFixReply 评论链后台段：独立 ctx（评论链 ctx 随 handler 返回即取消），
-// 结果/失败都回帖，用户永远有感知。
+// 结果/失败都回帖，用户永远有感知。回帖走独立短 ctx（v3.91.1）：agent 撞
+// 硬上限时执行 ctx 已过期，过期 ctx 会让失败/成功回帖本身也发不出去。
 func (s *Service) runFixReply(key, platform, owner, repo, prNum, fp, delivery string) {
 	defer s.fixInflight.Delete(key)
 	ctx, cancel := context.WithTimeout(context.Background(), s.fixAgentTimeout())
 	defer cancel()
 
 	res, ff, err := s.fixExec(ctx, platform, owner, repo, prNum, fp)
+	pctx, pcancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer pcancel()
 	if err != nil {
 		s.log().Error("argus.fix.failed", "pr", fmt.Sprintf("%s/%s/%s#%s", platform, owner, repo, prNum),
 			"fp", shortFP(fp), "error", logredact.Redact(err.Error()))
 		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 			"number", prNum, "fingerprint", fp, "ok", false, "error", err.Error())
-		s.postQAError(ctx, platform, owner, repo, prNum,
+		s.postQAError(pctx, platform, owner, repo, prNum,
 			fmt.Sprintf("修复执行失败（fp:%s）：%s\n\n<!-- argus:fix delivery=%s phase=done -->",
 				shortFP(fp), logredact.Redact(err.Error()), delivery))
 		return
 	}
 	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "ok", res.Verified, "agent", res.AgentName)
-	s.postQAError(ctx, platform, owner, repo, prNum, renderFixReply(fp, *ff, res, delivery))
+	s.postQAError(pctx, platform, owner, repo, prNum, renderFixReply(fp, *ff, res, delivery))
 }
 
 // fixRunConfig 修复沙箱执行配置（runFixSandbox 可独立单测）。
@@ -269,6 +272,7 @@ func runFixSandbox(ctx context.Context, cfg fixRunConfig) (*fixResult, error) {
 // cloneFixSandbox 从工作副本本地克隆出独立修复沙箱（git clone --local 走
 // 硬链接 objects、工作树全新检出，源目录零写入）。返回沙箱目录与清理函数。
 func cloneFixSandbox(ctx context.Context, src, workRoot string) (string, func(), error) {
+	sweepStaleFixSandboxes(workRoot)
 	if workRoot == "" {
 		workRoot = os.TempDir()
 	}
@@ -281,6 +285,27 @@ func cloneFixSandbox(ctx context.Context, src, workRoot string) (string, func(),
 		return "", nil, fmt.Errorf("修复沙箱克隆失败（exit=%d）: %v", code, err)
 	}
 	return dst, func() { _ = os.RemoveAll(dst) }, nil
+}
+
+// sweepStaleFixSandboxes 回收孤儿沙箱（v3.91.1）：进程中途死亡时 defer 清理
+// 不会执行，fix-* 目录会遗留——每次新建前顺手清掉 2h 以上的旧目录。
+func sweepStaleFixSandboxes(workRoot string) {
+	if workRoot == "" {
+		return
+	}
+	entries, err := os.ReadDir(workRoot)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-2 * time.Hour)
+	for _, en := range entries {
+		if !en.IsDir() || !strings.HasPrefix(en.Name(), "fix-") {
+			continue
+		}
+		if info, err := en.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.RemoveAll(filepath.Join(workRoot, en.Name()))
+		}
+	}
 }
 
 // buildFixPrompt 组装修复 prompt：finding 上下文 + 邻近代码摘录（数据区）+

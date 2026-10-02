@@ -66,3 +66,6 @@ eval/results/
 
 # 本地编译产物（根目录手工构建残留，勿入库；镜像构建用 bin/ 下的交叉编译输出）
 /argus
+
+# 根目录本地构建产物
+/argus-copilot

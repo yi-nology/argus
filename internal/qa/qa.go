@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -339,13 +340,11 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 	}
 
 	// search_code（v3.91.0）：工作副本全文检索（与 R3/R4 审查面同款纪律）。
-	// 冷克隆有 30s 预算——QA 是交互路径，不该被首克隆拖住首答；失败本轮
-	// 静默收窄工具面（审查流程通常已建好工作副本，下一问即恢复）。
+	// v3.91.1 起惰性解析——目录就绪（含冷克隆，30s 预算）推迟到工具首调，
+	// 不需要检索的提问不付任何克隆成本。
 	var searchCode tool.BaseTool
 	if e.WC != nil && e.CodeSearch {
-		if dir, ok := e.workcopyDir(ctx, platform, owner, repo, number); ok {
-			searchCode = e.searchCodeToolFor(dir)
-		}
+		searchCode = e.searchCodeTool(platform, owner, repo, number)
 	}
 
 	table := toolprior.NewTable()
@@ -393,8 +392,44 @@ func (e *Engine) workcopyDir(ctx context.Context, platform, owner, repo, number 
 	return dir, true
 }
 
-// searchCodeToolFor 绑定目录构造 search_code 工具（dir 由调用方就绪；拆出
-// 便于单测）。dir 为空返回 nil（不进表）。输出截断与数据区纪律与审查面同款。
+// searchCodeTool 惰性构造 search_code 工具（v3.91.1）：目录解析（含冷克隆
+// 30s 预算）推迟到工具首调，构造期零成本；解析失败时调用返回工具错误文本
+// （ReAct 面自然降级，与其他工具错误同型）。
+func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseTool {
+	var once sync.Once
+	var dir string
+	resolve := func(ctx context.Context) string {
+		once.Do(func() {
+			if d, ok := e.workcopyDir(ctx, platform, owner, repo, number); ok {
+				dir = d
+			}
+		})
+		return dir
+	}
+	st, err := toolutils.InferTool("search_code",
+		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
+			d := resolve(ctx)
+			if d == "" {
+				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
+			}
+			res, serr := codesearch.Search(ctx, d, in.Pattern,
+				codesearch.Options{Globs: qaSearchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+			if serr != nil {
+				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
+			}
+			text, _ := textutil.TruncRunes(res.Render(), 4000)
+			return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}, nil
+		})
+	if err != nil {
+		e.log().Warn("argus.qa.search_tool_build_failed", "error", err.Error())
+		return nil
+	}
+	return st
+}
+
+// searchCodeToolFor 绑定目录构造 search_code 工具（单测锚点；dir 为空返回
+// nil）。生产路径走 searchCodeTool（惰性）。
 func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 	if dir == "" {
 		return nil
