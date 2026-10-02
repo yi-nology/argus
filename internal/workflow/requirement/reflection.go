@@ -22,6 +22,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/reflection"
 	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/cloudwego/eino/components/model"
 
 	"argus/internal/plugin"
 
@@ -83,54 +84,25 @@ const reflectRubric = `逐条核对以下误报特征，命中任一条即剔除
 8. 保留条目的 evidence 为空，或与 file/line 对不上（写的是无关文件）；
 9. 保留条目的 counterexample 为空——即没有过「反例假设」这一关。`
 
-// reflectFindings 对合并后的 findings 跑批判→修订收敛，原位更新 merged.Findings，
-// 返回反思摘要（调用方写进 Output；nil = 未执行）。
-func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summary string, merged *plugin.MergedFindings) *ReflectSummary {
-	if len(merged.Findings) == 0 {
-		return nil
+// reflectModel R3.5 反思模型解析：专配 → R3 强模型（质量关键路径同档）→ LLM 裸模型。
+func (w *Workflow) reflectModel() model.BaseChatModel {
+	if w.ReflectModel != nil {
+		return w.ReflectModel
 	}
-	chatModel := w.ReflectModel
-	if chatModel == nil {
-		chatModel = w.R3ChatModel // 未专配时沿用 R3 的强模型（质量关键路径同档）
+	if w.R3ChatModel != nil {
+		return w.R3ChatModel
 	}
-	if chatModel == nil && w.LLM != nil {
-		chatModel = w.LLM.RawModel()
+	if w.LLM != nil {
+		return w.LLM.RawModel()
 	}
-	if chatModel == nil {
-		return nil
-	}
+	return nil
+}
 
-	changed := map[string]bool{}
-	if task.Diff != nil {
-		for _, f := range task.Diff.Files {
-			changed[f.Path] = true
-		}
-	}
-	evidenceOn := evidenceGateOn(w.ReflectEvidence)
-
-	// 超长输入由反思包内部的 llm.Client fitInput 截断兜底（裁最长 user 消息并留痕）。
-	in := w.buildReflectInput(merged, changed, summary)
-
-	maxIter := w.ReflectRounds
-	if maxIter > reflectMaxRounds {
-		maxIter = reflectMaxRounds
-	}
-	res, err := reflection.Refine(ctx, &reflection.Config{
-		Model: chatModel, ModelName: "argus-r35",
-		Task: reflectTask(evidenceOn), Input: in.String(),
-		Rubric: reflectRubric, MaxIterations: maxIter,
-	})
-	if err != nil {
-		w.Log.Warn("argus.r35.failed", "error", err.Error(), "hint", "保留原 findings")
-		return nil
-	}
-
-	// 解析末稿并按 id 回写：只认原列表已有 id（防新增幻觉），逐字段校验回退（防篡改越界）。
-	var revised []reflectFindingWire
-	if jsonrepair.Unmarshal(res.Text, &revised) != nil {
-		w.Log.Warn("argus.r35.parse_failed", "hint", "输出不可解析，保留原 findings")
-		return nil
-	}
+// applyReflectRevisions 末稿回写（确定性后验）：只认原列表已有 id（防新增幻觉），
+// 逐字段校验回退（防篡改越界）；证据门后验在此执行。原位更新 merged.Findings
+// 并返回反思摘要。
+func (w *Workflow) applyReflectRevisions(merged *plugin.MergedFindings, changed map[string]bool,
+	revised []reflectFindingWire, evidenceOn bool, res *reflection.Result) *ReflectSummary {
 	info := &ReflectSummary{Rounds: len(res.Rounds), Converged: res.Converged}
 	seen := map[int]bool{}
 	out := make([]plugin.Finding, 0, len(merged.Findings))
@@ -187,6 +159,52 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 	}
 	reconcileRemoved(merged, out, seen, info)
 	merged.Findings = out
+	return info
+}
+
+// reflectFindings 对合并后的 findings 跑批判→修订收敛，原位更新 merged.Findings，
+// 返回反思摘要（调用方写进 Output；nil = 未执行）。
+func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summary string, merged *plugin.MergedFindings) *ReflectSummary {
+	if len(merged.Findings) == 0 {
+		return nil
+	}
+	chatModel := w.reflectModel()
+	if chatModel == nil {
+		return nil
+	}
+
+	changed := map[string]bool{}
+	if task.Diff != nil {
+		for _, f := range task.Diff.Files {
+			changed[f.Path] = true
+		}
+	}
+	evidenceOn := evidenceGateOn(w.ReflectEvidence)
+
+	// 超长输入由反思包内部的 llm.Client fitInput 截断兜底（裁最长 user 消息并留痕）。
+	in := w.buildReflectInput(merged, changed, summary)
+
+	maxIter := w.ReflectRounds
+	if maxIter > reflectMaxRounds {
+		maxIter = reflectMaxRounds
+	}
+	res, err := reflection.Refine(ctx, &reflection.Config{
+		Model: chatModel, ModelName: "argus-r35",
+		Task: reflectTask(evidenceOn), Input: in.String(),
+		Rubric: reflectRubric, MaxIterations: maxIter,
+	})
+	if err != nil {
+		w.Log.Warn("argus.r35.failed", "error", err.Error(), "hint", "保留原 findings")
+		return nil
+	}
+
+	// 解析末稿：输出不可解析保留原 findings（零修订优于半截修订）。
+	var revised []reflectFindingWire
+	if jsonrepair.Unmarshal(res.Text, &revised) != nil {
+		w.Log.Warn("argus.r35.parse_failed", "hint", "输出不可解析，保留原 findings")
+		return nil
+	}
+	info := w.applyReflectRevisions(merged, changed, revised, evidenceOn, res)
 
 	w.Log.Info("argus.r35.done", "rounds", info.Rounds, "converged", info.Converged,
 		"removed", info.Removed, "adjusted", info.Adjusted, "kept", info.Kept,

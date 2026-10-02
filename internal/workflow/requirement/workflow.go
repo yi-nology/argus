@@ -13,7 +13,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
-	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/ekit/observability/logx"
 
 	"argus/internal/codegraph"
@@ -428,102 +427,6 @@ func (w *Workflow) applyRepoPolicies(merged *plugin.MergedFindings, rc *plugin.R
 				fmt.Sprintf("仓库配置 review 路径过滤：%d 个变更文件被排除在审查之外（.reviewagents.yaml）", excluded))
 		}
 	}
-}
-
-// judgeAndGate R5 确定性裁决与全部门：完备性裁判 → scope 闸门 → 真值表 →
-// R5.0 空产出守门 → SAST 失败注明 → R5.C 完备性降级门 → 增量审查范围透出。
-// merged 的 Degraded 按原顺序追加。
-func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
-	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []plugin.Selection,
-	outcomes []plugin.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
-
-	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
-	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段
-	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
-	completeness = JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
-	merged.Degraded = append(merged.Degraded, retryNotes...)
-
-	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
-	// v3.8.0：有 diff 文件集时启用 scope 闸门——reviewer 经 get_file 看到未变更
-	// 文件后对本次变更之外的文件报 high，此前可直接驱动 R5.2 REQUEST_CHANGES
-	//（一票否决了与本次变更无关的意见）；现在越界 high 只计入 COMMENT 级并注明。
-	r5Start := time.Now()
-	var scope map[string]bool
-	if task.Diff != nil && len(task.Diff.Files) > 0 {
-		scope = make(map[string]bool, len(task.Diff.Files))
-		for _, f := range task.Diff.Files {
-			// 仓库级排除文件（v3.15.0 RepoExcluded）不进审查视野（diff 文本不含），
-			// 与「get_file 读到的未变更文件」同属越界——其上的意见不驱动 R5.2
-			//（v9 夹具 47 钉住：排除文件上的 high 此前会一票否决，排除形同虚设）。
-			if f.RepoExcluded {
-				continue
-			}
-			scope[f.Path] = true
-		}
-	}
-	verdict, rule, outOfScope := VerdictScoped(spec, report, merged.Findings, scope)
-	if outOfScope > 0 {
-		merged.Degraded = append(merged.Degraded,
-			fmt.Sprintf("%d 条意见位于本次变更范围之外（get_file 读到的未变更文件），未计入高危裁决", outOfScope))
-	}
-	plugin.ReportStageDuration(plugin.LayerR5, time.Since(r5Start))
-	plugin.ReportLayerExec(plugin.LayerR5)
-
-	// R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。skills 词表不匹配/
-	// 插件全被禁用/全数熔断/跳过时，空 findings 是"没人审"而不是"没问题"——
-	// 静默 APPROVE 会把未审查的变更放进主干。降级为 COMMENT + Degraded 注明。
-	// SAST 前置产出不计入 ran（它不是审查 agent，不能把"只有 gitleaks 跑了"
-	// 洗成"有人审过"）。
-	sastNames := make(map[string]bool, len(w.SASTOutcomes))
-	for _, o := range w.SASTOutcomes {
-		sastNames[o.Name] = true
-	}
-	ran := 0
-	for _, o := range outcomes {
-		if sastNames[o.Name] {
-			continue
-		}
-		if o.SkippedReason == "" && o.Err == nil {
-			ran++
-		}
-	}
-	if ran == 0 {
-		merged.Degraded = append(merged.Degraded,
-			"无任何审查插件实际产出（全被禁用/熔断/跳过，原因见上方 Degraded）——本结论在未审查状态下给出，仅作参考")
-		if verdict == VerdictApprove {
-			verdict, rule = VerdictComment, "R5.0"
-		}
-	}
-	// SAST 失败降级注明（产出空 ≠ 扫描成功；覆盖事实必须可见）。
-	for _, o := range w.SASTOutcomes {
-		if o.Err != nil {
-			merged.Degraded = append(merged.Degraded,
-				fmt.Sprintf("SAST %s 扫描失败：%s（审查继续）", o.Name, logredact.Redact(o.Err.Error())))
-		}
-	}
-	// G4 降级门（opt-in demote）：完备性检查不过时不允许白给 APPROVE（v3.11.0）。
-	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判。
-	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
-		verdict, rule = VerdictComment, "R5.C"
-	}
-	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
-	// 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审此前零痕迹——
-	// 与大 PR 截断同构的"覆盖范围收缩"，结论可信度的一部分必须可见。
-	if task.Diff != nil {
-		reviewed := 0
-		for _, f := range task.Diff.Files {
-			if f.AlreadyReviewed {
-				reviewed++
-			}
-		}
-		if reviewed > 0 {
-			merged.Degraded = append(merged.Degraded,
-				fmt.Sprintf("增量审查：%d 个文件与上轮完全一致未重审，本次仅覆盖其余变更", reviewed))
-		}
-	}
-	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
-	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
-	return verdict, rule, completeness
 }
 
 // retryFailedPlugins G4 受限补审：对执行失败（Err 非空且非任务取消跳过）的插件
