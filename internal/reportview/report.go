@@ -84,6 +84,9 @@ type Report struct {
 	// MaxInlineComments 行内评论上限（v3.15.0 .reviewagents.yaml review.max_comments；
 	// 0 = 不限）。钳制发生在 poster，超限注明进 Degraded。
 	MaxInlineComments int
+	// FixHint 在 finding 行附「@argus fix fp:」修复入口提示（v3.85.0；服务级
+	// ARGUS_FIX_AGENT 启用时由 runner 置 true）。
+	FixHint bool
 }
 
 // Render 渲染整份 markdown 报告（含 HTML 注释头）。
@@ -187,6 +190,11 @@ func renderFindings(b *strings.Builder, r Report) {
 			fp = plugin.Fingerprint(f.File, f.Comment, f.Line)
 		}
 		fp = fp[:8]
+		// 修复入口（v3.85.0）：服务启用 fixer 时每条意见附一键修复命令
+		fpnote := fmt.Sprintf("（fp:%s）", fp)
+		if r.FixHint {
+			fpnote = fmt.Sprintf("（fp:%s，修复：`@argus fix fp:%s`）", fp, fp)
+		}
 		// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
 		comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
 		if ann := plugin.SamplesAnnotation(f); ann != "" {
@@ -198,9 +206,9 @@ func renderFindings(b *strings.Builder, r Report) {
 		if f.Verified {
 			comment += "（✅ 沙箱验证通过）"
 		}
-		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s（fp:%s）\n",
+		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s%s\n",
 			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
-			fence.EscapeUntrusted(by), fp)
+			fence.EscapeUntrusted(by), fpnote)
 		if f.SuggestedFix != "" {
 			fix := fence.EscapeUntrusted(f.SuggestedFix)
 			fmt.Fprintf(b, "  \n  **建议修复：**\n  ```\n  %s\n  ```\n", strings.ReplaceAll(fix, "\n", "\n  "))

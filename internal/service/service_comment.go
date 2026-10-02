@@ -240,6 +240,11 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 		s.handleTestGen(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, target, delivery)
 		return
 	}
+	// @argus fix fp:短码（v3.85.0）：acpx 编码 agent 沙箱修复，异步执行。
+	if fp, ok := extractFix(question); ok {
+		s.handleFix(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, fp, delivery)
+		return
+	}
 
 	// 意图路由（v3.4）：ARGUS_COMMENT_ROUTER=1 时先分类再分派——review 建全量
 	// 复审任务，其余一律 Q&A（Fallback 也是 Q&A）。关闭时行为与 v3.3 完全一致。

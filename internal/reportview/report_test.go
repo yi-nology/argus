@@ -141,3 +141,21 @@ func TestRenderUsesStoredFingerprintOverRecompute(t *testing.T) {
 		t.Fatalf("报告短码应使用入库指纹 %s:\n%s", want, out)
 	}
 }
+
+// v3.85.0：FixHint 开启时 finding 行附 @argus fix 修复入口（fp 短码为准），
+// 关闭时保持原样。
+func TestRenderFixHint(t *testing.T) {
+	finding := []plugin.Finding{{File: "a.go", Line: 10, Severity: "high", Comment: "SQL 拼接", By: "ocr"}}
+	mk := func(hint bool) string {
+		return Render(Report{
+			TaskID: "t-1", Version: "v", Findings: finding,
+			VerdictText: "⚠️", FixHint: hint,
+		})
+	}
+	if !strings.Contains(mk(true), "修复：`@argus fix fp:") {
+		t.Fatalf("FixHint=true 应附修复入口:\n%s", mk(true))
+	}
+	if strings.Contains(mk(false), "@argus fix") {
+		t.Fatalf("FixHint=false 不应附修复入口:\n%s", mk(false))
+	}
+}

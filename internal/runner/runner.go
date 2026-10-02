@@ -892,6 +892,7 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 		Plugins: out.PluginsRun,
 		Elapsed: out.Elapsed,
 		Tokens:  out.Tokens,
+		FixHint: r.Cfg.FixAgent != "", // v3.85.0：fixer 启用时意见行附一键修复入口
 	}
 	if taskCost != nil {
 		var usd float64

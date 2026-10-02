@@ -80,6 +80,10 @@ type Service struct {
 	// 懒建（qaThrottleMu 护栏），生产行为不变——进程内恒一个 Service。
 	qaThrottleMu  sync.Mutex
 	qaThrottleCch *ekcache.LocalCache[bool]
+
+	// fixInflight @argus fix 在途去重（v3.85.0）：key=pr+fp，防同 finding 并发
+	// 双跑烧双倍 agent token。进程级即可（修复是交互式命令，不跨重启）。
+	fixInflight sync.Map
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。

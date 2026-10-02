@@ -291,6 +291,13 @@ type Config struct {
 	// 修复建议自动 commit 并 push 到 PR 源分支。默认关闭——bot 直接写用户分支
 	// 是信任面决策；依赖 FixVerifyCmd（没有验证环就没有 push 环）。
 	FixPush bool
+	// FixAgent @argus fix 修复命令的编码 agent（v3.85.0，ARGUS_FIX_AGENT，空 =
+	// 关闭）。值为 acpx agent 名（claude/codex/gemini 族——fixer 需要 workspace-
+	// write 沙箱档，无沙箱旗标的 agent 显式拒绝）。修复在隔离沙箱执行，验证走
+	// FixVerifyCmd，不自动 push。
+	FixAgent string
+	// FixTimeout 修复命令 agent 硬上限（ARGUS_FIX_TIMEOUT，0 = 10m）。
+	FixTimeout time.Duration
 	// FixVerifyTimeout 包装命令硬上限（ARGUS_FIX_VERIFY_TIMEOUT，0 = 3m）。
 	FixVerifyTimeout time.Duration
 	// TestGenVerifyTimeout 包装命令硬上限（ARGUS_TESTGEN_VERIFY_TIMEOUT，0 = 5m）。
@@ -480,6 +487,8 @@ func Load() *Config {
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),
 		FixPush:                os.Getenv("ARGUS_FIX_PUSH") == "1",
+		FixAgent:               os.Getenv("ARGUS_FIX_AGENT"),
+		FixTimeout:             envDuration("ARGUS_FIX_TIMEOUT", 0),
 		FixVerifyTimeout:       envDuration("ARGUS_FIX_VERIFY_TIMEOUT", 0),
 		TestGenVerifyTimeout:   envDuration("ARGUS_TESTGEN_VERIFY_TIMEOUT", 0),
 		Platforms:              map[string]PlatformConfig{},

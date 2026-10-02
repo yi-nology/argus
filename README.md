@@ -155,7 +155,17 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 输出长度三重封顶，`.git`/vendor/node_modules/testdata 等目录自动排除；命中不等于结论，
 工具描述已声明"引用前须 get_file 核实"。
 
-### 5.6 副驾参考客户端（v3.22.0）
+### 5.6 修复命令（v3.85.0，`ARGUS_FIX_AGENT` 启用）
+
+`@argus fix fp:短码`：按指纹取回入库 finding → 工作副本本地克隆出独立修复沙箱
+（源目录零写入）→ 编码 agent（claude/codex/gemini 族，workspace-write 沙箱档；
+无沙箱旗标的 agent fail-closed 拒绝）出 patch → `ARGUS_FIX_VERIFY_CMD` 沙箱验证
+（复用 testgen 的包装命令纪律：argus 自身永不执行待审代码）→ 回帖 diff。
+修复成立与否由确定性验证判定，不由 agent 自评；**不自动 push**（写分支仍是
+v3.74.1 `ARGUS_FIX_PUSH=1` 管线环的职权）。服务启用后报告意见行附一键修复入口
+（`@argus fix fp:xxxx`）。`ARGUS_FIX_TIMEOUT` 缺省 10m。
+
+### 5.7 副驾参考客户端（v3.22.0）
 
 `cmd/argus-copilot`：MCP 只读客户端（stages/findings/suggest/ask 四命令），IDE 插件与脚本
 集成的参考实现：
@@ -180,6 +190,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
 - `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
 - `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
+- `@argus fix fp:ab12cd34` —— 一键修复（v3.85.0，`ARGUS_FIX_AGENT` 启用）：编码 agent 在隔离沙箱出 patch，沙箱验证后回帖 diff（不自动 push）
 - `@argus describe [补充要求]` —— 生成 PR 变更说明 + 建议标签（v3.15.0，回帖评论不写回 PR body）
 - `@argus testgen [目标路径]` —— 按 diff 生成单元测试骨架（v3.15.0；未经编译验证，需人工核对）
 
