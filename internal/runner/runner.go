@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"golang.org/x/time/rate"
 
+	"git.example.com/enjoydream/agentkit/audit"
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/textutil"
 	ekcache "git.example.com/enjoydream/ekit/data/cache"
@@ -66,6 +67,9 @@ type Runner struct {
 	Poster  *poster.Poster
 	Log     logx.Logger
 	Version string
+	// Audit 审计日志（v3.86.0：verdict.posted / fix.push 等关键动作留痕；
+	// agentkit/audit nil 接收者安全，未注入 = 只少审计不报错）。
+	Audit *audit.Logger
 
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
 	LLMLimiter *rate.Limiter
@@ -1064,6 +1068,10 @@ func (r *Runner) setStartMarker(ctx context.Context, task *storage.Task, body st
 // finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
 func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
 	r.publish("task.finished", task, status, verdict)
+	// 审计留痕（v3.86.0）：verdict 终态是审查链路的关键可审计动作
+	r.Audit.Log("verdict.posted", "task", task.ID, "platform", task.Platform,
+		"owner", task.Owner, "repo", task.Repo, "number", task.Number,
+		"status", status, "verdict", verdict, "rule", ruleOf(out))
 	if r.Notify == nil {
 		return
 	}
@@ -1088,6 +1096,14 @@ func findingsCount(m *plugin.MergedFindings) int {
 		return 0
 	}
 	return len(m.Findings)
+}
+
+// ruleOf 审计字段用：终态命中的 R5 规则（out 为 nil 时空串）。
+func ruleOf(out *requirement.Output) string {
+	if out == nil {
+		return ""
+	}
+	return out.Rule
 }
 
 // reviewHints 渲染本仓库历史高误报模式提示词（学习环关闭或无样本时返回空）。

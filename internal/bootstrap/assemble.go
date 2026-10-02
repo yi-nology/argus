@@ -202,6 +202,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	sys.Dispatcher = dispatcher
 	sys.Merger = merger
 	sys.Poster = &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
+	auditLog := audit.New(log, "argus-audit") // v3.86.0：runner（verdict.posted/fix.push）与 service 共用同一审计器
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: models.React, ModelName: cfg.LLM.Model,
@@ -210,6 +211,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		ToolSpecs:  toolSpecs,
 		Dispatcher: dispatcher, Merger: merger,
 		Poster: sys.Poster, Log: log, Version: version,
+		Audit:         auditLog,
 		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
 		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
 		Bus:       sys.Bus,
@@ -256,7 +258,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		Model: models.React, QAModel: models.QA,
 		RouterModel: models.Router,
 		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
-		Audit:       audit.New(log, "argus-audit"), Version: version,
+		Audit:       auditLog, Version: version,
 	}
 	return sys, nil
 }

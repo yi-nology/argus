@@ -327,6 +327,10 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 	}
 	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "branch", pr.HeadBranch,
 		"fixes", verified, "files", len(written))
+	// 审计留痕（v3.86.0）：bot 写作者分支是最高敏感动作，必须可追溯
+	r.Audit.Log("fix.push", "task", task.ID, "platform", pr.Platform, "owner", pr.Owner,
+		"repo", pr.Repo, "number", pr.Number, "branch", pr.HeadBranch,
+		"fixes", verified, "files", len(written))
 }
 
 // gitRun 单条 git 命令执行（2min 超时；ok=false = 非零退出或启动失败）。

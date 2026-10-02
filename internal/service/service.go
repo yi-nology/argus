@@ -42,6 +42,13 @@ import (
 const (
 	auditTaskCreate      audit.Action = "task.create"
 	auditFindingSuppress audit.Action = "finding.suppress"
+	// v3.86.0 补面：verdict 终态/误抑制恢复/修复命令（fix_requested 与 fix_done
+	// 在 service，verdict.posted 与 fix.push 在 runner——同一 auditLog 单源）。
+	auditVerdictPosted  audit.Action = "verdict.posted"
+	auditFixPush        audit.Action = "fix.push"
+	auditFindingRestore audit.Action = "finding.restore"
+	auditFindingFixReq  audit.Action = "finding.fix_requested"
+	auditFindingFixDone audit.Action = "finding.fix_done"
 )
 
 // Service 门面：biz handler 只跟它说话。

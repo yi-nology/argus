@@ -101,7 +101,7 @@ func (s *Service) handleFix(ctx context.Context, platform, owner, repo, prNum, p
 		s.postQAError(ctx, platform, owner, repo, prNum, "同一条 finding 的修复已在执行中，请等它完成后回帖。")
 		return
 	}
-	s.Audit.Log("finding.fix_requested", "platform", platform, "owner", owner, "repo", repo,
+	s.Audit.Log(auditFindingFixReq, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "agent", s.Cfg.FixAgent)
 	// head SHA 同步段取（评论 ctx 有效期内）；取不到回落默认分支（降级可修复，
 	// 摘录行号可能漂移，agent 以意见上下文为准）。
@@ -145,14 +145,14 @@ func (s *Service) runFixReply(key, platform, owner, repo, prNum, fp string, ff f
 	if err != nil {
 		s.log().Error("argus.fix.failed", "pr", fmt.Sprintf("%s/%s/%s#%s", platform, owner, repo, prNum),
 			"fp", shortFP(fp), "error", logredact.Redact(err.Error()))
-		s.Audit.Log("finding.fix_done", "platform", platform, "owner", owner, "repo", repo,
+		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 			"number", prNum, "fingerprint", fp, "ok", false, "error", err.Error())
 		s.postQAError(ctx, platform, owner, repo, prNum,
 			fmt.Sprintf("修复执行失败（fp:%s）：%s\n\n<!-- argus:fix delivery=%s phase=done -->",
 				shortFP(fp), logredact.Redact(err.Error()), delivery))
 		return
 	}
-	s.Audit.Log("finding.fix_done", "platform", platform, "owner", owner, "repo", repo,
+	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "ok", res.Verified, "agent", res.AgentName)
 	s.postQAError(ctx, platform, owner, repo, prNum, renderFixReply(fp, ff, res, delivery))
 }

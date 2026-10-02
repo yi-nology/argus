@@ -415,6 +415,8 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 		s.log().Warn("argus.feedback.restore_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "err", err)
 		return
 	}
+	s.Audit.Log(auditFindingRestore, "platform", platform, "owner", ev.Repo.Owner,
+		"repo", ev.Repo.Name, "number", num, "fingerprint", fpPrefix, "matched", matched)
 	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
 		if err := s.Store.PatternRestore(ctx, platform, ev.Repo.Owner, ev.Repo.Name, pluginName,
 			resolvedFinding, time.Now()); err != nil {
