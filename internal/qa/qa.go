@@ -24,9 +24,11 @@ import (
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/toolprior"
+	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"argus/internal/codesearch"
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -43,6 +45,11 @@ type Engine struct {
 	// MemoryIndexFor 本仓评审记忆索引装载器（v3.39.0，bootstrap 接线
 	// memory.LoadIndex；nil = 未启用）。注入系统提示词作答参考。
 	MemoryIndexFor func(platform, owner, repo string) string
+
+	// WC 工作副本池 + CodeSearch 开关（v3.91.0）：QA 挂与审查面同款的
+	// search_code 全文检索工具。nil/关 = 工具面收窄（既有行为）。
+	WC         *workcopy.Pool
+	CodeSearch bool
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器
@@ -331,11 +338,25 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 		similarIssue = si
 	}
 
+	// search_code（v3.91.0）：工作副本全文检索（与 R3/R4 审查面同款纪律）。
+	// 冷克隆有 30s 预算——QA 是交互路径，不该被首克隆拖住首答；失败本轮
+	// 静默收窄工具面（审查流程通常已建好工作副本，下一问即恢复）。
+	var searchCode tool.BaseTool
+	if e.WC != nil && e.CodeSearch {
+		if dir, ok := e.workcopyDir(ctx, platform, owner, repo, number); ok {
+			searchCode = e.searchCodeToolFor(dir)
+		}
+	}
+
 	table := toolprior.NewTable()
 	table.Add(toolprior.Entry{Tool: getDiff, Priority: toolprior.PriorityCore,
 		When: "回答涉及具体代码改动的问题前先通读", Cost: "low"})
 	table.Add(toolprior.Entry{Tool: getFile, Priority: toolprior.PriorityCore,
 		When: "核实 diff 看不到的调用方/实现细节时使用", Cost: "low"})
+	if searchCode != nil {
+		table.Add(toolprior.Entry{Tool: searchCode, Priority: toolprior.PriorityCore,
+			When: "跨文件找调用方/相似实现/字符串或配置线索（get_file 只能按路径读）时使用", Cost: "low"})
+	}
 	if similarIssue != nil {
 		table.Add(toolprior.Entry{Tool: similarIssue, Priority: toolprior.PrioritySupport,
 			When: "用户问『有没有类似问题/是否已知』时检索历史 issue", Cost: "low"})
@@ -348,6 +369,72 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 	}
 	strategy := table.StrategyPrompt(ctx)
 	return table.Ordered(ctx), strategy, nil
+}
+
+// qaWorkcopyBudget 冷克隆预算（QA 交互路径，不拖首答）。
+const qaWorkcopyBudget = 30 * time.Second
+
+// workcopyDir 就绪 PR 工作副本（30s 预算；失败静默降级）。池语义：Ensure 后
+// 立即 Release（目录由 TTL 兜底存活），search_code 调用期按路径直读。
+func (e *Engine) workcopyDir(ctx context.Context, platform, owner, repo, number string) (string, bool) {
+	cctx, cancel := context.WithTimeout(ctx, qaWorkcopyBudget)
+	defer cancel()
+	headSHA := ""
+	if cr, err := e.SDK.GetCR(cctx, platform, owner, repo, number); err == nil && cr != nil {
+		headSHA = cr.HeadSHA
+	}
+	key := workcopy.WorktreeKey{Platform: platform, Owner: owner, Repo: repo, Number: number, HeadSHA: headSHA}
+	dir, err := e.WC.Ensure(cctx, key)
+	if err != nil {
+		e.log().Warn("argus.qa.workcopy_failed", "error", err.Error())
+		return "", false
+	}
+	e.WC.Release(key)
+	return dir, true
+}
+
+// searchCodeToolFor 绑定目录构造 search_code 工具（dir 由调用方就绪；拆出
+// 便于单测）。dir 为空返回 nil（不进表）。输出截断与数据区纪律与审查面同款。
+func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
+	if dir == "" {
+		return nil
+	}
+	st, err := toolutils.InferTool("search_code",
+		"在仓库工作副本中全文正则搜索代码（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）。pattern 为 Go 正则；glob 可选过滤文件（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）。命中不等于结论：引用前须用 get_file 核实上下文。",
+		func(ctx context.Context, in *qaSearchIn) (*qaSearchOut, error) {
+			res, serr := codesearch.Search(ctx, dir, in.Pattern,
+				codesearch.Options{Globs: qaSearchGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
+			if serr != nil {
+				return &qaSearchOut{Result: plugin.ReminderNote("tool-error", serr.Error())}, nil
+			}
+			text, _ := textutil.TruncRunes(res.Render(), 4000)
+			return &qaSearchOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}, nil
+		})
+	if err != nil {
+		e.log().Warn("argus.qa.search_tool_build_failed", "error", err.Error())
+		return nil
+	}
+	return st
+}
+
+// qaSearchIn/qaSearchOut search_code 入出参（与审查面同形；qa 包独立声明
+// 避免依赖 workflow 内部类型）。
+type qaSearchIn struct {
+	Pattern    string `json:"pattern" jsonschema:"description=Go 正则表达式（如 MyFunc\\(|TODO|apiKey）"`
+	Glob       string `json:"glob,omitempty" jsonschema:"description=可选文件过滤：无 / 按文件名（如 *.go），含 / 按仓库相对路径"`
+	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"description=忽略大小写"`
+}
+
+type qaSearchOut struct {
+	Result string `json:"result"`
+}
+
+// qaSearchGlobs 可选 glob 入参归一（空串 → 无过滤）。
+func qaSearchGlobs(glob string) []string {
+	if s := strings.TrimSpace(glob); s != "" {
+		return []string{s}
+	}
+	return nil
 }
 
 // systemPrompt Q&A 助手系统提示词。

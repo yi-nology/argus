@@ -81,7 +81,7 @@ var layering = map[string][]string{
 	"argus/internal/worker":     {"argus/internal/storage"},
 	"argus/internal/health":     {"argus/internal/learning"},
 	"argus/internal/context":    {"argus/internal/config", "argus/internal/obs", "argus/internal/plugin"},
-	"argus/internal/qa":         {"argus/internal/context", "argus/internal/plugin", "argus/internal/storage"},
+	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/storage"},
 	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memory", "argus/internal/plugin", "argus/internal/storage"},
 	"argus/internal/poster":     {"argus/internal/context", "argus/internal/plugin", "argus/internal/reportview", "argus/internal/storage"},
 	"argus/internal/poller":     {"argus/internal/context", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},

@@ -851,6 +851,10 @@ func (s *Service) qa() *qa.Engine {
 			Model:     s.Model,
 			QAModel:   s.QAModel,
 			Log:       s.log(),
+			// search_code 全文检索（v3.91.0）：QA 与审查面共享工作副本池，
+			// ARGUS_CODESEARCH 同源开关
+			WC:         s.WC,
+			CodeSearch: s.Cfg != nil && s.Cfg.CodeSearch,
 		}
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论
 		if s.Cfg != nil && s.Cfg.MemoryDir != "" {

@@ -150,10 +150,11 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 
 ### 5.5.1 全文检索工具（v3.84.0，`ARGUS_CODESEARCH` 默认开）
 
-审查 agent（R3/R4/reviewer）额外获得 `search_code`：工作副本上的受控正则搜索（确定性、
-零 LLM），覆盖符号索引到不了的词法线索——字符串/配置/非 Go 代码。命中数、单文件大小、
-输出长度三重封顶，`.git`/vendor/node_modules/testdata 等目录自动排除；命中不等于结论，
-工具描述已声明"引用前须 get_file 核实"。
+审查 agent（R3/R4/reviewer）与 Q&A 引擎（v3.91.0）额外获得 `search_code`：工作副本上的
+受控正则搜索（确定性、零 LLM），覆盖符号索引到不了的词法线索——字符串/配置/非 Go 代码。
+命中数、单文件大小、输出长度三重封顶，`.git`/vendor/node_modules/testdata 等目录自动排除；
+命中不等于结论，工具描述已声明"引用前须 get_file 核实"。Q&A 冷克隆有 30s 预算，
+超时本轮静默收窄工具面（不拖首答）。
 
 ### 5.6 修复命令（v3.85.0，`ARGUS_FIX_AGENT` 启用）
 
