@@ -365,8 +365,16 @@ func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number str
 		})
 }
 
-// ListIssueComments 列 issue/PR 评论。
+// ListIssueComments 列 issue/PR 评论。v3.92.0：NoteManager（MR Notes API）
+// 优先——GitLab 的 MR 与 issue 是两个 iid 命名空间，IssueManager 的评论方法
+// 对 MR 必 404；GitHub/Gitea 等 issue 即 PR 的平台无 NoteManager，走原路。
 func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, number string) ([]*provider.IssueComment, error) {
+	if c, err := callIface(s, ctx, platform, "NoteManager",
+		func(ctx context.Context, nm provider.NoteManager) ([]*provider.IssueComment, error) {
+			return nm.ListNotes(ctx, owner, repo, number)
+		}); err == nil {
+		return c, nil
+	}
 	return callIface(s, ctx, platform, "IssueManager",
 		func(ctx context.Context, im provider.IssueManager) ([]*provider.IssueComment, error) {
 			return im.ListIssueComments(ctx, owner, repo, number)
@@ -402,14 +410,17 @@ func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, 
 	})
 }
 
-// UpdateIssueComment 更新总结评论（SDK v0.49.0 全后端可用，§7-7）。
-// 直接走 IssueManager.UpdateIssueComment；不走 DiffManager.CreateNote（那是新建，不是更新）。
-// v3.91.2 GitLab 降级：IssueManager.UpdateIssueComment 与 Create 同源地走 Issues
-// Notes API，对 MR 必 404（当年只特判了 Create——List/Update 漏改，GitLab 上
-// 同 head 重审每次新建、报告评论重复）。DiffManager 可用时原子换新：先
-// CreateNote 新评论、成功后 DeleteNote 旧评论——先建后删，建失败不动旧评论。
-// 返回新评论 ID，调用方据此回写缓存定位。
+// UpdateIssueComment 更新总结评论。v3.92.0 路由序：NoteManager（MR Notes
+// API，GitLab 真·原地更新）→ IssueManager（GitHub/Gitea 等 issue 即 PR 的
+// 平台）→ v3.91.2 的 DiffManager 原子换新兜底（先 CreateNote 后 DeleteNote，
+// 返回新 ID，调用方经 repointIfSwapped 回写缓存）。
 func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
+	if c, err := callIface(s, ctx, platform, "NoteManager",
+		func(ctx context.Context, nm provider.NoteManager) (*provider.IssueComment, error) {
+			return nm.UpdateNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10), body)
+		}); err == nil {
+		return c, nil
+	}
 	c, err := callIface(s, ctx, platform, "IssueManager",
 		func(ctx context.Context, im provider.IssueManager) (*provider.IssueComment, error) {
 			return im.UpdateIssueComment(ctx, owner, repo, number, commentID, body)
