@@ -164,7 +164,7 @@ type shimPayload struct {
 // writeHistory OCR 原始 stdout（嵌入为合法 JSON：原文本就是 JSON，异常时降级为
 // 字符串字段）+ 归一化 findings 落盘。文件名纳秒时间戳防同秒互覆。
 func writeHistory(dir string, p shimPayload, rawStdout string, findings []plugin.Finding) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		log.Printf("[warn] OCR 历史目录创建失败: %v", err)
 		return
 	}

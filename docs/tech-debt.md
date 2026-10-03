@@ -41,6 +41,13 @@
 - v3.102.0 工具 wire 契约单源：`codesearch.ToolIn/ToolOut`（search_code schema
   与 ToolDescription 同居）+ `plugin.ToolFileIn/ToolFileOut/ToolGetFileDesc`
   （get_file 描述此前两面措辞已漂移，取合并措辞为正）。deadcode -test 复扫归零。
+- v3.103.0 安全扫描收口：gosec G115（`int32(f.Line)` 饱和钳制 `clampInt32`）+
+  G301 两处（sandbox_verify/ocrshim 目录 0755→0750）。**误报裁定**：fixverifier
+  G703×3（resolveSafePath 前缀+EvalSymlinks 双侧校验可靠）、fix.go G304（上游
+  safeRelPath 拒绝 `..` 穿越，fileExcerpt 全部在其后调用）、G118 fix 独立回帖
+  ctx（v3.91.1 刻意）、G401 dream sha1（非安全 slug，换哈希会孤儿化既有记忆
+  文件）、其余 G304（config/env 派生根目录，by-design）。govulncheck 唯一
+  GO-2026-6505（otel otlptrace v1.25.0→v1.45.0）import 层未触达，留待依赖升级批。
 
 ## 复测方法
 

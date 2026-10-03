@@ -322,7 +322,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskRespo
 				by := f.By
 				resp.Findings = append(resp.Findings, &api.Finding{
 					File:     f.File,
-					Line:     int32(f.Line),
+					Line:     clampInt32(f.Line),
 					Severity: f.Severity,
 					Comment:  f.Comment,
 					By:       strPtr(by),

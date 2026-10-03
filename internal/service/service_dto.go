@@ -2,6 +2,8 @@
 package service
 
 import (
+	"math"
+
 	"fmt"
 
 	api "argus/biz/model/api"
@@ -59,6 +61,19 @@ func protocolToIDL(p plugin.Protocol) api.AgentProtocol {
 	default:
 		return api.AgentProtocol_NONE
 	}
+}
+
+// clampInt32 int → int32 饱和钳制。Finding.Line 存于自有 DB（ResultJSON）但
+// 内容源自插件/模型输出，垃圾大数直接截断会回绕成负行号污染 API 消费方
+// （gosec G115）。
+func clampInt32(n int) int32 {
+	if n < 0 {
+		return 0
+	}
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n)
 }
 
 // artifactsMaxBytes artifacts 序列化总量上限（16KB：正常注入面只有 testgen/

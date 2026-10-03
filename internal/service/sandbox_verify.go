@@ -119,7 +119,7 @@ func VerifyGenerated(ctx context.Context, cfg VerifyConfig, dir string,
 				Skipped: "工作副本已存在同名文件，未覆盖"})
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
 			results = append(results, VerifyResult{Path: rel,
 				Skipped: "目录创建失败: " + logredact.Redact(err.Error())})
 			continue
