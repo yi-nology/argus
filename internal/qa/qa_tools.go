@@ -20,11 +20,6 @@ import (
 )
 
 // qa 工具入出参（具名类型——InferTool 泛型推断需要）。
-type diffIn struct{}
-
-type diffOut struct {
-	Diff string `json:"diff,omitempty"`
-}
 
 type similarIn struct {
 	Keywords string `json:"keywords" jsonschema:"description=检索关键词（报错类型/模块名）"`
@@ -57,7 +52,7 @@ func searchManager(sdk *argusctx.SDKCtx, platform string) (provider.SearchManage
 func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string) ([]tool.BaseTool, string, error) {
 	getDiff, err := toolutils.InferTool("get_diff",
 		"获取本 PR 的完整 diff 文本（回答涉及具体代码改动的问题时使用）。",
-		func(ctx context.Context, _ *diffIn) (*diffOut, error) {
+		func(ctx context.Context, _ *plugin.ToolDiffIn) (*plugin.ToolDiffOut, error) {
 			md, err := e.SDK.GetCRDiff(ctx, platform, owner, repo, number)
 			if err != nil {
 				return nil, err
@@ -67,7 +62,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 				text = md.RawDiff
 			}
 			text = textutil.TruncNote(text, 30_000, "截断")
-			return &diffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
+			return &plugin.ToolDiffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
 		})
 	if err != nil {
 		return nil, "", err

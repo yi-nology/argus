@@ -145,13 +145,13 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 
 	getDiff, err = utils.InferTool("get_diff",
 		"重新获取本次 PR 的清洗后 diff 文本（当上下文中 diff 被截断时使用）。",
-		func(ctx context.Context, _ *emptyIn) (*getDiffOut, error) {
+		func(ctx context.Context, _ *plugin.ToolDiffIn) (*plugin.ToolDiffOut, error) {
 			if task.Diff != nil {
 				text := task.Diff.Text
 				text = textutil.TruncNote(text, diffMax, "截断")
-				return &getDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
+				return &plugin.ToolDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
 			}
-			return &getDiffOut{Diff: ""}, nil
+			return &plugin.ToolDiffOut{Diff: ""}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, err
@@ -359,14 +359,8 @@ type getIssueOut struct {
 	Error string `json:"error,omitempty"`
 }
 
-type emptyIn struct{}
-
 type getDetailIn struct {
 	Ref string `json:"ref" jsonschema:"description=截断提示中的详情编号"`
-}
-
-type getDiffOut struct {
-	Diff string `json:"diff"`
 }
 
 type symIn struct {

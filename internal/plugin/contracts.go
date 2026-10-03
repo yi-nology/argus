@@ -79,3 +79,12 @@ type ToolFileOut struct {
 	Content string `json:"content,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
+
+// ToolDiffIn/ToolDiffOut get_diff 工具入出参（v3.104.0 单源，此前
+// requirement/qa 各持同形 emptyIn+getDiffOut 与 diffIn+diffOut，omitempty
+// 漂移取无 omitempty 为正——diff 输出恒在场）。
+type ToolDiffIn struct{}
+
+type ToolDiffOut struct {
+	Diff string `json:"diff"`
+}

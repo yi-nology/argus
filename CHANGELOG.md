@@ -1,5 +1,53 @@
 # Changelog
 
+<!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
+     后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
+
+## v3.70.0 ~ v3.103.0（浓缩）
+
+- **v3.70.0** [fix/plugin] remote/mcp 对接 review-service mcp-server 编排契约
+- **v3.70.1** [fix/plugin] mcp-server 编排改异步轮询
+- **v3.71.0** [feat/writing] 写作面——describe PR 描述生成 + changelog 条目 + AGENTS.md 规则兼容
+- **v3.72.0** [feat/ci] CI 失败日志归因
+- **v3.73.0** [feat/observe] findings confidence 字段 + 按仓趋势指标
+- **v3.74.0** [feat/fix] 修复验证环
+- **v3.74.1** [feat/loop] 遗留三件收口
+- **v3.74.2** [fix/storage] 任务去重键补 kind
+- **v3.75.2** [fix/service] TaskAPI 入参校验收口
+- **v3.75.3** [fix/core] 深度代码审查七缺陷收口
+- **v3.76.0** [refactor/core] 全面精简第一批
+- **v3.77.0** [refactor/core] 下沉 agentkit 批
+- **v3.78.0** [refactor/core] codegraph 下沉 agentkit/codeintel
+- **v3.79.0** [refactor/core] unified diff 解析下沉 agentkit/diffx + firstNonEmpty 单源
+- **v3.80.0** [refactor/core] 工具链下沉 agentkit 批二 + 适配 v0.10.38 破坏式变更，依赖升 v0.10.39
+- **v3.81.0** [refactor/core] ekit 基建下沉批
+- **v3.82.0** [refactor/core] 引入库能力批
+- **v3.83.0** [chore/deps] 依赖升级——agentkit v0.11.1 + ekit v0.34.0
+- **v3.84.0** [feat/review] search_code 全文检索
+- **v3.85.0** [feat/fix] @argus fix 修复命令
+- **v3.86.0** [feat/audit] 审计面补 action
+- **v3.87.0** [feat/auth] RBAC 最小形态
+- **v3.88.0** [feat/api] GET /stats/overview 审查概览聚合
+- **v3.89.0** [feat/mcp] fix_finding 工具 + copilot fix 子命令 + IDE 接入文档
+- **v3.90.0** [feat/related] 跨仓契约快照
+- **v3.91.0** [feat/qa] Q&A 挂 search_code
+- **v3.91.1** [fix/patch] 巡查修复——fix 超时回帖独立 ctx + QA search_code 惰性化 + 沙箱孤儿回收
+- **v3.91.2** [fix/output] 输出产物深查修复
+- **v3.92.0** [feat/poster] GitLab 报告评论真·原地更新
+- **v3.93.0** [chore/deps] go-git-platform v0.67.2→v0.76.0 主线升级
+- **v3.94.0** [chore/deps] agentkit v0.11.1→v0.12.4
+- **v3.95.0** [refactor/reuse] 重复面单源收敛
+- **v3.96.0** [refactor/split] 大文件同包拆分
+- **v3.97.0** [refactor/dead] 死代码清偿
+- **v3.98.0** [refactor/methods] 长函数收口
+- **v3.99.0** [refactor/round5] Execute 收口 + 契约/条件单源 + 三文件再拆
+- **v3.100.0** [refactor/hygiene] 扫描收口——P1~P3 全清：工具描述单源 + 锁外刷新 + ctx 贯穿 + e2e 静默采样
+- **v3.101.0** [refactor/round6] config/stages/reflection 收口 + docs/tech-debt.md 剩余清单落档
+- **v3.102.0** [refactor/toolwire] 工具 wire 契约单源
+- **v3.103.0** [fix/security] gosec 扫描收口
+
+---
+
 ## v3.69.0 (2026-09-30) — qa 问答面 SDK+模型打桩全覆盖：8.9%→80.4%
 
 - **打桩面**（`qa_io_test.go`）：fakeModel（BaseChatModel 队列：按次回复/错误、
