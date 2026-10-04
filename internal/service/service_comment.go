@@ -184,8 +184,10 @@ func (s *Service) admitComment(ctx context.Context, ev *provider.NormalizedEvent
 	if !ok {
 		return commentMeta{}, false // 解析失败或非 PR 评论（系统注释/commit/普通 issue）
 	}
-	// bot 自身评论防循环
+	// bot 自身评论防循环（Info 留痕：静默丢弃曾让评论链路排查无从下手——
+	// "事件到没到、进了哪条路" 全靠推断）。
 	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+		s.log().Info("argus.comment.self_skipped", "author", ev.Actor.Username)
 		return commentMeta{}, false
 	}
 	if delivery != "" {
