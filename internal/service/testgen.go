@@ -8,11 +8,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/cloudwego/eino/schema"
-
-	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
 
 	"argus/internal/obs"
@@ -39,51 +35,33 @@ func extractTestGen(question string) (string, bool) {
 // handleTestGen 执行 testgen 命令：拉 diff（target 非空时只留命中文件）→ 单次 LLM → 回帖。
 // 配置了沙箱验证包装命令（ARGUS_TESTGEN_VERIFY_CMD）且工作副本可用时，产物经
 // 隔离执行编译验证并把结果段附进回帖；未配置保持「未经编译验证」声明。
+// 骨架走 runWritingCommand 模板。
 func (s *Service) handleTestGen(ctx context.Context, platform, owner, repo, number, prRef,
 	target, delivery string) {
-
-	mdl := s.replyModel()
-	if mdl == nil {
-		return
-	}
-	diffText, ok := s.prDiffText(ctx, platform, owner, repo, number)
-	if !ok {
-		s.postQAError(ctx, platform, owner, repo, number, "无法获取有效 diff，无法生成测试。")
-		return
-	}
-	if target != "" {
-		diffText = filterDiffByPath(diffText, target)
-		if strings.TrimSpace(diffText) == "" {
-			s.postQAError(ctx, platform, owner, repo, number,
-				"diff 中没有路径命中 \""+target+"\" 的变更文件，未生成测试。")
-			return
-		}
-	}
-
-	client := llm.NewClient(mdl, "", nil)
-	resp, err := client.Generate(ctx, "TESTGEN", []*schema.Message{
-		schema.SystemMessage(testgenSystem),
-		schema.UserMessage(plugin.DataFence("git diff（已清洗）", diffText) + "\n\n请生成单元测试骨架。"),
+	s.runWritingCommand(ctx, platform, owner, repo, number, prRef, delivery, writingSpec{
+		cmd:          "testgen",
+		diffFailText: "无法获取有效 diff，无法生成测试。",
+		failText:     "测试生成失败",
+		maxRunes:     testgenMaxRunes,
+		build: func(diff string) (string, string, string) {
+			if target != "" {
+				diff = filterDiffByPath(diff, target)
+				if strings.TrimSpace(diff) == "" {
+					return "", "", "diff 中没有路径命中 \"" + target + "\" 的变更文件，未生成测试。"
+				}
+			}
+			return testgenSystem,
+				plugin.DataFence("git diff（已清洗）", diff) + "\n\n请生成单元测试骨架。", ""
+		},
+		decorate: func(out string) string {
+			// 沙箱验证（v3.22.0）：配置了包装命令且工作副本可用才执行，结果段替代
+			// 「未经编译验证」声明；未配置/降级时声明保持（任何失败只降级，不阻断回帖）。
+			if section := s.sandboxVerify(ctx, platform, owner, repo, number, out); section != "" {
+				return out + section
+			}
+			return out + testgenFooter
+		},
 	})
-	if err != nil {
-		obs.IncrQAFailure("llm")
-		s.log().Error("argus.testgen.llm_failed", "pr", prRef, "error", err.Error())
-		s.postQAError(ctx, platform, owner, repo, number, "测试生成失败: "+err.Error())
-		return
-	}
-	out := strings.TrimSpace(resp.Content)
-	if t, truncated := textutil.TruncRunes(out, testgenMaxRunes); truncated {
-		out = t + "\n…（截断）"
-	}
-	// 沙箱验证（v3.22.0）：配置了包装命令且工作副本可用才执行，结果段替代
-	// 「未经编译验证」声明；未配置/降级时声明保持（任何失败只降级，不阻断回帖）。
-	if section := s.sandboxVerify(ctx, platform, owner, repo, number, out); section != "" {
-		out += section
-	} else {
-		out += testgenFooter
-	}
-	body := out + "\n\n<!-- argus:testgen delivery=" + delivery + " -->"
-	s.postCommentReply(ctx, platform, owner, repo, number, prRef, body, "testgen", len(out))
 }
 
 // sandboxVerify testgen 产物的隔离执行验证。返回附加到回帖的验证结果段

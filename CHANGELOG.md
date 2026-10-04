@@ -51,6 +51,7 @@
 - **v3.107.0** [refactor/nullobj] audit 空对象模式兑现——6 处冗余 nil 守卫清除 + ResultJSON findings 解码单源（两态语义钉测试）
 - **v3.108.0** [refactor/registry] mcpserver 工具注册公共底座——requireArgs 消 11 处样板 + taskView 投影单源 + fp 校验/缺省 kind 单源 + 包文档工具清单补齐
 - **v3.109.0** [refactor/factory] 建任务不变量工厂 storage.NewTask（4 处字面量收一）+ 去重原因 Dup* 词表 + progress 事件 Type 常量化 + webhook dupResp 回执模板
+- **v3.110.0** [refactor/template] describe/testgen 单轮写作命令模板方法 runWritingCommand——骨架单源差异走 spec 钩子，补六场景端到端打桩测试（此前零锚点）
 
 ---
 

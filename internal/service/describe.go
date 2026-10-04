@@ -7,13 +7,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/cloudwego/eino/schema"
-
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/textutil"
-
 	argusctx "argus/internal/context"
-	"argus/internal/obs"
 	"argus/internal/plugin"
 )
 
@@ -33,48 +27,28 @@ func extractDescribe(question string) (string, bool) {
 }
 
 // handleDescribe 执行 describe 命令：拉 diff →（词表标签提示）单次 LLM → 回帖。
-// 失败回帖错误说明（用户有感知），不静默。
+// 失败回帖错误说明（用户有感知），不静默。骨架走 runWritingCommand 模板。
 func (s *Service) handleDescribe(ctx context.Context, platform, owner, repo, number, prRef,
 	hint, delivery string) {
-
-	mdl := s.replyModel()
-	if mdl == nil {
-		return
-	}
-	diffText, ok := s.prDiffText(ctx, platform, owner, repo, number)
-	if !ok {
-		s.postQAError(ctx, platform, owner, repo, number, "无法获取有效 diff，无法生成变更说明。")
-		return
-	}
-
-	sys := describeSystem
-	if labels := s.describeLabelVocab(ctx, platform, owner, repo); len(labels) > 0 {
-		sys += "\n本仓库建议标签词表（只从中选择，多选或都不选均可）：\n" + strings.Join(labels, "\n")
-	} else {
-		sys += "\n仓库未提供标签词表：按变更性质自拟 1-3 个短标签（如 feature/bug/refactor/docs）。"
-	}
-
-	user := plugin.DataFence("git diff（已清洗）", diffText)
-	if hint != "" {
-		user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
-	}
-	client := llm.NewClient(mdl, "", nil)
-	resp, err := client.Generate(ctx, "DESCRIBE", []*schema.Message{
-		schema.SystemMessage(sys),
-		schema.UserMessage(user + "\n\n请生成 PR 变更说明。"),
+	s.runWritingCommand(ctx, platform, owner, repo, number, prRef, delivery, writingSpec{
+		cmd:          "describe",
+		diffFailText: "无法获取有效 diff，无法生成变更说明。",
+		failText:     "变更说明生成失败",
+		maxRunes:     describeMaxRunes,
+		build: func(diff string) (string, string, string) {
+			sys := describeSystem
+			if labels := s.describeLabelVocab(ctx, platform, owner, repo); len(labels) > 0 {
+				sys += "\n本仓库建议标签词表（只从中选择，多选或都不选均可）：\n" + strings.Join(labels, "\n")
+			} else {
+				sys += "\n仓库未提供标签词表：按变更性质自拟 1-3 个短标签（如 feature/bug/refactor/docs）。"
+			}
+			user := plugin.DataFence("git diff（已清洗）", diff)
+			if hint != "" {
+				user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
+			}
+			return sys, user + "\n\n请生成 PR 变更说明。", ""
+		},
 	})
-	if err != nil {
-		obs.IncrQAFailure("llm")
-		s.log().Error("argus.describe.llm_failed", "pr", prRef, "error", err.Error())
-		s.postQAError(ctx, platform, owner, repo, number, "变更说明生成失败: "+err.Error())
-		return
-	}
-	out := strings.TrimSpace(resp.Content)
-	if t, truncated := textutil.TruncRunes(out, describeMaxRunes); truncated {
-		out = t + "\n…（截断）"
-	}
-	body := out + "\n\n<!-- argus:describe delivery=" + delivery + " -->"
-	s.postCommentReply(ctx, platform, owner, repo, number, prRef, body, "describe", len(out))
 }
 
 // describeLabelVocab 仓库配置的 describe 标签词表（.reviewagents.yaml describe.labels；
