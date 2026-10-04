@@ -19,6 +19,3 @@ const (
 
 // IsKnownKind 建任务白名单判定（转发 domain 词表注册表）。
 func IsKnownKind(kind string) bool { return domain.IsKnownKind(kind) }
-
-// IsReviewKind 审查类任务判定（转发 domain 词表注册表）。
-func IsReviewKind(kind string) bool { return domain.IsReviewKind(kind) }

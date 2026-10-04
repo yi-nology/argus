@@ -53,6 +53,7 @@
 - **v3.109.0** [refactor/factory] 建任务不变量工厂 storage.NewTask（4 处字面量收一）+ 去重原因 Dup* 词表 + progress 事件 Type 常量化 + webhook dupResp 回执模板
 - **v3.110.0** [refactor/template] describe/testgen 单轮写作命令模板方法 runWritingCommand——骨架单源差异走 spec 钩子，补六场景端到端打桩测试（此前零锚点）
 - **v3.111.0** [refactor/dedup] 工具错误回注信封单源 plugin.ToolErrNote（qa/requirement 7 处标签字面量收一）+ search_code 双构造器合一 newSearchCodeTool
+- **v3.112.0** [test+docs] pollOnce 行为套件（poller 覆盖 15.5%→93.0%）+ plugin.IsReviewKind 死转发清偿 + tech-debt.md 全量续账（gosec 基线补档/GO-2026-6505 已清偿标记/新基线）
 
 ---
 
