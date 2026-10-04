@@ -22,23 +22,23 @@ func strPtrOrEmpty(s string) *string {
 
 // ---------- helpers ----------
 
+// kindIDLTable IDL 枚举 → 内部 kind 词表的映射注册表（canonical 词表见
+// domain/taskkind.go，经 plugin re-export）。新增任务类型时在此补一行映射。
+var kindIDLTable = map[api.TaskKind]string{
+	api.TaskKind_REQUIREMENT_COMPLIANCE: plugin.TaskKindRequirementCompliance,
+	api.TaskKind_CODE_REVIEW:            plugin.TaskKindCodeReview,
+	api.TaskKind_VISUAL_CHECK:           plugin.TaskKindVisualCheck,
+	api.TaskKind_DESCRIBE:               plugin.TaskKindDescribe,
+	api.TaskKind_CHANGELOG:              plugin.TaskKindChangelog,
+	api.TaskKind_CI_ANALYSIS:            plugin.TaskKindCIAnalysis,
+}
+
 func kindFromIDL(k api.TaskKind) (string, error) {
-	switch k {
-	case api.TaskKind_REQUIREMENT_COMPLIANCE:
-		return plugin.TaskKindRequirementCompliance, nil
-	case api.TaskKind_CODE_REVIEW:
-		return plugin.TaskKindCodeReview, nil
-	case api.TaskKind_VISUAL_CHECK:
-		return plugin.TaskKindVisualCheck, nil
-	case api.TaskKind_DESCRIBE:
-		return plugin.TaskKindDescribe, nil
-	case api.TaskKind_CHANGELOG:
-		return plugin.TaskKindChangelog, nil
-	case api.TaskKind_CI_ANALYSIS:
-		return plugin.TaskKindCIAnalysis, nil
-	default:
+	kind, ok := kindIDLTable[k]
+	if !ok {
 		return "", fmt.Errorf("未知任务类型 %d", int(k))
 	}
+	return kind, nil
 }
 
 func kindToIDL(k plugin.Kind) api.AgentKind {

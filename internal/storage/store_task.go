@@ -10,6 +10,8 @@ import (
 	"git.example.com/enjoydream/ekit/data/gormx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"argus/internal/domain"
 )
 
 // ResetRunningToPending 把心跳过期的 running 任务重置回 pending
@@ -72,13 +74,6 @@ func (s *Store) CreateTask(ctx context.Context, t *Task) error {
 
 // CreateTaskForWebhook 同步完成"同 SHA 去重检查 + 落库"（同一事务，§5.1 规则 4 的 TOCTOU 防线）。
 // 返回 dupReason 非空表示命中去重（"last_head_sha" | "in_flight"），existingID 给出可指向的任务。
-// isReviewKind 审查类任务（last_head_sha 去重语义的适用面）：R 系列审查三类。
-// 写作面（describe/changelog）与 ci_analysis 不适用——它们不写也不继承
-// LastHeadSHA，否则"MR 先审完、CI 再挂"时同 SHA 的归因任务会被误挡。
-func isReviewKind(kind string) bool {
-	return kind == "requirement_compliance" || kind == "code_review" || kind == "visual_check"
-}
-
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
 	s.writeLock()
 	defer s.writeUnlock()
@@ -96,7 +91,9 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err // 瞬时 DB 错误不能静默跳过去重检查
 		}
-		if err == nil && isReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
+		// 同 SHA 去重只对审查类任务生效（domain.IsReviewKind：写作面/ci_analysis
+		// 不写也不继承 LastHeadSHA，误挡会丢 CI 归因任务）。
+		if err == nil && domain.IsReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
 			dupReason = "last_head_sha"
 			return nil
 		}

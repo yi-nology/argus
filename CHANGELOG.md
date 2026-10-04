@@ -45,6 +45,9 @@
 - **v3.101.0** [refactor/round6] config/stages/reflection 收口 + docs/tech-debt.md 剩余清单落档
 - **v3.102.0** [refactor/toolwire] 工具 wire 契约单源
 - **v3.103.0** [fix/security] gosec 扫描收口
+- **v3.104.0** [refactor/toolwire] get_diff wire 契约单源 + 覆盖率基线
+- **v3.105.0** [chore/deps] otel otlptrace v1.25.0→v1.45.0（清偿 GO-2026-6505）
+- **v3.106.0** [refactor/registry] 任务 kind 词表下沉 domain 单源注册表——修 storage 裸字符串漂移，建任务白名单/IDL 映射表驱动
 
 ---
 

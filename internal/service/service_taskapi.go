@@ -27,10 +27,8 @@ func (s *Service) CreateTask(ctx context.Context, req *api.CreateTaskRequest) (*
 // CreateTaskDirect 核心建任务（kind 为字符串词表），供 handler 与 MCP server 共用。
 func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
 	artifacts map[string]string) (*api.CreateTaskResponse, int) {
-	switch kind {
-	case plugin.TaskKindRequirementCompliance, plugin.TaskKindCodeReview, plugin.TaskKindVisualCheck,
-		plugin.TaskKindDescribe, plugin.TaskKindChangelog, plugin.TaskKindCIAnalysis:
-	default:
+	// kind 白名单走 plugin 词表注册表单源（domain/taskkind.go canonical）。
+	if !plugin.IsKnownKind(kind) {
 		return nil, http.StatusBadRequest
 	}
 	if _, _, ok := s.requirePlatform(platform); !ok {
