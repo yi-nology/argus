@@ -16,8 +16,9 @@ import (
 // 此前 handleDescribe/handleTestGen 零直接测试锚点，模板抽取后以打桩端到端钉住
 // 骨架语义：回执体/marker/失败回帖/装饰段四类不变量。
 
-// writingFakePR 打桩平台：GetCRDiff 供 prDiffText，CreateIssueComment 捕获回帖；
-// 其余借嵌入 Provider 的方法集（本测试不应触达，触达即 panic 兜底）。
+// writingFakePR 打桩平台：GetCRDiff 供 prDiffText，CreateNote 捕获回帖
+// （SDKCtx 写路径的 DiffManager 优先）；其余借嵌入 Provider 的方法集
+// （本测试不应触达，触达即 panic 兜底）。
 type writingFakePR struct {
 	provider.Provider
 
@@ -33,14 +34,8 @@ func (f *writingFakePR) GetCRDiff(context.Context, string, string, string) (*pro
 // GetRepo 报错：describeLabelVocab 对失败降级（标签词表走"仓库未提供"分支），
 // 不覆盖则 nil 嵌入接口的晋升调用 panic。
 func (f *writingFakePR) GetRepo(context.Context, string, string) (*provider.PlatformRepo, error) {
-	return nil, errRepoStub
+	return nil, errReply("writing stub: no repo")
 }
-
-var errRepoStub = errorString("writing stub: no repo")
-
-type errorString string
-
-func (e errorString) Error() string { return string(e) }
 
 // CreateNote 覆盖 DiffManager 优先路径：SDKCtx.CreateIssueComment 的类型断言会
 // 命中嵌入接口晋升的方法集（宣告 DiffManager），不覆盖则 nil 嵌入值 panic。
@@ -49,13 +44,6 @@ func (f *writingFakePR) CreateNote(_ context.Context, _, _, _ string, body strin
 	defer f.mu.Unlock()
 	f.bodies = append(f.bodies, body)
 	return "123", nil
-}
-
-func (f *writingFakePR) CreateIssueComment(_ context.Context, _, _, _, _ string, body string) (*provider.IssueComment, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.bodies = append(f.bodies, body)
-	return &provider.IssueComment{}, nil
 }
 
 func (f *writingFakePR) posted() []string {

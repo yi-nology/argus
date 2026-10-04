@@ -172,7 +172,6 @@ type PRContext struct {
 	BaseBranch    string
 	HeadBranch    string
 	DefaultBranch string
-	IsDraft       bool
 	// EventType 触发本任务的平台事件（cr.opened/cr.synchronize/...；CLI 手动任务为空）。
 	// 供 Triggers.Events 匹配；空值视为不限制。
 	EventType string

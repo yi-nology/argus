@@ -70,6 +70,14 @@
 - v3.112.0 收口批：poller pollOnce 行为套件（15.5%→93.0%，含事件订阅时机坑——
   Bus 只投递发布时已在册的消费者）+ `plugin.IsReviewKind` 死转发删除（v3.106.0
   自引入、复扫 deadcode 抓获——storage 直连 domain 后转发无人消费）。
+- v3.113.0 冗余清偿批（无 -test deadcode 口径 + 全仓结构体字段/测试助手扫描）：
+  删 `qa.searchCodeToolFor`（只有测试在调的生产平行壳，测试改走 newSearchCodeTool
+  真构造器并升级为真实执行断言）/ `plugin.PRContext.IsDraft`（只写不读死字段，
+  draft 跳过语义在任务源层直读 cr.Draft）/ writingFakePR.CreateIssueComment 死
+  测试覆盖 + 同包 errorString 与 errReply 重复合并。**扫描结论**：config 115 字段
+  全有活消费（accessor 可达）、导出常量零死项、跨包重名函数仅 parseFindings（语义
+  不同非冗余）与 tail（7 行×2，按 noopLogger 先例不值得新开共享位）、测试助手全活、
+  无注释代码块。test-only 保留裁定维持：NewSDKCtxStubbed/testkit.Shq/LoadIndex。
 
 ## 复测方法
 

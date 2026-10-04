@@ -224,12 +224,3 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 		return dir
 	})
 }
-
-// searchCodeToolFor 绑定目录构造 search_code 工具（单测锚点；dir 为空返回
-// nil）。生产路径走 searchCodeTool（惰性）。
-func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
-	if dir == "" {
-		return nil
-	}
-	return e.newSearchCodeTool(func(context.Context) string { return dir })
-}

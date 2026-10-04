@@ -41,7 +41,6 @@ func (r *Runner) buildPRContext(ctx context.Context, task *storage.Task) (*plugi
 		BaseBranch:    cr.TargetBranch,
 		HeadBranch:    cr.SourceBranch,
 		DefaultBranch: repo.DefaultBranch,
-		IsDraft:       cr.Draft,
 		EventType:     task.EventType,
 	}, nil
 }
