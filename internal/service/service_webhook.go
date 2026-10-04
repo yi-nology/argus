@@ -252,10 +252,8 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", ev.CR.HeadSHA, "event_id", delivery)
-	if s.Audit != nil {
-		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
-			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
-	}
+	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
@@ -307,10 +305,8 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	}
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"kind", task.Kind, "head", task.HeadSHA, "event_id", delivery)
-	if s.Audit != nil {
-		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
-			"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
-	}
+	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }

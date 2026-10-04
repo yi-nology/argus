@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -152,17 +151,15 @@ func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any
 // Findings 结构化意见清单（fp/suggested_fix 直出，副驾免解析 markdown）。
 func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any, bool) {
 	task, err := s.Store.GetTask(ctx, taskID)
-	if err != nil || task.ResultJSON == "" {
+	if err != nil {
 		return nil, false
 	}
-	var payload struct {
-		Findings []plugin.Finding `json:"findings"`
-	}
-	if err := json.Unmarshal([]byte(task.ResultJSON), &payload); err != nil {
+	findings, ok := taskFindings(task.ResultJSON)
+	if !ok {
 		return nil, false
 	}
-	out := make([]map[string]any, 0, len(payload.Findings))
-	for _, f := range payload.Findings {
+	out := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
 		out = append(out, map[string]any{
 			"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
 			"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,

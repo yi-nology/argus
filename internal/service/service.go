@@ -51,7 +51,7 @@ const (
 // Service 门面：biz handler 只跟它说话。
 type Service struct {
 	Cfg       *config.Config
-	Audit     *audit.Logger // 审计日志（nil 安全）
+	Audit     *audit.Logger // 审计日志（nil 安全：Logger.Log 对 nil receiver no-op，调用处免判空）
 	Store     *storage.Store
 	SDK       *argusctx.SDKCtx
 	Registry  *plugin.Registry
@@ -223,14 +223,12 @@ func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery
 		"repos", repoNames,
 		"event_id", delivery,
 	)
-	if s.Audit != nil {
-		s.Audit.Log("github_app_installation",
-			"action", payload.Action,
-			"installation_id", payload.Installation.ID,
-			"account", payload.Installation.Account.Login,
-			"repos", repoNames,
-		)
-	}
+	s.Audit.Log("github_app_installation",
+		"action", payload.Action,
+		"installation_id", payload.Installation.ID,
+		"account", payload.Installation.Account.Login,
+		"repos", repoNames,
+	)
 	return &api.WebhookResponse{
 		Status:  "accepted",
 		Reason:  strPtr("installation event logged"),

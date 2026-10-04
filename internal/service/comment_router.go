@@ -185,10 +185,8 @@ func (s *Service) rerunReviewReply(ctx context.Context, platform, owner, repo, p
 		return "", fmt.Errorf("建审查任务失败（HTTP %d）", status)
 	}
 	s.log().Info("argus.comment.rerun", "pr", prRef, "task", resp.TaskId, "duplicated", resp.Duplicated)
-	if s.Audit != nil {
-		s.Audit.Log(auditTaskCreate, "task_id", resp.TaskId, "source", "comment:review",
-			"owner", owner, "repo", repo, "number", prNum)
-	}
+	s.Audit.Log(auditTaskCreate, "task_id", resp.TaskId, "source", "comment:review",
+		"owner", owner, "repo", repo, "number", prNum)
 	// v3.8.0：命中在飞任务时如实回执，不再谎报"新一轮已开始"
 	if resp.Duplicated {
 		return "> " + question + "\n\n已收到重新审查请求。该 PR 已有审查在进行中（任务 `" + resp.TaskId +

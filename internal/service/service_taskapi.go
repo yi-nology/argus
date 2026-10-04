@@ -216,11 +216,9 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 	}
 	s.log().Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
-	if s.Audit != nil {
-		s.Audit.Log(auditFindingSuppress,
-			"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
-			"file", file, "fingerprint", fp[:8], "matched", matched)
-	}
+	s.Audit.Log(auditFindingSuppress,
+		"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
+		"file", file, "fingerprint", fp[:8], "matched", matched)
 	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
@@ -311,21 +309,16 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskRespo
 	if task.Report != "" {
 		resp.Report = strPtr(task.Report)
 	}
-	if task.ResultJSON != "" {
-		var payload struct {
-			Findings []plugin.Finding `json:"findings"`
-		}
-		if err := json.Unmarshal([]byte(task.ResultJSON), &payload); err == nil {
-			for _, f := range payload.Findings {
-				by := f.By
-				resp.Findings = append(resp.Findings, &api.Finding{
-					File:     f.File,
-					Line:     clampInt32(f.Line),
-					Severity: f.Severity,
-					Comment:  f.Comment,
-					By:       strPtr(by),
-				})
-			}
+	if findings, ok := taskFindings(task.ResultJSON); ok {
+		for _, f := range findings {
+			by := f.By
+			resp.Findings = append(resp.Findings, &api.Finding{
+				File:     f.File,
+				Line:     clampInt32(f.Line),
+				Severity: f.Severity,
+				Comment:  f.Comment,
+				By:       strPtr(by),
+			})
 		}
 	}
 	if task.DebugJSON != "" {

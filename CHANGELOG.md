@@ -48,6 +48,7 @@
 - **v3.104.0** [refactor/toolwire] get_diff wire 契约单源 + 覆盖率基线
 - **v3.105.0** [chore/deps] otel otlptrace v1.25.0→v1.45.0（清偿 GO-2026-6505）
 - **v3.106.0** [refactor/registry] 任务 kind 词表下沉 domain 单源注册表——修 storage 裸字符串漂移，建任务白名单/IDL 映射表驱动
+- **v3.107.0** [refactor/nullobj] audit 空对象模式兑现——6 处冗余 nil 守卫清除 + ResultJSON findings 解码单源（两态语义钉测试）
 
 ---
 

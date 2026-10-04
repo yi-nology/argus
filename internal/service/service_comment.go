@@ -312,9 +312,7 @@ func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, p
 	}
 	s.publishCommentReplied("ok", platform, owner, repo, prNum)
 	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
-	if s.Audit != nil {
-		s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
-	}
+	s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
 }
 
 // extractQuestion 从评论正文提取 @argus ask 后面的问题文本。
