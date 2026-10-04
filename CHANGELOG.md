@@ -59,6 +59,7 @@
 - **v3.114.1** [obs/comment] bot 自评论防循环补 Info 留痕（argus.comment.self_skipped）——静默丢弃曾阻塞评论链路排查
 - **v3.115.0** [fix/comment] 评论词表扩全平台 canonical——SDK v0.72+ 七后端统一 comment.created（gitlab/github/gitea/gitee/forgejo/gitcode/tencentcode），v3.114.0 只救了 GitLab；parseCommentMeta canonical 分支直取归一化结构（Comment/CR）不再重解 RawPayload，issue_comment/cr.note 旧词表保留兼容；排查结论=go-git-platform 仓本身健康（七后端词表一致/测试绿/vendor 同步），系 argus 消费侧滞后
 - **v3.116.0** [build+fix] 删除 vendor/（206MB gitignore 残留）转模块模式——replace 转活即暴露 acpx 手抄 switch 与 agentkit v0.13.0 断裂（NewMinimax→NewMcode，minimax-code CLI 自发布起不存在）；构造器单源 acpx.NewRegistry 委派 + bins minimax→mcode + 词表对齐回归测试
+- **v3.117.0** [build] 去掉 agentkit/go-git-platform 双 replace → 正式版本钉定（agentkit v0.13.0 / go-git-platform v0.76.0，两仓 tag 已在远端无需新发）；兄弟仓改名隔离测试通过——构建零本地依赖，CI/他机自包含
 
 ---
 
