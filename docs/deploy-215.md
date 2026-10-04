@@ -29,7 +29,7 @@ FROM 旧镜像继承 /app/skills、git、ca-certificates——基底镜像拉不
 
 ```bash
 ssh 215 'docker tag argus:v<旧ver>-215 argus:rollback-$(date +%Y%m%d)
-  docker inspect argus --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^(ARGUS_|OPENAI_)" > /opt/argus/argus.env
+  docker inspect argus --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^(ARGUS_|OPENAI_|REVIEW_TOKEN)" > /opt/argus/argus.env
   docker stop argus
   cp /opt/argus/data/argus.db /opt/argus/data/argus.db.bak-<旧ver>-$(date +%Y%m%d)
   docker rm argus
@@ -46,6 +46,8 @@ ssh 215 'docker tag argus:v<旧ver>-215 argus:rollback-$(date +%Y%m%d)
 
 `--network 1panel-network` 勿漏（默认 bridge 断内网 DNS/sink，2026-09-20 教训）；
 `--add-host` 勿漏（0926 DNS 修复）；挂载/参数以 docker inspect 实拍为准逐项复刻。
+**env 导出模式必须含裸名 `REVIEW_TOKEN`**（2026-10-04 实测：`^(ARGUS_|OPENAI_)`
+过滤会把它滤掉、每次部署复现 §4 漂移——review-service 插件静默禁用）。
 
 ## 3. 验证面
 
