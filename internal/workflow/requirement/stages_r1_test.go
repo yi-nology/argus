@@ -11,8 +11,9 @@ import (
 
 	"git.example.com/enjoydream/ekit/observability/logx"
 
-	"argus/internal/plugin"
 	"git.example.com/enjoydream/agentkit/llm"
+
+	"argus/internal/plugin"
 )
 
 // ---------- 测试基建：假模型 + 空 logger（复用 worker_test 的 nopLogger 形态） ----------

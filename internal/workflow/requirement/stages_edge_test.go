@@ -9,8 +9,9 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"argus/internal/plugin"
 	"git.example.com/enjoydream/agentkit/llm"
+
+	"argus/internal/plugin"
 )
 
 // fakeModel 通用假模型：按 system prompt 前缀路由响应。
