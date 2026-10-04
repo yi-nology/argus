@@ -32,37 +32,23 @@ import (
 // ErrBinaryMissing agent 可执行文件不存在（插件停用而非报错启动）。
 var ErrBinaryMissing = fmt.Errorf("acpx agent 可执行文件不存在")
 
-// bins 词表：agent 名 → CLI 二进制（LookPath 探测用，与 acpx 预设一一对应）。
+// bins 词表：agent 名 → CLI 二进制（LookPath 探测用，与 acpx 预设一一对应；
+// 未收录的名字回退用 agent 名本身探测）。注意 minimax 的 CLI 是 mcode
+// （agentkit v0.13.0：旧 minimax-code 是自发布起就不存在的命令）。
 var bins = map[string]string{
 	"claude": "claude", "zcode": "zcode", "codex": "codex",
-	"opencode": "opencode", "minimax": "minimax-code", "kimi": "kimi",
+	"opencode": "opencode", "minimax": "mcode", "kimi": "kimi",
 	"gemini": "gemini", "qwen": "qwen", "mimo": "mimo",
 }
 
-// newAgent 按名构造 acpx Agent（与 acpx.NewRegistry 的缺省集一致）。
+// agentRegistry acpx 缺省注册表（单源 SDK 构造器词表）：此前手抄 switch 与
+// SDK 并行演化，agentkit v0.13.0 NewMinimax→NewMcode 改名即编译断——删
+// vendor 后 replace 转活才暴露。pi/dsh 等新增 agent 经此自动可用，无需改本包。
+var agentRegistry = acpx.NewRegistry()
+
+// newAgent 按名取 acpx Agent（acpx.NewRegistry 缺省 11 家；未注册返回 false）。
 func newAgent(name string) (acpx.Agent, bool) {
-	switch name {
-	case "claude":
-		return acpx.NewClaudeCode(), true
-	case "zcode":
-		return acpx.NewZCode(), true
-	case "codex":
-		return acpx.NewCodex(), true
-	case "opencode":
-		return acpx.NewOpenCode(), true
-	case "minimax":
-		return acpx.NewMinimax(), true
-	case "kimi":
-		return acpx.NewKimi(), true
-	case "gemini":
-		return acpx.NewGemini(), true
-	case "qwen":
-		return acpx.NewQwen(), true
-	case "mimo":
-		return acpx.NewMimo(), true
-	default:
-		return nil, false
-	}
+	return agentRegistry.Get(name)
 }
 
 // Plugin acpx 专家审查插件。
