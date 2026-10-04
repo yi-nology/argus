@@ -113,7 +113,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 		func(ctx context.Context, in *plugin.ToolFileIn) (*plugin.ToolFileOut, error) {
 			content, err := w.SDK.GetFileContent(ctx, pr.Platform, pr.Owner, pr.Repo, in.Path, pr.HeadSHA)
 			if err != nil {
-				return &plugin.ToolFileOut{Error: plugin.ReminderNote("tool-error", err.Error())}, nil // 工具错误回注文本（提醒信封），不中断 ReAct
+				return &plugin.ToolFileOut{Error: plugin.ToolErrNote(err)}, nil // 工具错误回注文本（提醒信封），不中断 ReAct
 			}
 			// 逐行加行号（深挖 P0）：证据门要求 file:line 定位，而无行号的原文等于
 			// 逼模型凭空编行号。行号前缀先于截断，保证已见行号真实可查。
@@ -133,7 +133,7 @@ func (w *Workflow) r3RepoTools(ctx context.Context, task plugin.Task, pr plugin.
 		func(ctx context.Context, in *getIssueIn) (*getIssueOut, error) {
 			issue, err := w.SDK.GetIssue(ctx, pr.Platform, pr.Owner, pr.Repo, in.Number)
 			if err != nil {
-				return &getIssueOut{Error: plugin.ReminderNote("tool-error", err.Error())}, nil
+				return &getIssueOut{Error: plugin.ToolErrNote(err)}, nil
 			}
 			body := textutil.TruncNote(issue.Body, issueMax, "截断")
 			// 标题+正文一起进数据区（两者都攻击者可控）
@@ -252,7 +252,7 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 			res, err := codesearch.Search(ctx, w.CodeSearchDir, in.Pattern,
 				codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 			if err != nil {
-				return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", err.Error())}, nil
+				return &codesearch.ToolOut{Result: plugin.ToolErrNote(err)}, nil
 			}
 			return &codesearch.ToolOut{Result: DataFence("search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
 		})

@@ -77,7 +77,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 			}
 			content, ferr := e.SDK.GetFileContent(ctx, platform, owner, repo, in.Path, ref)
 			if ferr != nil {
-				return &plugin.ToolFileOut{Error: plugin.ReminderNote("tool-error", ferr.Error())}, nil // 工具错误回注（提醒信封），不中断 ReAct
+				return &plugin.ToolFileOut{Error: plugin.ToolErrNote(ferr)}, nil // 工具错误回注（提醒信封），不中断 ReAct
 			}
 			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
 			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
@@ -105,7 +105,7 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 					Query: in.Keywords, Repo: owner + "/" + repo, PerPage: 10,
 				})
 				if serr != nil {
-					return &similarOut{Error: plugin.ReminderNote("tool-error", serr.Error())}, nil
+					return &similarOut{Error: plugin.ToolErrNote(serr)}, nil
 				}
 				items := make([]similarItem, 0, len(res))
 				for _, r := range res {
@@ -184,31 +184,22 @@ func searchCodeExec(ctx context.Context, dir string, in *codesearch.ToolIn) *cod
 	res, serr := codesearch.Search(ctx, dir, in.Pattern,
 		codesearch.Options{Globs: codesearch.NormalizeGlobs(in.Glob), IgnoreCase: in.IgnoreCase})
 	if serr != nil {
-		return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", serr.Error())}
+		return &codesearch.ToolOut{Result: plugin.ToolErrNote(serr)}
 	}
 	text, _ := textutil.TruncRunes(res.Render(), 4000)
 	return &codesearch.ToolOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}
 }
 
-// searchCodeTool 惰性构造 search_code 工具（v3.91.1）：目录解析（含冷克隆
-// 30s 预算）推迟到工具首调，构造期零成本；解析失败时调用返回工具错误文本
-// （ReAct 面自然降级，与其他工具错误同型）。
-func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseTool {
-	var once sync.Once
-	var dir string
-	resolve := func(ctx context.Context) string {
-		once.Do(func() {
-			if d, ok := e.workcopyDir(ctx, platform, owner, repo, number); ok {
-				dir = d
-			}
-		})
-		return dir
-	}
+// newSearchCodeTool search_code 构造单源（v3.111.0，惰性/绑定目录两形态唯一
+// 差异是目录解析时机，fetch 给出目录；空=不可用，返回工具降级文案而非 error——
+// ReAct 面自然收窄，与其他工具错误同型）。检索/错误回执/截断语义在
+// searchCodeExec 统一。
+func (e *Engine) newSearchCodeTool(fetch func(ctx context.Context) string) tool.BaseTool {
 	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
 		func(ctx context.Context, in *codesearch.ToolIn) (*codesearch.ToolOut, error) {
-			d := resolve(ctx)
+			d := fetch(ctx)
 			if d == "" {
-				return &codesearch.ToolOut{Result: plugin.ReminderNote("tool-error", "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
+				return &codesearch.ToolOut{Result: plugin.ReminderNote(plugin.NoteToolError, "工作副本不可用（冷克隆超时或失败），本轮无法全文检索，请改用 get_file 按路径核实")}, nil
 			}
 			return searchCodeExec(ctx, d, in), nil
 		})
@@ -219,19 +210,26 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 	return st
 }
 
+// searchCodeTool 惰性构造 search_code 工具（v3.91.1）：目录解析（含冷克隆
+// 30s 预算）推迟到工具首调，构造期零成本。
+func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseTool {
+	var once sync.Once
+	var dir string
+	return e.newSearchCodeTool(func(ctx context.Context) string {
+		once.Do(func() {
+			if d, ok := e.workcopyDir(ctx, platform, owner, repo, number); ok {
+				dir = d
+			}
+		})
+		return dir
+	})
+}
+
 // searchCodeToolFor 绑定目录构造 search_code 工具（单测锚点；dir 为空返回
 // nil）。生产路径走 searchCodeTool（惰性）。
 func (e *Engine) searchCodeToolFor(dir string) tool.BaseTool {
 	if dir == "" {
 		return nil
 	}
-	st, err := toolutils.InferTool("search_code", codesearch.ToolDescription,
-		func(ctx context.Context, in *codesearch.ToolIn) (*codesearch.ToolOut, error) {
-			return searchCodeExec(ctx, dir, in), nil
-		})
-	if err != nil {
-		e.log().Warn("argus.qa.search_tool_build_failed", "error", err.Error())
-		return nil
-	}
-	return st
+	return e.newSearchCodeTool(func(context.Context) string { return dir })
 }

@@ -11,6 +11,16 @@ import "regexp"
 // 文件内容里伪造系统指令的路径被关闭。
 var nestedReminderRe = regexp.MustCompile(`(?i)<\s*/?\s*system-reminder`)
 
+// NoteToolError 工具错误回注的 kind 标签（v3.111.0 常量化：qa/requirement
+// 两包 7 处裸字面量，标签漂移会分裂 ReAct 面的错误识别口径）。
+const NoteToolError = "tool-error"
+
+// ToolErrNote 工具执行失败的回注信封单源（提醒注记，调用方以 nil error 返回
+// 不中断 ReAct——工具失败是给模型看的数据，不是给框架看的异常）。
+func ToolErrNote(err error) string {
+	return ReminderNote(NoteToolError, err.Error())
+}
+
 // ReminderNote 生成系统提醒信封。kind 为短标签（loop-anomaly/retry-feedback 等），
 // body 为提醒正文（内嵌 system-reminder 标签一律转义中和）。
 func ReminderNote(kind, body string) string {
