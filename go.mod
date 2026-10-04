@@ -3,7 +3,7 @@ module argus
 go 1.26.3
 
 require (
-	git.example.com/enjoydream/agentkit v0.0.0-00010101000000-000000000000
+	git.example.com/enjoydream/agentkit v0.13.0
 	git.example.com/enjoydream/ekit v0.34.0
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.21
@@ -193,7 +193,3 @@ require (
 )
 
 replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
-
-replace github.com/yi-nology/go-git-platform => ../../go-git-platform
-
-replace git.example.com/enjoydream/agentkit => ../agentkit

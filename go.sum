@@ -3,6 +3,8 @@ codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 h1:s2fK+FBwvcYsmKDjNhmoe7B8
 codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0/go.mod h1:Is2jTpS1dizeXm4skQv/ES3QVqnzcNhn2GzZXpiw9f8=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+git.example.com/enjoydream/agentkit v0.13.0 h1:FB23maaoybbqPkRqFPV47zzounQhdJrFodhSDO04tP8=
+git.example.com/enjoydream/agentkit v0.13.0/go.mod h1:cdKUoL99h9TihvFmSP18T2pIK1F3kybIeOKW6O9fdsI=
 git.example.com/enjoydream/ekit v0.34.0 h1:LVVBul1QzaLbywUod9GZxahOQfS+LPzsj8HZKVQn8OA=
 git.example.com/enjoydream/ekit v0.34.0/go.mod h1:JNOmCoNp0wnFYa9UeSQqLJjQspSMFslkUiYl2CCKr2c=
 gitea.dev/sdk v1.3.0 h1:4U95+Ou6WHCQiRPDEyAzvl1Q7cxg5RUTWkqmOXr5w4I=
@@ -584,6 +586,8 @@ github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:
 github.com/yalp/jsonpath v0.0.0-20180802001716-5cc68e5049a0/go.mod h1:/LWChgwKmvncFJFHJ7Gvn9wZArjbV5/FppcK2fKk/tI=
 github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
+github.com/yi-nology/go-git-platform v0.76.0 h1:+h1LPvhPf/eEBfk7omMav1t57aukM9/q5Jp4mv/W0t0=
+github.com/yi-nology/go-git-platform v0.76.0/go.mod h1:Y7j9TsmBgnykLbUtFPwXT7P2ZCUyhKjeZvSOvxVcG7M=
 github.com/yi-nology/go-gitcode v0.7.2 h1:ULEoYgRzhLXBlvZAfj7/9yP9F9pTqHL5vpNebiZcSr8=
 github.com/yi-nology/go-gitcode v0.7.2/go.mod h1:YE9snaa9ChVY7FoPj/4huVDkVNJaI/gpxHcWgNNGYls=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
