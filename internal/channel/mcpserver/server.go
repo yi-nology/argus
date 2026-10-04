@@ -1,10 +1,12 @@
 // Package mcpserver L1/L2 门面：Argus as MCP Server（design §9.2 方向 B，v3.1 实装）。
 // 把 Argus 的审查能力以 MCP 工具暴露给任意 MCP 客户端（review-service、agent 工具链等）：
 //
-//	review_pr               发起审查（可选等待终态，返回 verdict 与完整报告）
-//	requirement_compliance  同 review_pr，kind 固定为需求复核
-//	list_agents             插件清单/仓库配置视图
-//	get_report              按 taskId 取报告
+//	review_pr / requirement_compliance  发起审查（可选等待终态，返回 verdict 与完整报告）
+//	review_diff                          本地 staged diff 预审（v3.74.1）
+//	ask_argus                            最新审查结论问答（v3.3 P5）
+//	get_report                           按 taskId 取报告
+//	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
+//	fix_finding                          沙箱修复（v3.89.0，唯一写侧工具）
 //
 // 传输：mark3labs/mcp-go streamable http，经 Hertz 桥接挂在 /mcp（GET/POST/DELETE），
 // 鉴权与 🔒 路由一致（Bearer）。与 toolpool（方向 A：我们调用别人）分层不同，不合流。
@@ -54,7 +56,7 @@ func New(core Core, version string) *server.MCPServer {
 		server.WithToolCapabilities(false),
 	)
 	s.AddTool(reviewPrTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		kind := argString(req, "kind", "requirement_compliance")
+		kind := argString(req, "kind", defaultReviewKind)
 		return runReview(ctx, core, req, kind)
 	})
 	// review_diff（v3.74.1）：本地 staged diff 预审（argus-copilot review 子命令
@@ -79,7 +81,7 @@ func New(core Core, version string) *server.MCPServer {
 		})
 	}
 	s.AddTool(requirementComplianceTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return runReview(ctx, core, req, "requirement_compliance")
+		return runReview(ctx, core, req, defaultReviewKind)
 	})
 	s.AddTool(listAgentsTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		data := core.ListAgents(ctx,
@@ -91,27 +93,15 @@ func New(core Core, version string) *server.MCPServer {
 		return mcp.NewToolResultText(string(b)), nil
 	})
 	s.AddTool(getReportTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		taskID, err := req.RequireString("task_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		vals, rerr := requireArgs(req, "task_id")
+		if rerr != nil {
+			return rerr, nil
 		}
-		t, code := core.GetTask(ctx, taskID)
+		t, code := core.GetTask(ctx, vals[0])
 		if code != http.StatusOK {
 			return mcp.NewToolResultError(fmt.Sprintf("查询失败（HTTP %d）", code)), nil
 		}
-		out := map[string]any{
-			"task_id": t.TaskId, "status": t.Status,
-		}
-		if t.Verdict != nil {
-			out["verdict"] = *t.Verdict
-		}
-		if t.Report != nil {
-			out["report"] = *t.Report
-		}
-		if t.FailReason != nil {
-			out["fail_reason"] = *t.FailReason
-		}
-		b, _ := json.MarshalIndent(out, "", "  ")
+		b, _ := json.MarshalIndent(taskView(t), "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
 	s.AddTool(askArgusTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -121,22 +111,11 @@ func New(core Core, version string) *server.MCPServer {
 		}
 		// 必填校验（深挖修复）：schema 标了 Required 但此前漏传静默回空串，
 		// 空参查询被伪装成"该 PR 尚无审查记录"，客户端装配错误无从排查。
-		platform, err := req.RequireString("platform")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		vals, rerr := requireArgs(req, "platform", "owner", "repo", "number")
+		if rerr != nil {
+			return rerr, nil
 		}
-		owner, err := req.RequireString("owner")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		repo, err := req.RequireString("repo")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		number, err := req.RequireString("number")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+		platform, owner, repo, number := vals[0], vals[1], vals[2], vals[3]
 		for _, r := range number { // PR 序号必须纯数字（与 service.isDigits 同口径）
 			if r < '0' || r > '9' {
 				return mcp.NewToolResultError("number 必须为纯数字 PR 序号"), nil
@@ -215,13 +194,9 @@ func getReportTool() mcp.Tool {
 
 // runReview 建任务 →（可选）轮询至终态 → 结构化结论。
 func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind string) (*mcp.CallToolResult, error) {
-	argv := map[string]string{}
-	for _, k := range []string{"platform", "owner", "repo", "number"} {
-		v, err := req.RequireString(k)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		argv[k] = v
+	vals, rerr := requireArgs(req, "platform", "owner", "repo", "number")
+	if rerr != nil {
+		return rerr, nil
 	}
 	wait := true
 	if b, ok := req.GetArguments()["wait"].(bool); ok {
@@ -237,7 +212,7 @@ func runReview(ctx context.Context, core Core, req mcp.CallToolRequest, kind str
 		timeout = maxWaitTimeout
 	}
 
-	created, code := core.CreateTaskDirect(ctx, kind, argv["platform"], argv["owner"], argv["repo"], argv["number"], nil)
+	created, code := core.CreateTaskDirect(ctx, kind, vals[0], vals[1], vals[2], vals[3], nil)
 	if code != http.StatusOK {
 		return mcp.NewToolResultError(fmt.Sprintf("创建任务失败（HTTP %d），检查平台是否接入/参数是否合法", code)), nil
 	}
@@ -295,13 +270,7 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 
 // renderTerminalTask done/stale 终态的结构化输出（verdict/report 必带，note 按态填写）。
 func renderTerminalTask(t *api.GetTaskResponse, noteField string) *mcp.CallToolResult {
-	out := map[string]any{"task_id": t.TaskId, "status": t.Status}
-	if t.Verdict != nil {
-		out["verdict"] = *t.Verdict
-	}
-	if t.Report != nil {
-		out["report"] = *t.Report
-	}
+	out := taskView(t)
 	if noteField == "note" {
 		out["note"] = "审查完成但已有更新的提交，报告未回帖（staleness）"
 	}
@@ -312,7 +281,51 @@ func renderTerminalTask(t *api.GetTaskResponse, noteField string) *mcp.CallToolR
 // maxWaitTimeout review_pr 等待终态的时长上界。
 const maxWaitTimeout = 10 * time.Minute
 
-// argString 取可选字符串参数。
+// defaultReviewKind review_pr 缺省审查类型（与 requirement_compliance 工具、
+// schema enum 同词表；本文件此前 4 处字面量散写）。
+const defaultReviewKind = "requirement_compliance"
+
+// requireArgs 按序取必填字符串参数，任一缺失即错误结果（schema Required 的
+// 运行期复核——此前逐参样板在本包 11 处复读）。
+func requireArgs(req mcp.CallToolRequest, keys ...string) ([]string, *mcp.CallToolResult) {
+	vals := make([]string, len(keys))
+	for i, k := range keys {
+		v, err := req.RequireString(k)
+		if err != nil {
+			return nil, mcp.NewToolResultError(err.Error())
+		}
+		vals[i] = v
+	}
+	return vals, nil
+}
+
+// taskView GetTaskResponse → 工具输出投影单源（get_report 与 pollReviewTask
+// 终态渲染共用）：task_id/status 恒带，verdict/report/fail_reason 非空才带；
+// 终态任务 FailReason 恒空，故对轮询渲染输出无形变。
+func taskView(t *api.GetTaskResponse) map[string]any {
+	out := map[string]any{"task_id": t.TaskId, "status": t.Status}
+	if t.Verdict != nil {
+		out["verdict"] = *t.Verdict
+	}
+	if t.Report != nil {
+		out["report"] = *t.Report
+	}
+	if t.FailReason != nil {
+		out["fail_reason"] = *t.FailReason
+	}
+	return out
+}
+
+// 指纹短码合法长度与共享错误文案（get_suggestion / fix_finding 同口径）。
+const (
+	fpShortMin, fpShortMax = 6, 64
+	fpShortMsg             = "fp 须为报告中的指纹短码（6-64 位十六进制）"
+)
+
+// validFPShort 指纹短码校验。
+func validFPShort(fp string) bool { return len(fp) >= fpShortMin && len(fp) <= fpShortMax }
+
+// askArgusTool ask_argus 工具 schema。
 func askArgusTool() mcp.Tool {
 	return mcp.NewTool("ask_argus",
 		mcp.WithDescription("查询 Argus 对某 MR/PR 的最新审查结论（verdict + findings + 报告摘录）；"+
@@ -325,6 +338,7 @@ func askArgusTool() mcp.Tool {
 	)
 }
 
+// argString 取可选字符串参数。
 func argString(req mcp.CallToolRequest, key, def string) string {
 	if v, ok := req.GetArguments()[key].(string); ok && v != "" {
 		return v

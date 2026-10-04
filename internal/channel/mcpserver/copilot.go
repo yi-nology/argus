@@ -35,40 +35,36 @@ func NewCopilotTools(s *server.MCPServer, core Core) {
 		return
 	}
 	s.AddTool(taskStagesTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		taskID, err := req.RequireString("task_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		vals, rerr := requireArgs(req, "task_id")
+		if rerr != nil {
+			return rerr, nil
 		}
-		data, ok := cop.TaskStages(ctx, taskID)
+		data, ok := cop.TaskStages(ctx, vals[0])
 		if !ok {
-			return mcp.NewToolResultError("任务不存在: " + taskID), nil
+			return mcp.NewToolResultError("任务不存在: " + vals[0]), nil
 		}
 		return marshalToolResult(data)
 	})
 	s.AddTool(listFindingsTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		taskID, err := req.RequireString("task_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		vals, rerr := requireArgs(req, "task_id")
+		if rerr != nil {
+			return rerr, nil
 		}
-		data, ok := cop.Findings(ctx, taskID)
+		data, ok := cop.Findings(ctx, vals[0])
 		if !ok {
-			return mcp.NewToolResultError("任务不存在: " + taskID), nil
+			return mcp.NewToolResultError("任务不存在: " + vals[0]), nil
 		}
 		return marshalToolResult(data)
 	})
 	s.AddTool(getSuggestionTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		taskID, err := req.RequireString("task_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		vals, rerr := requireArgs(req, "task_id", "fp")
+		if rerr != nil {
+			return rerr, nil
 		}
-		fp, err := req.RequireString("fp")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if !validFPShort(vals[1]) {
+			return mcp.NewToolResultError(fpShortMsg), nil
 		}
-		if len(fp) < 6 || len(fp) > 64 {
-			return mcp.NewToolResultError("fp 须为报告中的指纹短码（6-64 位十六进制）"), nil
-		}
-		data, ok := cop.Suggestion(ctx, taskID, strings.ToLower(fp))
+		data, ok := cop.Suggestion(ctx, vals[0], strings.ToLower(vals[1]))
 		if !ok {
 			return mcp.NewToolResultText("未命中该指纹短码，请核对 list_findings 返回的 fp 后重试。"), nil
 		}
@@ -112,18 +108,14 @@ func NewFixerTool(s *server.MCPServer, core Core) {
 		return
 	}
 	s.AddTool(fixFindingTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var argv [5]string
-		for i, k := range []string{"platform", "owner", "repo", "number", "fp"} {
-			v, err := req.RequireString(k)
-			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-			argv[i] = v
+		vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "fp")
+		if rerr != nil {
+			return rerr, nil
 		}
-		if len(argv[4]) < 6 || len(argv[4]) > 64 {
-			return mcp.NewToolResultError("fp 须为报告中的指纹短码（6-64 位十六进制）"), nil
+		if !validFPShort(vals[4]) {
+			return mcp.NewToolResultError(fpShortMsg), nil
 		}
-		data, err := fix.FixFinding(ctx, argv[0], argv[1], argv[2], argv[3], strings.ToLower(argv[4]))
+		data, err := fix.FixFinding(ctx, vals[0], vals[1], vals[2], vals[3], strings.ToLower(vals[4]))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
