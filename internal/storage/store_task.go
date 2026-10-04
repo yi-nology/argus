@@ -146,11 +146,11 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 	if txErr != nil {
 		// event_id 唯一冲突（同 delivery 并发重发：幂等预查与落库之间存在窗口）——
 		// 回查既有任务按幂等重复处理，避免以 500 暴露（GitHub 对连续 500 会禁用 webhook）。
-			if t.EventID != nil {
-				if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
-					return DupEventID, exist.ID, nil
-				}
+		if t.EventID != nil {
+			if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
+				return DupEventID, exist.ID, nil
 			}
+		}
 		// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
 		// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
 		if isDuplicateKeyErr(txErr) {
