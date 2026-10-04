@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,20 +52,35 @@ type commentMeta struct {
 	PRNumber int
 }
 
-// gitlabNoteTypes GitLab note webhook 的 SDK 归一化词表：canonical 为
-// comment.created（provider.EventTypeComment+CommentActionCreated，SDK 起
-// "regardless of the target"）；cr.note 为旧词表保留兼容。词表漏配曾让
-// GitLab 评论命令整条链路静默落白名单 skip（v3.114.0 部署验证期实测修复）。
-var gitlabNoteTypes = map[string]bool{
-	"cr.note": true,
+// commentEventTypes 可路由为评论命令的事件词表。canonical 为
+// provider.EventTypeComment+CommentActionCreated（"comment.created"，SDK v0.72+
+// 七后端统一：gitlab/github/gitea/gitee/forgejo/gitcode/tencentcode）；issue_comment
+// 与 cr.note 为旧词表，保留兼容防 vendor 回退误判。词表漏配曾让 GitLab 评论
+// 命令整条链路静默落白名单 skip（v3.114.0 实测修复，v3.115.0 扩全平台）。
+var commentEventTypes = map[string]bool{
+	"issue_comment": true,
+	"cr.note":       true,
 	provider.EventTypeComment + provider.CommentActionCreated: true,
 }
 
-// parseCommentMeta 按事件类型解析评论负载。GitLab note → gitlabNoteTypes 形状；
-// GitHub issue_comment 与 Gitea/Forgejo（Type 空 + comment 字段兜底）→ issue 形状。
-// ok=false 表示解析失败或非 PR 评论（commit/snippet/普通 issue），调用方静默忽略。
+// parseCommentMeta 按事件形态解析评论要素。canonical 事件（comment.created）
+// 的归一化结构已就绪（Comment=评论体、CR=所在 MR），直接取用不重解 RawPayload；
+// 旧词表 cr.note → GitLab payload 形状；issue_comment 与 Gitea/Forgejo（Type 空
+// + comment 字段兜底）→ issue payload 形状。ok=false 表示解析失败或非 PR 评论
+// （commit/snippet/普通 issue），调用方静默忽略。
 func parseCommentMeta(ev *provider.NormalizedEvent) (commentMeta, bool) {
-	if gitlabNoteTypes[ev.Type] {
+	if ev.Type == provider.EventTypeComment+provider.CommentActionCreated {
+		// 只处理新建（created）；CR 缺席 = 普通 issue/commit 评论，无 PR 语义。
+		if ev.Comment == nil || ev.CR == nil {
+			return commentMeta{}, false
+		}
+		n, err := strconv.Atoi(ev.CR.Number)
+		if err != nil || n <= 0 {
+			return commentMeta{}, false
+		}
+		return commentMeta{Body: ev.Comment.Body, PRNumber: n}, true
+	}
+	if ev.Type == "cr.note" {
 		var gl gitlabNotePayload
 		if err := json.Unmarshal(ev.RawPayload, &gl); err != nil {
 			return commentMeta{}, false
@@ -87,12 +103,11 @@ func parseCommentMeta(ev *provider.NormalizedEvent) (commentMeta, bool) {
 }
 
 // isCommentEvent 判定 NormalizedEvent 是否为可处理的评论事件。
-// GitHub issue_comment → ev.Type == "issue_comment"；
-// GitLab note → gitlabNoteTypes（canonical comment.created / 旧词表 cr.note，
-// Actor/Repo/CR.Number 已由 SDK 填充）；
+// canonical：comment.created（SDK v0.72+ 七后端统一，Actor/Repo/Comment/CR 已由
+// SDK 归一化填充）；旧词表 issue_comment（GitHub）/cr.note（GitLab）保留兼容；
 // Gitea/Forgejo 未识别事件 → ev.Type 为空但 payload 含 comment 字段。
 func isCommentEvent(ev *provider.NormalizedEvent) bool {
-	if ev.Type == "issue_comment" || gitlabNoteTypes[ev.Type] {
+	if commentEventTypes[ev.Type] {
 		return true
 	}
 	if ev.Type != "" {

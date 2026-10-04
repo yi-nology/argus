@@ -57,6 +57,7 @@
 - **v3.113.0** [refactor/dead] 冗余旧代码清偿——searchCodeToolFor 测试专用壳/PRContext.IsDraft 只写死字段/死测试覆盖/errorString 重复，八矿脉扫描全净留痕
 - **v3.114.0** [fix/comment] GitLab 评论命令链路修复——SDK 词表变更为 canonical comment.created 后 isCommentEvent/parseCommentMeta 仍钉旧词表 cr.note，@触发词命令（ask/describe/suppress/fix）在 GitLab 整条静默落白名单 skip；补词表单源 gitlabNoteTypes + 路由回归测试（v3.113.0-215 部署验证期实测发现）
 - **v3.114.1** [obs/comment] bot 自评论防循环补 Info 留痕（argus.comment.self_skipped）——静默丢弃曾阻塞评论链路排查
+- **v3.115.0** [fix/comment] 评论词表扩全平台 canonical——SDK v0.72+ 七后端统一 comment.created（gitlab/github/gitea/gitee/forgejo/gitcode/tencentcode），v3.114.0 只救了 GitLab；parseCommentMeta canonical 分支直取归一化结构（Comment/CR）不再重解 RawPayload，issue_comment/cr.note 旧词表保留兼容；排查结论=go-git-platform 仓本身健康（七后端词表一致/测试绿/vendor 同步），系 argus 消费侧滞后
 
 ---
 
