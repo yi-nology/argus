@@ -143,18 +143,9 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			if cr.HeadSHA == "" {
 				continue
 			}
-			task := &storage.Task{
-				ID:        storage.NewTaskID(),
-				Kind:      plugin.TaskKindRequirementCompliance,
-				Platform:  t.Platform,
-				Owner:     t.Owner,
-				Repo:      t.Repo,
-				Number:    cr.Number,
-				HeadSHA:   cr.HeadSHA,
-				EventType: "", // 轮询来源无事件类型；触发器 Events 条件视为通过
-				Status:    storage.StatusPending,
-				CreatedAt: time.Now(),
-			}
+			task := storage.NewTask(plugin.TaskKindRequirementCompliance, t.Platform, t.Owner, t.Repo, cr.Number)
+			task.HeadSHA = cr.HeadSHA
+			// 轮询来源无事件类型（零值即通过触发器 Events 条件）。
 			dupReason, _, err := p.Store.CreateTaskForWebhook(ctx, task)
 			if err != nil {
 				obs.IncrPollerFailure("task_create_failed")
@@ -166,12 +157,19 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 			p.Log.Info("argus.poller.task_created",
 				"pr", t.Owner+"/"+t.Repo+"#"+cr.Number, "head", cr.HeadSHA, "task", task.ID)
-			if p.Bus != nil {
-				p.Bus.Publish(progress.Event{
-					Type: "task.created", TaskID: task.ID, Platform: task.Platform,
-					Owner: task.Owner, Repo: task.Repo, Number: task.Number,
-				})
-			}
+			p.publishCreated(task)
 		}
 	}
+}
+
+// publishCreated 广播 task.created（nil Bus 安全；与 service.publishCreated
+// 同一事件契约，此前内联手写同一段）。
+func (p *Poller) publishCreated(t *storage.Task) {
+	if p.Bus == nil || t == nil {
+		return
+	}
+	p.Bus.Publish(progress.Event{
+		Type: progress.EventTaskCreated, TaskID: t.ID, Platform: t.Platform,
+		Owner: t.Owner, Repo: t.Repo, Number: t.Number,
+	})
 }

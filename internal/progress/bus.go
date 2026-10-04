@@ -6,9 +6,17 @@ import (
 	agentkitprogress "git.example.com/enjoydream/agentkit/progress"
 )
 
-// Event 词表：Type ∈ task.created | task.running | task.stage | task.finished。
-// task.stage（v3.40.0）：阶段级进度（Stage ∈ R1/R2/R3…），消费者可展示
-// 「现在跑到哪一步」；SSE 无类型过滤，新增类型对既有消费者透明。
+// 事件 Type 词表（v3.109.0 常量化——此前 5 处发布点裸字面量，词表只活在
+// 注释里；SSE 无类型过滤，新增类型对既有消费者透明）。
+const (
+	EventTaskCreated  = "task.created"
+	EventTaskRunning  = "task.running"
+	EventTaskStage    = "task.stage"
+	EventTaskFinished = "task.finished"
+)
+
+// Event 词表：Type ∈ EventTask* 常量。task.stage（v3.40.0）：阶段级进度
+// （Stage ∈ R1/R2/R3…），消费者可展示「现在跑到哪一步」。
 type Event struct {
 	Type     string `json:"type"`
 	TaskID   string `json:"task_id"`

@@ -72,8 +72,33 @@ func (s *Store) CreateTask(ctx context.Context, t *Task) error {
 	return s.db.WithContext(ctx).Create(t).Error
 }
 
+// NewTask 建任务工厂（v3.109.0）：ID/Status/CreatedAt 三个不变量此前在
+// taskapi/webhook×2/poller 四处字面量各自组装，漏一处即幻影 ID/缺时间戳的
+// 形态漂移且无从测红。调用方补 kind 专属字段（HeadSHA/EventType/Priority/
+// EventID/ArtifactsJSON）。
+func NewTask(kind, platform, owner, repo, number string) *Task {
+	return &Task{
+		ID:        NewTaskID(),
+		Kind:      kind,
+		Platform:  platform,
+		Owner:     owner,
+		Repo:      repo,
+		Number:    number,
+		Status:    StatusPending,
+		CreatedAt: time.Now(),
+	}
+}
+
+// 任务去重原因词表（CreateTaskForWebhook 返回值；webhook 侧按此分发——
+// 此前生产与比较两侧共 8 处裸字面量）。
+const (
+	DupLastHeadSHA = "last_head_sha"
+	DupEventID     = "event_id"
+	DupInFlight    = "in_flight"
+)
+
 // CreateTaskForWebhook 同步完成"同 SHA 去重检查 + 落库"（同一事务，§5.1 规则 4 的 TOCTOU 防线）。
-// 返回 dupReason 非空表示命中去重（"last_head_sha" | "in_flight"），existingID 给出可指向的任务。
+// 返回 dupReason 非空表示命中去重（Dup* 词表），existingID 给出可指向的任务。
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
 	s.writeLock()
 	defer s.writeUnlock()
@@ -94,7 +119,7 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 		// 同 SHA 去重只对审查类任务生效（domain.IsReviewKind：写作面/ci_analysis
 		// 不写也不继承 LastHeadSHA，误挡会丢 CI 归因任务）。
 		if err == nil && domain.IsReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
-			dupReason = "last_head_sha"
+			dupReason = DupLastHeadSHA
 			return nil
 		}
 		// 规则 4b：存在同 head_sha 的 pending/running 任务（防 in-flight 竞态）
@@ -107,7 +132,7 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 			return err
 		}
 		if cnt > 0 {
-			dupReason = "in_flight"
+			dupReason = DupInFlight
 			var existing Task
 			_ = tx.Select("id").Where(
 				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
@@ -121,11 +146,11 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 	if txErr != nil {
 		// event_id 唯一冲突（同 delivery 并发重发：幂等预查与落库之间存在窗口）——
 		// 回查既有任务按幂等重复处理，避免以 500 暴露（GitHub 对连续 500 会禁用 webhook）。
-		if t.EventID != nil {
-			if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
-				return "event_id", exist.ID, nil
+			if t.EventID != nil {
+				if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
+					return DupEventID, exist.ID, nil
+				}
 			}
-		}
 		// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
 		// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
 		if isDuplicateKeyErr(txErr) {
@@ -134,12 +159,12 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
 				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
 				[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
-				return "in_flight", existing.ID, nil
+				return DupInFlight, existing.ID, nil
 			}
 			if e := s.quietDB().WithContext(ctx).Where(
 				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ?",
 				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA).Order("created_at DESC").First(&existing).Error; e == nil {
-				return "last_head_sha", existing.ID, nil
+				return DupLastHeadSHA, existing.ID, nil
 			}
 		}
 		return "", "", txErr

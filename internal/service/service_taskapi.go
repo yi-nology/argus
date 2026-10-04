@@ -57,19 +57,10 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		}
 	}
 	artifactsJSON, _ := json.Marshal(artifacts)
-	task := &storage.Task{
-		ID:            storage.NewTaskID(),
-		Kind:          kind,
-		Platform:      platform,
-		Owner:         owner,
-		Repo:          repo,
-		Number:        number,
-		Status:        storage.StatusPending,
-		ArtifactsJSON: string(artifactsJSON),
-		// 人类在等（评论重审/API 手工/MCP）：优先于 poller 批量认领（v3.40.0）
-		Priority:  10,
-		CreatedAt: time.Now(),
-	}
+	task := storage.NewTask(kind, platform, owner, repo, number)
+	task.ArtifactsJSON = string(artifactsJSON)
+	// 人类在等（评论重审/API 手工/MCP）：优先于 poller 批量认领（v3.40.0）
+	task.Priority = 10
 	existing, created, err := s.Store.CreateTaskDirectIfIdle(ctx, task)
 	if err != nil {
 		s.log().Error("argus.api.task_create_failed", "error", err.Error())
@@ -228,7 +219,7 @@ func (s *Service) publishCreated(t *storage.Task) {
 		return
 	}
 	s.Bus.Publish(progress.Event{
-		Type: "task.created", TaskID: t.ID, Platform: t.Platform,
+		Type: progress.EventTaskCreated, TaskID: t.ID, Platform: t.Platform,
 		Owner: t.Owner, Repo: t.Repo, Number: t.Number,
 	})
 }

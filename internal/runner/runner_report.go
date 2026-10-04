@@ -155,7 +155,7 @@ func (r *Runner) publishStage(task *storage.Task, stage string) {
 		return
 	}
 	r.Bus.Publish(progress.Event{
-		Type: "task.stage", TaskID: task.ID, Platform: task.Platform,
+		Type: progress.EventTaskStage, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		Stage: stage,
 	})
@@ -199,7 +199,7 @@ func (r *Runner) setStartMarker(ctx context.Context, task *storage.Task, body st
 
 // finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
 func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
-	r.publish("task.finished", task, status, verdict)
+	r.publish(progress.EventTaskFinished, task, status, verdict)
 	// 审计留痕（v3.86.0）：verdict 终态是审查链路的关键可审计动作
 	r.Audit.Log("verdict.posted", "task", task.ID, "platform", task.Platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number,

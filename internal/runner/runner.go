@@ -242,7 +242,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	})
 	start := time.Now()
 	wf := r.wireWorkflow(ctx, task, budget)
-	r.publish("task.running", task, "", "")
+	r.publish(progress.EventTaskRunning, task, "", "")
 
 	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
 	r.postStartMarker(ctx, task)

@@ -50,6 +50,7 @@
 - **v3.106.0** [refactor/registry] 任务 kind 词表下沉 domain 单源注册表——修 storage 裸字符串漂移，建任务白名单/IDL 映射表驱动
 - **v3.107.0** [refactor/nullobj] audit 空对象模式兑现——6 处冗余 nil 守卫清除 + ResultJSON findings 解码单源（两态语义钉测试）
 - **v3.108.0** [refactor/registry] mcpserver 工具注册公共底座——requireArgs 消 11 处样板 + taskView 投影单源 + fp 校验/缺省 kind 单源 + 包文档工具清单补齐
+- **v3.109.0** [refactor/factory] 建任务不变量工厂 storage.NewTask（4 处字面量收一）+ 去重原因 Dup* 词表 + progress 事件 Type 常量化 + webhook dupResp 回执模板
 
 ---
 

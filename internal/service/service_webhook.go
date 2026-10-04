@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/go-git-platform/provider"
@@ -196,6 +195,16 @@ func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
 	return nil, 0, true
 }
 
+// dupResp 幂等去重回执模板（v3.109.0，此前 4 处近逐字）：duplicate 状态 +
+// 原因文案，existingID 非空时回填指向既有任务（store 回查失败时不指幻影 ID）。
+func dupResp(reason, existingID, delivery string) (*api.WebhookResponse, int) {
+	resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr(reason), EventId: strPtr(delivery)}
+	if existingID != "" {
+		resp.TaskId = strPtr(existingID)
+	}
+	return resp, http.StatusOK
+}
+
 // webhookCreateTask 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
 // 并落库：规则 4 同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/
 // TOCTOU）→ 去重分支透出 → 审计 + SSE 发布。
@@ -205,19 +214,10 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 		s.log().Warn("argus.webhook.delivery_header_missing",
 			"platform", platform, "event", "幂等键缺失，本次投递不做幂等（event_id=NULL）")
 	}
-	task := &storage.Task{
-		ID:        storage.NewTaskID(),
-		Kind:      plugin.TaskKindRequirementCompliance,
-		Platform:  platform,
-		Owner:     ev.Repo.Owner,
-		Repo:      ev.Repo.Name,
-		Number:    ev.CR.Number,
-		HeadSHA:   ev.CR.HeadSHA,
-		EventType: ev.Type,
-		Status:    storage.StatusPending,
-		Priority:  5, // webhook push：作者刚推代码在等，先于 poller 批量（v3.40.0）
-		CreatedAt: time.Now(),
-	}
+	task := storage.NewTask(plugin.TaskKindRequirementCompliance, platform, ev.Repo.Owner, ev.Repo.Name, ev.CR.Number)
+	task.HeadSHA = ev.CR.HeadSHA
+	task.EventType = ev.Type
+	task.Priority = 5 // webhook push：作者刚推代码在等，先于 poller 批量（v3.40.0）
 	if delivery != "" {
 		task.EventID = &delivery
 	}
@@ -230,24 +230,16 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 	if dupReason != "" {
 		plugin.ReportTaskDeduped(dupReason) // 去重分布观测（深挖修复：此前只有日志）
 	}
-	if dupReason == "last_head_sha" {
-		return &api.WebhookResponse{Status: "duplicate", Reason: strPtr("同 head SHA 已审查过"), EventId: strPtr(delivery)}, http.StatusOK
+	if dupReason == storage.DupLastHeadSHA {
+		return dupResp("同 head SHA 已审查过", "", delivery)
 	}
 	// event_id 唯一冲突（幂等预查与落库之间的并发窗口，store 回查既有任务）：
 	// 此前漏判该分支——照常返回新 task.ID（未入库的幻影 ID）+ 发幽灵 SSE 事件。
-	if dupReason == "event_id" {
-		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr("重复投递，命中既有任务"), EventId: strPtr(delivery)}
-		if existingID != "" {
-			resp.TaskId = strPtr(existingID)
-		}
-		return resp, http.StatusOK
+	if dupReason == storage.DupEventID {
+		return dupResp("重复投递，命中既有任务", existingID, delivery)
 	}
-	if dupReason == "in_flight" {
-		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr("同 head SHA 任务执行中"), EventId: strPtr(delivery)}
-		if existingID != "" {
-			resp.TaskId = strPtr(existingID)
-		}
-		return resp, http.StatusOK
+	if dupReason == storage.DupInFlight {
+		return dupResp("同 head SHA 任务执行中", existingID, delivery)
 	}
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
@@ -268,19 +260,10 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	if ev.CR != nil {
 		number = ev.CR.Number
 	}
-	task := &storage.Task{
-		ID:        storage.NewTaskID(),
-		Kind:      plugin.TaskKindCIAnalysis,
-		Platform:  platform,
-		Owner:     ev.Repo.Owner,
-		Repo:      ev.Repo.Name,
-		Number:    number,
-		HeadSHA:   ev.CommitSHA,
-		EventType: ev.Type,
-		Status:    storage.StatusPending,
-		Priority:  4, // CI 红了作者正盯着，略高于 poller 批量
-		CreatedAt: time.Now(),
-	}
+	task := storage.NewTask(plugin.TaskKindCIAnalysis, platform, ev.Repo.Owner, ev.Repo.Name, number)
+	task.HeadSHA = ev.CommitSHA
+	task.EventType = ev.Type
+	task.Priority = 4 // CI 红了作者正盯着，略高于 poller 批量
 	if delivery != "" {
 		task.EventID = &delivery
 	}
@@ -289,19 +272,15 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 		s.log().Error("argus.webhook.pipeline_task_create_failed", "error", err.Error())
 		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
 	}
-	if dupReason == "event_id" || dupReason == "in_flight" {
+	if dupReason == storage.DupEventID || dupReason == storage.DupInFlight {
 		// in_flight 必须处理（v3.75.3 修复）：同 commit 的 retry pipeline 是新
 		// delivery，event_id 拦不住第二次；漏判会以未落库的 task.ID 回 accepted
 		// 并向 SSE 广播幽灵任务（对照 webhookCreateTask 的同款处理）。
 		reason := "重复投递，命中既有任务"
-		if dupReason == "in_flight" {
+		if dupReason == storage.DupInFlight {
 			reason = "同 commit 同类任务审查中，幂等跳过"
 		}
-		resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr(reason), EventId: strPtr(delivery)}
-		if existingID != "" {
-			resp.TaskId = strPtr(existingID)
-		}
-		return resp, http.StatusOK
+		return dupResp(reason, existingID, delivery)
 	}
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"kind", task.Kind, "head", task.HeadSHA, "event_id", delivery)
