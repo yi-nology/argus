@@ -16,13 +16,13 @@ description: This skill should be used when the user asks to "提交前帮我自
 
 1. 提交时把 staged diff 推给 argus：`review_diff_async(diff)`，立即返回 `{task_id, status, note}`。diff 上限 **48KB**（任务落库面），更大请分文件/分目录多次提交。
 2. 提交方继续工作；稍后轮询 `get_report(task_id)`（建议 15-30 秒间隔）直到 `done/failed/stale`。`done` 的 `report` 字段即意见列表（每行 `- file:line [severity] 说明`）或「✅ 未发现问题」。
-3. 参考客户端一键闭环（env：`ARGUS_MCP_URL`/`ARGUS_APITOKEN`）：
+3. 参考客户端一键闭环（env：`ARGUS_MCP_URL`/`ARGUS_APITOKEN`——token 只走环境变量，勿把 `-token` 明文写死进 hook 文件或入库脚本）：
 
 ```bash
 # 提交 hook 里：异步提交，不阻塞（|| true 保证审查故障不挡提交）
-git diff --staged | argus-copilot -url … -token $TOKEN review -async || true
+git diff --staged | argus-copilot -url … review -async || true
 # 提交方随后轮询（自带 10min 上限、3s 间隔），输出报告
-argus-copilot -url … -token $TOKEN poll -task <task_id>
+argus-copilot -url … poll -task <task_id>
 ```
 
 `poll` 内部就是循环 `get_report`——没有 copilot 时用任意 MCP 客户端等价复刻。

@@ -85,6 +85,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 - `fix_finding` 只落 argus 侧隔离沙箱，**永不推送分支**；应用 diff 是调用方/人的职责。
 - 误报抑制（`POST /findings/suppress`）需 admin 档 token，agent 工具面没有此工具。
+- **token 落地纪律**：MCP 客户端配置文件（如 `~/.claude.json`）与 shell env 里的 token 是明文——勿提交进 git、勿贴进对话/issue/截图；外部 AI 一律用 ci 档最小权限，勿复用 admin token。
 - 仓库数据经 agent 读出后进入调用方上下文，与人工打开仓库文件同机密级；保密仓库确保 argus 与调用方同在内网。
 
 ## 参考文件
