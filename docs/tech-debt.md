@@ -29,6 +29,25 @@
 - `runner/runner.go` 554：核心编排（Execute/run 管线），再拆只剩把 run 四步提指针，负收益。
 - `service/fix.go` 493、`context/sdkctx.go` 493、`storage/store_task.go` 485、`plugin/merger.go` 470、`service/service_comment.go` 447、`poster/poster.go` 425：单一内聚面（fix 命令全链 / SDK 门面 / 任务表操作 / 合并器 / 评论处理 / 回帖）。
 
+## 设计模式再勘察（v3.121.0，2026-10-04，12 点全评估）
+
+应用户"大量应用设计模式"指令的全仓再勘察结论：**模式容量已饱和**——12 个候选点全部为"已模式化/DB 级更强守卫/形式化负收益"，唯一下水的是 webhook 回执词表工厂。评估证据（后续勿重探）：
+
+| 候选点 | 结论 |
+|---|---|
+| notify renderMarkdown status switch | 2 分支+default，策略表负收益 |
+| kindToIDL/protocolToIDL switch | 2-3 稳定枚举 case，表化同规模 |
+| poster sendReview/postSummary 降级链 | 每级语义异构（不同 API/幂等锚点），CoR 形式化遮蔽业务注释 |
+| runner 注入管线（5 injector） | 调用点已是一行式，注入器即策略对象；表格化零样板消除 |
+| HandleComment 命令分发 | 已是具名方法链（准入→触发词→抑制→节流→写作→Q&A），表格化破坏节流语义排序 |
+| webhookAdmission 准入序列 | 混有非守卫步骤（delivery 提取/请求桥接），直线+早返回即最可审计形态 |
+| bootstrap BuildModels | 已是 Builder 组合形态（buildGenerateChain/buildStageLLMs/wrapFailover/wrapFit） |
+| poster prepareInline | 已有全管线测试（TestPrepareInline_FilterNormalizeSortClamp），抽段无测试增益 |
+| R 系列 Run 阶段管线 | v3.101 已收口为具名阶段方法，失败策略/checkpoint 逐级异构，框架化是仪式感 |
+| 任务状态生命周期 | 已是 DB 级 fencing 守卫（FinishTaskFenced WHERE status='running'+归属校验，比进程内状态表更强） |
+| runner writing.go | 已是模板(runWriting)+策略(writeDescribe/Changelog) 形态，LLM 实体在共享 writing 包 |
+| webhook 回执词表 | **本批下水**：14 处 Status 字面量 → wh* 常量 + whResp 工厂（v3.121.0） |
+
 ## 已裁决不做项（勿重探）
 
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。

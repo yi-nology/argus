@@ -20,6 +20,22 @@ import (
 
 // ---------- webhook（POST /webhook/:platform）----------
 
+// webhook 回执 Status wire 词表（v3.121.0 常量化：此前 14 处结构体字面量散写，
+// API/SSE 消费方按此分发——字面量漂移即静默契约断裂）。构造统一走 whResp。
+const (
+	whAccepted  = "accepted"
+	whBusy      = "busy"
+	whDuplicate = "duplicate"
+	whSkipped   = "skipped"
+	whError     = "error"
+)
+
+// whResp webhook 回执构造工厂（Status 词表单源 + Reason 统一指针化；带
+// EventId/TaskId 等附加字段的调用方在拿到回执后补字段）。
+func whResp(status, reason string) *api.WebhookResponse {
+	return &api.WebhookResponse{Status: status, Reason: strPtr(reason)}
+}
+
 // 事件类型白名单（§5.1 规则 1）。SDK 各后端在投递前都会过 provider.NormalizeCRAction
 // 归一化（opened/closed/merged/reopened/updated 五词，未识别词原样透传），因此键必须是
 // 归一化词表而非平台原生词：v3.7.x 及此前维护的是原生词表（cr.synchronize/cr.update 等），
@@ -58,9 +74,13 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	if isCommentEvent(ev) {
 		if !s.SubmitComment(ctx, ev, delivery) {
 			s.log().Warn("argus.comment.busy", "platform", platform, "event_id", delivery)
-			return &api.WebhookResponse{Status: "busy", Reason: strPtr("评论处理并发已满，请稍后重试"), EventId: strPtr(delivery)}, http.StatusOK
+			w := whResp(whBusy, "评论处理并发已满，请稍后重试")
+			w.EventId = strPtr(delivery)
+			return w, http.StatusOK
 		}
-		return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), Reason: strPtr("qa comment")}, http.StatusOK
+		w := whResp(whAccepted, "qa comment")
+		w.EventId = strPtr(delivery)
+		return w, http.StatusOK
 	}
 
 	// CI 失败事件（v3.71.0，SDK Pipeline Hook 解析）：建 ci_analysis 任务走
@@ -70,7 +90,9 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		if ev.CommitSHA == "" || ev.Repo == nil {
 			s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", "pipeline 事件缺 commit/repo 信息")
 			obs.IncrWebhookSkipped("pipeline_incomplete")
-			return &api.WebhookResponse{Status: "skipped", Reason: strPtr("pipeline 事件缺 commit/repo 信息"), EventId: strPtr(delivery)}, http.StatusOK
+			w := whResp(whSkipped, "pipeline 事件缺 commit/repo 信息")
+			w.EventId = strPtr(delivery)
+			return w, http.StatusOK
 		}
 		return s.pipelineCreateTask(ctx, ev, delivery, platform)
 	}
@@ -80,7 +102,9 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
 		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
 		obs.IncrWebhookSkipped(reason)
-		return &api.WebhookResponse{Status: "skipped", Reason: strPtr(why), EventId: strPtr(delivery)}, http.StatusOK
+		w := whResp(whSkipped, why)
+		w.EventId = strPtr(delivery)
+		return w, http.StatusOK
 	}
 	if resp, status, ok := s.webhookCRFilter(ev, skipped); !ok {
 		return resp, status
@@ -96,7 +120,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 	ev *provider.NormalizedEvent, delivery string, resp *api.WebhookResponse, status int, ok bool) {
 	platform, pcfg, ok := s.requirePlatform(platform)
 	if !ok {
-		return nil, "", &api.WebhookResponse{Status: "error", Reason: strPtr("平台未接入: " + platform)}, http.StatusNotFound, false
+		return nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
 	}
 	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
@@ -105,10 +129,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 		obs.IncrWebhookRejected("no_secret")
 		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
-		return nil, "", &api.WebhookResponse{
-			Status: "error",
-			Reason: strPtr("平台 webhook secret 未配置，拒绝服务（配置 " + "ARGUS_" + strings.ToUpper(platform) + "_SECRET 后恢复）"),
-		}, http.StatusServiceUnavailable, false
+		return nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
 	}
 
 	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
@@ -117,10 +138,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 		if cl := string(c.GetHeader("Content-Length")); cl != "" {
 			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
 				obs.IncrWebhookRejected("body_too_large")
-				return nil, "", &api.WebhookResponse{
-					Status: "error",
-					Reason: strPtr(fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)),
-				}, http.StatusRequestEntityTooLarge, false
+				return nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
 			}
 		}
 	}
@@ -133,11 +151,11 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
 	rawBody := c.Request.Body()
 	if len(rawBody) == 0 {
-		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("读取 body 失败")}, http.StatusBadRequest, false
+		return nil, delivery, whResp(whError, "读取 body 失败"), http.StatusBadRequest, false
 	}
 	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
 	if err != nil {
-		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("内部请求构造失败")}, http.StatusInternalServerError, false
+		return nil, delivery, whResp(whError, "内部请求构造失败"), http.StatusInternalServerError, false
 	}
 	c.Request.Header.VisitAll(func(k, v []byte) {
 		httpReq.Header.Add(string(k), string(v))
@@ -149,10 +167,10 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
 			obs.IncrWebhookRejected("signature")
 			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
-			return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("签名校验失败")}, http.StatusUnauthorized, false
+			return nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
 		}
 		obs.IncrWebhookRejected("parse")
-		return nil, delivery, &api.WebhookResponse{Status: "error", Reason: strPtr("事件解析失败: " + err.Error())}, http.StatusBadRequest, false
+		return nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
 	}
 
 	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
@@ -198,7 +216,8 @@ func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
 // dupResp 幂等去重回执模板（v3.109.0，此前 4 处近逐字）：duplicate 状态 +
 // 原因文案，existingID 非空时回填指向既有任务（store 回查失败时不指幻影 ID）。
 func dupResp(reason, existingID, delivery string) (*api.WebhookResponse, int) {
-	resp := &api.WebhookResponse{Status: "duplicate", Reason: strPtr(reason), EventId: strPtr(delivery)}
+	resp := whResp(whDuplicate, reason)
+	resp.EventId = strPtr(delivery)
 	if existingID != "" {
 		resp.TaskId = strPtr(existingID)
 	}
@@ -225,7 +244,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 	dupReason, existingID, err := s.Store.CreateTaskForWebhook(ctx, task)
 	if err != nil {
 		s.log().Error("argus.webhook.task_create_failed", "error", err.Error())
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
+		return whResp(whError, "任务落库失败"), http.StatusInternalServerError
 	}
 	if dupReason != "" {
 		plugin.ReportTaskDeduped(dupReason) // 去重分布观测（深挖修复：此前只有日志）
@@ -247,7 +266,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
-	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
+	return &api.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
 
 // pipelineCreateTask CI 失败事件 → ci_analysis 任务（写作面归因）。
@@ -270,7 +289,7 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	dupReason, existingID, err := s.Store.CreateTaskForWebhook(ctx, task)
 	if err != nil {
 		s.log().Error("argus.webhook.pipeline_task_create_failed", "error", err.Error())
-		return &api.WebhookResponse{Status: "error", Reason: strPtr("任务落库失败")}, http.StatusInternalServerError
+		return whResp(whError, "任务落库失败"), http.StatusInternalServerError
 	}
 	if dupReason == storage.DupEventID || dupReason == storage.DupInFlight {
 		// in_flight 必须处理（v3.75.3 修复）：同 commit 的 retry pipeline 是新
@@ -287,5 +306,5 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
-	return &api.WebhookResponse{Status: "accepted", EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
+	return &api.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
