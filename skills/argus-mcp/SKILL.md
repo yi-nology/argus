@@ -13,9 +13,9 @@ Argus 是 PR 自动审查 bot：多 agent 编队审查（R1 需求解析 → R2 
 |---|---|
 | 端点 | `http://<argus 地址>:8899/mcp`（`ARGUS_ADDR` 缺省 `:8899`） |
 | 传输 | MCP streamable HTTP（POST 一问一答） |
-| 鉴权 | `Authorization: Bearer <token>`，token 来自服务端 `ARGUS_API_TOKENS` |
+| 鉴权 | `Authorization: Bearer <token>`；token 来自服务端 `ARGUS_API_TOKENS`（三档）或旧单 token `ARGUS_APITOKEN`（等价 admin） |
 
-token 分三档，**驱动审查/修复用 ci 档**：`read` 只读、`ci` 可建任务与调全部 MCP 工具、`admin` 全权（含误报抑制）。不要在 agent 配置里放 admin token。
+token 分三档，**驱动审查/修复用 ci 档**：`read` 只读、`ci` 可建任务与调全部 MCP 工具、`admin` 全权（含误报抑制）。不要在 agent 配置里放 admin token；仅配了单 token `ARGUS_APITOKEN` 的部署（admin 等价）照常用，但注意它本可建 ci 档隔离。
 
 已装 MCP 客户端时的最小配置（其余客户端见 `docs/ide-mcp.md`）：
 

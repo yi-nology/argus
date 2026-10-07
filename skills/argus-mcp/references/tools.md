@@ -144,7 +144,7 @@ PR 工作副本内受控全文正则检索（与审查管线 R3/R4 同款纪律�
 | `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR（platform 词表含 forgejo/gitee） |
 | `fp` | string | ✓ | 指纹短码（6-64 位十六进制） |
 
-返回 diff 与确定性验证结论 JSON。服务端未配 `ARGUS_FIX_AGENT` 时 error：`修复功能未启用：需服务级配置 ARGUS_FIX_AGENT（建议同时配 ARGUS_FIX_VERIFY_CMD 验证环）。` 修复耗时可达分钟级（`ARGUS_FIX_TIMEOUT` 缺省 10m），客户端超时须相应调大。
+返回 diff 与确定性验证结论 JSON。服务端未配 `ARGUS_FIX_AGENT` 时 error：`修复功能未启用（ARGUS_FIX_AGENT 未配置）`。修复耗时可达分钟级（`ARGUS_FIX_TIMEOUT` 缺省 10m），客户端超时须相应调大。
 
 ## argus-copilot 子命令映射（参考客户端）
 
@@ -161,4 +161,4 @@ go run ./cmd/argus-copilot -url <url> -token <tok> -timeout <dur> <子命令> [f
 | `review` | review_diff | `-f` diff 文件（缺省读 stdin；pre-commit：`git diff --staged | argus-copilot review \|\| true`） |
 | `fix` | fix_finding | `-pr platform/owner/repo#number` `-fp` |
 
-env：`ARGUS_MCP_URL`（缺省 `http://127.0.0.1:8899/mcp`）、`ARGUS_APITOKEN`。单次调用超时 `-timeout` 缺省 30s——`fix` 等长操作显式调大（如 `-timeout 15m`）。
+env：`ARGUS_MCP_URL`（缺省 `http://127.0.0.1:8899/mcp`）、`ARGUS_APITOKEN`。单次调用超时 `-timeout` 缺省 **30s**——凡涉及 LLM 的调用（`review` 同步快审 / `ask` 带追问 / `fix`）实测会超（215 深度思考模型单轮 5-60s+），显式调大（如 `-timeout 3m`）；`poll` 自带 10min 上限不吃全局超时。

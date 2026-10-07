@@ -66,6 +66,7 @@
 - **v3.121.0** [refactor/factory] webhook 回执词表工厂——14 处 Status 字面量收口 wh* 常量 + whResp 构造单源；12 点设计模式再勘察全评估落账 tech-debt（模式容量饱和结论：候选点均为已模式化/DB 级守卫/形式化负收益）
 - **v3.122.0** [feat+mcp] MCP 工具面 10→12——list_tasks（service.ListTasks 接线，巡检/找 task_id 入口）+ search_code（qa.Engine.SearchCode 复用 workcopyDir/searchCodeExec 单源，ARGUS_CODESEARCH 门控，修复前侦察）；argus-precommit agent skill（review_diff 提交前自查环+git hook）；argus-mcp skill/README/ide-mcp 同步校准
 - **v3.123.0** [feat+mcp] 提交方异步预审闭环——新 kind `diff_preview`（domain 词表 7 类，无 PR 语义：platform=local 四元组空，diff 存 artifacts ≤48KB，Priority=10）+ runner prepareContext 前分派 runDiffPreview（同 ci_analysis 先例）+ MCP `review_diff_async`（秒回 task_id）+ copilot `review -async`/`poll`（10min 上限 3s 间隔）；writing.ReviewDiff prompt 单源（service.ReviewDiff 委派 + runner 同执行体，Service 补 LLM 生成器字段）；MCP 工具面 12→13；arch 白名单新增 service→writing（prompt 单源委派，同 runner→writing 同向）
+- **v3.123.1** [docs+skill] agent skill 实弹校准（215 部署后本机安装 ~/.claude/skills 实测 13 工具全通）——fix_finding 未启用报错文案纠为短版（FixFinding 入口命中 fix.go:99 守卫，非 fix.go:62 长文案）；copilot -timeout 30s 会超 LLM 调用的提醒从 fix 扩到 review/ask（实测同步快审超时实锤）；token 来源补单 token ARGUS_APITOKEN（admin 等价）部署形态
 
 ---
 

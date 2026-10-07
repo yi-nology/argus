@@ -29,7 +29,7 @@ argus-copilot -url … -token $TOKEN poll -task <task_id>
 
 ## 同步快审
 
-调用 `review_diff`，`diff` 传完整文本（≤120KB，纯内存不落库），阻塞返回意见列表或「✅ 未发现问题」。适合「提交前最后确认一段改动」的交互场景。
+调用 `review_diff`，`diff` 传完整文本（≤120KB，纯内存不落库），阻塞返回意见列表或「✅ 未发现问题」。适合「提交前最后确认一段改动」的交互场景。用 copilot 跑时记得 `-timeout 3m`（缺省 30s，LLM 单轮实测会超）。
 
 ## 处置意见（两形态通用）
 
