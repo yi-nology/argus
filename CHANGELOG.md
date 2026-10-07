@@ -64,6 +64,7 @@
 - **v3.119.0** [docs+skill] argus-mcp agent skill——外部 AI 经 MCP 直驱的单源（skills/argus-mcp/SKILL.md 连接/十工具工作流/失败降级/安全边界，references/tools.md 与 mcpserver 源码逐字段校准）；README/ide-mcp 工具清单校准（五工具→十工具、review_diff 补录、fix_finding「启用时注册」纠为「常驻注册未启用报错」）
 - **v3.120.0** [deps+feat] agentkit v0.13.0→v0.14.0 + 知识检索 Hybrid 双路收编——buildKnowledge 二选一改 Hybrid 优先（Milvus+本地目录双备→语义+TF-IDF RRF 融合，检索单路失败自动降级另一路，此前 Milvus 查询故障即检索全挂）；buildLocalRAG 返回可判nil；装配单测钉本地/Noop 路径
 - **v3.121.0** [refactor/factory] webhook 回执词表工厂——14 处 Status 字面量收口 wh* 常量 + whResp 构造单源；12 点设计模式再勘察全评估落账 tech-debt（模式容量饱和结论：候选点均为已模式化/DB 级守卫/形式化负收益）
+- **v3.122.0** [feat+mcp] MCP 工具面 10→12——list_tasks（service.ListTasks 接线，巡检/找 task_id 入口）+ search_code（qa.Engine.SearchCode 复用 workcopyDir/searchCodeExec 单源，ARGUS_CODESEARCH 门控，修复前侦察）；argus-precommit agent skill（review_diff 提交前自查环+git hook）；argus-mcp skill/README/ide-mcp 同步校准
 
 ---
 

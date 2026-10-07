@@ -182,7 +182,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十二工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -346,10 +346,12 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `review_diff` | 本地 diff 单轮预审（不建任务不落库不回帖；≤120KB；服务端未配 LLM 时报错，v3.74.1）|
 | `list_agents` | 插件清单；三参全传附带仓库配置视图 |
 | `get_report` | 按 taskId 取状态/verdict/完整报告 |
+| `list_tasks` | 任务清单枚举（status/limit 可选，倒序摘要面）——巡检/找 task_id 入口（v3.121.0）|
 | `ask_argus` | Q&A：无 question 返回某 PR 最新审查结论（verdict/findings/摘录）；带 question 则基于报告+仓库上下文追问（ReAct，v3.3）|
 | `get_task_stages` | 任务阶段时间线（R1→R5 完成状态，v3.15.0）——「审得全不全」可观测 |
 | `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
+| `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.121.0）|
 | `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；工具常驻注册，服务未配 ARGUS_FIX_AGENT 时调用报错，v3.89.0）|
 
 > AI agent 直接驱动的完整工作流（何时调哪个工具/失败降级/安全边界）见 agent skill [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md)，参数级参考见其 `references/tools.md`。
@@ -563,7 +565,7 @@ test/e2e/                      双打桩 E2E 场景集 + 真实 LLM 集成测试
 deploy/                        docker-compose + k8s kustomize 双形态（+ 多副本指南）
 scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
 skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
-                               + agent 技能（argus-mcp：外部 AI 经 MCP 直驱）
+                               + agent 技能（argus-mcp 直驱审查 / argus-precommit 提交前自查）
 knowledge/                     本地知识库（markdown，R3 search_knowledge 检索）
 ```
 

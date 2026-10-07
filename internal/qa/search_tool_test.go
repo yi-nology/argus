@@ -50,3 +50,18 @@ func TestSearchCodeTool(t *testing.T) {
 		t.Errorf("目录不可用应返回降级文案: err=%v res=%s", err, resDown)
 	}
 }
+
+// SearchCode MCP 数据面（v3.121.0）：门控路径——未启用（WC nil / CodeSearch
+// false）必须返回 error 而非空结果（MCP 侧据此转工具错误）。启用路径依赖真
+// SDK/工作副本池，目录解析与检索语义已由 TestSearchCodeTool 与 workcopyDir
+// 覆盖，此处不重复打桩。
+func TestSearchCodeDisabled(t *testing.T) {
+	e := &Engine{Log: testNopLogger{}}
+	if _, err := e.SearchCode(context.Background(), "gitea", "acme", "app", "7", "x", "", false); err == nil {
+		t.Fatal("WC 未配置应返回 error")
+	}
+	e2 := &Engine{Log: testNopLogger{}, CodeSearch: true}
+	if _, err := e2.SearchCode(context.Background(), "gitea", "acme", "app", "7", "x", "", false); err == nil {
+		t.Fatal("CodeSearch 开但 WC nil 仍应 error")
+	}
+}

@@ -67,6 +67,15 @@
 
 返回 taskView：`{task_id, status}` 恒带，`verdict`/`report`/`fail_reason` 非空才带。任务不存在时 error（HTTP 码内嵌）。轮询至 `done/failed/stale` 即终态。
 
+### list_tasks
+
+| 参数 | 类型 | 必填 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `status` | string | | 空=全部 | enum：`pending` \| `running` \| `done` \| `failed` \| `stale` |
+| `limit` | number | | 20 | 上界 100（服务端钳制） |
+
+返回 `{tasks: [...]}` 数组，每条：`task_id/status/kind/platform/owner/repo/number/created_at`（Unix 秒），`head_sha`/`verdict` 非空才带。created_at 倒序。巡检工作流（list_tasks → list_findings → 分诊）的入口；非法 status 在工具层直接报错，不落 HTTP 码。
+
 ### get_task_stages
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -102,6 +111,19 @@
 
 - 无 `question`：返回最近一次审查结论 `{task_id, finished_at, verdict, findings, report}`；无记录返回文本「该 PR 尚无已完成的 Argus 审查记录。」
 - 带 `question`：基于最近报告回答（单轮直调）；无模型或无报告返回文本「无法回答：Argus 未配置 LLM，或该 PR 尚无已完成的审查记录。」
+
+### search_code
+
+PR 工作副本内受控全文正则检索（与审查管线 R3/R4 同款纪律：结果围栏防注入 + 4000 字符截断）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR（工作副本按当前 head 惰性准备，冷克隆预算 30s） |
+| `pattern` | string | ✓ | Go 正则表达式 |
+| `glob` | string | | 文件过滤 glob：无 `/` 按文件名匹配（`*.go`），含 `/` 按仓库相对路径匹配 |
+| `ignore_case` | boolean | | 缺省 false |
+
+返回围栏文本（命中列表或检索类错误回执，均在文本内）。**命中不等于结论**——引用前需读文件核实。环境面故障以 MCP error 返回：`ARGUS_CODESEARCH=0` 或未配置工作副本池 →「search_code 未启用」；冷克隆超时/失败 →「工作副本不可用」。
 
 ### fix_finding
 

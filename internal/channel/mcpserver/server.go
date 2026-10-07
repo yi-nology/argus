@@ -5,7 +5,9 @@
 //	review_diff                          本地 staged diff 预审（v3.74.1）
 //	ask_argus                            最新审查结论问答（v3.3 P5）
 //	get_report                           按 taskId 取报告
+//	list_tasks                           任务清单枚举（v3.121.0）
 //	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
+//	search_code                          PR 工作副本受控检索（v3.121.0）
 //	fix_finding                          沙箱修复（v3.89.0，唯一写侧工具）
 //
 // 传输：mark3labs/mcp-go streamable http，经 Hertz 桥接挂在 /mcp（GET/POST/DELETE），
@@ -33,6 +35,7 @@ type Core interface {
 	CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
 		artifacts map[string]string) (*api.CreateTaskResponse, int)
 	GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int)
+	ListTasks(ctx context.Context, status string, limit int) (*api.ListTasksResponse, int)
 	ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse
 }
 
@@ -48,6 +51,12 @@ type ReviewQA interface {
 	LatestReview(ctx context.Context, platform, owner, repo, number string) (map[string]any, bool)
 	// AnswerAboutReview 基于最近报告回答追问（无模型/无报告返回 false）。
 	AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool)
+}
+
+// CodeSearcher 可选扩展（v3.121.0）：search_code 的数据面。*service.Service 实现。
+type CodeSearcher interface {
+	// SearchCode PR 工作副本受控全文检索，返回围栏文本（错误回执内嵌）。
+	SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error)
 }
 
 // New 构造 MCPServer 并注册工具组（副驾三工具 core 实现 Copilot 时挂载）。
@@ -82,6 +91,29 @@ func New(core Core, version string) *server.MCPServer {
 	}
 	s.AddTool(requirementComplianceTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return runReview(ctx, core, req, defaultReviewKind)
+	})
+	s.AddTool(listTasksTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		status := argString(req, "status", "")
+		// 与 service.ListTasks/storage.ListTasks 词表同口径（service 校验是运行期
+		// 兜底，这里先拦给出可读错误，避免 400 裸状态码）。
+		switch status {
+		case "", "pending", "running", "done", "failed", "stale":
+		default:
+			return mcp.NewToolResultError("status 须为 pending/running/done/failed/stale 之一（空=全部）"), nil
+		}
+		limit := 0 // 0 = 服务端缺省 20、钳 100（storage.ListTasks 语义）
+		if f, ok := req.GetArguments()["limit"].(float64); ok && f > 0 {
+			limit = int(f)
+		}
+		resp, code := core.ListTasks(ctx, status, limit)
+		if code != http.StatusOK {
+			return mcp.NewToolResultError(fmt.Sprintf("查询失败（HTTP %d）", code)), nil
+		}
+		b, err := json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(string(b)), nil
 	})
 	s.AddTool(listAgentsTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		data := core.ListAgents(ctx,
@@ -143,6 +175,20 @@ func New(core Core, version string) *server.MCPServer {
 	})
 	NewCopilotTools(s, core)
 	NewFixerTool(s, core) // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
+	if cs, ok := core.(CodeSearcher); ok {
+		s.AddTool(searchCodeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "pattern")
+			if rerr != nil {
+				return rerr, nil
+			}
+			out, err := cs.SearchCode(ctx, vals[0], vals[1], vals[2], vals[3], vals[4],
+				argString(req, "glob", ""), argBool(req, "ignore_case"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(out), nil
+		})
+	}
 	return s
 }
 
@@ -180,6 +226,28 @@ func listAgentsTool() mcp.Tool {
 		mcp.WithString("platform", mcp.Description("可选：平台")),
 		mcp.WithString("owner", mcp.Description("可选：仓库所属空间")),
 		mcp.WithString("repo", mcp.Description("可选：仓库名")),
+	)
+}
+
+func listTasksTool() mcp.Tool {
+	return mcp.NewTool("list_tasks",
+		mcp.WithDescription("枚举 Argus 审查任务（created_at 倒序，created_at/head_sha/verdict 摘要面）——巡检/找 task_id 的入口，配合 get_report/list_findings 消费"),
+		mcp.WithString("status", mcp.Description("可选：按状态过滤，空=全部"),
+			mcp.WithStringEnumItems([]string{"pending", "running", "done", "failed", "stale"})),
+		mcp.WithNumber("limit", mcp.Description("可选：条数上限（缺省 20，上界 100）")),
+	)
+}
+
+func searchCodeTool() mcp.Tool {
+	return mcp.NewTool("search_code",
+		mcp.WithDescription("在 PR 工作副本内做受控全文正则检索（跨文件找调用方/相似实现/字符串与配置线索，含非 Go 文件）——核查审查意见/修复前侦察用。pattern 为 Go 正则；命中不等于结论。服务未启用（ARGUS_CODESEARCH=0 或无工作副本池）时返回错误"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description("Go 正则表达式")),
+		mcp.WithString("glob", mcp.Description("可选：文件过滤 glob（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）")),
+		mcp.WithBoolean("ignore_case", mcp.Description("可选：忽略大小写（默认 false）")),
 	)
 }
 
@@ -344,6 +412,12 @@ func argString(req mcp.CallToolRequest, key, def string) string {
 		return v
 	}
 	return def
+}
+
+// argBool 取可选布尔参数（缺省/类型不符回 false）。
+func argBool(req mcp.CallToolRequest, key string) bool {
+	b, _ := req.GetArguments()[key].(bool)
+	return b
 }
 
 // ---------- Hertz 桥接 ----------

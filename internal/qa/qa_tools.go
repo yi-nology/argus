@@ -3,6 +3,7 @@ package qa
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -223,4 +224,19 @@ func (e *Engine) searchCodeTool(platform, owner, repo, number string) tool.BaseT
 		})
 		return dir
 	})
+}
+
+// SearchCode 单次全文检索（v3.121.0，MCP search_code 数据面）：与 ReAct 工具
+// 同一执行体（searchCodeExec——检索/错误回执/截断语义单源），目录解析复用
+// workcopyDir（30s 冷克隆预算）。未启用或工作副本不可用返回 error（环境面
+// 故障，调用方改 pattern 自愈不了）；命中与检索类错误回执都在返回文本内。
+func (e *Engine) SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error) {
+	if e.WC == nil || !e.CodeSearch {
+		return "", fmt.Errorf("search_code 未启用（ARGUS_CODESEARCH=0 或未配置工作副本池）")
+	}
+	dir, ok := e.workcopyDir(ctx, platform, owner, repo, number)
+	if !ok {
+		return "", fmt.Errorf("工作副本不可用（冷克隆超时或失败），可稍后重试或按报告文本核实")
+	}
+	return searchCodeExec(ctx, dir, &codesearch.ToolIn{Pattern: pattern, Glob: glob, IgnoreCase: ignoreCase}).Result, nil
 }

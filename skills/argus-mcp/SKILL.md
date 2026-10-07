@@ -30,19 +30,21 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
-## 工具面速查（10 个，常驻注册）
+## 工具面速查（12 个，常驻注册）
 
 | 工具 | 用途 | 必填 | 关键约束 |
 |---|---|---|---|
 | `review_pr` | 发起审查，可阻塞等终态 | platform/owner/repo/number | kind 缺省 requirement_compliance；wait 缺省 true；等待上界 10 分钟 |
 | `requirement_compliance` | 需求复核固定形态 | 同上 | 等价 `review_pr(kind=requirement_compliance)` |
 | `review_diff` | 本地 diff 预审，不建任务不落库 | diff | ≤120KB 超限截断；服务端未配 LLM 时报错 |
+| `list_tasks` | 任务清单枚举（倒序摘要面） | 无 | status/limit 可选；找 task_id 的巡检入口 |
 | `list_agents` | 插件清单 | 无 | 三参全传附带 `.reviewagents.yaml` 视图与信任边界告警 |
 | `get_report` | 按 task_id 取状态/verdict/报告 | task_id | 轮询用 |
 | `get_task_stages` | R1→R5 阶段时间线 | task_id | 「审得全不全」可观测 |
 | `list_findings` | 结构化意见直出 | task_id | 含 fp 短码与 suggested_fix，**勿解析 markdown 报告** |
 | `get_suggestion` | 单条意见的修复建议内容 | task_id/fp | fp 为 6-64 位十六进制短码 |
 | `ask_argus` | 最新审查结论问答 | platform/owner/repo/number | number 纯数字；question 可选 |
+| `search_code` | PR 工作副本受控全文检索 | platform/owner/repo/number/pattern | glob/ignore_case 可选；`ARGUS_CODESEARCH=0` 或无工作副本池时报错 |
 | `fix_finding` | 单条意见沙箱修复 | platform/owner/repo/number/fp | 绝不 push；未配 `ARGUS_FIX_AGENT` 时报错 |
 
 ## 标准工作流
@@ -55,7 +57,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ### 2. 读结构化意见
 
-拿到 task_id 后用 `list_findings` 取结构化清单（file/line/severity/comment/by/fp/suggested_fix），逐条有 `fp` 短码可供后续 `get_suggestion`/`fix_finding`/`ask_argus` 引用。要看审查过程是否完整用 `get_task_stages`。**不要让模型解析 markdown 报告**——结构化字段就是为此存在。
+拿到 task_id 后用 `list_findings` 取结构化清单（file/line/severity/comment/by/fp/suggested_fix），逐条有 `fp` 短码可供后续 `get_suggestion`/`fix_finding`/`ask_argus` 引用。要看审查过程是否完整用 `get_task_stages`。**不要让模型解析 markdown 报告**——结构化字段就是为此存在。手里没有 task_id 时用 `list_tasks` 枚举（可按 status 过滤）再定位。
 
 ### 3. 追问
 
@@ -63,7 +65,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ### 4. 修复一条意见
 
-`fix_finding(platform, owner, repo, number, fp)` 同步执行：隔离沙箱内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`），返回 diff 与验证结论。**argus 绝不推送分支**——把 diff 呈给用户确认后，由用户或调用方自行应用。报错「修复功能未启用」说明服务端没配 `ARGUS_FIX_AGENT`，直接转告，勿重试。
+动手前可先 `search_code` 在 PR 工作副本内检索相关调用方/相似实现，核实影响面。然后 `fix_finding(platform, owner, repo, number, fp)` 同步执行：隔离沙箱内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`），返回 diff 与验证结论。**argus 绝不推送分支**——把 diff 呈给用户确认后，由用户或调用方自行应用。报错「修复功能未启用」说明服务端没配 `ARGUS_FIX_AGENT`，直接转告，勿重试。
 
 ### 5. 提交前本地预审
 

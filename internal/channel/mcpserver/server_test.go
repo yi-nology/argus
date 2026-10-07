@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -29,6 +30,11 @@ type fakeCore struct {
 	getResp  *api.GetTaskResponse
 
 	agents *api.ListAgentsResponse
+
+	tasks       *api.ListTasksResponse
+	tasksCode   int
+	tasksStatus string
+	tasksLimit  int
 }
 
 func (f *fakeCore) CreateTaskDirect(_ context.Context, kind, _, _, _, _ string, _ map[string]string) (*api.CreateTaskResponse, int) {
@@ -67,6 +73,17 @@ func (f *fakeCore) ListAgents(_ context.Context, _, _, _ string) *api.ListAgents
 		return f.agents
 	}
 	return &api.ListAgentsResponse{Agents: []*api.AgentManifestDTO{{Name: "correctness"}}}
+}
+
+func (f *fakeCore) ListTasks(_ context.Context, status string, limit int) (*api.ListTasksResponse, int) {
+	f.tasksStatus, f.tasksLimit = status, limit
+	if f.tasksCode != 0 {
+		return nil, f.tasksCode
+	}
+	if f.tasks != nil {
+		return f.tasks, http.StatusOK
+	}
+	return &api.ListTasksResponse{Tasks: []*api.TaskSummary{}}, http.StatusOK
 }
 
 // fakeQA 实现 ReviewQA。
@@ -199,7 +216,7 @@ func TestNew_ToolRegistrationCoreOnly(t *testing.T) {
 	names := listToolNames(t, srv)
 	want := map[string]bool{
 		"review_pr": true, "requirement_compliance": true,
-		"list_agents": true, "get_report": true, "ask_argus": true,
+		"list_agents": true, "get_report": true, "ask_argus": true, "list_tasks": true,
 	}
 	for _, n := range names {
 		if !want[n] {
@@ -210,7 +227,7 @@ func TestNew_ToolRegistrationCoreOnly(t *testing.T) {
 	for missing := range want {
 		t.Errorf("核心模式缺工具 %s", missing)
 	}
-	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion"} {
+	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "fix_finding"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("core 未实现 Copilot 却注册了 %s", banned)
@@ -224,7 +241,7 @@ func TestNew_ToolRegistrationWithCopilot(t *testing.T) {
 	srv := New(&fakeCopilot{}, "v-test")
 	names := listToolNames(t, srv)
 	for _, want := range []string{
-		"review_pr", "requirement_compliance", "list_agents", "get_report", "ask_argus",
+		"review_pr", "requirement_compliance", "list_agents", "get_report", "ask_argus", "list_tasks",
 		"get_task_stages", "list_findings", "get_suggestion",
 	} {
 		found := false
@@ -569,6 +586,105 @@ func TestCopilotTools(t *testing.T) {
 	text, isErr = callTool(t, srv, "get_suggestion", map[string]any{"task_id": "t-1", "fp": "deadbeef12"})
 	if isErr || !strings.Contains(text, "未命中") {
 		t.Fatalf("suggestion 未命中: isErr=%v text=%s", isErr, text)
+	}
+}
+
+// ---------- list_tasks / search_code（v3.121.0） ----------
+
+func TestListTasks(t *testing.T) {
+	core := &fakeCore{tasks: &api.ListTasksResponse{Tasks: []*api.TaskSummary{{
+		TaskId: "t-9", Status: "done", Kind: "requirement_compliance",
+		Platform: "gitea", Owner: "acme", Repo: "app", Number: "7",
+	}}}}
+	srv := New(core, "v-test")
+	text, isErr := callTool(t, srv, "list_tasks", map[string]any{"status": "done", "limit": float64(5)})
+	if isErr {
+		t.Fatalf("list_tasks 报错: %s", text)
+	}
+	if !strings.Contains(text, "t-9") || !strings.Contains(text, "acme") {
+		t.Fatalf("list_tasks 缺任务摘要:\n%s", text)
+	}
+	if core.tasksStatus != "done" || core.tasksLimit != 5 {
+		t.Fatalf("参数未透传: status=%q limit=%d", core.tasksStatus, core.tasksLimit)
+	}
+
+	// 缺省：status 空 + limit 0（服务端缺省 20）
+	if _, isErr = callTool(t, srv, "list_tasks", map[string]any{}); isErr {
+		t.Fatal("空参应可用（全量清单）")
+	}
+	if core.tasksStatus != "" || core.tasksLimit != 0 {
+		t.Fatalf("缺省参数不符: status=%q limit=%d", core.tasksStatus, core.tasksLimit)
+	}
+
+	// 非法 status：工具层可读错误（不落 400 裸码）
+	text, isErr = callTool(t, srv, "list_tasks", map[string]any{"status": "nope"})
+	if !isErr || !strings.Contains(text, "pending/running/done/failed/stale") {
+		t.Fatalf("非法 status 应 isError: isErr=%v text=%s", isErr, text)
+	}
+
+	// 服务端非 200 → 工具错误
+	core.tasksCode = 500
+	_, isErr = callTool(t, srv, "list_tasks", map[string]any{})
+	if !isErr {
+		t.Fatal("非 200 应 isError")
+	}
+}
+
+// fakeSearcher 实现 CodeSearcher。
+type fakeSearcher struct {
+	fakeCore
+	pattern, glob string
+	ignoreCase    bool
+	out           string
+	err           error
+}
+
+func (f *fakeSearcher) SearchCode(_ context.Context, _, _, _, _, pattern, glob string, ignoreCase bool) (string, error) {
+	f.pattern, f.glob, f.ignoreCase = pattern, glob, ignoreCase
+	return f.out, f.err
+}
+
+func TestSearchCode(t *testing.T) {
+	fs := &fakeSearcher{out: "<data>search_code 检索结果</data>"}
+	srv := New(fs, "v-test")
+	text, isErr := callTool(t, srv, "search_code", map[string]any{
+		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
+		"pattern": "limitUnbounded", "glob": "*.go", "ignore_case": true,
+	})
+	if isErr || !strings.Contains(text, "检索结果") {
+		t.Fatalf("search_code: isErr=%v text=%s", isErr, text)
+	}
+	if fs.pattern != "limitUnbounded" || fs.glob != "*.go" || !fs.ignoreCase {
+		t.Fatalf("参数未透传: pattern=%q glob=%q ignoreCase=%v", fs.pattern, fs.glob, fs.ignoreCase)
+	}
+
+	// 数据面 error → 工具错误
+	fs.err = errors.New("search_code 未启用")
+	_, isErr = callTool(t, srv, "search_code", map[string]any{
+		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7", "pattern": "x",
+	})
+	if !isErr {
+		t.Fatal("未启用应 isError")
+	}
+
+	// 缺 pattern
+	_, isErr = callTool(t, srv, "search_code", map[string]any{
+		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
+	})
+	if !isErr {
+		t.Fatal("缺 pattern 应 isError")
+	}
+}
+
+func TestArgBool(t *testing.T) {
+	req := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{
+		"a": true, "b": "yes", "c": false,
+	}}}
+	if !argBool(req, "a") {
+		t.Fatal("a 应为 true")
+	}
+	if argBool(req, "b") || argBool(req, "c") || argBool(req, "missing") {
+		t.Fatal("非布尔/false/缺失都应回 false")
 	}
 }
 

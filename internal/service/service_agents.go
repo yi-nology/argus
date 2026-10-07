@@ -168,6 +168,13 @@ func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any
 	return out, true
 }
 
+// SearchCode MCP search_code 数据面（v3.121.0）：PR 工作副本受控全文检索。
+// 启用门控（ARGUS_CODESEARCH/工作副本池）、目录解析与检索语义都在 qa.Engine，
+// 门面纯透传——与 LatestReview/AnswerAboutReview 同型。
+func (s *Service) SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error) {
+	return s.qa().SearchCode(ctx, platform, owner, repo, number, pattern, glob, ignoreCase)
+}
+
 // Suggestion 按指纹短码取回单条建议（一键回写的数据源；应用动作在客户端侧执行）。
 func (s *Service) Suggestion(ctx context.Context, taskID, fpPrefix string) (map[string]any, bool) {
 	findings, ok := s.Findings(ctx, taskID)
