@@ -11,7 +11,11 @@ IDE 与 agent 客户端都能直接挂载——**argus 不维护原生 IDE 插�
 |---|---|
 | URL | `http://<argus 地址>:8899/mcp` |
 | 鉴权 | `Authorization: Bearer <token>`；建议用 `ARGUS_API_TOKENS` 里的 **ci 档** token（读面全通、可触发审查/修复，无抑制权限） |
-| 工具面 | `get_task_stages` / `list_findings` / `get_suggestion` / `review_pr` / `ask_argus` / `fix_finding`（服务启用 `ARGUS_FIX_AGENT` 时出现）等 |
+| 工具面 | `review_pr` / `requirement_compliance` / `review_diff` / `list_agents` / `get_report` / `get_task_stages` / `list_findings` / `get_suggestion` / `ask_argus` / `fix_finding` 共 10 个（全清单与参数见 [skills/argus-mcp/references/tools.md](../skills/argus-mcp/references/tools.md)；`fix_finding` 服务未配 `ARGUS_FIX_AGENT` 时调用报错） |
+
+## AI agent 直接驱动（agent skill）
+
+本仓库提供面向 AI agent 的技能文件 [skills/argus-mcp/SKILL.md](../skills/argus-mcp/SKILL.md)：连接方式、十工具工作流、失败降级判定与安全边界的单源。Claude Code 拷贝到 `~/.claude/skills/argus-mcp/`，其他支持 Agent Skills 的客户端（ZCode 等）按各自装载约定放置；MCP 客户端按上文挂载后，skill 负责「何时调哪个工具、失败了怎么办」。
 
 ## VS Code / Cursor
 

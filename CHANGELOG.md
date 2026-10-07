@@ -61,6 +61,7 @@
 - **v3.116.0** [build+fix] 删除 vendor/（206MB gitignore 残留）转模块模式——replace 转活即暴露 acpx 手抄 switch 与 agentkit v0.13.0 断裂（NewMinimax→NewMcode，minimax-code CLI 自发布起不存在）；构造器单源 acpx.NewRegistry 委派 + bins minimax→mcode + 词表对齐回归测试
 - **v3.117.0** [build] 去掉 agentkit/go-git-platform 双 replace → 正式版本钉定（agentkit v0.13.0 / go-git-platform v0.76.0，两仓 tag 已在远端无需新发）；兄弟仓改名隔离测试通过——构建零本地依赖，CI/他机自包含
 - **v3.118.0** [deps] go-git-platform v0.76.0→v0.78.0——v0.77 单一重试引擎/ClientOption Builder/验签归一/分页迭代器收敛 + v0.78 Gitea 家族合并（giteafamily ports&adapters）；goproxy.cn/sumdb 当日不可达走 direct+本地 tag 工作树交叉校验，零编译断点
+- **v3.119.0** [docs+skill] argus-mcp agent skill——外部 AI 经 MCP 直驱的单源（skills/argus-mcp/SKILL.md 连接/十工具工作流/失败降级/安全边界，references/tools.md 与 mcpserver 源码逐字段校准）；README/ide-mcp 工具清单校准（五工具→十工具、review_diff 补录、fix_finding「启用时注册」纠为「常驻注册未启用报错」）
 
 ---
 
