@@ -256,6 +256,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
 		Model: models.React, QAModel: models.QA,
+		LLM:         models.Generate, // diff 预审单轮写作（v3.123.0）
 		RouterModel: models.Router,
 		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
 		Audit:       auditLog, Version: version,

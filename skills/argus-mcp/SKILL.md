@@ -30,13 +30,14 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
-## 工具面速查（12 个，常驻注册）
+## 工具面速查（13 个，常驻注册）
 
 | 工具 | 用途 | 必填 | 关键约束 |
 |---|---|---|---|
 | `review_pr` | 发起审查，可阻塞等终态 | platform/owner/repo/number | kind 缺省 requirement_compliance；wait 缺省 true；等待上界 10 分钟 |
 | `requirement_compliance` | 需求复核固定形态 | 同上 | 等价 `review_pr(kind=requirement_compliance)` |
-| `review_diff` | 本地 diff 预审，不建任务不落库 | diff | ≤120KB 超限截断；服务端未配 LLM 时报错 |
+| `review_diff` | 本地 diff 同步快审，不建任务不落库 | diff | ≤120KB 超限截断；服务端未配 LLM 时报错 |
+| `review_diff_async` | diff 异步预审任务，秒回 task_id | diff | ≤48KB（落库面）；`get_report` 轮询闭环；提交方 hook 首选 |
 | `list_tasks` | 任务清单枚举（倒序摘要面） | 无 | status/limit 可选；找 task_id 的巡检入口 |
 | `list_agents` | 插件清单 | 无 | 三参全传附带 `.reviewagents.yaml` 视图与信任边界告警 |
 | `get_report` | 按 task_id 取状态/verdict/报告 | task_id | 轮询用 |

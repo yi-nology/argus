@@ -272,6 +272,12 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		return r.runCIAnalysis(ctx, task, start)
 	}
 
+	// 本地 diff 预审（v3.123.0）：同 ci_analysis 不依赖 MR 语义，prepareContext
+	// 之前分派——输入是提交方送来的 diff 文本（artifacts），无平台拉取。
+	if task.Kind == plugin.TaskKindDiffPreview {
+		return r.runDiffPreview(ctx, task, start)
+	}
+
 	pr, rc, diff, stale, err := r.prepareContext(ctx, task)
 	if err != nil {
 		return err

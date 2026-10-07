@@ -24,6 +24,36 @@ func (s *Service) CreateTask(ctx context.Context, req *api.CreateTaskRequest) (*
 	return s.CreateTaskDirect(ctx, kind, req.Platform, req.Owner, req.Repo, req.Number, map[string]string(req.Artifacts))
 }
 
+// diffTaskMaxBytes diff_preview 任务输入上限（48KB）：artifacts_json 是 MySQL
+// TEXT 列（64KB 上界），JSON 转义对换行密集的 diff 还有约一成膨胀——48KB 留足
+// 余量。同步 review_diff 的 120KB 上限不适用（纯内存不落库）。MCP 侧错误文案
+// 的"48KB"与本值同源手写，改此值须同步。
+const diffTaskMaxBytes = 48 * 1024
+
+// CreateDiffTask 本地 diff 异步预审任务（v3.123.0，MCP review_diff_async 数据面）：
+// 无 PR 语义——platform 记 local、四元组空，diff 文本存 artifacts（ArtifactDiffInput），
+// runner 按 kind 在 prepareContext 之前分派单轮写作执行体，报告落库供提交方
+// get_report 轮询，不回帖。不做 PR 维去重：每次提交都是显式意图，各自独立任务。
+func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*api.CreateTaskResponse, int) {
+	if s.LLM == nil {
+		return nil, http.StatusServiceUnavailable
+	}
+	if strings.TrimSpace(diff) == "" || len(diff) > diffTaskMaxBytes {
+		return nil, http.StatusBadRequest
+	}
+	artifacts, _ := json.Marshal(map[string]string{plugin.ArtifactDiffInput: diff})
+	task := storage.NewTask(plugin.TaskKindDiffPreview, "local", "", "", "")
+	task.ArtifactsJSON = string(artifacts)
+	task.Priority = 10 // 人类在等（提交方拿着 task_id 轮询）
+	if err := s.Store.CreateTask(ctx, task); err != nil {
+		s.log().Error("argus.api.diff_task_create_failed", "error", err.Error())
+		return nil, http.StatusInternalServerError
+	}
+	s.publishCreated(task)
+	s.log().Info("argus.api.diff_task_created", "task", task.ID, "bytes", len(diff))
+	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
+}
+
 // CreateTaskDirect 核心建任务（kind 为字符串词表），供 handler 与 MCP server 共用。
 func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
 	artifacts map[string]string) (*api.CreateTaskResponse, int) {

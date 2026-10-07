@@ -49,7 +49,17 @@
 |---|---|---|---|
 | `diff` | string | ✓ | 完整 diff 文本，≤120KB（超限服务端按字节截断） |
 
-返回 markdown 意见列表（每行 `- file:line [severity] 说明`）或「✅ 未发现问题」。服务端未配 LLM 时 error：`模型未配置（ARGUS_LLM_*），本地 diff 审查不可用`。
+返回 markdown 意见列表（每行 `- file:line [severity] 说明`）或「✅ 未发现问题」。服务端未配 LLM 时 error：`模型未配置（ARGUS_LLM_*），本地 diff 审查不可用`。需要「提交时触发、稍后轮询」的闭环用 `review_diff_async`。
+
+### review_diff_async
+
+本地 diff **异步**预审任务（v3.123.0）：diff 入队 → 秒回 task_id → 服务端 runner 执行（与 review_diff 同一执行体）→ 报告落库 → 提交方 `get_report` 轮询。不回帖、无 PR 语义。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `diff` | string | ✓ | 完整 diff 文本，≤**48KB**（落库面：artifacts_json 为 MySQL TEXT 列；更长请分块提交） |
+
+成功返回 `{task_id, status, note}`；`note` 提示用 `get_report(task_id)` 轮询（建议 15-30s 间隔）。错误映射：空 diff/超限 →「diff 为空或超过 48KB 上限」；未配 LLM →「模型未配置（ARGUS_LLM_*）」。参考客户端闭环：`copilot review -async` + `copilot poll -task <id>`（内部循环 get_report，10min 上限）。
 
 ### list_agents
 

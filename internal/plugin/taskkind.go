@@ -15,6 +15,7 @@ const (
 	TaskKindDescribe              = domain.TaskKindDescribe
 	TaskKindChangelog             = domain.TaskKindChangelog
 	TaskKindCIAnalysis            = domain.TaskKindCIAnalysis
+	TaskKindDiffPreview           = domain.TaskKindDiffPreview
 )
 
 // IsKnownKind 建任务白名单判定（转发 domain 词表注册表）。

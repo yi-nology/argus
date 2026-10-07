@@ -7,7 +7,7 @@
 
 package domain
 
-// 任务 kind 全量词表（6 类）。
+// 任务 kind 全量词表（7 类）。
 const (
 	TaskKindRequirementCompliance = "requirement_compliance"
 	TaskKindCodeReview            = "code_review"
@@ -17,6 +17,10 @@ const (
 	TaskKindDescribe   = "describe"
 	TaskKindChangelog  = "changelog"
 	TaskKindCIAnalysis = "ci_analysis"
+	// 本地 diff 预审（v3.123.0）：无 PR 语义的异步预审任务——输入是提交方
+	// 送来的 staged diff 文本（artifacts["diff"]），输出报告落库供轮询，
+	// 不回帖。与 review_diff 同一执行体，区别仅在任务化（可异步可轮询）。
+	TaskKindDiffPreview = "diff_preview"
 )
 
 // taskKindInfo 单条词表注册项：review 标记该 kind 是否走 R 系列审查工作流。
@@ -32,6 +36,7 @@ var taskKinds = map[string]taskKindInfo{
 	TaskKindDescribe:              {},
 	TaskKindChangelog:             {},
 	TaskKindCIAnalysis:            {},
+	TaskKindDiffPreview:           {},
 }
 
 // IsKnownKind 建任务白名单判定：kind 是否在注册表内。

@@ -227,7 +227,7 @@ func TestNew_ToolRegistrationCoreOnly(t *testing.T) {
 	for missing := range want {
 		t.Errorf("核心模式缺工具 %s", missing)
 	}
-	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "fix_finding"} {
+	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "review_diff_async", "fix_finding"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("core 未实现 Copilot 却注册了 %s", banned)
@@ -685,6 +685,55 @@ func TestArgBool(t *testing.T) {
 	}
 	if argBool(req, "b") || argBool(req, "c") || argBool(req, "missing") {
 		t.Fatal("非布尔/false/缺失都应回 false")
+	}
+}
+
+// fakeDiffTaskCreator 实现 DiffTaskCreator。
+type fakeDiffTaskCreator struct {
+	fakeCore
+	resp *api.CreateTaskResponse
+	code int
+	diff string
+}
+
+func (f *fakeDiffTaskCreator) CreateDiffTask(_ context.Context, diff string) (*api.CreateTaskResponse, int) {
+	f.diff = diff
+	if f.code != 0 {
+		return nil, f.code
+	}
+	if f.resp != nil {
+		return f.resp, http.StatusOK
+	}
+	return &api.CreateTaskResponse{TaskId: "t-diff-1", Status: "pending"}, http.StatusOK
+}
+
+func TestReviewDiffAsync(t *testing.T) {
+	dc := &fakeDiffTaskCreator{}
+	srv := New(dc, "v-test")
+	text, isErr := callTool(t, srv, "review_diff_async", map[string]any{"diff": "diff --git a/x b/x\n+bug\n"})
+	if isErr || !strings.Contains(text, "t-diff-1") || !strings.Contains(text, "get_report") {
+		t.Fatalf("review_diff_async: isErr=%v text=%s", isErr, text)
+	}
+	if dc.diff != "diff --git a/x b/x\n+bug\n" {
+		t.Fatalf("diff 未透传: %q", dc.diff)
+	}
+
+	// 空 diff：工具层先拦
+	_, isErr = callTool(t, srv, "review_diff_async", map[string]any{"diff": "   "})
+	if !isErr {
+		t.Fatal("空 diff 应 isError")
+	}
+	// 400：为空或超限（落库面 48KB）
+	dc.code = http.StatusBadRequest
+	text, isErr = callTool(t, srv, "review_diff_async", map[string]any{"diff": "x"})
+	if !isErr || !strings.Contains(text, "48KB") {
+		t.Fatalf("400 应转可读错误: isErr=%v text=%s", isErr, text)
+	}
+	// 503：模型未配置
+	dc.code = http.StatusServiceUnavailable
+	text, isErr = callTool(t, srv, "review_diff_async", map[string]any{"diff": "x"})
+	if !isErr || !strings.Contains(text, "模型未配置") {
+		t.Fatalf("503 应转可读错误: isErr=%v text=%s", isErr, text)
 	}
 }
 

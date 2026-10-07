@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"github.com/cloudwego/eino/components/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
@@ -29,10 +27,12 @@ import (
 	"argus/internal/progress"
 	"argus/internal/qa"
 	"argus/internal/storage"
+	"argus/internal/writing"
 
 	"git.example.com/enjoydream/agentkit/audit"
 	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"git.example.com/enjoydream/agentkit/llm"
 )
 
 // Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).
@@ -61,6 +61,9 @@ type Service struct {
 	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
 	QAModel   model.BaseChatModel  // Q&A 专用模型（P6 覆盖；nil = 用 Model）
 	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
+	// LLM 生成器（v3.123.0，models.Generate 同源接线）：diff 预审等单轮写作
+	// 委派 writing.Service 消费；nil = ReviewDiff/CreateDiffTask 禁用。
+	LLM llm.Generator
 	// RouterModel 评论意图路由分类模型（v3.4 ARGUS_ROUTER_MODEL 覆盖；nil = QAModel → Model）。
 	// 仅 ARGUS_COMMENT_ROUTER=1 时消费。
 	RouterModel model.BaseChatModel
@@ -304,21 +307,10 @@ func (s *Service) AnswerAboutReview(ctx context.Context, platform, owner, repo, 
 // 单轮 LLM 审查任意 diff 文本，返回 markdown 意见列表。不建任务、不落库、
 // 不回帖——本地快审语义；模型未配置返回错误（调用方显式降级）。
 // diff 上限 120KB（与写作面同量级；超限截断由调用方负责，工具入参侧也拦）。
+// v3.123.0 起委派 writing.Service.ReviewDiff（与 diff_preview 异步任务同一
+// 执行体，prompt 单源）——本层只留 nil 守卫与语义注释。
 func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
-	if s.Model == nil {
-		return "", fmt.Errorf("模型未配置（ARGUS_LLM_*），本地 diff 审查不可用")
-	}
-	if strings.TrimSpace(diff) == "" {
-		return "", fmt.Errorf("diff 为空")
-	}
-	prompt := "你是资深代码审查专家。审查以下 diff（提交前的本地预审），只报告有实际影响的" +
-		"问题（安全/逻辑/边界），宁缺毋滥；每条意见一行 `- file:line [severity] 说明`。" +
-		"无问题时只输出「✅ 未发现问题」。\n\n<diff>\n" + diff + "\n</diff>"
-	msg, err := s.Model.Generate(ctx, []*schema.Message{schema.UserMessage(prompt)})
-	if err != nil {
-		return "", fmt.Errorf("diff 审查失败: %w", err)
-	}
-	return strings.TrimSpace(msg.Content), nil
+	return (&writing.Service{LLM: s.LLM}).ReviewDiff(ctx, diff)
 }
 
 // StatsOverview 审查概览聚合（GET /stats/overview，🔒 read 档，v3.88.0）：

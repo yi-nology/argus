@@ -8,6 +8,7 @@
 //	list_tasks                           任务清单枚举（v3.121.0）
 //	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
 //	search_code                          PR 工作副本受控检索（v3.121.0）
+//	review_diff_async                    本地 diff 异步预审任务（v3.123.0，提交方轮询闭环）
 //	fix_finding                          沙箱修复（v3.89.0，唯一写侧工具）
 //
 // 传输：mark3labs/mcp-go streamable http，经 Hertz 桥接挂在 /mcp（GET/POST/DELETE），
@@ -57,6 +58,13 @@ type ReviewQA interface {
 type CodeSearcher interface {
 	// SearchCode PR 工作副本受控全文检索，返回围栏文本（错误回执内嵌）。
 	SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error)
+}
+
+// DiffTaskCreator 可选扩展（v3.123.0）：review_diff_async 的数据面。
+// *service.Service 实现。
+type DiffTaskCreator interface {
+	// CreateDiffTask diff 文本 → 异步预审任务（秒回 task_id，报告落库供轮询）。
+	CreateDiffTask(ctx context.Context, diff string) (*api.CreateTaskResponse, int)
 }
 
 // New 构造 MCPServer 并注册工具组（副驾三工具 core 实现 Copilot 时挂载）。
@@ -189,6 +197,29 @@ func New(core Core, version string) *server.MCPServer {
 			return mcp.NewToolResultText(out), nil
 		})
 	}
+	if dtc, ok := core.(DiffTaskCreator); ok {
+		s.AddTool(reviewDiffAsyncTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			diff, _ := req.GetArguments()["diff"].(string)
+			if strings.TrimSpace(diff) == "" {
+				return mcp.NewToolResultError("diff 为空"), nil
+			}
+			created, code := dtc.CreateDiffTask(ctx, diff)
+			switch code {
+			case http.StatusOK:
+				b, _ := json.Marshal(map[string]any{
+					"task_id": created.TaskId, "status": created.Status,
+					"note": "预审任务已入队，用 get_report(task_id) 轮询终态（建议 15-30s 间隔）",
+				})
+				return mcp.NewToolResultText(string(b)), nil
+			case http.StatusBadRequest:
+				return mcp.NewToolResultError("diff 为空或超过 48KB 上限（异步任务落库面；更长 diff 请分块提交）"), nil
+			case http.StatusServiceUnavailable:
+				return mcp.NewToolResultError("模型未配置（ARGUS_LLM_*），diff 预审不可用"), nil
+			default:
+				return mcp.NewToolResultError(fmt.Sprintf("创建任务失败（HTTP %d）", code)), nil
+			}
+		})
+	}
 	return s
 }
 
@@ -248,6 +279,13 @@ func searchCodeTool() mcp.Tool {
 		mcp.WithString("pattern", mcp.Required(), mcp.Description("Go 正则表达式")),
 		mcp.WithString("glob", mcp.Description("可选：文件过滤 glob（无 / 时按文件名匹配如 *.go，含 / 时按仓库相对路径匹配）")),
 		mcp.WithBoolean("ignore_case", mcp.Description("可选：忽略大小写（默认 false）")),
+	)
+}
+
+func reviewDiffAsyncTool() mcp.Tool {
+	return mcp.NewTool("review_diff_async",
+		mcp.WithDescription("把一段 diff 作为异步预审任务提交（≤48KB），立即返回 task_id——提交时触发、稍后轮询的闭环形态。用 get_report(task_id) 取结果（意见列表或「✅ 未发现问题」）；需同步等结果的快审用 review_diff"),
+		mcp.WithString("diff", mcp.Required(), mcp.Description("完整 diff 文本")),
 	)
 }
 

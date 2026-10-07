@@ -64,6 +64,7 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 	pr := fs.String("pr", "", "platform/owner/repo#number（ask）")
 	q := fs.String("q", "", "追问内容（ask 可选）")
 	diffFile := fs.String("f", "", "diff 文件路径（review；缺省读 stdin）")
+	async := fs.Bool("async", false, "review 异步提交：立即返回 task_id 后退出，配合 poll 轮询结果")
 	_ = fs.Parse(rest)
 
 	switch cmd {
@@ -107,7 +108,17 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 		if len(strings.TrimSpace(string(data))) == 0 {
 			return "（无 diff 输入，跳过预审）", nil
 		}
+		if *async {
+			// 异步预审（v3.123.0）：diff → review_diff_async 任务，秒回 task_id
+			// 后退出——hook 里不阻塞提交，结果用 poll 子命令轮询。
+			return call(ctx, cli, "review_diff_async", map[string]any{"diff": string(data)})
+		}
 		return call(ctx, cli, "review_diff", map[string]any{"diff": string(data)})
+	case "poll":
+		// 提交方轮询（v3.123.0）：按 task_id 等 diff_preview 任务到终态，打印报告。
+		// 自带 10min 上限与 3s 间隔，不吃全局 -timeout（hook/CI 等待场景）。
+		need(*task != "", "-task 必填")
+		return pollTask(context.Background(), cli, *task)
 	case "fix":
 		// 沙箱修复（v3.89.0）：按 PR+fp 同步执行自动修复，输出 diff 与验证结论
 		need(*pr != "" && *fp != "", "-pr 与 -fp 必填")
@@ -154,6 +165,40 @@ func splitPR(s string) (platform, owner, repo, number string, err error) {
 	return parts[0], parts[1], parts[2], number, nil
 }
 
+// pollTask 轮询 get_report 至终态（v3.123.0 diff_preview 闭环的提交方侧）：
+// done → 打印报告；failed → 报错；stale → 打印附注。10min 上限、3s 间隔。
+func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string) (string, error) {
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		out, err := call(ctx, cli, "get_report", map[string]any{"task_id": taskID})
+		if err != nil {
+			return "", err
+		}
+		var view map[string]any
+		if jerr := json.Unmarshal([]byte(out), &view); jerr != nil {
+			return out, nil // 非 JSON 视为错误文本，原样透传
+		}
+		switch view["status"] {
+		case "done", "stale":
+			if report, ok := view["report"].(string); ok && report != "" {
+				return report, nil
+			}
+			return out, nil
+		case "failed":
+			reason, _ := view["fail_reason"].(string)
+			return "", fmt.Errorf("预审失败: %s", reason)
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("轮询超时（10min），任务 %s 仍在执行，稍后重跑 poll", taskID)
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
 func need(cond bool, msg string) {
 	if !cond {
 		fmt.Fprintln(os.Stderr, msg)
@@ -186,6 +231,10 @@ func usage() {
   git diff --staged | argus-copilot -url <mcp> -token <t> review [-f <diff文件>]
                                   （pre-commit 本地预审：服务端单轮 LLM 审查，
                                    不建任务不落库；模型未配置时返回错误）
+  git diff --staged | argus-copilot -url <mcp> -token <t> review -async
+  argus-copilot -url <mcp> -token <t> poll -task <id>
+                                  （异步预审闭环：提交秒回 task_id 不阻塞，
+                                   提交方稍后 poll 轮询报告；≤48KB）
   argus-copilot -url <mcp> -token <t> fix      -pr platform/owner/repo#num -fp <短码>
                                   （沙箱修复：服务端编码 agent 出 patch + 确定性
                                    验证，回显 diff；需 ARGUS_FIX_AGENT 启用，ci+ 档 token）

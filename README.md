@@ -168,7 +168,7 @@ v3.74.1 `ARGUS_FIX_PUSH=1` 管线环的职权）。服务启用后报告意见�
 
 ### 5.7 副驾参考客户端（v3.22.0）
 
-`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix 六命令），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md)；脚本
+`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)；脚本
 集成的参考实现：
 
 ```bash
@@ -182,7 +182,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十二工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十三工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -344,6 +344,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `review_pr` | 发起审查并可选等待终态（platform/owner/repo/number + kind/wait/timeout_seconds，等待上界 10 分钟），返回 task_id/status/verdict/report |
 | `requirement_compliance` | 需求复核固定形态（等价 review_pr 默认）|
 | `review_diff` | 本地 diff 单轮预审（不建任务不落库不回帖；≤120KB；服务端未配 LLM 时报错，v3.74.1）|
+| `review_diff_async` | diff 异步预审任务：秒回 task_id，报告落库供 `get_report` 轮询（≤48KB；提交方 hook 闭环，copilot `review -async` + `poll`，v3.123.0）|
 | `list_agents` | 插件清单；三参全传附带仓库配置视图 |
 | `get_report` | 按 taskId 取状态/verdict/完整报告 |
 | `list_tasks` | 任务清单枚举（status/limit 可选，倒序摘要面）——巡检/找 task_id 入口（v3.121.0）|

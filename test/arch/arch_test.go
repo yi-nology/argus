@@ -105,6 +105,9 @@ var layering = map[string][]string{
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/memory", "argus/internal/obs", "argus/internal/plugin",
 		"argus/internal/progress", "argus/internal/qa", "argus/internal/storage",
+		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
+		// 委派（与 runner→writing 同向；同 qa 消费先例）。
+		"argus/internal/writing",
 	},
 
 	// ---- 入口适配层：channel 靠消费侧窄接口（Core/Copilot/ReviewQA）实现

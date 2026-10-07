@@ -2,7 +2,7 @@ package domain
 
 import "testing"
 
-// TestTaskKindRegistry 钉死词表注册表：6 类全量在册、审查类恰为 R 系列三类、
+// TestTaskKindRegistry 钉死词表注册表：7 类全量在册、审查类恰为 R 系列三类、
 // 字面值与 IDL 词表对齐（storage 侧曾裸字符串克隆漂移的教训——值回归即测红）。
 func TestTaskKindRegistry(t *testing.T) {
 	all := []struct {
@@ -15,6 +15,7 @@ func TestTaskKindRegistry(t *testing.T) {
 		{TaskKindDescribe, false},
 		{TaskKindChangelog, false},
 		{TaskKindCIAnalysis, false},
+		{TaskKindDiffPreview, false},
 	}
 	for _, tc := range all {
 		if !IsKnownKind(tc.kind) {
@@ -38,6 +39,7 @@ func TestTaskKindRegistry(t *testing.T) {
 		"describe":               TaskKindDescribe,
 		"changelog":              TaskKindChangelog,
 		"ci_analysis":            TaskKindCIAnalysis,
+		"diff_preview":           TaskKindDiffPreview,
 	}
 	for lit, constant := range literals {
 		if lit != constant {

@@ -238,6 +238,39 @@ func (r *Runner) runCIAnalysis(ctx context.Context, task *storage.Task, start ti
 	return nil
 }
 
+// runDiffPreview 本地 diff 预审任务（v3.123.0）：run 在 prepareContext 之前
+// 分派（同 ci_analysis，无 MR 语义）。输入 artifacts["diff"]，经 writing.
+// ReviewDiff 单轮执行体（与 MCP review_diff 同步路径 prompt 单源），报告落库
+// 供提交方 get_report 轮询，不回帖不进 reportview 审查模板。
+func (r *Runner) runDiffPreview(ctx context.Context, task *storage.Task, start time.Time) error {
+	diff := storage.DecodeJSONMap(task.ArtifactsJSON)[plugin.ArtifactDiffInput]
+	report, err := (&writing.Service{LLM: r.LLM}).ReviewDiff(ctx, diff)
+	if err != nil {
+		return err
+	}
+	out := &requirement.Output{
+		Verdict:    "comment", // 预审无合并门语义，只出意见报告
+		PluginsRun: []string{"writing"},
+		Summary:    report,
+		Tokens:     r.LLM.UsedTokens(),
+	}
+	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "report": report})
+	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusDone,
+		out.Verdict, report, string(resultJSON), "", out.Tokens, 0); ferr != nil {
+		return fmt.Errorf("预审结果落库失败: %w", ferr)
+	} else if fenced {
+		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
+			"hint", "任务归属已易主（stale 重置），本次预审结果丢弃")
+		return nil
+	}
+	r.announceTerminal(ctx, task, storage.StatusDone, out.Verdict, out, "")
+	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusDone)
+	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
+		"verdict", out.Verdict, "kind", task.Kind,
+		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
+	return nil
+}
+
 // verifyFixes 修复验证环（v3.74.0）：fixverifier 对带 suggested_fix 的意见做
 // 沙箱应用+编译验证并回写 f.Verified。未配置包装命令 / 无工作副本 / 全失败
 // 均静默跳过——功能是加分项，永不阻断审查主链路。

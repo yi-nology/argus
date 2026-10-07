@@ -65,6 +65,7 @@
 - **v3.120.0** [deps+feat] agentkit v0.13.0→v0.14.0 + 知识检索 Hybrid 双路收编——buildKnowledge 二选一改 Hybrid 优先（Milvus+本地目录双备→语义+TF-IDF RRF 融合，检索单路失败自动降级另一路，此前 Milvus 查询故障即检索全挂）；buildLocalRAG 返回可判nil；装配单测钉本地/Noop 路径
 - **v3.121.0** [refactor/factory] webhook 回执词表工厂——14 处 Status 字面量收口 wh* 常量 + whResp 构造单源；12 点设计模式再勘察全评估落账 tech-debt（模式容量饱和结论：候选点均为已模式化/DB 级守卫/形式化负收益）
 - **v3.122.0** [feat+mcp] MCP 工具面 10→12——list_tasks（service.ListTasks 接线，巡检/找 task_id 入口）+ search_code（qa.Engine.SearchCode 复用 workcopyDir/searchCodeExec 单源，ARGUS_CODESEARCH 门控，修复前侦察）；argus-precommit agent skill（review_diff 提交前自查环+git hook）；argus-mcp skill/README/ide-mcp 同步校准
+- **v3.123.0** [feat+mcp] 提交方异步预审闭环——新 kind `diff_preview`（domain 词表 7 类，无 PR 语义：platform=local 四元组空，diff 存 artifacts ≤48KB，Priority=10）+ runner prepareContext 前分派 runDiffPreview（同 ci_analysis 先例）+ MCP `review_diff_async`（秒回 task_id）+ copilot `review -async`/`poll`（10min 上限 3s 间隔）；writing.ReviewDiff prompt 单源（service.ReviewDiff 委派 + runner 同执行体，Service 补 LLM 生成器字段）；MCP 工具面 12→13；arch 白名单新增 service→writing（prompt 单源委派，同 runner→writing 同向）
 
 ---
 
