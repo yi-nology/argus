@@ -263,11 +263,14 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	return sys, nil
 }
 
-// buildKnowledge Milvus 向量检索 > 本地 RAG > Noop 三级装配。
+// buildKnowledge 知识检索装配（v3.119.0 Hybrid 双路优先，agentkit v0.14.0）：
+//   - Milvus + 本地知识目录双备 → NewHybrid（语义+TF-IDF RRF 融合，检索单路
+//     失败自动降级另一路——此前 Milvus 查询故障即检索全挂）；
+//   - 仅 Milvus → Milvus（构建失败降级本地）；仅本地 → Local；全无 → Noop。
 func buildKnowledge(ctx context.Context, cfg *config.Config, log logx.Logger) rag.KnowledgeService {
-	var knowledge rag.KnowledgeService = rag.NewNoop()
+	local, localOK := buildLocalRAG(cfg.KnowledgeDir, log)
+	var milvus rag.KnowledgeService
 	if cfg.MilvusAddr != "" && cfg.EmbeddingBaseURL != "" {
-		// Milvus 向量检索模式
 		embedder := rag.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)
 		milvusCfg := rag.MilvusConfig{
 			Address:    cfg.MilvusAddr,
@@ -275,40 +278,46 @@ func buildKnowledge(ctx context.Context, cfg *config.Config, log logx.Logger) ra
 			Dimension:  cfg.EmbeddingDim,
 		}
 		if k, e := rag.NewMilvusStore(ctx, milvusCfg, embedder); e == nil {
-			knowledge = k
+			milvus = k
 			log.Info("argus.boot.milvus_ready", "addr", cfg.MilvusAddr, "collection", cfg.MilvusCollection,
 				"embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
-			// 启动时索引 knowledge 目录到 Milvus
+			// 启动时索引 knowledge 目录到 Milvus（语义路语料）
 			if fi, err := os.Stat(cfg.KnowledgeDir); err == nil && fi.IsDir() {
 				indexKnowledgeDir(ctx, k, cfg.KnowledgeDir, log)
 			}
 		} else {
 			log.Warn("argus.boot.milvus_failed", "addr", cfg.MilvusAddr, "error", e.Error(),
 				"fallback", "本地 RAG")
-			// 回退到本地 RAG
-			knowledge = fallbackLocalRAG(cfg.KnowledgeDir, log)
 		}
-	} else {
-		// 本地 RAG 模式
-		knowledge = fallbackLocalRAG(cfg.KnowledgeDir, log)
 	}
-	return knowledge
+	switch {
+	case milvus != nil && localOK:
+		log.Info("argus.boot.knowledge_hybrid", "semantic", "milvus", "keyword", cfg.KnowledgeDir)
+		return rag.NewHybrid(milvus, local)
+	case milvus != nil:
+		return milvus
+	case localOK:
+		return local
+	default:
+		return rag.NewNoop()
+	}
 }
 
-// fallbackLocalRAG 本地 RAG 回退（目录缺失回退 Noop）。
-func fallbackLocalRAG(dir string, log logx.Logger) rag.KnowledgeService {
-	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-		if k, e := rag.NewLocal(dir); e == nil {
-			log.Info("argus.boot.knowledge_ready", "dir", dir)
-			return k
-		} else {
-			log.Warn("argus.boot.knowledge_failed", "dir", dir, "error", e.Error())
-		}
-	} else {
+// buildLocalRAG 本地 RAG（目录缺失/构建失败返回 nil 并日志留痕）。
+func buildLocalRAG(dir string, log logx.Logger) (*rag.Local, bool) {
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
 		log.Warn("argus.boot.knowledge_absent", "dir", dir,
 			"hint", "创建目录并放入 markdown 知识文件即启用 search_knowledge")
+		return nil, false
 	}
-	return rag.NewNoop()
+	k, e := rag.NewLocal(dir)
+	if e != nil {
+		log.Warn("argus.boot.knowledge_failed", "dir", dir, "error", e.Error())
+		return nil, false
+	}
+	log.Info("argus.boot.knowledge_ready", "dir", dir)
+	return k, true
 }
 
 // indexKnowledgeDir 将知识库目录中的 markdown 文件索引到 Milvus。
