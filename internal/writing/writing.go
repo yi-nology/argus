@@ -133,6 +133,27 @@ func (s *Service) Changelog(ctx context.Context, in Input) (string, error) {
 	return text, nil
 }
 
+// ReviewDiff 本地 diff 审查（v3.123.0 自 service 下沉收口）：单轮 LLM 审查
+// 任意 diff 文本，返回 markdown 意见列表。MCP review_diff（同步）与
+// diff_preview 任务（异步，runner 经同方法执行）共用本执行体——prompt 单源。
+// 不建任务、不落库、不回帖是调用方的语义；本方法只管"diff → 意见文本"。
+func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
+	if s.LLM == nil {
+		return "", fmt.Errorf("模型未配置（ARGUS_LLM_*），本地 diff 审查不可用")
+	}
+	if strings.TrimSpace(diff) == "" {
+		return "", fmt.Errorf("diff 为空")
+	}
+	prompt := "你是资深代码审查专家。审查以下 diff（提交前的本地预审），只报告有实际影响的" +
+		"问题（安全/逻辑/边界），宁缺毋滥；每条意见一行 `- file:line [severity] 说明`。" +
+		"无问题时只输出「✅ 未发现问题」。\n\n<diff>\n" + diff + "\n</diff>"
+	msg, err := s.LLM.Generate(ctx, "diff_preview", []*schema.Message{schema.UserMessage(prompt)})
+	if err != nil {
+		return "", fmt.Errorf("diff 审查失败: %w", err)
+	}
+	return strings.TrimSpace(msg.Content), nil
+}
+
 // describeBeginPrefix/describeEnd argus 管理段边界（HTML 注释对，平台渲染不可见）。
 // begin 是前缀：Render 写入的完整注释为 "<!-- argus:describe begin task_id=... -->"，
 // Merge 按前缀定位（读写两端契约单一出处，v3.75.3 修复此前精确串永不命中导致
