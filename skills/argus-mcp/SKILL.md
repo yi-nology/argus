@@ -78,7 +78,11 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 `review_diff(diff=完整 diff 文本)` 单轮快审，返回 markdown 意见列表（每行 `- 文件路径:行号 [high|medium|low] 说明`）或「✅ 未发现问题」。典型来源 `git diff --staged`。它不建任务、不落库、不回帖，适合 pre-commit 与「先自查再提 PR」。用参考客户端跑时另有 CLI 侧增强：`review -staged -include-untracked` 自组含未跟踪文件的 diff、`-json` 结构化输出、`-fail-on` 定退出码阈值（hook 阻断面）——细节见 argus-precommit skill。
 
-### 6. 标记误报与查看能力面
+### 6. 分诊一批意见（triage）
+
+对一批 findings 逐条处置（修/驳/上报）、「以前怎么裁的」历史核查、误报抑制与恢复的完整工作流见 **argus-triage** skill——本节的 suppress/restore 是它的原语。
+
+### 7. 标记误报与查看能力面
 
 确认某条意见是误报且持有 admin 档 token 时，`suppress_finding(platform, owner, repo, number, fp)` 一步闭环：后续报告自动剔除该意见，结论回流知识库与学习环（记忆飞轮）。ci 档调用报「需 admin 档 token」属预期，转告用户即可。新接手一个部署时先 `get_capabilities` 看清 fix/检索/知识库哪些开着，再决定工作流怎么走。要查「这个问题以前报过吗/怎么裁的/被压过吗」用 `search_findings`（本仓意见账本，带 status 与复现次数，fp 短码可直接喂 suppress/restore/fix）。
 
