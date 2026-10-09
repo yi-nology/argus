@@ -6,6 +6,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -23,6 +24,9 @@ import (
 func (s *Service) SuppressFindingScoped(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
 	if ScopeFromContext(ctx) != "admin" {
 		return nil, fmt.Errorf("suppress_finding 需 admin 档 token（误报抑制是信任边界写操作，scope 透传二次判定），当前档位不足")
+	}
+	if !s.repoAllowed(platform, owner, repo) {
+		return nil, errors.New(errRepoDenied)
 	}
 	if owner == "" || repo == "" {
 		return nil, fmt.Errorf("owner/repo 不能为空")
@@ -56,6 +60,9 @@ func (s *Service) SuppressFindingScoped(ctx context.Context, platform, owner, re
 func (s *Service) RestoreFindingScoped(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
 	if ScopeFromContext(ctx) != "admin" {
 		return nil, fmt.Errorf("restore_finding 需 admin 档 token（scope 透传二次判定），当前档位不足")
+	}
+	if !s.repoAllowed(platform, owner, repo) {
+		return nil, errors.New(errRepoDenied)
 	}
 	if owner == "" || repo == "" {
 		return nil, fmt.Errorf("owner/repo 不能为空")

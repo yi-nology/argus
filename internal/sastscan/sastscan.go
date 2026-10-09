@@ -8,6 +8,8 @@ package sastscan
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 
 	"git.example.com/enjoydream/agentkit/sast"
@@ -23,11 +25,31 @@ type Config = sast.Config
 var sastEnvAllow = []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"}
 
+// filterRegularFiles 扫描清单的安全过滤（v3.134.1）：剔除软链/非常规文件——
+// gitleaks/semgrep 等外部工具会跟随软链读取工作副本外文件（如 -> /etc 或
+// /proc/self/environ），泄漏内容会以 finding 形式外带。sast 子进程环境白名单
+// 已封密钥 env 面，此为文件面旁路的补齐（与 codesearch/semsearch 的
+// IsRegular 守卫同口径）。
+func filterRegularFiles(dir string, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		info, err := os.Lstat(filepath.Join(dir, p))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // Run 执行全部已配置工具，产出 plugin.Outcome（失败置 Err，不 panic 不中断）。
 // dir 为工作副本根；baseRef 非空时 gitleaks 按提交范围扫描；paths 为 diffprep
 // Included 的聚焦清单（nil/空 = 全仓）。
 func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, log sast.Logger) []plugin.Outcome {
 	cfg.EnvAllow = sastEnvAllow
+	if len(paths) > 0 {
+		paths = filterRegularFiles(dir, paths)
+	}
 	results := sast.Scan(ctx, cfg, dir, baseRef, paths, log)
 	if len(results) == 0 {
 		return nil

@@ -1148,3 +1148,19 @@ func TestRestoreFinding_RegisteredAndCalled(t *testing.T) {
 		t.Errorf("scope 拒绝应 isError 含 admin: isErr=%v text=%s", isErr, text)
 	}
 }
+
+// TestAskArgus_QuestionCap 追问长度上限（v3.134.0 成本/DoS 约束）。
+func TestAskArgus_QuestionCap(t *testing.T) {
+	core := &fakeQA{answer: "x", answerOK: true}
+	srv := New(core, "v-test")
+	long := make([]byte, maxQuestionRunes+1)
+	for i := range long {
+		long[i] = 'a'
+	}
+	text, isErr := callTool(t, srv, "ask_argus", map[string]any{
+		"platform": "gitlab", "owner": "acme", "repo": "app", "number": "1", "question": string(long),
+	})
+	if !isErr || !strings.Contains(text, "过长") {
+		t.Errorf("超长 question 应报错: isErr=%v text=%s", isErr, text[:60])
+	}
+}

@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 )
@@ -17,18 +18,23 @@ func (s *Service) Capabilities(context.Context) map[string]any {
 			knowledgeOn = true
 		}
 	}
+	allowlist := "all"
+	if s.Cfg != nil && len(s.Cfg.RepoAllowlist) > 0 {
+		allowlist = strings.Join(s.Cfg.RepoAllowlist, ",")
+	}
 	return map[string]any{
-		"version":       s.Version,
-		"llm":           s.LLM != nil || s.Model != nil,
-		"diff_preview":  s.LLM != nil,
-		"qa":            s.Model != nil,
-		"code_search":   s.Cfg != nil && s.Cfg.CodeSearch && s.WC != nil,
-		"sem_search":    s.Cfg != nil && s.Cfg.SemSearch && s.SemSearch != nil,
-		"knowledge":     knowledgeOn,
-		"fix_agent":     s.Cfg != nil && s.Cfg.FixAgent != "",
-		"fix_push":      s.Cfg != nil && s.Cfg.FixPush,
-		"codegraph":     s.Cfg != nil && s.Cfg.Codegraph,
-		"related_repos": s.Cfg != nil && s.Cfg.RelatedRepos,
-		"ocr":           s.Cfg != nil && s.Cfg.OcrBin != "",
+		"repo_allowlist": allowlist,
+		"version":        s.Version,
+		"llm":            s.LLM != nil || s.Model != nil,
+		"diff_preview":   s.LLM != nil,
+		"qa":             s.Model != nil,
+		"code_search":    s.Cfg != nil && s.Cfg.CodeSearch && s.WC != nil,
+		"sem_search":     s.Cfg != nil && s.Cfg.SemSearch && s.SemSearch != nil,
+		"knowledge":      knowledgeOn,
+		"fix_agent":      s.Cfg != nil && s.Cfg.FixAgent != "",
+		"fix_push":       s.Cfg != nil && s.Cfg.FixPush,
+		"codegraph":      s.Cfg != nil && s.Cfg.Codegraph,
+		"related_repos":  s.Cfg != nil && s.Cfg.RelatedRepos,
+		"ocr":            s.Cfg != nil && s.Cfg.OcrBin != "",
 	}
 }

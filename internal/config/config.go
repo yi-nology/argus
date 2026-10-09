@@ -268,6 +268,13 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// RepoAllowlist 外部入口的仓库白名单（v3.134.0，ARGUS_REPO_ALLOWLIST）：
+	// 逗号分隔 "platform:owner/repo"（repo 可用 /* 后缀按前缀放行，如 gitlab:obs/*）。
+	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA 等外部入口只能触达清单内仓库
+	// ——收窄 ci token 泄露半径（数据工具可读 bot 可见的一切仓库代码是设计边界，
+	// 白名单把「一切」收成「清单」）。webhook/poller 受信路径不受此门约束。
+	RepoAllowlist []string
+
 	// SemSearch 工作副本语义检索（v3.126.0）：为 MCP 挂 search_sem 工具——
 	// 结构化摘要 embedding + 进程内余弦，补词法 grep 答不了的「按意图找代码」
 	// （哪里处理认证/哪里刷新 token——代码里未必有查询词）。需 ARGUS_EMBEDDING_*
@@ -354,6 +361,7 @@ func Load() *Config {
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		CodeSearch:             envBool("ARGUS_CODESEARCH", true),
 		SemSearch:              envBool("ARGUS_SEMSEARCH", false),
+		RepoAllowlist:          envList("ARGUS_REPO_ALLOWLIST"),
 		RelatedRepos:           envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),

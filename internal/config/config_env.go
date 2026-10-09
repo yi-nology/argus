@@ -40,6 +40,21 @@ func normalizeCompletenessPolicy(v string) string {
 	}
 }
 
+// envList 逗号分隔列表 env（去空白、滤空项；空 = nil）。
+func envList(key string) []string {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if v := strings.TrimSpace(part); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func envBool(key string, def bool) bool {
 	v := os.Getenv(key)
 	if v == "" {

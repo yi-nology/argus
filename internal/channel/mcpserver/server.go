@@ -186,6 +186,12 @@ func New(core Core, version string) *server.MCPServer {
 			}
 		}
 		question := argString(req, "question", "")
+		if len(question) > maxQuestionRunes {
+			return mcp.NewToolResultError("question 过长（上限 " + fmt.Sprint(maxQuestionRunes) + " 字符）"), nil
+		}
+		if len(question) > maxQuestionRunes {
+			return mcp.NewToolResultError("question 过长（上限 " + fmt.Sprint(maxQuestionRunes) + " 字符）"), nil
+		}
 		if question == "" {
 			// 无追问：返回最近一次审查结论（verdict + findings + 报告摘录）
 			lr, ok := qa.LatestReview(ctx, platform, owner, repo, number)
@@ -473,6 +479,9 @@ func renderTerminalTask(ctx context.Context, core Core, t *api.GetTaskResponse, 
 
 // maxWaitTimeout review_pr 等待终态的时长上界。
 const maxWaitTimeout = 10 * time.Minute
+
+// maxQuestionRunes ask_argus 追问长度上限（v3.134.0，成本/DoS 约束）。
+const maxQuestionRunes = 8000
 
 // defaultReviewKind review_pr 缺省审查类型（与 requirement_compliance 工具、
 // schema enum 同词表；本文件此前 4 处字面量散写）。
