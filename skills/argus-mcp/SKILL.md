@@ -49,7 +49,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `search_knowledge` | 知识库语义检索（规范/历史结论/误报判例） | query | top_k 可选（缺省 5 上界 10）；与 R3/R4 审查面同源；未配知识源时报错 |
 | `fix_finding` | 单条意见沙箱修复 | platform/owner/repo/number/fp | 绝不 push；未配 `ARGUS_FIX_AGENT` 时报错 |
 | `search_sem` | 工作副本语义检索（按意图找代码） | platform/owner/repo/number/query | top_k 可选；`ARGUS_SEMSEARCH`+`ARGUS_EMBEDDING_*` 双门，未启用时报错 |
-| `suppress_finding` | 误报抑制（fp 短码，近重复容忍） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环 |
+| `suppress_finding` | 误报抑制（fp 短码） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环；剔除按指纹精确匹配，模型改写措辞的同义条目会再现（详见 tools.md 耐久性边界） |
 | `get_capabilities` | 能力面快照（部署开了什么） | 无 | 纯读零副作用；调受限工具前先看这里 |
 
 ## 标准工作流

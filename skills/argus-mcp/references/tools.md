@@ -173,6 +173,8 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 
 返回 `{matched, fingerprint}`（matched=false 表示未命中既有意见但已预插抑制记录）。**需 admin 档 token**：/mcp 路由只需 ci 档，但本工具在服务端按 scope 透传做 admin 二次判定，非 admin 报 `suppress_finding 需 admin 档 token`。等价 HTTP 端点 `POST /findings/suppress`（同 admin 门）。CLI 无对应子命令（admin 写操作建议直接走 MCP/API）。
 
+**耐久性边界（2026-10-09 实测）**：剔除按「file+规范化评语」指纹精确匹配——行号漂移无影响，但**模型在后续轮重写措辞会产生新指纹，同义条目会再现**（实测同一处硬编码密钥问题被改写为「新增了…」后逃逸剔除）。对措辞易变的意见，缓解办法是让用户改代码或用 `ask_argus` 记住结论；「近重复耐措辞漂移的剔除」在 backlog（需 merger 过滤语义扩展）。
+
 ### fix_finding
 
 单条意见的沙箱修复：隔离工作区内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`）。**绝不推送分支。**
