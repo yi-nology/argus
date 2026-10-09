@@ -451,7 +451,7 @@ func (s *Service) fixAgentTimeout() time.Duration {
 // 同步孪生——同一执行体（fixExec），进程内在途去重跨通道互斥。结果面为
 // JSON 友好 map（mcpserver 零 internal 依赖，只吃 map）。超时同 ARGUS_FIX_TIMEOUT。
 func (s *Service) FixFinding(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, errors.New(errRepoDenied)
 	}
 	fp = strings.ToLower(strings.TrimSpace(fp))

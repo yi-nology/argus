@@ -268,6 +268,10 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// APIRateRPM 每 token 的 API 调用速率上限（v3.135.0，ARGUS_API_RATE_RPM，
+	// 每分钟请求数；0 = 关闭）。缺省 120：防被盗 token 刷 LLM 成本/刷审查。
+	APIRateRPM int
+
 	// RepoAllowlist 外部入口的仓库白名单（v3.134.0，ARGUS_REPO_ALLOWLIST）：
 	// 逗号分隔 "platform:owner/repo"（repo 可用 /* 后缀按前缀放行，如 gitlab:obs/*）。
 	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA 等外部入口只能触达清单内仓库
@@ -362,6 +366,7 @@ func Load() *Config {
 		CodeSearch:             envBool("ARGUS_CODESEARCH", true),
 		SemSearch:              envBool("ARGUS_SEMSEARCH", false),
 		RepoAllowlist:          envList("ARGUS_REPO_ALLOWLIST"),
+		APIRateRPM:             envInt("ARGUS_API_RATE_RPM", 120),
 		RelatedRepos:           envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),

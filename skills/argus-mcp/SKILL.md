@@ -15,7 +15,7 @@ Argus 是 PR 自动审查 bot：多 agent 编队审查（R1 需求解析 → R2 
 | 传输 | MCP streamable HTTP（POST 一问一答） |
 | 鉴权 | `Authorization: Bearer <token>`；token 来自服务端 `ARGUS_API_TOKENS`（三档）或旧单 token `ARGUS_APITOKEN`（等价 admin） |
 
-token 分三档，**驱动审查/修复用 ci 档**：`read` 只读、`ci` 可建任务与调全部 MCP 工具、`admin` 全权（含误报抑制）。不要在 agent 配置里放 admin token；仅配了单 token `ARGUS_APITOKEN` 的部署（admin 等价）照常用，但注意它本可建 ci 档隔离。
+token 分三档，**驱动审查/修复用 ci 档**：`read` 只读、`ci` 可建任务与调全部 MCP 工具、`admin` 全权（含误报抑制）。不要在 agent 配置里放 admin token；仅配了单 token `ARGUS_APITOKEN` 的部署（admin 等价）照常用，但注意它本可建 ci 档隔离。token 可带仓库约束（服务端 `token:scope@platform:owner/repo` 形态）与调用频率限制（`ARGUS_API_RATE_RPM`，超限 429）——被分配到的 token 只能触达其约束范围内仓库，越界调用报「仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内」。
 
 已装 MCP 客户端时的最小配置（其余客户端见 `docs/ide-mcp.md`）：
 

@@ -93,6 +93,9 @@ type Service struct {
 	qaThrottleMu  sync.Mutex
 	qaThrottleCch *ekcache.LocalCache[bool]
 
+	// apiLimiters 每 token 速率限制器（v3.135.0，tokenRateOK 懒建；key=token 指纹）。
+	apiLimiters sync.Map
+
 	// fixInflight @argus fix 在途去重（v3.85.0）：key=pr+fp，防同 finding 并发
 	// 双跑烧双倍 agent token。进程级即可（修复是交互式命令，不跨重启）。
 	fixInflight sync.Map
@@ -301,7 +304,7 @@ func (s *Service) qa() *qa.Engine {
 // LatestReview 某 PR 最近一次审查结论（mcpserver ask_argus 数据源）。
 // 返回 {task_id, finished_at, verdict, findings, report}；无记录返回 (nil, false)。
 func (s *Service) LatestReview(ctx context.Context, platform, owner, repo, number string) (map[string]any, bool) {
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return map[string]any{"error": errRepoDenied}, true // 拒绝以内容态可见，不伪装成"无记录"
 	}
 	return s.qa().LatestReview(ctx, platform, owner, repo, number)
@@ -310,7 +313,7 @@ func (s *Service) LatestReview(ctx context.Context, platform, owner, repo, numbe
 // AnswerAboutReview 基于最近一次报告回答追问（ask_argus 带 question 时走这里；
 // 单轮直调——报告已在手，无需工具链）。模型未配置或无报告返回 ("" , false)。
 func (s *Service) AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool) {
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return errRepoDenied, true // 拒绝以答案态可见，不伪装成"无法回答"
 	}
 	return s.qa().AnswerAboutReview(ctx, platform, owner, repo, number, question)

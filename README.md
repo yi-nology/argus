@@ -418,6 +418,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
 | `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
 | `ARGUS_SEMSEARCH` | false | search_sem 语义检索开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
+| `ARGUS_REPO_ALLOWLIST` | 空=不限 | 外部入口仓库白名单（v3.134.0，`platform:owner/repo` 逗号分隔，支持 `/*` 通配）|
+| `ARGUS_API_RATE_RPM` | 120 | 每 token 调用速率上限（v3.135.0，每分钟；0=关）|
 | `ARGUS_RELATED_REPOS` | false | 跨仓契约快照总门（v3.90.0）：允许 .reviewagents.yaml related 段拉取关联仓契约文件注入审查（扩大数据访问面，部署方显式授权）|
 | `ARGUS_REFLECTION_EVIDENCE` | off | R3.5 反思证据门模式（strict = 剔除证据不足条目）|
 | `ARGUS_REGRET_LEARNING` | false | 模式级 regret 学习环（低置信标注 SoftFloor / 抑制 HardFloor；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go）|

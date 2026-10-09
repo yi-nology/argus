@@ -58,7 +58,7 @@ func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*api.CreateT
 func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
 	artifacts map[string]string) (*api.CreateTaskResponse, int) {
 	// kind 白名单走 plugin 词表注册表单源（domain/taskkind.go canonical）。
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, http.StatusForbidden // ARGUS_REPO_ALLOWLIST 白名单（v3.134.0）
 	}
 	if !plugin.IsKnownKind(kind) {

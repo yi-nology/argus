@@ -116,6 +116,9 @@ func envFloat(key string, def float64) float64 {
 type APITokenScope struct {
 	Token string
 	Scope string // read | ci | admin
+	Repos string // 可选仓库约束（v3.135.0，"token:scope@platform:owner/repo"，支持 /* 通配）：
+	// 空 = 不限（仍受 ARGUS_REPO_ALLOWLIST 总白名单约束）；非空 = 该 token 只能
+	// 触达清单内仓库——把单个 token 的泄露半径压到单仓/单组。
 }
 
 // apiTokenScopeRank scope→覆盖等级（闭集校验单源；未知 scope = 0 = 不覆盖任何要求）。
@@ -133,13 +136,21 @@ func ParseAPITokens(raw string) []APITokenScope {
 		if part == "" {
 			continue
 		}
-		tok, scope, ok := strings.Cut(part, ":")
-		tok, scope = strings.TrimSpace(tok), strings.TrimSpace(strings.ToLower(scope))
+		tok, rest, ok := strings.Cut(part, ":")
+		tok = strings.TrimSpace(tok)
+		// "token:scope" 或 "token:scope@repo-pattern"（v3.135.0）
+		scopePart, repos, hasRepos := strings.Cut(rest, "@")
+		scope := strings.TrimSpace(strings.ToLower(scopePart))
+		repos = strings.TrimSpace(repos)
+		if hasRepos && repos == "" {
+			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope@repo-pattern（@ 后不能为空）")
+			continue
+		}
 		if !ok || tok == "" || apiTokenScopeRank[scope] == 0 {
 			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope（scope ∈ read|ci|admin）")
 			continue
 		}
-		out = append(out, APITokenScope{Token: tok, Scope: scope})
+		out = append(out, APITokenScope{Token: tok, Scope: scope, Repos: repos})
 	}
 	return out
 }

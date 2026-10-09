@@ -25,7 +25,7 @@ func (s *Service) SuppressFindingScoped(ctx context.Context, platform, owner, re
 	if ScopeFromContext(ctx) != "admin" {
 		return nil, fmt.Errorf("suppress_finding 需 admin 档 token（误报抑制是信任边界写操作，scope 透传二次判定），当前档位不足")
 	}
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, errors.New(errRepoDenied)
 	}
 	if owner == "" || repo == "" {
@@ -61,7 +61,7 @@ func (s *Service) RestoreFindingScoped(ctx context.Context, platform, owner, rep
 	if ScopeFromContext(ctx) != "admin" {
 		return nil, fmt.Errorf("restore_finding 需 admin 档 token（scope 透传二次判定），当前档位不足")
 	}
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, errors.New(errRepoDenied)
 	}
 	if owner == "" || repo == "" {

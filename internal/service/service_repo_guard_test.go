@@ -40,3 +40,58 @@ func TestRepoAllowlist(t *testing.T) {
 		t.Errorf("LatestReview 拒绝应内容态可见, got %v", m)
 	}
 }
+
+// TestRepoAllowedFor_TokenRepos 双门语义（v3.135.0）：总白名单 AND token 自身
+// 仓库约束——单 token 泄露半径压到其 pattern 内。
+func TestRepoAllowedFor_TokenRepos(t *testing.T) {
+	s := &Service{Cfg: &config.Config{
+		RepoAllowlist: []string{"gitlab:demo-user/*", "gitlab:obs/*"},
+		APITokens:     []config.APITokenScope{},
+	}}
+	// token 限定单仓：总白名单内但 token 外 → 拒
+	ctx := ContextWithTokenRepos(context.Background(), "gitlab:demo-user/argus-validate")
+	if !s.repoAllowedFor(ctx, "gitlab", "demo-user", "argus-validate") {
+		t.Error("token pattern 内应放行")
+	}
+	if s.repoAllowedFor(ctx, "gitlab", "obs", "insights-mcp-gateway") {
+		t.Error("token pattern 外应拒绝（即使总白名单内）")
+	}
+	// 无 token 约束 = 只看总白名单
+	free := ContextWithTokenRepos(context.Background(), "")
+	if !s.repoAllowedFor(free, "gitlab", "obs", "insights-mcp-gateway") {
+		t.Error("无 token 约束应按总白名单放行")
+	}
+	// 双门同时限制
+	scoped := ContextWithTokenRepos(context.Background(), "gitlab:obs/*")
+	if s.repoAllowedFor(scoped, "gitlab", "demo-user", "argus-validate") {
+		t.Error("总白名单内但 token 外应拒")
+	}
+	if s.repoAllowedFor(scoped, "github", "obs", "x") {
+		t.Error("总白名单外应拒")
+	}
+}
+
+// TestTokenRateOK 每 token 限速（v3.135.0）：突发超限返回 false，0=关闭放行。
+func TestTokenRateOK(t *testing.T) {
+	s := &Service{Cfg: &config.Config{APIRateRPM: 60}} // burst = max(10, 10) = 10
+	allowed := 0
+	for i := 0; i < 25; i++ {
+		if s.tokenRateOK("tok-a") {
+			allowed++
+		}
+	}
+	if allowed != 10 {
+		t.Errorf("burst 内应恰放行 10 次，got %d", allowed)
+	}
+	// 不同 token 独立计数
+	if !s.tokenRateOK("tok-b") {
+		t.Error("另一 token 应有独立额度")
+	}
+	// 0 = 关闭
+	s2 := &Service{Cfg: &config.Config{APIRateRPM: 0}}
+	for i := 0; i < 100; i++ {
+		if !s2.tokenRateOK("tok-c") {
+			t.Error("限速关闭时不应拒绝")
+		}
+	}
+}

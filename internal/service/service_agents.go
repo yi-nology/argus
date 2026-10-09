@@ -192,7 +192,7 @@ func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any
 // 启用门控（ARGUS_CODESEARCH/工作副本池）、目录解析与检索语义都在 qa.Engine，
 // 门面纯透传——与 LatestReview/AnswerAboutReview 同型。
 func (s *Service) SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error) {
-	if !s.repoAllowed(platform, owner, repo) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return "", errors.New(errRepoDenied)
 	}
 	return s.qa().SearchCode(ctx, platform, owner, repo, number, pattern, glob, ignoreCase)
