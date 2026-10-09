@@ -135,6 +135,17 @@ PR 工作副本内受控全文正则检索（与审查管线 R3/R4 同款纪律�
 
 返回围栏文本（命中列表或检索类错误回执，均在文本内）。**命中不等于结论**——引用前需读文件核实。环境面故障以 MCP error 返回：`ARGUS_CODESEARCH=0` 或未配置工作副本池 →「search_code 未启用」；冷克隆超时/失败 →「工作副本不可用」。
 
+### search_knowledge
+
+检索 Argus 知识库（v3.125.0）：与审查管线 R3/R4 的 search_knowledge 同源——组织/仓库级规范文档、历史审查结论、误报判例（Milvus 语义 + 本地 TF-IDF Hybrid，RRF 融合）。
+
+| 参数 | 类型 | 必填 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `query` | string | ✓ | | 自然语言查询 |
+| `top_k` | number | | 5 | 上界 10（服务端钳制） |
+
+返回围栏文本：命中片段按相关度降序，每条带 `score` 与元数据（如 `source`/`repo`）。空命中返回提示文本（非 error）。**命中不等于结论**——知识条目是团队沉淀的参考，不是裁决。未配置知识源（无 `ARGUS_KNOWLEDGE_DIR` 且无 Milvus）时 error：`知识库未启用`。
+
 ### fix_finding
 
 单条意见的沙箱修复：隔离工作区内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`）。**绝不推送分支。**

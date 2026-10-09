@@ -227,7 +227,7 @@ func TestNew_ToolRegistrationCoreOnly(t *testing.T) {
 	for missing := range want {
 		t.Errorf("核心模式缺工具 %s", missing)
 	}
-	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "review_diff_async", "fix_finding"} {
+	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "search_knowledge", "review_diff_async", "fix_finding"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("core 未实现 Copilot 却注册了 %s", banned)
@@ -858,5 +858,56 @@ func TestRunReview_CreateErrorStatus(t *testing.T) {
 	})
 	if !isErr {
 		t.Fatalf("500 创建应 isError: %s", text)
+	}
+}
+
+// ---------- search_knowledge（v3.125.0） ----------
+
+// fakeKnowledgeSearcher 实现 KnowledgeSearcher。
+type fakeKnowledgeSearcher struct {
+	fakeCore
+	query string
+	topK  int
+	out   string
+	err   error
+}
+
+func (f *fakeKnowledgeSearcher) SearchKnowledge(_ context.Context, query string, topK int) (string, error) {
+	f.query, f.topK = query, topK
+	return f.out, f.err
+}
+
+func TestSearchKnowledge_RegisteredAndCalled(t *testing.T) {
+	core := &fakeKnowledgeSearcher{out: "search_knowledge（query=规范）命中 1 条"}
+	srv := New(core, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "search_knowledge" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 KnowledgeSearcher 后应注册 search_knowledge")
+	}
+	text, isErr := callTool(t, srv, "search_knowledge", map[string]any{"query": "规范", "top_k": float64(3)})
+	if isErr {
+		t.Fatalf("search_knowledge 报错: %s", text)
+	}
+	if core.query != "规范" || core.topK != 3 {
+		t.Errorf("入参透传错: query=%q topK=%d", core.query, core.topK)
+	}
+	if !strings.Contains(text, "命中 1 条") {
+		t.Errorf("输出不符:\n%s", text)
+	}
+	// 缺必填 → isError；数据面 error → isError
+	_, isErr = callTool(t, srv, "search_knowledge", map[string]any{})
+	if !isErr {
+		t.Error("缺 query 应 isError")
+	}
+	core2 := &fakeKnowledgeSearcher{err: errors.New("知识库未启用（未配置知识源）")}
+	srv2 := New(core2, "v-test")
+	text, isErr = callTool(t, srv2, "search_knowledge", map[string]any{"query": "x"})
+	if !isErr || !strings.Contains(text, "知识库未启用") {
+		t.Errorf("未启用应 isError 含文案: isErr=%v text=%s", isErr, text)
 	}
 }
