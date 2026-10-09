@@ -160,7 +160,9 @@ func New(core Core, version string) *server.MCPServer {
 		if code != http.StatusOK {
 			return mcp.NewToolResultError(fmt.Sprintf("查询失败（HTTP %d）", code)), nil
 		}
-		b, _ := json.MarshalIndent(taskView(t), "", "  ")
+		out := taskView(t)
+		decorateStages(ctx, core, out, vals[0])
+		b, _ := json.MarshalIndent(out, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
 	s.AddTool(askArgusTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -422,7 +424,7 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 		}
 		switch t.Status {
 		case "done":
-			return renderTerminalTask(t, "verdict")
+			return renderTerminalTask(ctx, core, t, "verdict")
 		case "failed":
 			reason := ""
 			if t.FailReason != nil {
@@ -430,7 +432,7 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 			}
 			return mcp.NewToolResultError("审查失败: " + reason)
 		case "stale":
-			return renderTerminalTask(t, "note")
+			return renderTerminalTask(ctx, core, t, "note")
 		}
 		if time.Now().After(deadline) {
 			b, _ := json.Marshal(map[string]any{
@@ -451,9 +453,11 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 	}
 }
 
-// renderTerminalTask done/stale 终态的结构化输出（verdict/report 必带，note 按态填写）。
-func renderTerminalTask(t *api.GetTaskResponse, noteField string) *mcp.CallToolResult {
+// renderTerminalTask done/stale 终态的结构化输出（verdict/report 必带，note 按态
+// 填写；阶段进度与 get_report 同装饰）。
+func renderTerminalTask(ctx context.Context, core Core, t *api.GetTaskResponse, noteField string) *mcp.CallToolResult {
 	out := taskView(t)
+	decorateStages(ctx, core, out, t.TaskId)
 	if noteField == "note" {
 		out["note"] = "审查完成但已有更新的提交，报告未回帖（staleness）"
 	}
@@ -497,6 +501,33 @@ func taskView(t *api.GetTaskResponse) map[string]any {
 		out["fail_reason"] = *t.FailReason
 	}
 	return out
+}
+
+// decorateStages 阶段进度并入任务视图（v3.127.0）：core 实现 Copilot 时附
+// stages 列表与 stage_current（首个未完成阶段）——此前轮询 get_report 只见
+// status=running，要进展必须再调 get_task_stages，多一跳且轮询循环里无从展示。
+func decorateStages(ctx context.Context, core Core, out map[string]any, taskID string) {
+	cop, ok := core.(Copilot)
+	if !ok {
+		return
+	}
+	sv, ok := cop.TaskStages(ctx, taskID)
+	if !ok {
+		return
+	}
+	stages, ok := sv["stages"].([]map[string]any)
+	if !ok {
+		return
+	}
+	out["stages"] = stages
+	for _, st := range stages {
+		if done, _ := st["done"].(bool); !done {
+			if name, _ := st["stage"].(string); name != "" {
+				out["stage_current"] = name
+			}
+			break
+		}
+	}
 }
 
 // 指纹短码合法长度与共享错误文案（get_suggestion / fix_finding 同口径）。

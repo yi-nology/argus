@@ -762,13 +762,13 @@ func TestRenderTerminalTask_NoteFields(t *testing.T) {
 	report := "body"
 	tr := &api.GetTaskResponse{TaskId: "t", Status: "done", Verdict: &verdict, Report: &report}
 
-	res := renderTerminalTask(tr, "verdict")
+	res := renderTerminalTask(context.Background(), &fakeCore{}, tr, "verdict")
 	text := extractText(t, res)
 	if strings.Contains(text, "staleness") {
 		t.Fatalf("verdict 注记不应含 staleness:\n%s", text)
 	}
 
-	res = renderTerminalTask(tr, "note")
+	res = renderTerminalTask(context.Background(), &fakeCore{}, tr, "note")
 	text = extractText(t, res)
 	if !strings.Contains(text, "staleness") {
 		t.Fatalf("note 注记应含 staleness:\n%s", text)
@@ -962,5 +962,45 @@ func TestSearchSem_RegisteredAndCalled(t *testing.T) {
 	})
 	if !isErr || !strings.Contains(text, "search_sem 未启用") {
 		t.Errorf("未启用应 isError 含文案: isErr=%v text=%s", isErr, text)
+	}
+}
+
+// ---------- 阶段进度装饰（v3.127.0） ----------
+
+// TestGetReport_StagesDecorated get_report 内联 stages 与 stage_current：
+// 轮询单跳可见进展（此前要再调 get_task_stages）。
+func TestGetReport_StagesDecorated(t *testing.T) {
+	core := &fakeCopilot{stages: map[string]any{
+		"stages": []map[string]any{
+			{"stage": "R1", "done": true},
+			{"stage": "R2", "done": true},
+			{"stage": "R3", "done": false},
+			{"stage": "R4", "done": false},
+		},
+	}, stagesOK: true}
+	core.getResp = &api.GetTaskResponse{TaskId: "t-9", Status: "running"}
+	srv := New(core, "v-test")
+	text, isErr := callTool(t, srv, "get_report", map[string]any{"task_id": "t-9"})
+	if isErr {
+		t.Fatalf("get_report 报错: %s", text)
+	}
+	var view map[string]any
+	if err := json.Unmarshal([]byte(text), &view); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := view["stages"]; !ok {
+		t.Fatalf("应内联 stages:\n%s", text)
+	}
+	if view["stage_current"] != "R3" {
+		t.Errorf("stage_current = %v, want R3", view["stage_current"])
+	}
+
+	// core 不实现 Copilot（纯 fakeCore）→ 无 stages 字段但输出如常。
+	srv2 := New(&fakeCore{getResp: &api.GetTaskResponse{TaskId: "t-1", Status: "running"}}, "v-test")
+	text2, _ := callTool(t, srv2, "get_report", map[string]any{"task_id": "t-1"})
+	var view2 map[string]any
+	_ = json.Unmarshal([]byte(text2), &view2)
+	if _, ok := view2["stages"]; ok {
+		t.Error("无 Copilot 能力不应带 stages")
 	}
 }

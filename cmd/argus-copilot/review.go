@@ -70,6 +70,7 @@ type reviewResult struct {
 	Status    string       `json:"status,omitempty"`    // async/poll
 	Verdict   string       `json:"verdict,omitempty"`   // poll（完整审查链路才有）
 	Note      string       `json:"note,omitempty"`      // 服务端附注（async 提交回执/stale 说明）
+	Stages    any          `json:"stages,omitempty"`    // 阶段时间线（poll；get_report 同源装饰）
 	Truncated bool         `json:"truncated,omitempty"` // CLI 侧为适配上限截断过输入
 }
 

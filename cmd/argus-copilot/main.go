@@ -189,6 +189,7 @@ type pollOpts struct {
 // 10min 上限、3s 间隔。
 func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts pollOpts) (string, int, error) {
 	deadline := time.Now().Add(10 * time.Minute)
+	lastStage := "" // 阶段进度只在变化时打 stderr，等待期不静默（v3.127.0）
 	for {
 		out, err := call(ctx, cli, "get_report", map[string]any{"task_id": taskID})
 		if err != nil {
@@ -199,6 +200,10 @@ func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts po
 			return out, exitClean, nil // 非 JSON 视为错误文本，原样透传
 		}
 		status, _ := view["status"].(string)
+		if cur, _ := view["stage_current"].(string); cur != "" && cur != lastStage {
+			lastStage = cur
+			warnf("任务 %s 进行中，当前阶段 %s", taskID, cur)
+		}
 		switch status {
 		case "done", "stale":
 			report, _ := view["report"].(string)
@@ -215,6 +220,9 @@ func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts po
 			}
 			if v, ok := view["verdict"].(string); ok {
 				res.Verdict = v
+			}
+			if st, ok := view["stages"]; ok {
+				res.Stages = st
 			}
 			if status == "stale" {
 				res.Note = "审查完成但已有更新的提交，报告未回帖（结论仅对旧 head 成立）"
