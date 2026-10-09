@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -188,7 +189,10 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 			if f.File != "" {
 				p.File, p.Line, p.Severity, p.Comment = f.File, f.Line, f.Severity, f.Comment
 			}
-			return tx.Save(&p).Error
+			if err := tx.Save(&p).Error; err != nil {
+				return err
+			}
+			return suppressFamily(tx, platform, owner, repo, number, at)
 		}
 		if err != gorm.ErrRecordNotFound {
 			return err
@@ -200,7 +204,10 @@ func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number
 			FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
 			FirstSeenAt: at, LastSeenAt: at,
 		}
-		return tx.Create(&p).Error
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+		return suppressFamily(tx, platform, owner, repo, number, at)
 	})
 	return matched, err
 }
@@ -369,9 +376,13 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 		matched = true
 		if rows[0].Status == PrintSuppressed {
 			rows[0].Status = PrintOpen
-			return tx.Save(&rows[0]).Error
+			if err := tx.Save(&rows[0]).Error; err != nil {
+				return err
+			}
 		}
-		return nil
+		// 家族对称（v3.133.1）：恢复与抑制同规则——同一问题的变体要么都在要么都
+		// 不在，不留"恢复一条其余仍被压"的半边状态。
+		return restoreFamily(tx, platform, owner, repo, strconv.Itoa(number))
 	})
 	return matched, err
 }

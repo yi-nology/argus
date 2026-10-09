@@ -171,7 +171,7 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 | `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR |
 | `fp` | string | ✓ | 指纹短码（6-64 位十六进制） |
 
-返回 `{matched, fingerprint}`（matched=false 表示未命中既有意见但已预插抑制记录）。**需 admin 档 token**：/mcp 路由只需 ci 档，但本工具在服务端按 scope 透传做 admin 二次判定，非 admin 报 `suppress_finding 需 admin 档 token`。等价 HTTP 端点 `POST /findings/suppress`（同 admin 门）。CLI 无对应子命令（admin 写操作建议直接走 MCP/API）。
+返回 `{matched, fingerprint}`（matched=false 表示未命中既有意见但已预插抑制记录）。**一键 = 压掉全家族（v3.133.1）**：同一问题的历史措辞变体由家族传播自动一并抑制（精确侧 0.4+行距±2、模糊侧 0.2+文件相交；同函数不同问题不连坐）——无须逐变体打地鼠；`restore_finding` 同规则对称恢复。**需 admin 档 token**：/mcp 路由只需 ci 档，但本工具在服务端按 scope 透传做 admin 二次判定，非 admin 报 `suppress_finding 需 admin 档 token`。等价 HTTP 端点 `POST /findings/suppress`（同 admin 门）。CLI 无对应子命令（admin 写操作建议直接走 MCP/API）。
 
 **耐久性边界（2026-10-09 实测 + v3.130.0/v3.133.0 两轮修复）**：剔除先按指纹精确匹配，未命中走近重复层——精确意见（带行号）行号 ±2 内的**重措辞复现已由宽松级（相似度 ≥0.4）吸收**；模糊意见（line=0 的多文件聚合/摘要形态）由吸收层（≥0.2 + 文件组件相交）兜底，彻底重述+改头换面的实测案例也不再复活。三层都只对已抑制条目放宽，普通条目仍按 0.6 合并。残余：精确意见的彻底重写（换框架措辞到 0.4 以下）仍会再现——对新条目再 suppress 一次即可（会连带建别名）。
 

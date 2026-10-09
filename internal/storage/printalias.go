@@ -226,7 +226,10 @@ func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, nu
 			best.LastSeenAt = at
 			matched = true
 			fp = best.Print
-			return tx.Save(best).Error
+			if err := tx.Save(best).Error; err != nil {
+				return err
+			}
+			return suppressFamily(tx, platform, owner, repo, number, at)
 		}
 		fp = domain.Fingerprint(file, comment, 0)
 		p := FindingPrint{
@@ -236,9 +239,92 @@ func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, nu
 			FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
 			FirstSeenAt: at, LastSeenAt: at,
 		}
-		return tx.Create(&p).Error
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+		return suppressFamily(tx, platform, owner, repo, number, at)
 	})
 	return fp, matched, err
+}
+
+// familyRelated 家族相邻判定（v3.133.1）：双侧带行号锚点走 0.4+行距±2（同函数
+// 不同问题的 0.364 反例被挡在外面）；任一侧 line=0（模糊聚合形态）走 0.2+文件
+// 组件相交（彻底重述/大杂烩形态归族）。
+func familyRelated(a, b FindingPrint) bool {
+	if a.Line > 0 && b.Line > 0 {
+		return linesClose(a.Line, b.Line) && commentNearLoose(a.Comment, b.Comment)
+	}
+	return fileSetIntersect(a.File, b.File) && commentNearVague(a.Comment, b.Comment)
+}
+
+// suppressFamily 抑制家族传播（v3.133.1）：人工拒绝一条 = 拒绝同一问题的全部
+// 措辞变体——从 suppressed 行出发不动点扩张，家族行并入抑制。此前须逐变体打
+// 地鼠（实测同一问题四轮四种措辞，压二缺一即复活）。
+func suppressFamily(tx *gorm.DB, platform, owner, repo, number string, at time.Time) error {
+	for round := 0; round < 8; round++ { // 家族规模小，不动点 8 轮封顶
+		var rows []FindingPrint
+		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
+			platform, owner, repo, number).Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
+			return err
+		}
+		grew := false
+		for i := range rows {
+			if rows[i].Status != PrintSuppressed {
+				continue
+			}
+			for j := range rows {
+				if rows[j].Status == PrintSuppressed {
+					continue
+				}
+				if familyRelated(rows[i], rows[j]) {
+					rows[j].Status = PrintSuppressed
+					rows[j].LastSeenAt = at
+					if err := tx.Save(&rows[j]).Error; err != nil {
+						return err
+					}
+					grew = true
+				}
+			}
+		}
+		if !grew {
+			return nil
+		}
+	}
+	return nil
+}
+
+// restoreFamily 恢复家族传播（suppressFamily 对称）：从 open 行出发把家族内的
+// suppressed 行放回 open。
+func restoreFamily(tx *gorm.DB, platform, owner, repo, number string) error {
+	for round := 0; round < 8; round++ {
+		var rows []FindingPrint
+		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
+			platform, owner, repo, number).Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
+			return err
+		}
+		grew := false
+		for i := range rows {
+			if rows[i].Status != PrintOpen {
+				continue
+			}
+			for j := range rows {
+				if rows[j].Status != PrintSuppressed {
+					continue
+				}
+				if familyRelated(rows[i], rows[j]) {
+					rows[j].Status = PrintOpen
+					if err := tx.Save(&rows[j]).Error; err != nil {
+						return err
+					}
+					grew = true
+				}
+			}
+		}
+		if !grew {
+			return nil
+		}
+	}
+	return nil
 }
 
 // migratePrintFingerprintsV2 存量迁移（v3.7.0；v3.8.0 起由 SchemaMigration 哨兵

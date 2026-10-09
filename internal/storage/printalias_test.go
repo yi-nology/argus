@@ -148,3 +148,63 @@ func TestUpsertPrints_VagueTierNotOverbroad(t *testing.T) {
 		t.Error("同函数不同问题不该过 0.4（实测 0.364）")
 	}
 }
+
+// TestSuppressFamily_OneShot 一键抑制 = 压掉全家族（v3.133.1）：实测同一问题
+// 四轮四种措辞（旧/新/大杂烩/再重述），逐变体打地鼠压二缺一即复活——家族传播
+// 后从任一变体进入即可全覆盖。
+func TestSuppressFamily_OneShot(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) domain.PrintUpsertResult {
+		return s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}})[0]
+	}
+	// 三个变体行：旧措辞（line 9）/新措辞（line 9）/大杂烩（line 0）
+	up(domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: fixOldComment, By: "s"})
+	up(domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: fixNewComment, By: "s"})
+	up(domain.Finding{File: "db.go,util.go", Line: 0, Severity: "medium", Comment: fixBlobComment, By: "s"})
+	// 只压一个（旧措辞）——家族传播应带出其余
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", fixOldComment, at); err != nil || !matched {
+		t.Fatalf("抑制应命中: %v %v", matched, err)
+	}
+	for _, f := range []domain.Finding{
+		{File: "db.go", Line: 9, Comment: fixNewComment},
+		{File: "db.go,util.go", Line: 0, Comment: fixBlobComment},
+	} {
+		r := up(f)
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
+		if !r.Suppressed {
+			t.Errorf("家族变体应随一键抑制被覆盖: %s:%d", f.File, f.Line)
+		}
+	}
+	// 恢复对称：恢复一条 → 家族放回 open
+	if matched, err := s.RestorePrint(ctx, "gitlab", "acme", "app", 2, domain.Fingerprint("db.go", fixOldComment, 9)); err != nil || !matched {
+		t.Fatalf("restore 应命中: %v %v", matched, err)
+	}
+	if r := up(domain.Finding{File: "db.go", Line: 9, Comment: fixNewComment}); r.Suppressed {
+		t.Error("恢复后家族变体应重新可见（suppress/restore 对称）")
+	}
+}
+
+// TestSuppressFamily_SameFnNotPropagated 家族传播负控：同函数不同问题不传播
+// （0.364 < 0.4 精确侧），换言之人工拒绝"返回值错误"不许顺手杀掉"空指针"。
+func TestSuppressFamily_SameFnNotPropagated(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) domain.PrintUpsertResult {
+		return s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}})[0]
+	}
+	up(domain.Finding{File: "db.go", Line: 10, Severity: "medium", Comment: fixSameFnA, By: "s"})
+	up(domain.Finding{File: "db.go", Line: 12, Severity: "medium", Comment: fixSameFnB, By: "s"})
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", fixSameFnA, at); err != nil || !matched {
+		t.Fatalf("抑制应命中: %v %v", matched, err)
+	}
+	if r := up(domain.Finding{File: "db.go", Line: 12, Comment: fixSameFnB}); r.Suppressed {
+		t.Error("同函数不同问题不得被家族传播连坐")
+	}
+}
