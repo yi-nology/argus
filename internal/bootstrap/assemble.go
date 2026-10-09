@@ -24,6 +24,7 @@ import (
 	"argus/internal/poster"
 	"argus/internal/progress"
 	"argus/internal/runner"
+	"argus/internal/semsearch"
 	"argus/internal/service"
 	"argus/internal/sink"
 	"argus/internal/storage"
@@ -252,6 +253,14 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 
 	// ---- service 门面（v3.48.0 自 main 收敛）：webhook/CRUD/Q&A/MCP 数据面 ----
 	// System 由此成为完整对象图；main 只剩 HTTP 接线（SetService/Bearer/路由/停机排水）。
+	// 语义检索底座（v3.126.0）：ARGUS_SEMSEARCH + ARGUS_EMBEDDING_* 双门——
+	// embedding 与知识库共用一套配置；未就绪留 nil，search_sem 运行期报未启用。
+	var semMgr *semsearch.Manager
+	if cfg.SemSearch && cfg.EmbeddingBaseURL != "" {
+		semMgr = semsearch.NewManager(rag.NewOpenAIEmbedder(
+			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim))
+		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
+	}
 	sys.Service = &service.Service{
 		Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
@@ -259,6 +268,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		LLM:         models.Generate, // diff 预审单轮写作（v3.123.0）
 		RouterModel: models.Router,
 		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
+		SemSearch:   semMgr, // search_sem 底座（ARGUS_SEMSEARCH 启用；nil 安全）
 		Audit:       auditLog, Version: version,
 	}
 	return sys, nil

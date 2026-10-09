@@ -146,6 +146,18 @@ PR 工作副本内受控全文正则检索（与审查管线 R3/R4 同款纪律�
 
 返回围栏文本：命中片段按相关度降序，每条带 `score` 与元数据（如 `source`/`repo`）。空命中返回提示文本（非 error）。**命中不等于结论**——知识条目是团队沉淀的参考，不是裁决。未配置知识源（无 `ARGUS_KNOWLEDGE_DIR` 且无 Milvus）时 error：`知识库未启用`。
 
+### search_sem
+
+PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码——结构化摘要 embedding + 进程内余弦，补 `search_code` 词法正则答不了的「哪里处理认证/哪里刷新 session token」（代码里未必有查询词）。ARGUS_SEMSEARCH opt-in，与知识库共用 `ARGUS_EMBEDDING_*` 配置。
+
+| 参数 | 类型 | 必填 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `platform`/`owner`/`repo`/`number` | string | ✓ | | 定位 PR（工作副本按当前 head 惰性准备，冷克隆预算 30s） |
+| `query` | string | ✓ | | 自然语言意图描述 |
+| `top_k` | number | | 5 | 上界 10（服务端钳制） |
+
+返回围栏文本：命中按相似度降序，每条带 `file:line`、符号名、`score` 与摘要。**命中是线索不是结论**——引用前须 `get_file` 核实。未启用（`ARGUS_SEMSEARCH=0` 或未配 `ARGUS_EMBEDDING_*`）时 error：`search_sem 未启用`；无命中返回提示文本（非 error）。
+
 ### fix_finding
 
 单条意见的沙箱修复：隔离工作区内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`）。**绝不推送分支。**

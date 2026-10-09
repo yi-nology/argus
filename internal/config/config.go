@@ -268,6 +268,13 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// SemSearch 工作副本语义检索（v3.126.0）：为 MCP 挂 search_sem 工具——
+	// 结构化摘要 embedding + 进程内余弦，补词法 grep 答不了的「按意图找代码」
+	// （哪里处理认证/哪里刷新 token——代码里未必有查询词）。需 ARGUS_EMBEDDING_*
+	// 就绪（与知识库共用一套 embedding 配置）；缺省关——embedding 调用有成本，
+	// 由部署方显式开启。
+	SemSearch bool
+
 	// RelatedRepos 跨仓契约快照（v3.90.0）：允许 .reviewagents.yaml related 段
 	// 生效——审查时拉取关联仓契约文件注入 R4。服务级总门（仓库声明只是必要
 	// 条件）：跨仓读取扩大数据访问面，由部署方显式授权。ARGUS_RELATED_REPOS=1 开。
@@ -346,6 +353,7 @@ func Load() *Config {
 		SASTTimeout:            envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:              envBool("ARGUS_CODEGRAPH", true),
 		CodeSearch:             envBool("ARGUS_CODESEARCH", true),
+		SemSearch:              envBool("ARGUS_SEMSEARCH", false),
 		RelatedRepos:           envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),

@@ -227,7 +227,7 @@ func TestNew_ToolRegistrationCoreOnly(t *testing.T) {
 	for missing := range want {
 		t.Errorf("核心模式缺工具 %s", missing)
 	}
-	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "search_knowledge", "review_diff_async", "fix_finding"} {
+	for _, banned := range []string{"get_task_stages", "list_findings", "get_suggestion", "search_code", "search_knowledge", "search_sem", "review_diff_async", "fix_finding"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("core 未实现 Copilot 却注册了 %s", banned)
@@ -908,6 +908,59 @@ func TestSearchKnowledge_RegisteredAndCalled(t *testing.T) {
 	srv2 := New(core2, "v-test")
 	text, isErr = callTool(t, srv2, "search_knowledge", map[string]any{"query": "x"})
 	if !isErr || !strings.Contains(text, "知识库未启用") {
+		t.Errorf("未启用应 isError 含文案: isErr=%v text=%s", isErr, text)
+	}
+}
+
+// ---------- search_sem（v3.126.0） ----------
+
+// fakeSemSearcher 实现 SemSearcher。
+type fakeSemSearcher struct {
+	fakeCore
+	query string
+	topK  int
+	out   string
+	err   error
+}
+
+func (f *fakeSemSearcher) SearchSem(_ context.Context, _, _, _, _, query string, topK int) (string, error) {
+	f.query, f.topK = query, topK
+	return f.out, f.err
+}
+
+func TestSearchSem_RegisteredAndCalled(t *testing.T) {
+	core := &fakeSemSearcher{out: "search_sem（query=认证）命中 1 条"}
+	srv := New(core, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "search_sem" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 SemSearcher 后应注册 search_sem")
+	}
+	text, isErr := callTool(t, srv, "search_sem", map[string]any{
+		"platform": "gitea", "owner": "acme", "repo": "app", "number": "1",
+		"query": "认证", "top_k": float64(3),
+	})
+	if isErr {
+		t.Fatalf("search_sem 报错: %s", text)
+	}
+	if core.query != "认证" || core.topK != 3 {
+		t.Errorf("入参透传错: query=%q topK=%d", core.query, core.topK)
+	}
+	// 缺必填 → isError；未启用 → isError
+	_, isErr = callTool(t, srv, "search_sem", map[string]any{"platform": "gitea"})
+	if !isErr {
+		t.Error("缺 query 应 isError")
+	}
+	core2 := &fakeSemSearcher{err: errors.New("search_sem 未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）")}
+	srv2 := New(core2, "v-test")
+	text, isErr = callTool(t, srv2, "search_sem", map[string]any{
+		"platform": "gitea", "owner": "acme", "repo": "app", "number": "1", "query": "x",
+	})
+	if !isErr || !strings.Contains(text, "search_sem 未启用") {
 		t.Errorf("未启用应 isError 含文案: isErr=%v text=%s", isErr, text)
 	}
 }

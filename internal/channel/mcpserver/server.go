@@ -9,6 +9,7 @@
 //	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
 //	search_code                          PR 工作副本受控检索（v3.121.0）
 //	search_knowledge                     知识库语义检索（v3.125.0，R3/R4 同源）
+//	search_sem                           工作副本语义检索（v3.126.0，embedding opt-in）
 //	review_diff_async                    本地 diff 异步预审任务（v3.123.0，提交方轮询闭环）
 //	fix_finding                          沙箱修复（v3.89.0，唯一写侧工具）
 //
@@ -75,6 +76,14 @@ type DiffTaskCreator interface {
 type KnowledgeSearcher interface {
 	// SearchKnowledge 知识库语义检索，返回围栏文本（错误回执内嵌为 error）。
 	SearchKnowledge(ctx context.Context, query string, topK int) (string, error)
+}
+
+// SemSearcher 可选扩展（v3.126.0）：search_sem 的数据面——工作副本语义检索
+// （结构化摘要 embedding + 进程内余弦，ARGUS_SEMSEARCH opt-in）。补 search_code
+// 词法 grep 答不了的「按意图找代码」。*service.Service 实现。
+type SemSearcher interface {
+	// SearchSem 按意图检索 PR 工作副本，返回围栏命中列表（错误回执内嵌为 error）。
+	SearchSem(ctx context.Context, platform, owner, repo, number, query string, topK int) (string, error)
 }
 
 // New 构造 MCPServer 并注册工具组（副驾三工具 core 实现 Copilot 时挂载）。
@@ -226,6 +235,25 @@ func New(core Core, version string) *server.MCPServer {
 			return mcp.NewToolResultText(out), nil
 		})
 	}
+	// search_sem（v3.126.0）：工作副本语义检索——SemSearcher 可选能力；
+	// ARGUS_SEMSEARCH 未开在 service 侧运行期报错。
+	if ss, ok := core.(SemSearcher); ok {
+		s.AddTool(searchSemTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "query")
+			if rerr != nil {
+				return rerr, nil
+			}
+			topK := 0 // 0 = 服务端缺省 5、钳 10（qa.Engine.SearchSem 语义）
+			if f, ok := req.GetArguments()["top_k"].(float64); ok && f > 0 {
+				topK = int(f)
+			}
+			out, serr := ss.SearchSem(ctx, vals[0], vals[1], vals[2], vals[3], vals[4], topK)
+			if serr != nil {
+				return mcp.NewToolResultError(serr.Error()), nil
+			}
+			return mcp.NewToolResultText(out), nil
+		})
+	}
 	if dtc, ok := core.(DiffTaskCreator); ok {
 		s.AddTool(reviewDiffAsyncTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			diff, _ := req.GetArguments()["diff"].(string)
@@ -315,6 +343,18 @@ func searchKnowledgeTool() mcp.Tool {
 	return mcp.NewTool("search_knowledge",
 		mcp.WithDescription("检索 Argus 知识库：组织/仓库级规范文档、历史审查结论与误报判例（markdown 知识 + Milvus 语义/本地 TF-IDF 混合检索，与审查管线 R3/R4 的 search_knowledge 同源）——回答「团队怎么做/这条以前怎么裁」类问题、审查与修复前对齐团队规范用。命中不等于结论；服务未配置知识源时返回错误"),
 		mcp.WithString("query", mcp.Required(), mcp.Description("自然语言查询")),
+		mcp.WithNumber("top_k", mcp.Description("可选：返回条数（缺省 5，上界 10）")),
+	)
+}
+
+func searchSemTool() mcp.Tool {
+	return mcp.NewTool("search_sem",
+		mcp.WithDescription("在 PR 工作副本内做语义检索（按意图/自然语言找代码，如「哪里处理认证」「哪里刷新 session token」——代码里未必有查询词，词法 search_code 查不到）。结构化摘要 embedding + 进程内余弦，命中按相似度降序带 file:line 与摘要——命中是线索，引用前须 get_file 核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),
+		mcp.WithString("query", mcp.Required(), mcp.Description("自然语言意图描述")),
 		mcp.WithNumber("top_k", mcp.Description("可选：返回条数（缺省 5，上界 10）")),
 	)
 }

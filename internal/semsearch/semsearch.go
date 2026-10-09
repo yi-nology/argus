@@ -1,0 +1,292 @@
+// Package semsearch 工作副本语义检索底座（v3.126.0，ARGUS_SEMSEARCH opt-in）：
+// 把工作副本的 Go 顶层声明/文本文件抽成结构化摘要 chunk → embedding → 进程内
+// 余弦检索，补 search_code（词法正则）答不了的「按意图找代码」面（哪里处理
+// 认证/哪里刷新 session token——代码里未必有查询词）。
+//
+// 行业坐标（2026-10 调研）：审查是异步、准确率优先、延迟不敏感的任务，预索引
+// 在审查场景的价值高于编码助手场景（Greptile 全库图/Ellipsis 向量+历史 PR 索引
+// 均为护城河）；「embedding 已死」是编码助手侧叙事，Cursor +12.5% 实证与
+// JetBrains 反向建 RAG 都指向「grep+语义双工具组合最佳」。本包取混合形态的
+// 低成本近似：embedding 文本用「路径+文档注释+签名」结构化摘要而非裸代码
+// （Greptile NL 化做法的零 LLM 版），向量只驻进程内存、不落外部向量库。
+//
+// 层级：L0 纯底座（零 internal 依赖）。Embedder 由装配侧注入（rag.OpenAIEmbedder
+// 天然满足 Embed+Dim 两方法）；进程内向量、余弦、指纹增量刷新均在此单源。
+package semsearch
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+	"sync"
+)
+
+// Embedder 文本向量化接口（*rag.OpenAIEmbedder 天然满足）。
+type Embedder interface {
+	// Embed 批量向量化；返回向量数须与输入数一致。
+	Embed(ctx context.Context, texts []string) ([][]float32, error)
+	// Dim 向量维度。
+	Dim() int
+}
+
+// Chunk 检索片段：一段供 embedding 的结构化摘要 + 命中展示元数据。
+type Chunk struct {
+	Path   string // 仓库相对路径
+	Line   int    // 起始行（1-based）
+	Symbol string // Go 顶层声明名（文件级 chunk 为空）
+	Text   string // embedding 输入（path:line + 源码片段）
+}
+
+// Hit 单条语义命中。
+type Hit struct {
+	Path   string  `json:"path"`
+	Line   int     `json:"line"`
+	Symbol string  `json:"symbol,omitempty"`
+	Score  float32 `json:"score"`
+	Text   string  `json:"text"`
+}
+
+// fileIndex 单文件的 chunk 与向量（指纹不变即整文件复用，增量刷新的粒度）。
+type fileIndex struct {
+	chunks []Chunk
+	vecs   [][]float32
+	fp     fileFP
+}
+
+// fileFP 文件指纹（size+mtime；变更即整文件重抽重嵌，增量刷新的判定粒度）。
+type fileFP struct {
+	size  int64
+	mtime int64
+}
+
+// Index 一个工作副本目录的语义索引（进程内存驻留；工作副本生命周期由池侧
+// TTL 管理，本包不做目录清理）。
+type Index struct {
+	embedder Embedder
+
+	mu             sync.Mutex            // 护 files/paths/truncated（Refresh 与 Search 并发）
+	files          map[string]*fileIndex // key: 仓库相对路径
+	paths          []string              // 排序路径快照（Search 确定序遍历）
+	maxFiles       int                   // 文件数上限（默认 maxDefaultFiles，测试可调低）
+	maxTotalChunks int                   // 全库 chunk 上限（embedding 成本闸）
+	truncated      bool                  // 触达任一上限即置位（调用方可透出告警）
+}
+
+// NewIndex 构建空索引（Refresh 前检索返回空）。
+func NewIndex(e Embedder) *Index {
+	return &Index{
+		embedder:       e,
+		files:          map[string]*fileIndex{},
+		maxFiles:       maxDefaultFiles,
+		maxTotalChunks: maxDefaultTotalChunks,
+	}
+}
+
+// Manager 按目录缓存的索引管理器（search_sem 数据面入口）：目录首见时构建
+// 索引，此后每次检索前按文件指纹增量刷新——只重嵌变更文件的 chunk。
+type Manager struct {
+	embedder Embedder
+	mu       sync.Mutex
+	idx      map[string]*Index
+}
+
+// NewManager 构建管理器。
+func NewManager(e Embedder) *Manager {
+	return &Manager{embedder: e, idx: map[string]*Index{}}
+}
+
+// Search 目录语义检索：增量刷新索引后按 query 向量余弦取 topK（minScore 过滤，
+// ≤0 表示不过滤）。检索失败返回 error；无命中返回空切片非 error。
+func (m *Manager) Search(ctx context.Context, dir, query string, topK int, minScore float32) ([]Hit, error) {
+	m.mu.Lock()
+	ix, ok := m.idx[dir]
+	if !ok {
+		ix = NewIndex(m.embedder)
+		m.idx[dir] = ix
+	}
+	m.mu.Unlock()
+	if err := ix.Refresh(ctx, dir); err != nil {
+		return nil, err
+	}
+	return ix.Search(ctx, query, topK, minScore)
+}
+
+// Size 索引内 chunk 总数（观测面）。
+func (ix *Index) Size() int {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	n := 0
+	for _, fi := range ix.files {
+		n += len(fi.chunks)
+	}
+	return n
+}
+
+// Truncated 建索引时是否触达文件数/chunk 数上限。
+func (ix *Index) Truncated() bool {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.truncated
+}
+
+// Refresh 扫描目录并增量刷新索引：新文件/指纹变更的文件重新抽 chunk 并批量
+// 向量化，消失的文件整组剔除。单文件扫描失败跳过（与 codesearch 同宽容度）；
+// embedding 失败原样上抛（调用方决定降级文案）。
+func (ix *Index) Refresh(ctx context.Context, dir string) error {
+	found, err := scanDir(dir)
+	if err != nil {
+		return err
+	}
+	scanned := len(found)
+	if scanned > ix.maxFiles {
+		found = found[:ix.maxFiles]
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.truncated = ix.truncated || scanned > ix.maxFiles
+
+	// 全量先标 live（预算触顶的文件仍在盘上，只是本轮不嵌——先标后算，杜绝
+	// 「预算 break 提前退出把未处理文件误当已删除剔除」）。
+	live := make(map[string]bool, len(found))
+	for _, f := range found {
+		live[f.rel] = true
+	}
+	type pending struct {
+		rel    string
+		fp     fileFP
+		chunks []Chunk
+	}
+	var todo []pending
+	total := 0
+	for _, fi := range ix.files {
+		total += len(fi.chunks)
+	}
+	for _, f := range found {
+		if old, ok := ix.files[f.rel]; ok && old.fp == f.fp {
+			continue
+		}
+		chunks := extractChunks(f.rel, f.content)
+		if len(chunks) > maxFileChunks {
+			chunks = chunks[:maxFileChunks]
+		}
+		budget := ix.maxTotalChunks - total
+		if budget <= 0 {
+			ix.truncated = true
+			continue // 本轮不嵌；live 已标，不会误删既有条目
+		}
+		if len(chunks) > budget {
+			chunks = chunks[:budget]
+			ix.truncated = true
+		}
+		total += len(chunks)
+		todo = append(todo, pending{rel: f.rel, fp: f.fp, chunks: chunks})
+	}
+	for rel := range ix.files {
+		if !live[rel] {
+			delete(ix.files, rel)
+		}
+	}
+	ix.rebuildPathsLocked() // 删除/预算截断都可能改变文件集，快照恒重建（此前仅在重嵌路径重建，todo 空时删除残留）
+	if len(todo) == 0 {
+		return nil
+	}
+	// 批量向量化（一次 Embed 调用摊薄 HTTP 往返）。
+	var texts []string
+	for _, p := range todo {
+		for _, c := range p.chunks {
+			texts = append(texts, c.Text)
+		}
+	}
+	vecs, err := ix.embedder.Embed(ctx, texts)
+	if err != nil {
+		return fmt.Errorf("chunk 向量化失败（%d 段）: %w", len(texts), err)
+	}
+	if len(vecs) != len(texts) {
+		return fmt.Errorf("向量化返回数不符: got %d, want %d", len(vecs), len(texts))
+	}
+	pos := 0
+	for _, p := range todo {
+		fi := &fileIndex{fp: p.fp}
+		for _, c := range p.chunks {
+			fi.chunks = append(fi.chunks, c)
+			fi.vecs = append(fi.vecs, vecs[pos])
+			pos++
+		}
+		ix.files[p.rel] = fi
+	}
+	ix.rebuildPathsLocked()
+	return nil
+}
+
+// rebuildPathsLocked 重建排序路径快照（调用方持锁）。
+func (ix *Index) rebuildPathsLocked() {
+	ix.paths = ix.paths[:0]
+	for rel := range ix.files {
+		ix.paths = append(ix.paths, rel)
+	}
+	sort.Strings(ix.paths)
+}
+
+// Search 按 query 向量对全库 chunk 余弦打分，取相似度降序 topK（minScore>0 时
+// 过滤低分命中）。
+func (ix *Index) Search(ctx context.Context, query string, topK int, minScore float32) ([]Hit, error) {
+	qv, err := ix.embedder.Embed(ctx, []string{query})
+	if err != nil {
+		return nil, fmt.Errorf("query 向量化失败: %w", err)
+	}
+	if len(qv) != 1 || len(qv[0]) == 0 {
+		return nil, fmt.Errorf("query 向量化返回空")
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	type scored struct {
+		h Hit
+	}
+	hits := make([]scored, 0, 64)
+	for _, rel := range ix.paths {
+		fi := ix.files[rel]
+		if fi == nil {
+			continue // 快照与文件集的瞬时不一致防御
+		}
+		for i, c := range fi.chunks {
+			s := cosine(qv[0], fi.vecs[i])
+			if minScore > 0 && s < minScore {
+				continue
+			}
+			hits = append(hits, scored{h: Hit{
+				Path: c.Path, Line: c.Line, Symbol: c.Symbol, Score: s, Text: c.Text,
+			}})
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].h.Score > hits[j].h.Score })
+	if topK <= 0 {
+		topK = 5
+	}
+	if len(hits) > topK {
+		hits = hits[:topK]
+	}
+	out := make([]Hit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.h)
+	}
+	return out, nil
+}
+
+// cosine 余弦相似度（零向量回 0；f64 中转避免 f32 累加误差）。
+func cosine(a, b []float32) float32 {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	var dot, na, nb float64
+	for i := 0; i < n; i++ {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return float32(dot / (math.Sqrt(na) * math.Sqrt(nb)))
+}

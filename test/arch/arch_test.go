@@ -57,6 +57,7 @@ var layering = map[string][]string{
 	// ---- L0 纯底座：零 internal 依赖 ----
 	"argus/internal/codegraph":  {},
 	"argus/internal/codesearch": {},
+	"argus/internal/semsearch":  {},
 	"argus/internal/learning":   {},
 	"argus/internal/memory":     {},
 	"argus/internal/progress":   {},
@@ -81,7 +82,7 @@ var layering = map[string][]string{
 	"argus/internal/worker":     {"argus/internal/storage"},
 	"argus/internal/health":     {"argus/internal/learning"},
 	"argus/internal/context":    {"argus/internal/config", "argus/internal/obs", "argus/internal/plugin"},
-	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/storage"},
+	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
 	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memory", "argus/internal/plugin", "argus/internal/storage"},
 	"argus/internal/poster":     {"argus/internal/context", "argus/internal/plugin", "argus/internal/reportview", "argus/internal/storage"},
 	"argus/internal/poller":     {"argus/internal/context", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
@@ -104,7 +105,8 @@ var layering = map[string][]string{
 	"argus/internal/service": {
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/memory", "argus/internal/obs", "argus/internal/plugin",
-		"argus/internal/progress", "argus/internal/qa", "argus/internal/storage",
+		"argus/internal/progress", "argus/internal/qa", "argus/internal/semsearch",
+		"argus/internal/storage",
 		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
 		// 委派（与 runner→writing 同向；同 qa 消费先例）。
 		"argus/internal/writing",

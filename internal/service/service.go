@@ -26,6 +26,7 @@ import (
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/qa"
+	"argus/internal/semsearch"
 	"argus/internal/storage"
 	"argus/internal/writing"
 
@@ -70,6 +71,10 @@ type Service struct {
 
 	// WC 工作副本池（v3.22.0 testgen 沙箱验证；nil = 验证不可用）。
 	WC *workcopy.Pool
+
+	// SemSearch 工作副本语义检索底座（v3.126.0，bootstrap 按 ARGUS_SEMSEARCH +
+	// ARGUS_EMBEDDING_* 双门构建；nil = search_sem 运行期报未启用）。
+	SemSearch *semsearch.Manager
 
 	// qaEngine 问答引擎单例（Engine 无自有状态、字段全共享引用，会话在 Store）。
 	// 此前每次 Ask 都重建，纯浪费；sync.Once 保证并发首建安全。
@@ -277,6 +282,10 @@ func (s *Service) qa() *qa.Engine {
 			// ARGUS_CODESEARCH 同源开关
 			WC:         s.WC,
 			CodeSearch: s.Cfg != nil && s.Cfg.CodeSearch,
+			// search_sem 语义检索（v3.126.0）：底座由 bootstrap 双门构建，
+			// 配置开关在此同源判定
+			SemSearch:   s.SemSearch,
+			SemSearchOn: s.Cfg != nil && s.Cfg.SemSearch,
 		}
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论
 		if s.Cfg != nil && s.Cfg.MemoryDir != "" {

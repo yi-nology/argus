@@ -182,7 +182,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十三工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十五工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -353,6 +353,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
 | `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.121.0）|
+| `search_knowledge` | 知识库语义检索：规范/历史审查结论/误报判例，与 R3/R4 的 search_knowledge 同源（未配知识源时报错，v3.125.0）|
+| `search_sem` | PR 工作副本语义检索：按意图/自然语言找代码，补词法正则答不了的「哪里处理认证」（ARGUS_SEMSEARCH+ARGUS_EMBEDDING_* 双门，缺省关，v3.126.0）|
 | `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；工具常驻注册，服务未配 ARGUS_FIX_AGENT 时调用报错，v3.89.0）|
 
 > AI agent 直接驱动的完整工作流（何时调哪个工具/失败降级/安全边界）见 agent skill [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md)，参数级参考见其 `references/tools.md`。
@@ -412,6 +414,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
 | `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
+| `ARGUS_SEMSEARCH` | false | search_sem 语义检索开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
 | `ARGUS_RELATED_REPOS` | false | 跨仓契约快照总门（v3.90.0）：允许 .reviewagents.yaml related 段拉取关联仓契约文件注入审查（扩大数据访问面，部署方显式授权）|
 | `ARGUS_REFLECTION_EVIDENCE` | off | R3.5 反思证据门模式（strict = 剔除证据不足条目）|
 | `ARGUS_REGRET_LEARNING` | false | 模式级 regret 学习环（低置信标注 SoftFloor / 抑制 HardFloor；`ARGUS_REGRET_MIN_SAMPLES/SOFT_FLOOR/HARD_FLOOR/INJECT_FLOOR/INJECT_TOP_N` 子项见 config.go）|
@@ -558,7 +561,7 @@ internal/
   poster/                      行内评论 + 总结评论三级降级 + staleness 门控
   poller/                      轮询兜底任务源（租约选主门控, v3.3）
   reportview/                  报告渲染（上文示例的出处）
-  channel/mcpserver/           Argus as MCP Server（/mcp 十工具）
+  channel/mcpserver/           Argus as MCP Server（/mcp 十五工具）
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流

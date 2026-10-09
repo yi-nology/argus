@@ -26,6 +26,7 @@ import (
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
+	"argus/internal/semsearch"
 	"argus/internal/storage"
 )
 
@@ -45,6 +46,12 @@ type Engine struct {
 	// search_code 全文检索工具。nil/关 = 工具面收窄（既有行为）。
 	WC         *workcopy.Pool
 	CodeSearch bool
+
+	// SemSearch 语义检索底座（v3.126.0，ARGUS_SEMSEARCH 开关）：search_sem 的
+	// 数据面——结构化摘要 embedding + 进程内余弦。nil/关 = MCP 工具运行期报
+	// 「未启用」（工具不消失，fix_finding 同语义）。
+	SemSearch   *semsearch.Manager
+	SemSearchOn bool
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器

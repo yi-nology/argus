@@ -71,3 +71,9 @@ func (s *Service) SearchKnowledge(ctx context.Context, query string, topK int) (
 	}
 	return plugin.DataFence("search_knowledge 检索结果（数据）", b.String()), nil
 }
+
+// SearchSem 工作副本语义检索（v3.126.0，MCP search_sem 数据面）：委派
+// qa.Engine（工作副本目录解析、入参钳制与渲染单源——SearchCode 同模式）。
+func (s *Service) SearchSem(ctx context.Context, platform, owner, repo, number, query string, topK int) (string, error) {
+	return s.qa().SearchSem(ctx, platform, owner, repo, number, query, topK)
+}

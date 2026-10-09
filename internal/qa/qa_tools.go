@@ -4,6 +4,7 @@ package qa
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -239,4 +240,59 @@ func (e *Engine) SearchCode(ctx context.Context, platform, owner, repo, number, 
 		return "", fmt.Errorf("工作副本不可用（冷克隆超时或失败），可稍后重试或按报告文本核实")
 	}
 	return searchCodeExec(ctx, dir, &codesearch.ToolIn{Pattern: pattern, Glob: glob, IgnoreCase: ignoreCase}).Result, nil
+}
+
+// search_sem 的入参钳制与渲染预算（MCP 工具描述「缺省 5、上界 10」与本值同源
+// 手写，改此须同步）。
+const (
+	semSearchDefaultTopK = 5
+	semSearchMaxTopK     = 10
+	semHitTextCap        = 600 // 单条命中摘要渲染截断（rune）
+)
+
+// SearchSem 工作副本语义检索（v3.126.0，MCP search_sem 数据面）：按意图/自然
+// 语言找代码——结构化摘要 embedding + 进程内余弦，补 search_code（词法正则）
+// 答不了的「哪里处理认证/哪里刷新 token」类问题。启用双门：SemSearch 底座
+// （ARGUS_SEMSEARCH + ARGUS_EMBEDDING_*）+ 工作副本池；未启用返回 error
+// （环境面故障，与 SearchCode 同型），无命中返回提示文本。
+func (e *Engine) SearchSem(ctx context.Context, platform, owner, repo, number, query string, topK int) (string, error) {
+	if e.SemSearch == nil || !e.SemSearchOn {
+		return "", fmt.Errorf("search_sem 未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）")
+	}
+	if strings.TrimSpace(query) == "" {
+		return "", fmt.Errorf("query 为空")
+	}
+	if topK <= 0 {
+		topK = semSearchDefaultTopK
+	}
+	if topK > semSearchMaxTopK {
+		topK = semSearchMaxTopK
+	}
+	dir, ok := e.workcopyDir(ctx, platform, owner, repo, number)
+	if !ok {
+		return "", fmt.Errorf("工作副本不可用（冷克隆超时或失败），可稍后重试或改用 search_code/get_file")
+	}
+	hits, err := e.SemSearch.Search(ctx, dir, query, topK, 0)
+	if err != nil {
+		return "", fmt.Errorf("语义检索失败: %w", err)
+	}
+	if len(hits) == 0 {
+		return "语义检索无命中（可换更具体的意图描述，或改用 search_code 正则检索）", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "search_sem（query=%s）命中 %d 条，按相似度降序——命中是摘要线索，引用前须 get_file 核实：\n", query, len(hits))
+	for i, h := range hits {
+		text := h.Text
+		if rc := utf8.RuneCountInString(text); rc > semHitTextCap {
+			var t string
+			t, _ = textutil.TruncRunes(text, semHitTextCap)
+			text = t + "…"
+		}
+		symbol := ""
+		if h.Symbol != "" {
+			symbol = " " + h.Symbol
+		}
+		fmt.Fprintf(&b, "\n[%d] %s:%d%s score=%.3f\n%s\n", i+1, h.Path, h.Line, symbol, h.Score, text)
+	}
+	return plugin.DataFence("search_sem 检索结果（数据）", b.String()), nil
 }
