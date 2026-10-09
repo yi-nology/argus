@@ -45,11 +45,11 @@ func TestCheckpointSummary(t *testing.T) {
 
 func TestCheckpointSave_NilSinkNoop(t *testing.T) {
 	w := &Workflow{Log: nopLogger{}}
-	w.checkpointSave(plugin.Task{}, map[string]string{plugin.ArtifactCkptR1Spec: "x"}) // 不 panic
+	w.checkpointSave(map[string]string{plugin.ArtifactCkptR1Spec: "x"}) // 不 panic
 
 	var captured map[string]string
 	w2 := &Workflow{Log: nopLogger{}, CheckpointSink: func(a map[string]string) { captured = a }}
-	w2.checkpointSave(plugin.Task{}, map[string]string{plugin.ArtifactCkptR1Spec: "x"})
+	w2.checkpointSave(map[string]string{plugin.ArtifactCkptR1Spec: "x"})
 	if captured == nil || captured[plugin.ArtifactCkptR1Spec] != "x" {
 		t.Fatalf("sink 未收到产物: %+v", captured)
 	}
@@ -109,14 +109,21 @@ func (m *summaryErroringModel) Stream(context.Context, []*schema.Message, ...mod
 	return nil, context.Canceled
 }
 
-// LLM 失败：降级空摘要、不落库（重试时 R2 可重来——checkpoint 缺失只影响重试成本）。
+// LLM 失败：降级空摘要、不落 checkpoint（重试时 R2 可重来——checkpoint 缺失
+// 只影响重试成本）。stage_progress 进度标记除外（onStage 进入即落，v3.132.0）。
 func TestSummaryWithCheckpoint_DegradeOnLLMError(t *testing.T) {
 	var saved map[string]string
 	gm := &summaryErroringModel{}
 	w := &Workflow{
-		LLM:            llm.NewClient(gm, "fake", nil),
-		Log:            nopLogger{},
-		CheckpointSink: func(arts map[string]string) { saved = arts },
+		LLM: llm.NewClient(gm, "fake", nil),
+		Log: nopLogger{},
+		CheckpointSink: func(arts map[string]string) {
+			for k, v := range arts {
+				if k != plugin.ArtifactStageProgress {
+					saved = map[string]string{k: v}
+				}
+			}
+		},
 	}
 	s, reused := w.summaryWithCheckpoint(context.Background(),
 		plugin.Task{Diff: &plugin.DiffContext{Text: "diff --git a/x b/x"}})

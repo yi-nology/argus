@@ -65,11 +65,15 @@ func (w *Workflow) SummarizeChange(ctx context.Context, task plugin.Task) (strin
 // r2MinValidRunes R2 摘要最小有效长度——少于此值视为模型输出失效（空转/拒答）。
 const r2MinValidRunes = 20
 
-// onStage 阶段进度上报（nil 安全；runner 接线 SSE 发布）。
+// onStage 阶段进度上报（nil 安全；runner 接线 SSE 发布）+ 进度标记落库
+// （v3.132.0）：每阶段开头持久化 stage_progress，get_report 轮询据此显示
+// 「当前在跑哪一步」——此前只有 checkpoint/debug 产物可推导，RunReviewOnly
+// 跳过 R1/R3/R35 时被推导成"没做到"，轮询恒显示 R1。
 func (w *Workflow) onStage(stage string) {
 	if w.OnStage != nil {
 		w.OnStage(stage)
 	}
+	w.checkpointSave(map[string]string{plugin.ArtifactStageProgress: stage})
 }
 
 const (

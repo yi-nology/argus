@@ -323,6 +323,7 @@ const ArtifactRelatedContracts = "related_contracts"
 const (
 	ArtifactCkptR1Spec    = "checkpoint_r1_spec"    // RequirementSpec JSON
 	ArtifactCkptR2Summary = "checkpoint_r2_summary" // R2 变更摘要文本
+	ArtifactStageProgress = "stage_progress"        // 当前阶段标记（v3.132.0，onStage 每阶段开头落库）
 	// ArtifactDiffInput diff_preview 任务的输入 diff 文本（v3.123.0）：建任务时
 	// 一次性写入 artifacts_json，runner 执行时读取。上限 48KB（TEXT 列 64KB
 	// 上界减 JSON 转义膨胀余量）。

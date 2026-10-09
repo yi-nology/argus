@@ -118,6 +118,7 @@ func diffPaths(dc *plugin.DiffContext) []string {
 func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []plugin.Selection,
 	outcomes []plugin.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
+	w.onStage(plugin.LayerR5)
 
 	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
 	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段

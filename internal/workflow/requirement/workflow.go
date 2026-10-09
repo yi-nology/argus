@@ -160,7 +160,7 @@ func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.Tok
 			return nil, err
 		}
 		if b, e := json.Marshal(spec); e == nil {
-			w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR1Spec: string(b)})
+			w.checkpointSave(map[string]string{plugin.ArtifactCkptR1Spec: string(b)})
 		}
 	}
 	if b, e := json.Marshal(spec); e == nil {
@@ -227,7 +227,7 @@ func (w *Workflow) checkpointSummary(task plugin.Task) (summary string, reused b
 
 // checkpointSave 阶段产物落库（CheckpointSink nil = 不落；失败由 sink 实现方告警，
 // 不影响主流程——checkpoint 缺失只影响重试成本）。
-func (w *Workflow) checkpointSave(task plugin.Task, patch map[string]string) {
+func (w *Workflow) checkpointSave(patch map[string]string) {
 	if w.CheckpointSink == nil {
 		return
 	}
@@ -247,7 +247,7 @@ func (w *Workflow) summaryWithCheckpoint(ctx context.Context, task plugin.Task) 
 		w.Log.Warn("argus.r2.degrade", "error", err.Error())
 		return "", false
 	}
-	w.checkpointSave(task, map[string]string{plugin.ArtifactCkptR2Summary: summary})
+	w.checkpointSave(map[string]string{plugin.ArtifactCkptR2Summary: summary})
 	return summary, false
 }
 

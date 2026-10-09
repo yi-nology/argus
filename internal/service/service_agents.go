@@ -100,44 +100,17 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 	return view
 }
 
-// TaskStages 任务阶段时间线（零 LLM、纯 DB 推导）：
-//   - stage_artifacts 有 checkpoint_r1_spec/r2_summary → R1/R2 done（checkpoint 复用同口径）；
-//   - debug JSON 有 r3_checks/r3_raw → R3 done；
-//   - result_json 非空 → R4/R5 done（合并与裁决已产出）；
-//   - 任务终态 done → 全链 done（覆盖 R3.5/无产物场景）。
-//
+// TaskStages 任务阶段时间线（零 LLM、纯 DB 推导）：形态见 deriveStageDone。
 // 无任务返回 false。
 func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any, bool) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return nil, false
 	}
-	stageDone := map[string]bool{}
-	arts := storage.DecodeJSONMap(task.StageArtifacts)
-	if _, ok := arts[plugin.ArtifactCkptR1Spec]; ok {
-		stageDone[plugin.LayerR1] = true
-	}
-	if _, ok := arts[plugin.ArtifactCkptR2Summary]; ok {
-		stageDone[plugin.LayerR2] = true
-	}
-	debug := storage.DecodeJSONMap(task.DebugJSON)
-	if _, ok := debug[plugin.DebugKeyR3Checks]; ok {
-		stageDone[plugin.LayerR3] = true
-	}
-	if debug[plugin.DebugKeyR3Raw] != "" {
-		stageDone[plugin.LayerR3] = true
-	}
-	if task.ResultJSON != "" {
-		stageDone[plugin.LayerR4] = true
-	}
-	if task.ResultJSON != "" && task.Verdict != "" {
-		stageDone[plugin.LayerR5] = true
-	}
-	if task.Status == storage.StatusDone {
-		for _, st := range plugin.StageTimeline {
-			stageDone[st] = true
-		}
-	}
+	stageDone := deriveStageDone(
+		storage.DecodeJSONMap(task.StageArtifacts),
+		storage.DecodeJSONMap(task.DebugJSON),
+		task.ResultJSON, task.Verdict, task.Status)
 	stages := make([]map[string]any, 0, len(plugin.StageTimeline))
 	for _, st := range plugin.StageTimeline {
 		stages = append(stages, map[string]any{"stage": st, "done": stageDone[st]})
@@ -146,6 +119,52 @@ func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any
 		"task_id": task.ID, "status": task.Status, "verdict": task.Verdict,
 		"stages": stages,
 	}, true
+}
+
+// deriveStageDone 阶段完成度推导（v3.132.0 加 stage_progress 标记主判据）：
+//   - stage_progress（onStage 每阶段开头落库）：标记之前的阶段全 done——这是
+//     主判据，天然涵盖「跳过的阶段」（RunReviewOnly 无 R1/R3/R35，此前被推导
+//     成"没做到"，轮询恒显示 R1）；标记本身的阶段=进行中（不算 done）。
+//   - 产物规则（老任务无标记时的回退，有标记时亦是佐证）：checkpoint_r1_spec/
+//     r2_summary → R1/R2；debug r3_checks/r3_raw → R3；result_json → R4；
+//     +verdict → R5。
+//   - 任务终态 done → 全链 done（覆盖无产物场景）。
+func deriveStageDone(arts, debug map[string]string, resultJSON, verdict, status string) map[string]bool {
+	stageDone := map[string]bool{}
+	// 主判据：进度标记位置
+	if progress := arts[plugin.ArtifactStageProgress]; progress != "" {
+		for _, st := range plugin.StageTimeline {
+			if st == progress {
+				break
+			}
+			stageDone[st] = true
+		}
+	}
+	// 产物回退/佐证
+	if _, ok := arts[plugin.ArtifactCkptR1Spec]; ok {
+		stageDone[plugin.LayerR1] = true
+	}
+	if _, ok := arts[plugin.ArtifactCkptR2Summary]; ok {
+		stageDone[plugin.LayerR2] = true
+	}
+	if _, ok := debug[plugin.DebugKeyR3Checks]; ok {
+		stageDone[plugin.LayerR3] = true
+	}
+	if debug[plugin.DebugKeyR3Raw] != "" {
+		stageDone[plugin.LayerR3] = true
+	}
+	if resultJSON != "" {
+		stageDone[plugin.LayerR4] = true
+	}
+	if resultJSON != "" && verdict != "" {
+		stageDone[plugin.LayerR5] = true
+	}
+	if status == storage.StatusDone {
+		for _, st := range plugin.StageTimeline {
+			stageDone[st] = true
+		}
+	}
+	return stageDone
 }
 
 // Findings 结构化意见清单（fp/suggested_fix 直出，副驾免解析 markdown）。
