@@ -186,6 +186,18 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 
 返回 `{matched}`（false=无匹配或短码歧义，不猜测）。**需 admin 档 token**（与 suppress 同门）。
 
+### search_findings
+
+本仓历史意见账本检索（v3.138.0）：prints 表是意见的持久身份（跨轮次/跨任务），query 对评语/文件路径 LIKE 匹配（含 % 按通配），last_seen 倒序。
+
+| 参数 | 类型 | 必填 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `platform`/`owner`/`repo` | string | ✓ | | 定位仓库（受 ARGUS_REPO_ALLOWLIST 约束）|
+| `query` | string | ✓ | | 关键词（评语/文件路径）|
+| `limit` | number | | 10 | 上界 50（服务端钳制）|
+
+返回围栏文本：每条带 `file:line severity [status ×复现次数] fp:短码` + 评语截断。与 `search_knowledge`（组织级规范/结论）分工：这里查**本仓意见流水账**。「以前怎么裁的」类问题的事实源。
+
 ### fix_finding
 
 单条意见的沙箱修复：隔离工作区内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`）。**绝不推送分支。**

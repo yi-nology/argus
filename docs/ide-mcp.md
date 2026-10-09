@@ -11,7 +11,7 @@ IDE 与 agent 客户端都能直接挂载——**argus 不维护原生 IDE 插�
 |---|---|
 | URL | `http://<argus 地址>:8899/mcp` |
 | 鉴权 | `Authorization: Bearer <token>`；建议用 `ARGUS_API_TOKENS` 里的 **ci 档** token（读面全通、可触发审查/修复，无抑制权限） |
-| 工具面 | `review_pr` / `requirement_compliance` / `review_diff` / `review_diff_async` / `list_tasks` / `list_agents` / `get_report` / `get_task_stages` / `list_findings` / `get_suggestion` / `ask_argus` / `search_code` / `search_knowledge` / `search_sem` / `fix_finding` / `suppress_finding` / `restore_finding` / `get_capabilities` 共 18 个（全清单与参数见 [skills/argus-mcp/references/tools.md](../skills/argus-mcp/references/tools.md)；`fix_finding` 未配 `ARGUS_FIX_AGENT`、`search_code` 未启用 `ARGUS_CODESEARCH`/工作副本池时调用报错） |
+| 工具面 | `review_pr` / `requirement_compliance` / `review_diff` / `review_diff_async` / `list_tasks` / `list_agents` / `get_report` / `get_task_stages` / `list_findings` / `get_suggestion` / `ask_argus` / `search_code` / `search_knowledge` / `search_sem` / `fix_finding` / `suppress_finding` / `restore_finding` / `get_capabilities` / `search_findings` 共 19 个（全清单与参数见 [skills/argus-mcp/references/tools.md](../skills/argus-mcp/references/tools.md)；`fix_finding` 未配 `ARGUS_FIX_AGENT`、`search_code` 未启用 `ARGUS_CODESEARCH`/工作副本池时调用报错） |
 
 ## AI agent 直接驱动（agent skill）
 

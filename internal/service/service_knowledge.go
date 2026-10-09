@@ -81,3 +81,40 @@ func (s *Service) SearchSem(ctx context.Context, platform, owner, repo, number, 
 	}
 	return s.qa().SearchSem(ctx, platform, owner, repo, number, query, topK)
 }
+
+// search_findings 的入参钳制与渲染预算（MCP 工具描述「缺省 10、上界 50」同源）。
+const (
+	findingsHistoryDefault = 10
+	findingsHistoryMax     = 50
+	historyCommentCap      = 240 // 单条评语渲染截断（rune）
+)
+
+// SearchFindingsHistory 本仓历史意见检索（v3.138.0，MCP search_findings 数据面）：
+// 「这个问题以前报过吗/怎么裁的/被压过吗」——prints 账本跨轮次检索。仓库白名单
+// 双门同其他数据工具；返回围栏文本。
+func (s *Service) SearchFindingsHistory(ctx context.Context, platform, owner, repo, query string, limit int) (string, error) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
+		return "", errors.New(errRepoDenied)
+	}
+	if limit <= 0 {
+		limit = findingsHistoryDefault
+	}
+	if limit > findingsHistoryMax {
+		limit = findingsHistoryMax
+	}
+	items, err := s.Store.SearchFindingsHistory(ctx, platform, owner, repo, query, limit)
+	if err != nil {
+		return "", fmt.Errorf("历史意见检索失败: %w", err)
+	}
+	if len(items) == 0 {
+		return "本仓无匹配的历史意见记录（可换关键词，或该问题此前未被报过）", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "search_findings（repo=%s/%s query=%q）命中 %d 条历史意见，按最近出现倒序：\n", owner, repo, query, len(items))
+	for i, it := range items {
+		comment, _ := textutil.TruncRunes(it.Comment, historyCommentCap)
+		fmt.Fprintf(&b, "\n[%d] %s:%d %s [%s ×%d] fp:%s\n%s\n",
+			i+1, it.File, it.Line, it.Severity, it.Status, it.TimesSeen, it.FP, comment)
+	}
+	return plugin.DataFence("search_findings 检索结果（数据）", b.String()), nil
+}

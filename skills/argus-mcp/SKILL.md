@@ -30,7 +30,7 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
-## 工具面速查（18 个，常驻注册）
+## 工具面速查（19 个，常驻注册）
 
 | 工具 | 用途 | 必填 | 关键约束 |
 |---|---|---|---|
@@ -52,6 +52,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `suppress_finding` | 误报抑制（fp 短码） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环；重措辞复现由宽松级吸收（详见 tools.md 耐久性边界） |
 | `restore_finding` | 恢复误抑制意见（suppress 反向） | platform/owner/repo/number/fp | **需 admin 档 token**；抑制错了用它撤销，下一轮起重新可见 |
 | `get_capabilities` | 能力面快照（部署开了什么） | 无 | 纯读零副作用；调受限工具前先看这里 |
+| `search_findings` | 本仓历史意见账本检索 | platform/owner/repo/query | limit 可选（缺省 10 上界 50）；带 status/复现次数/fp 短码 |
 
 ## 标准工作流
 
@@ -79,7 +80,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ### 6. 标记误报与查看能力面
 
-确认某条意见是误报且持有 admin 档 token 时，`suppress_finding(platform, owner, repo, number, fp)` 一步闭环：后续报告自动剔除该意见，结论回流知识库与学习环（记忆飞轮）。ci 档调用报「需 admin 档 token」属预期，转告用户即可。新接手一个部署时先 `get_capabilities` 看清 fix/检索/知识库哪些开着，再决定工作流怎么走。
+确认某条意见是误报且持有 admin 档 token 时，`suppress_finding(platform, owner, repo, number, fp)` 一步闭环：后续报告自动剔除该意见，结论回流知识库与学习环（记忆飞轮）。ci 档调用报「需 admin 档 token」属预期，转告用户即可。新接手一个部署时先 `get_capabilities` 看清 fix/检索/知识库哪些开着，再决定工作流怎么走。要查「这个问题以前报过吗/怎么裁的/被压过吗」用 `search_findings`（本仓意见账本，带 status 与复现次数，fp 短码可直接喂 suppress/restore/fix）。
 
 ## 失败与降级判定
 
@@ -99,4 +100,4 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ## 参考文件
 
-- **[references/tools.md](references/tools.md)** — 全部 18 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。
+- **[references/tools.md](references/tools.md)** — 全部 19 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。

@@ -237,3 +237,54 @@ func TestSuppressFamily_BlobBridgeBlocked(t *testing.T) {
 		t.Error("SQL 真意见不得被大杂烩桥连坐")
 	}
 }
+
+// TestSearchFindingsHistory 历史意见账本检索（v3.138.0）：关键词命中/状态与
+// 复现次数带出/limit 钳制/空 query 全量倒序。
+func TestSearchFindingsHistory(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) {
+		if r := s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}}); r[0].Err != nil {
+			t.Fatal(r[0].Err)
+		}
+	}
+	up(domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: "硬编码疑似线上密钥 fallbackAPIKey", By: "s"})
+	up(domain.Finding{File: "db.go", Line: 12, Severity: "high", Comment: "SQL 注入：id 直接拼接", By: "s"})
+	// 同条再 upsert 一次 → TimesSeen=2
+	up(domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: "硬编码疑似线上密钥 fallbackAPIKey", By: "s"})
+
+	items, err := s.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "硬编码", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("关键词应命中 1 条, got %d", len(items))
+	}
+	if items[0].TimesSeen != 2 || items[0].Status != "open" || items[0].FP == "" {
+		t.Errorf("账本字段不符: %+v", items[0])
+	}
+	// 抑制后 status 可见
+	if _, _, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", "硬编码疑似线上密钥 fallbackAPIKey", at); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = s.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "密钥", 10)
+	if len(items) != 1 || items[0].Status != "suppressed" {
+		t.Errorf("抑制状态应可见: %+v", items)
+	}
+	// 空 query = 最近流水；limit 钳制
+	all, err := s.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "", 0)
+	if err != nil || len(all) != 2 {
+		t.Errorf("空 query 应返回全部 2 条: %d %v", len(all), err)
+	}
+	one, _ := s.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "", 1)
+	if len(one) != 1 {
+		t.Errorf("limit 应生效: %d", len(one))
+	}
+	// 他仓隔离
+	other, _ := s.SearchFindingsHistory(ctx, "gitlab", "acme", "other", "", 10)
+	if len(other) != 0 {
+		t.Error("跨仓不得串数据")
+	}
+}

@@ -15,6 +15,7 @@
 //	suppress_finding                     误报抑制（v3.128.0，写侧，admin scope 门）
 //	restore_finding                      恢复误抑制意见（v3.131.0，写侧，admin scope 门）
 //	get_capabilities                     能力面快照（v3.129.0，部署开了什么一次看清）
+//	search_findings                      本仓历史意见账本检索（v3.138.0）
 //
 // 传输：mark3labs/mcp-go streamable http，经 Hertz 桥接挂在 /mcp（GET/POST/DELETE），
 // 鉴权与 🔒 路由一致（Bearer）。与 toolpool（方向 A：我们调用别人）分层不同，不合流。
@@ -216,6 +217,7 @@ func New(core Core, version string) *server.MCPServer {
 	NewSuppressorTool(s, core) // v3.128.0：core 实现 FindingSuppressor（admin scope 透传二次判定）时注册
 	NewCapabilityTool(s, core) // v3.129.0：core 实现 CapabilityFace 时注册（能力面一次看清）
 	NewRestorerTool(s, core)   // v3.131.0：core 实现 FindingRestorer（admin scope 门，suppress 反向）时注册
+	NewHistorianTool(s, core)  // v3.138.0：core 实现 FindingHistorian（本仓意见账本检索）时注册
 	if cs, ok := core.(CodeSearcher); ok {
 		s.AddTool(searchCodeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "pattern")

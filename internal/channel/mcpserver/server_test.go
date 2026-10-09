@@ -1164,3 +1164,41 @@ func TestAskArgus_QuestionCap(t *testing.T) {
 		t.Errorf("超长 question 应报错: isErr=%v text=%s", isErr, text[:60])
 	}
 }
+
+// ---------- search_findings（v3.138.0） ----------
+
+type fakeHistorian struct {
+	fakeCore
+	query string
+	limit int
+	out   string
+	err   error
+}
+
+func (f *fakeHistorian) SearchFindingsHistory(_ context.Context, _, _, _, query string, limit int) (string, error) {
+	f.query, f.limit = query, limit
+	return f.out, f.err
+}
+
+func TestSearchFindings_RegisteredAndCalled(t *testing.T) {
+	core := &fakeHistorian{out: "search_findings 命中 1 条"}
+	srv := New(core, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "search_findings" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 FindingHistorian 后应注册 search_findings")
+	}
+	text, isErr := callTool(t, srv, "search_findings", map[string]any{
+		"platform": "gitlab", "owner": "acme", "repo": "app", "query": "硬编码", "limit": float64(5),
+	})
+	if isErr {
+		t.Fatalf("search_findings 报错: %s", text)
+	}
+	if core.query != "硬编码" || core.limit != 5 {
+		t.Errorf("入参透传错: %q %d", core.query, core.limit)
+	}
+}

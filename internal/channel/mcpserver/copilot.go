@@ -242,6 +242,47 @@ func restoreFindingTool() mcp.Tool {
 	)
 }
 
+// FindingHistorian 历史意见检索扩展（v3.138.0）：core 未实现时工具不注册。
+type FindingHistorian interface {
+	// SearchFindingsHistory 本仓 prints 账本跨轮检索，返回围栏文本。
+	SearchFindingsHistory(ctx context.Context, platform, owner, repo, query string, limit int) (string, error)
+}
+
+// NewHistorianTool 注册 search_findings（New 内调用；core 未实现 FindingHistorian
+// 时跳过注册）。
+func NewHistorianTool(s *server.MCPServer, core Core) {
+	hist, ok := core.(FindingHistorian)
+	if !ok {
+		return
+	}
+	s.AddTool(searchFindingsTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		vals, rerr := requireArgs(req, "platform", "owner", "repo", "query")
+		if rerr != nil {
+			return rerr, nil
+		}
+		limit := 0 // 0 = 服务端缺省 10、钳 50
+		if f, ok := req.GetArguments()["limit"].(float64); ok && f > 0 {
+			limit = int(f)
+		}
+		out, err := hist.SearchFindingsHistory(ctx, vals[0], vals[1], vals[2], vals[3], limit)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(out), nil
+	})
+}
+
+func searchFindingsTool() mcp.Tool {
+	return mcp.NewTool("search_findings",
+		mcp.WithDescription("检索本仓库的历史审查意见流水（跨轮次/跨任务，prints 账本）：「这个问题以前报过吗/当时怎么裁的/被误报抑制过吗/复现了几次」——带 status（open/suppressed）与复现次数，fp 短码可直接喂 suppress/restore/fix。与 search_knowledge（组织级规范/结论）分工：这里查本仓意见账本"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("query", mcp.Required(), mcp.Description("关键词（匹配评语/文件路径；含 % 按通配）")),
+		mcp.WithNumber("limit", mcp.Description("可选：条数（缺省 10，上界 50）")),
+	)
+}
+
 // marshalToolResult 统一 JSON 缩进输出（与既有工具同风格）。
 func marshalToolResult(data any) (*mcp.CallToolResult, error) {
 	b, err := json.MarshalIndent(data, "", "  ")
