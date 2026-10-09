@@ -43,6 +43,13 @@ func (PrintAlias) TableName() string { return "print_aliases" }
 // （同位置不同问题）远达不到，同一问题的措辞微调稳过。
 const nearSimilarityThreshold = 0.6
 
+// vagueNearSuppressedThreshold 模糊意见（line=0 的多文件聚合/摘要形态）专属
+// 吸收阈值（v3.133.0）：实测同一问题的彻底重述与"同函数不同问题"的重叠率区间
+// 互锁（0.237~0.319 vs 0.364），全局阈值无解——但模糊意见本身无行号锚点、
+// 主张精度低，对人工已判误报的行按 ≥0.2 吸收是合理不对称：精确意见（line>0）
+// 仍走 0.6/0.4 两级不动。0.2 下界与真实跨问题对（0.02~0.06）有充分间距。
+const vagueNearSuppressedThreshold = 0.2
+
 // looseNearSuppressedThreshold 抑制行专属宽松阈值（v3.130.0）：人工已判误报
 // （suppressed）的行按 ≥0.4 吸收**重措辞**复现——2026-10-09 实测：同一处硬编码
 // 密钥问题被模型改写为「新增了硬编码的生产密钥…」后与原措辞仅 ~0.43 相似，
@@ -55,6 +62,28 @@ func commentNear(a, b string) bool { return commentMatch(a, b, nearSimilarityThr
 
 // commentNearLoose 抑制行宽松近重复（≥0.4）：同 commentNear 度量、阈值放宽。
 func commentNearLoose(a, b string) bool { return commentMatch(a, b, looseNearSuppressedThreshold) }
+
+// commentNearVague 模糊意见吸收（≥0.2，仅 suppressed 行 + line=0 + 文件组件
+// 相交三重约束下使用）。
+func commentNearVague(a, b string) bool { return commentMatch(a, b, vagueNearSuppressedThreshold) }
+
+// fileSetIntersect 逗号分隔多文件形态的组件交集（"db.go,util.go" vs "db.go"
+// = 命中；同值恒命中）。
+func fileSetIntersect(a, b string) bool {
+	as := strings.Split(a, ",")
+	for _, x := range strings.Split(b, ",") {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		for _, y := range as {
+			if strings.TrimSpace(y) == x {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // commentMatch 归一化后互含（无阈值）或二元组重叠率达标。
 // 集合构造复用 agentkit v0.10.0 沉淀的 textutil.BigramSet；度量刻意不用
@@ -113,9 +142,21 @@ func resolveAliasFP(tx *gorm.DB, platform, owner, repo, number, fingerprint stri
 func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.Finding) (*FindingPrint, bool, error) {
 	// 不在 SQL 层限行距：exact 通道必须看到行号超窗的同评语行（行号漂移场景）；
 	// 同 PR 同文件条目规模小（试点 <50），Limit(200) 足够，分级在内存做。
+	// 查询面含多文件组件（"db.go,util.go" 要看见 "db.go" 的行）；内存层按
+	// 匹配级别各自收口。
+	candFiles := map[string]bool{f.File: true}
+	for _, part := range strings.Split(f.File, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			candFiles[p] = true
+		}
+	}
+	fileList := make([]string, 0, len(candFiles))
+	for f := range candFiles {
+		fileList = append(fileList, f)
+	}
 	var rows []FindingPrint
-	if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file = ?",
-		platform, owner, repo, number, f.File).
+	if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file IN ?",
+		platform, owner, repo, number, fileList).
 		Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
 		return nil, false, err
 	}
@@ -129,13 +170,19 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.F
 			}
 			continue
 		}
-		if f.Line > 0 && linesClose(rows[i].Line, f.Line) {
+		switch {
+		case f.Line > 0 && linesClose(rows[i].Line, f.Line):
 			switch {
 			case near == nil && commentNear(rows[i].Comment, f.Comment):
 				near = &rows[i]
 			case loose == nil && rows[i].Status == PrintSuppressed && commentNearLoose(rows[i].Comment, f.Comment):
 				loose = &rows[i]
 			}
+		case f.Line == 0 && loose == nil && rows[i].Status == PrintSuppressed &&
+			fileSetIntersect(rows[i].File, f.File) && commentNearVague(rows[i].Comment, f.Comment):
+			// 模糊意见吸收（v3.133.0）：line=0 聚合形态无行号锚点，靠文件组件
+			// 相交 + 0.2 话题重叠吸收进被抑制行——彻底重述不再绕过抑制。
+			loose = &rows[i]
 		}
 	}
 	if exact != nil {

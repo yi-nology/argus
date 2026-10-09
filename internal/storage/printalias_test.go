@@ -77,3 +77,74 @@ func TestUpsertPrints_SuppressedLooseNoResurrect(t *testing.T) {
 		t.Error("别名精确命中应持续 suppressed")
 	}
 }
+
+// 形状漂移夹具（2026-10-09 实测逃逸案例 t-623c3695）：多文件聚合 + line=0 +
+// 彻底重述 + 多问题拼接。
+var (
+	fixBlobComment   = "【敏感信息泄露】硬编码的 API Key 直接写入源码（sk-live-...）会被提交进版本库，任何能读取仓库的人都能拿到，且该常量当前并未被使用（疑似占位符…\n\n[performance] 【敏感信息泄露】硬编码的 API Key 直接写入源码（sk-live-...）会被提交进版本库，任何能读取仓库的人都能拿到，且该常量当前并未被使用（疑似占位符/遗忘的调试密钥）。建议从环境变量或密钥管理服务读取并删除此常量；如该密钥真实有效，应立即轮换。\n\n[performance] 【SQL 注入】使用字符串拼接将外部传入的 id 直接拼进 SQL 语句：\"SELECT name FROM users WHERE id = \" + id��..."
+	fixSQLSegComment = "[performance] 【SQL 注入】使用字符串拼接将外部传入的 id 直接拼进 SQL 语句：\"SELECT name FROM users WHERE id = \" + id��..."
+	fixSameFnA       = "GetUserByName 返回值错误：err 未检查，失败时返回空串，调用方拿到假数据"
+	fixSameFnB       = "GetUserByName 空指针：未判 nil 直接解引用，nil 用户时 panic"
+)
+
+// TestUpsertPrints_VagueBlobAbsorbed 端到端：人工抑制后，多文件聚合/彻底重述的
+// 模糊意见（line=0）不得复活——vague 吸收层（0.2 + 文件组件相交 + 仅 suppressed）
+// 正是为该实测案例加的（v3.133.0）。
+func TestUpsertPrints_VagueBlobAbsorbed(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) domain.PrintUpsertResult {
+		return s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}})[0]
+	}
+	oldF := domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: fixOldComment, By: "security"}
+	if r := up(oldF); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", fixOldComment, at); err != nil || !matched {
+		t.Fatalf("抑制应命中: %v %v", matched, err)
+	}
+	// 逃逸案例本体：多文件、行号 0、彻底重述
+	blobF := domain.Finding{File: "db.go,util.go", Line: 0, Severity: "medium", Comment: fixBlobComment, By: "security"}
+	if r := up(blobF); r.Err != nil {
+		t.Fatal(r.Err)
+	} else if !r.Suppressed {
+		t.Error("模糊聚合意见应被 vague 吸收层吸收（实测案例不得复活）")
+	}
+}
+
+// TestUpsertPrints_VagueTierNotOverbroad vague 层负控：同行号区别的不同问题
+// （精确意见）与话题不同的模糊意见都不许被吸收。
+func TestUpsertPrints_VagueTierNotOverbroad(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) domain.PrintUpsertResult {
+		return s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}})[0]
+	}
+	oldF := domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: fixOldComment, By: "security"}
+	up(oldF)
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", fixOldComment, at); err != nil || !matched {
+		t.Fatalf("抑制应命中: %v %v", matched, err)
+	}
+	// 负例1：精确意见（line=10）同函数不同问题——0.6/0.4 两级都不收
+	sameFn := domain.Finding{File: "db.go", Line: 10, Severity: "medium", Comment: fixSameFnA, By: "security"}
+	if r := up(sameFn); r.Err != nil {
+		t.Fatal(r.Err)
+	} else if r.Suppressed {
+		t.Error("精确意见的不同问题不得被吸收（同函数也不行）")
+	}
+	// 负例2：模糊意见（line=0）但话题不同（SQL 注入 vs 硬编码密钥）
+	sqlF := domain.Finding{File: "db.go,util.go", Line: 0, Severity: "medium", Comment: fixSQLSegComment, By: "security"}
+	if r := up(sqlF); r.Err != nil {
+		t.Fatal(r.Err)
+	} else if r.Suppressed {
+		t.Error("话题不同的模糊意见不得被吸收")
+	}
+	// 负例3：同函数不同问题的模糊形态也不得命中 0.4 严格侧（度量钉死）
+	if commentNearLoose(fixSameFnA, fixSameFnB) {
+		t.Error("同函数不同问题不该过 0.4（实测 0.364）")
+	}
+}
