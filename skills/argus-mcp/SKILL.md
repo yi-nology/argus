@@ -70,7 +70,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ### 5. 提交前本地预审
 
-`review_diff(diff=完整 diff 文本)` 单轮快审，返回 markdown 意见列表或「✅ 未发现问题」。典型来源 `git diff --staged`。它不建任务、不落库、不回帖，适合 pre-commit 与「先自查再提 PR」。
+`review_diff(diff=完整 diff 文本)` 单轮快审，返回 markdown 意见列表（每行 `- 文件路径:行号 [high|medium|low] 说明`）或「✅ 未发现问题」。典型来源 `git diff --staged`。它不建任务、不落库、不回帖，适合 pre-commit 与「先自查再提 PR」。用参考客户端跑时另有 CLI 侧增强：`review -staged -include-untracked` 自组含未跟踪文件的 diff、`-json` 结构化输出、`-fail-on` 定退出码阈值（hook 阻断面）——细节见 argus-precommit skill。
 
 ## 失败与降级判定
 
@@ -90,4 +90,4 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ## 参考文件
 
-- **[references/tools.md](references/tools.md)** — 全部 10 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射。入参拿不准时先查它。
+- **[references/tools.md](references/tools.md)** — 全部 13 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。

@@ -15,17 +15,33 @@ description: This skill should be used when the user asks to "提交前帮我自
 ## 异步闭环（提交方轮询，推荐用于 hook）
 
 1. 提交时把 staged diff 推给 argus：`review_diff_async(diff)`，立即返回 `{task_id, status, note}`。diff 上限 **48KB**（任务落库面），更大请分文件/分目录多次提交。
-2. 提交方继续工作；稍后轮询 `get_report(task_id)`（建议 15-30 秒间隔）直到 `done/failed/stale`。`done` 的 `report` 字段即意见列表（每行 `- file:line [severity] 说明`）或「✅ 未发现问题」。
+2. 提交方继续工作；稍后轮询 `get_report(task_id)`（建议 15-30 秒间隔）直到 `done/failed/stale`。`done` 的 `report` 字段即意见列表（每行 `- 文件路径:行号 [high|medium|low] 说明`）或「✅ 未发现问题」。
 3. 参考客户端一键闭环（env：`ARGUS_MCP_URL`/`ARGUS_APITOKEN`——token 只走环境变量，勿把 `-token` 明文写死进 hook 文件或入库脚本）：
 
 ```bash
 # 提交 hook 里：异步提交，不阻塞（|| true 保证审查故障不挡提交）
-git diff --staged | argus-copilot -url … review -async || true
+argus-copilot -url … review -staged -include-untracked -async || true
 # 提交方随后轮询（自带 10min 上限、3s 间隔），输出报告
 argus-copilot -url … poll -task <task_id>
 ```
 
 `poll` 内部就是循环 `get_report`——没有 copilot 时用任意 MCP 客户端等价复刻。
+
+## diff 输入源与退出码（copilot CLI，v3.124.0）
+
+`review` 的输入源三选一（互斥）：`-f <文件>`/stdin（直给 diff 文本）、`-staged`（`git diff --staged`）、`-uncommitted`（`git diff HEAD`，含未暂存）。**git diff 看不到未跟踪文件**——加 `-include-untracked`（配合 `-staged`/`-uncommitted`）会把 `git ls-files --others --exclude-standard` 列出的文件逐个合成 new-file diff 拼入（尊重 .gitignore，二进制跳过，单文件 16KB 截断）。这就是 pre-commit 的完整覆盖形态：暂存 + 未跟踪一起送审。
+
+机器可读与阻断面：
+
+- `-json`：输出 `{mode, clean, findings:[{file,line,severity,note}], report}` 信封，hook/CI 直接 jq 消费，勿解析 markdown。
+- `-fail-on high|medium|low|none`：意见达到阈值即退出码 1（缺省 high）。
+- 退出码：**0**=通过（无达阈值意见）/异步提交成功；**1**=有达阈值意见（建议阻断）；**2**=错误（执行失败或用法错误）；**4**=空 diff 跳过；**130**=信号中断。hook 想放行一切照旧 `|| true`，想按意见阻断就去掉。
+
+同步阻断形态（提交前当场挡）：
+
+```bash
+argus-copilot -url … review -staged -include-untracked -json -fail-on high -timeout 3m
+```
 
 ## 同步快审
 

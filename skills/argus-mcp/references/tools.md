@@ -49,7 +49,7 @@
 |---|---|---|---|
 | `diff` | string | ✓ | 完整 diff 文本，≤120KB（超限服务端按字节截断） |
 
-返回 markdown 意见列表（每行 `- file:line [severity] 说明`）或「✅ 未发现问题」。服务端未配 LLM 时 error：`模型未配置（ARGUS_LLM_*），本地 diff 审查不可用`。需要「提交时触发、稍后轮询」的闭环用 `review_diff_async`。
+返回 markdown 意见列表（每行 `- 文件路径:行号 [high|medium|low] 说明`，severity 三档词表钉死）或「✅ 未发现问题」。服务端未配 LLM 时 error：`模型未配置（ARGUS_LLM_*），本地 diff 审查不可用`。需要「提交时触发、稍后轮询」的闭环用 `review_diff_async`。
 
 ### review_diff_async
 
@@ -155,10 +155,13 @@ go run ./cmd/argus-copilot -url <url> -token <tok> -timeout <dur> <子命令> [f
 | 子命令 | 对应工具 | flags |
 |---|---|---|
 | `stages` | get_task_stages | `-task` |
-| `findings` | list_findings | `-task` |
+| `findings` | list_findings | `-task`（返回本就是结构化 JSON） |
 | `suggest` | get_suggestion | `-task` `-fp` |
 | `ask` | ask_argus | `-pr platform/owner/repo#number` `-q`（可选） |
-| `review` | review_diff | `-f` diff 文件（缺省读 stdin；pre-commit：`git diff --staged | argus-copilot review \|\| true`） |
+| `review` | review_diff / review_diff_async | `-f` diff 文件（缺省读 stdin）`\|` `-staged`（git diff --staged）`\|` `-uncommitted`（git diff HEAD），三输入源互斥；`-include-untracked` 把未跟踪文件合成 new-file diff 拼入（配 `-staged`/`-uncommitted`）；`-async` 异步提交；`-json` 结构化输出（mode/clean/findings/report）；`-fail-on high\|medium\|low\|none` 定退出码阈值（缺省 high） |
+| `poll` | get_report 轮询 | `-task`；`-json`/`-fail-on` 与 review 同契约；自带 10min 上限、3s 间隔 |
 | `fix` | fix_finding | `-pr platform/owner/repo#number` `-fp` |
+
+review/poll **退出码契约**：`0`=通过（无达阈值意见）/异步提交成功；`1`=有达阈值意见（建议阻断提交）；`2`=错误（执行失败或用法错误）；`4`=空 diff 跳过；`130`=信号中断。hook 里想放行一切照旧 `|| true`，想阻断就保留退出码。`-json` 输出的 `findings` 为 `{file, line, severity, note}` 数组，`report` 保留原始 markdown。
 
 env：`ARGUS_MCP_URL`（缺省 `http://127.0.0.1:8899/mcp`）、`ARGUS_APITOKEN`。单次调用超时 `-timeout` 缺省 **30s**——凡涉及 LLM 的调用（`review` 同步快审 / `ask` 带追问 / `fix`）实测会超（215 深度思考模型单轮 5-60s+），显式调大（如 `-timeout 3m`）；`poll` 自带 10min 上限不吃全局超时。

@@ -144,8 +144,12 @@ func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
 	if strings.TrimSpace(diff) == "" {
 		return "", fmt.Errorf("diff 为空")
 	}
+	// prompt 行格式是 v3.124.0 CLI 退出码契约的解析依据（cmd/argus-copilot
+	// findingLineRe 同源手写）：`- file:line [severity] 说明`，severity 钉死
+	// domain 词表三档——此前未钉词表，模型自由发挥会让机器可读面失配。
 	prompt := "你是资深代码审查专家。审查以下 diff（提交前的本地预审），只报告有实际影响的" +
-		"问题（安全/逻辑/边界），宁缺毋滥；每条意见一行 `- file:line [severity] 说明`。" +
+		"问题（安全/逻辑/边界），宁缺毋滥；每条意见一行，格式固定为" +
+		"「- 文件路径:行号 [high|medium|low] 说明」（severity 只能取 high/medium/low 三档）。" +
 		"无问题时只输出「✅ 未发现问题」。\n\n<diff>\n" + diff + "\n</diff>"
 	msg, err := s.LLM.Generate(ctx, "diff_preview", []*schema.Message{schema.UserMessage(prompt)})
 	if err != nil {
