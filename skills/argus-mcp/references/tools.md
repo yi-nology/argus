@@ -158,6 +158,21 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 
 返回围栏文本：命中按相似度降序，每条带 `file:line`、符号名、`score` 与摘要。**命中是线索不是结论**——引用前须 `get_file` 核实。未启用（`ARGUS_SEMSEARCH=0` 或未配 `ARGUS_EMBEDDING_*`）时 error：`search_sem 未启用`；无命中返回提示文本（非 error）。
 
+### get_capabilities
+
+部署能力面快照（v3.129.0）：`{version, llm, diff_preview, qa, code_search, sem_search, knowledge, fix_agent, fix_push, codegraph, related_repos, ocr}`。无参数、纯读零副作用。调用受限工具（`fix_finding`/`suppress_finding`/`search_sem`/`search_knowledge`）前先看这里，免盲调报错。
+
+### suppress_finding
+
+误报抑制（v3.128.0，写侧）：按 fp 指纹短码把一条意见标记为误报——后续报告自动剔除（行号/措辞漂移由入库指纹覆盖），结论回流知识库与学习环。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR |
+| `fp` | string | ✓ | 指纹短码（6-64 位十六进制） |
+
+返回 `{matched, fingerprint}`（matched=false 表示未命中既有意见但已预插抑制记录）。**需 admin 档 token**：/mcp 路由只需 ci 档，但本工具在服务端按 scope 透传做 admin 二次判定，非 admin 报 `suppress_finding 需 admin 档 token`。等价 HTTP 端点 `POST /findings/suppress`（同 admin 门）。CLI 无对应子命令（admin 写操作建议直接走 MCP/API）。
+
 ### fix_finding
 
 单条意见的沙箱修复：隔离工作区内编码 agent 出 patch + 确定性验证（`ARGUS_FIX_VERIFY_CMD`）。**绝不推送分支。**
@@ -183,6 +198,7 @@ go run ./cmd/argus-copilot -url <url> -token <tok> -timeout <dur> <子命令> [f
 | `ask` | ask_argus | `-pr platform/owner/repo#number` `-q`（可选） |
 | `review` | review_diff / review_diff_async | `-f` diff 文件（缺省读 stdin）`\|` `-staged`（git diff --staged）`\|` `-uncommitted`（git diff HEAD），三输入源互斥；`-include-untracked` 把未跟踪文件合成 new-file diff 拼入（配 `-staged`/`-uncommitted`）；`-async` 异步提交；`-json` 结构化输出（mode/clean/findings/report）；`-fail-on high\|medium\|low\|none` 定退出码阈值（缺省 high） |
 | `poll` | get_report 轮询 | `-task`；`-json`/`-fail-on` 与 review 同契约；自带 10min 上限、3s 间隔 |
+| `capabilities` | get_capabilities | 无（能力面快照） |
 | `fix` | fix_finding | `-pr platform/owner/repo#number` `-fp` |
 
 review/poll **退出码契约**：`0`=通过（无达阈值意见）/异步提交成功；`1`=有达阈值意见（建议阻断提交）；`2`=错误（执行失败或用法错误）；`4`=空 diff 跳过；`130`=信号中断。hook 里想放行一切照旧 `|| true`，想阻断就保留退出码。`-json` 输出的 `findings` 为 `{file, line, severity, note}` 数组，`report` 保留原始 markdown。

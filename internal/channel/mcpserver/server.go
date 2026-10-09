@@ -13,6 +13,7 @@
 //	review_diff_async                    本地 diff 异步预审任务（v3.123.0，提交方轮询闭环）
 //	fix_finding                          沙箱修复（v3.89.0，写侧）
 //	suppress_finding                     误报抑制（v3.128.0，写侧，admin scope 门）
+//	get_capabilities                     能力面快照（v3.129.0，部署开了什么一次看清）
 //
 // 传输：mark3labs/mcp-go streamable http，经 Hertz 桥接挂在 /mcp（GET/POST/DELETE），
 // 鉴权与 🔒 路由一致（Bearer）。与 toolpool（方向 A：我们调用别人）分层不同，不合流。
@@ -206,6 +207,7 @@ func New(core Core, version string) *server.MCPServer {
 	NewCopilotTools(s, core)
 	NewFixerTool(s, core)      // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
 	NewSuppressorTool(s, core) // v3.128.0：core 实现 FindingSuppressor（admin scope 透传二次判定）时注册
+	NewCapabilityTool(s, core) // v3.129.0：core 实现 CapabilityFace 时注册（能力面一次看清）
 	if cs, ok := core.(CodeSearcher); ok {
 		s.AddTool(searchCodeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "pattern")

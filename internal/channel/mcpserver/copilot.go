@@ -134,6 +134,29 @@ func fixFindingTool() mcp.Tool {
 	)
 }
 
+// CapabilityFace 能力快照扩展（v3.129.0）：get_capabilities 的数据面。
+// *service.Service 实现；返回部署启用面（llm/fix/检索等）与版本。
+type CapabilityFace interface {
+	Capabilities(ctx context.Context) map[string]any
+}
+
+// NewCapabilityTool 注册 get_capabilities（New 内调用；core 未实现时跳过）。
+func NewCapabilityTool(s *server.MCPServer, core Core) {
+	cf, ok := core.(CapabilityFace)
+	if !ok {
+		return
+	}
+	s.AddTool(capabilitiesTool(), func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return marshalToolResult(cf.Capabilities(ctx))
+	})
+}
+
+func capabilitiesTool() mcp.Tool {
+	return mcp.NewTool("get_capabilities",
+		mcp.WithDescription("查询本部署启用的能力面与版本（llm/diff_preview/qa/code_search/sem_search/knowledge/fix_agent/fix_push/codegraph/related_repos/ocr）——调用受限工具（fix_finding/suppress_finding/search_sem/search_knowledge）前先看这里，免盲调报错；纯读配置态，零副作用"),
+	)
+}
+
 // FindingSuppressor 误报抑制扩展（v3.128.0 可选接口）：core 未实现时工具不注册。
 // 与 fix_finding 同为写侧工具，但权限更严：服务端按 scope 透传做 admin 二次判定
 // （/mcp 路由只需 ci 档），非 admin 调用返回明确错误——绝不静默放行。

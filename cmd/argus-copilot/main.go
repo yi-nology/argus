@@ -92,6 +92,9 @@ func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []str
 		need(*task != "", "-task 必填")
 		out, err := call(ctx, cli, "get_task_stages", map[string]any{"task_id": *task})
 		return out, exitClean, err
+	case "capabilities":
+		out, err := call(ctx, cli, "get_capabilities", map[string]any{})
+		return out, exitClean, err
 	case "findings":
 		need(*task != "", "-task 必填")
 		// list_findings 返回的已是结构化 JSON（fp/severity/suggested_fix），
@@ -269,6 +272,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（数据面只读；review/fix 为服务端审查/修复面）
 
 用法:
+  argus-copilot -url <mcp> -token <t> capabilities
+                                  （能力面快照：部署开了什么一次看清）
   argus-copilot -url <mcp> -token <t> stages   -task <id>
   argus-copilot -url <mcp> -token <t> findings -task <id>
   argus-copilot -url <mcp> -token <t> suggest  -task <id> -fp <短码>

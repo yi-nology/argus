@@ -1063,3 +1063,36 @@ func TestSuppressFinding_RegisteredAndCalled(t *testing.T) {
 		t.Errorf("scope 拒绝应 isError 含 admin: isErr=%v text=%s", isErr, text)
 	}
 }
+
+// ---------- get_capabilities（v3.129.0） ----------
+
+// fakeCaps 实现 CapabilityFace。
+type fakeCaps struct {
+	fakeCore
+	out map[string]any
+}
+
+func (f *fakeCaps) Capabilities(context.Context) map[string]any { return f.out }
+
+func TestGetCapabilities_RegisteredAndCalled(t *testing.T) {
+	core := &fakeCaps{out: map[string]any{"version": "v-test", "fix_agent": false, "sem_search": true}}
+	srv := New(core, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "get_capabilities" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 CapabilityFace 后应注册 get_capabilities")
+	}
+	text, isErr := callTool(t, srv, "get_capabilities", map[string]any{})
+	if isErr {
+		t.Fatalf("get_capabilities 报错: %s", text)
+	}
+	for _, want := range []string{"v-test", "fix_agent", "sem_search"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("输出缺 %q:\n%s", want, text)
+		}
+	}
+}
