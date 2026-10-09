@@ -31,3 +31,29 @@ func SuppressFinding(ctx context.Context, c *app.RequestContext) {
 	}
 	mw.SuccessRespMsg(c, resp, "ok")
 }
+
+// RestoreFinding 恢复被抑制的意见（🔒，v3.131.0）：suppress 反向操作——
+// 置回 open，下一轮审查起重新可见。与评论命令 "restore fp:xxx" 同源执行体。
+// @router /findings/restore [POST]
+func RestoreFinding(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	var req struct {
+		Platform string `json:"platform"`
+		Owner    string `json:"owner"`
+		Repo     string `json:"repo"`
+		Number   string `json:"number"`
+		Fp       string `json:"fp"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		mw.Fail(ctx, c, err)
+		return
+	}
+	resp, err := Svc.RestoreFindingScoped(ctx, req.Platform, req.Owner, req.Repo, req.Number, req.Fp)
+	if err != nil {
+		mw.ErrorResp(c, consts.StatusBadRequest, err.Error())
+		return
+	}
+	mw.SuccessRespMsg(c, resp, "ok")
+}

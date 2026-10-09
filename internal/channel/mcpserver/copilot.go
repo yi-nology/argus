@@ -200,6 +200,48 @@ func suppressFindingTool() mcp.Tool {
 	)
 }
 
+// FindingRestorer 恢复扩展（v3.131.0 可选接口）：core 未实现时工具不注册。
+// suppress_finding 的反向——被误抑制的意见置回 open。权限同 suppress：服务端
+// scope 透传做 admin 二次判定。
+type FindingRestorer interface {
+	// RestoreFindingScoped 按 fp 短码恢复意见，返回 {matched}。
+	RestoreFindingScoped(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error)
+}
+
+// NewRestorerTool 注册 restore_finding（New 内调用；core 未实现 FindingRestorer
+// 时跳过注册）。
+func NewRestorerTool(s *server.MCPServer, core Core) {
+	res, ok := core.(FindingRestorer)
+	if !ok {
+		return
+	}
+	s.AddTool(restoreFindingTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "fp")
+		if rerr != nil {
+			return rerr, nil
+		}
+		if !validFPShort(vals[4]) {
+			return mcp.NewToolResultError(fpShortMsg), nil
+		}
+		data, err := res.RestoreFindingScoped(ctx, vals[0], vals[1], vals[2], vals[3], strings.ToLower(vals[4]))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return marshalToolResult(data)
+	})
+}
+
+func restoreFindingTool() mcp.Tool {
+	return mcp.NewTool("restore_finding",
+		mcp.WithDescription("恢复一条被误抑制的审查意见（suppress_finding 的反向，按 fp 指纹短码）：置回 open，后续报告重新可见。**需 admin 档 token**（服务端 scope 透传二次判定，ci 档调用会报权限错）——抑制错了用它撤销"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),
+		mcp.WithString("fp", mcp.Required(), mcp.Description("意见指纹短码（报告/list_findings 中 fp: 后的十六进制串；抑制记录的短码同样可解析）")),
+	)
+}
+
 // marshalToolResult 统一 JSON 缩进输出（与既有工具同风格）。
 func marshalToolResult(data any) (*mcp.CallToolResult, error) {
 	b, err := json.MarshalIndent(data, "", "  ")

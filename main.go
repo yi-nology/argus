@@ -219,6 +219,10 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 	// 推送同数据源，供报告页/副驾类消费方按需拉取飞轮状态。手工注册路由
 	//（IDL 不承载聚合端点），handler 与 /tasks 同薄壳约定。
 	h.GET("/reports/health", svc.BearerMiddleware(), hapi.HealthReport)
+	// 恢复被抑制意见（v3.131.0，suppress 反向）：/findings/* 前缀走 admin 档
+	//（requiredScope），与误报抑制同一信任边界。此前只能走评论命令，而 bot 自
+	// 评论会被 self-skip——等于没有恢复通道。
+	h.POST("/findings/restore", svc.BearerMiddleware(), hapi.RestoreFinding)
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})

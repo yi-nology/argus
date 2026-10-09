@@ -1096,3 +1096,55 @@ func TestGetCapabilities_RegisteredAndCalled(t *testing.T) {
 		}
 	}
 }
+
+// ---------- restore_finding（v3.131.0） ----------
+
+type fakeRestorer struct {
+	fakeCore
+	gotFP string
+	out   map[string]any
+	err   error
+}
+
+func (f *fakeRestorer) RestoreFindingScoped(_ context.Context, _, _, _, _, fp string) (map[string]any, error) {
+	f.gotFP = fp
+	return f.out, f.err
+}
+
+func TestRestoreFinding_RegisteredAndCalled(t *testing.T) {
+	core := &fakeRestorer{out: map[string]any{"matched": true}}
+	srv := New(core, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "restore_finding" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 FindingRestorer 后应注册 restore_finding")
+	}
+	text, isErr := callTool(t, srv, "restore_finding", map[string]any{
+		"platform": "gitlab", "owner": "acme", "repo": "app", "number": "2", "fp": "AB12CD34",
+	})
+	if isErr {
+		t.Fatalf("restore_finding 报错: %s", text)
+	}
+	if core.gotFP != "ab12cd34" {
+		t.Errorf("fp 应转小写透传: %q", core.gotFP)
+	}
+	// 短 fp 工具层拦；数据面 admin 门错误透传
+	_, isErr = callTool(t, srv, "restore_finding", map[string]any{
+		"platform": "gitlab", "owner": "acme", "repo": "app", "number": "2", "fp": "ab",
+	})
+	if !isErr {
+		t.Error("短 fp 应 isError")
+	}
+	core2 := &fakeRestorer{err: errSuppressScope}
+	srv2 := New(core2, "v-test")
+	text, isErr = callTool(t, srv2, "restore_finding", map[string]any{
+		"platform": "gitlab", "owner": "acme", "repo": "app", "number": "2", "fp": "ab12cd34",
+	})
+	if !isErr || !strings.Contains(text, "admin") {
+		t.Errorf("scope 拒绝应 isError 含 admin: isErr=%v text=%s", isErr, text)
+	}
+}

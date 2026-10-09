@@ -30,7 +30,7 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
-## 工具面速查（17 个，常驻注册）
+## 工具面速查（18 个，常驻注册）
 
 | 工具 | 用途 | 必填 | 关键约束 |
 |---|---|---|---|
@@ -49,7 +49,8 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `search_knowledge` | 知识库语义检索（规范/历史结论/误报判例） | query | top_k 可选（缺省 5 上界 10）；与 R3/R4 审查面同源；未配知识源时报错 |
 | `fix_finding` | 单条意见沙箱修复 | platform/owner/repo/number/fp | 绝不 push；未配 `ARGUS_FIX_AGENT` 时报错 |
 | `search_sem` | 工作副本语义检索（按意图找代码） | platform/owner/repo/number/query | top_k 可选；`ARGUS_SEMSEARCH`+`ARGUS_EMBEDDING_*` 双门，未启用时报错 |
-| `suppress_finding` | 误报抑制（fp 短码） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环；剔除按指纹精确匹配，模型改写措辞的同义条目会再现（详见 tools.md 耐久性边界） |
+| `suppress_finding` | 误报抑制（fp 短码） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环；重措辞复现由宽松级吸收（详见 tools.md 耐久性边界） |
+| `restore_finding` | 恢复误抑制意见（suppress 反向） | platform/owner/repo/number/fp | **需 admin 档 token**；抑制错了用它撤销，下一轮起重新可见 |
 | `get_capabilities` | 能力面快照（部署开了什么） | 无 | 纯读零副作用；调受限工具前先看这里 |
 
 ## 标准工作流
@@ -92,10 +93,10 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ## 安全边界
 
 - `fix_finding` 只落 argus 侧隔离沙箱，**永不推送分支**；应用 diff 是调用方/人的职责。
-- 误报抑制有 `suppress_finding` 工具与 `POST /findings/suppress` 端点两形态，**都要 admin 档 token**（工具级 scope 透传二次判定，ci 档调用会明确报权限错）——确认是误报再调，它回流知识库与学习环。
+- 误报抑制有 `suppress_finding` 工具与 `POST /findings/suppress` 端点两形态，**都要 admin 档 token**（工具级 scope 透传二次判定，ci 档调用会明确报权限错）——确认是误报再调，它回流知识库与学习环；抑制错了用 `restore_finding`（或 `POST /findings/restore`）撤销。
 - **token 落地纪律**：MCP 客户端配置文件（如 `~/.claude.json`）与 shell env 里的 token 是明文——勿提交进 git、勿贴进对话/issue/截图；外部 AI 一律用 ci 档最小权限，勿复用 admin token。
 - 仓库数据经 agent 读出后进入调用方上下文，与人工打开仓库文件同机密级；保密仓库确保 argus 与调用方同在内网。
 
 ## 参考文件
 
-- **[references/tools.md](references/tools.md)** — 全部 17 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。
+- **[references/tools.md](references/tools.md)** — 全部 18 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。

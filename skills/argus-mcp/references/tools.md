@@ -173,7 +173,18 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 
 返回 `{matched, fingerprint}`（matched=false 表示未命中既有意见但已预插抑制记录）。**需 admin 档 token**：/mcp 路由只需 ci 档，但本工具在服务端按 scope 透传做 admin 二次判定，非 admin 报 `suppress_finding 需 admin 档 token`。等价 HTTP 端点 `POST /findings/suppress`（同 admin 门）。CLI 无对应子命令（admin 写操作建议直接走 MCP/API）。
 
-**耐久性边界（2026-10-09 实测）**：剔除按「file+规范化评语」指纹精确匹配——行号漂移无影响，但**模型在后续轮重写措辞会产生新指纹，同义条目会再现**（实测同一处硬编码密钥问题被改写为「新增了…」后逃逸剔除）。对措辞易变的意见，缓解办法是让用户改代码或用 `ask_argus` 记住结论；「近重复耐措辞漂移的剔除」在 backlog（需 merger 过滤语义扩展）。
+**耐久性边界（2026-10-09 实测 + v3.130.0 修复）**：剔除先按指纹精确匹配，未命中走近重复层——行号 ±2 内的**重措辞复现已由宽松级（相似度 ≥0.4）吸收**（只对已抑制条目放宽；普通条目仍按 0.6 合并）。低于该相似度的彻底重写（换了问题描述框架）仍会以新意见出现，届时对新条目再 suppress 一次即可（会连带建立别名）。
+
+### restore_finding
+
+恢复被误抑制的意见（v3.131.0，`suppress_finding` 反向）：按 fp 指纹短码把 suppressed 条目置回 open，下一轮审查起重新可见。与评论命令 `restore fp:xxx`、HTTP `POST /findings/restore` 三形态同源执行体。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR |
+| `fp` | string | ✓ | 指纹短码（6-64 位十六进制；抑制记录与别名短码均可解析） |
+
+返回 `{matched}`（false=无匹配或短码歧义，不猜测）。**需 admin 档 token**（与 suppress 同门）。
 
 ### fix_finding
 

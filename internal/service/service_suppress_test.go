@@ -44,3 +44,27 @@ func TestSuppressFindingScoped_Validation(t *testing.T) {
 		}
 	}
 }
+
+// TestRestoreFindingScoped_Gate restore 的 scope 二次判定与入参校验（同 suppress
+// 口径，fail-closed）。
+func TestRestoreFindingScoped_Gate(t *testing.T) {
+	s := &Service{Cfg: &config.Config{}}
+	_, err := s.RestoreFindingScoped(context.Background(), "gitlab", "acme", "app", "1", "abc123")
+	if err == nil || !strings.Contains(err.Error(), "需 admin 档") {
+		t.Errorf("ctx 无 scope 应拒，got %v", err)
+	}
+	ciCtx := ContextWithScope(context.Background(), "ci")
+	if _, err = s.RestoreFindingScoped(ciCtx, "gitlab", "acme", "app", "1", "abc123"); err == nil {
+		t.Error("ci 档应拒")
+	}
+	ctx := ContextWithScope(context.Background(), "admin")
+	for _, tc := range []struct{ owner, number, fp, want string }{
+		{"", "1", "abc123", "owner/repo"},
+		{"acme", "1x", "abc123", "纯数字"},
+		{"acme", "1", "abc", "指纹短码"},
+	} {
+		if _, err := s.RestoreFindingScoped(ctx, "gitlab", tc.owner, "app", tc.number, tc.fp); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("入参(%q,%q,%q) 应报含 %q 的错，got %v", tc.owner, tc.number, tc.fp, tc.want, err)
+		}
+	}
+}

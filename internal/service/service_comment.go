@@ -16,7 +16,6 @@ import (
 
 	api "argus/biz/model/api"
 	"argus/internal/obs"
-	"argus/internal/plugin"
 )
 
 // qaCommentPayload 解析 issue_comment webhook 原始负载中我们关心的字段。
@@ -416,36 +415,15 @@ func extractRestoreFP(question string) (string, bool) {
 
 // handleRestoreComment 处理 MR 评论里的恢复指令：短码解析 → 置回 open → 回帖确认。
 // 与 handleSuppressComment 互为反向；不走知识回流（恢复不是误报结论）。
+// v3.131.0 起执行体委派 restoreFindingCore 单源（API/MCP 同源）。
 func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.NormalizedEvent,
 	number int, fpPrefix string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)
-	// 学习环：解析完整行——restore 的 pattern 键同样必须由入库原始评语派生
-	//（此前固定 "restore:"+短码，hex 被剥离后全部塌缩到单一垃圾键，v3.8.0 修复）
-	var pluginName, fullFP string
-	var resolvedFinding plugin.Finding
-	if s.Cfg != nil && s.Cfg.RegretLearning {
-		if rec, ok := s.Store.ResolvePrintRecord(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fpPrefix); ok {
-			fullFP = rec.Print
-			pluginName = rec.Plugin
-			resolvedFinding = plugin.Finding{
-				File: rec.File, Line: rec.Line, Severity: rec.Severity,
-				Comment: rec.Comment, By: rec.Plugin,
-			}
-		}
-	}
-	matched, err := s.Store.RestorePrint(ctx, platform, ev.Repo.Owner, ev.Repo.Name, number, fpPrefix)
+	matched, err := s.restoreFindingCore(ctx, platform, ev.Repo.Owner, ev.Repo.Name, num, fpPrefix)
 	if err != nil {
 		s.log().Warn("argus.feedback.restore_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "err", err)
 		return
-	}
-	s.Audit.Log(auditFindingRestore, "platform", platform, "owner", ev.Repo.Owner,
-		"repo", ev.Repo.Name, "number", num, "fingerprint", fpPrefix, "matched", matched)
-	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
-		if err := s.Store.PatternRestore(ctx, platform, ev.Repo.Owner, ev.Repo.Name, pluginName,
-			resolvedFinding, time.Now()); err != nil {
-			s.log().Warn("argus.regret.pattern_restore_failed", "error", err.Error())
-		}
 	}
 	reply := "已恢复：该意见后续轮次重新可见。"
 	if !matched {
