@@ -208,3 +208,32 @@ func TestSuppressFamily_SameFnNotPropagated(t *testing.T) {
 		t.Error("同函数不同问题不得被家族传播连坐")
 	}
 }
+
+// TestSuppressFamily_BlobBridgeBlocked 大杂烩桥接负控（v3.133.2 活体对照抓的
+// 过度抑制）：blob 行同时含硬编码+SQL 两段文本，无向传播会把 SQL 真意见连坐进
+// 家族——方向化后 line=0 模糊锚不得向精确行传播，SQL 行必须活着。
+func TestSuppressFamily_BlobBridgeBlocked(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	at := time.Now()
+	up := func(f domain.Finding) domain.PrintUpsertResult {
+		return s.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", at,
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(f.File, f.Comment, f.Line), Finding: f}})[0]
+	}
+	up(domain.Finding{File: "db.go", Line: 9, Severity: "high", Comment: fixOldComment, By: "s"})
+	up(domain.Finding{File: "db.go,util.go", Line: 0, Severity: "medium", Comment: fixBlobComment, By: "s"})
+	// SQL 精确意见（同文件近行号）——绝不许被连坐
+	sqlF := domain.Finding{File: "db.go", Line: 12, Severity: "high", Comment: fixSQLSegComment, By: "s"}
+	up(sqlF)
+	if _, matched, err := s.SuppressPrintNear(ctx, "gitlab", "acme", "app", "2", "db.go", fixOldComment, at); err != nil || !matched {
+		t.Fatalf("抑制应命中: %v %v", matched, err)
+	}
+	// blob 应随家族被吸收（作为目标）
+	if r := up(domain.Finding{File: "db.go,util.go", Line: 0, Comment: fixBlobComment}); !r.Suppressed {
+		t.Error("blob 应随家族被吸收")
+	}
+	// SQL 精确意见必须活着（大杂烩桥不外溢）
+	if r := up(sqlF); r.Suppressed {
+		t.Error("SQL 真意见不得被大杂烩桥连坐")
+	}
+}

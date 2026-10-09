@@ -247,14 +247,21 @@ func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, nu
 	return fp, matched, err
 }
 
-// familyRelated 家族相邻判定（v3.133.1）：双侧带行号锚点走 0.4+行距±2（同函数
-// 不同问题的 0.364 反例被挡在外面）；任一侧 line=0（模糊聚合形态）走 0.2+文件
-// 组件相交（彻底重述/大杂烩形态归族）。
-func familyRelated(a, b FindingPrint) bool {
-	if a.Line > 0 && b.Line > 0 {
-		return linesClose(a.Line, b.Line) && commentNearLoose(a.Comment, b.Comment)
+// familyRelated 家族传播判定（**有方向**，v3.133.2）：anchor=已抑制行，
+// cand=候选行。双侧带行号锚点走 0.4+行距±2（同函数不同问题的 0.364 反例被挡）；
+// 锚点精确、候选 line=0 走 0.2+文件组件相交（模糊聚合形态归族）；**line=0 的
+// 模糊行不得向 line>0 的精确行传播**——大杂烩行同时含多问题文本，是天然的
+// 「桥」（实测 blob-vs-SQL=0.217 过 0.2），无向传播会连坐真意见（v3.133.2
+// 活体对照抓的过度抑制）。模糊行之间仍按 0.2 归族。
+func familyRelated(anchor, cand FindingPrint) bool {
+	switch {
+	case anchor.Line > 0 && cand.Line > 0:
+		return linesClose(anchor.Line, cand.Line) && commentNearLoose(anchor.Comment, cand.Comment)
+	case anchor.Line == 0 && cand.Line > 0:
+		return false // 模糊锚不外溢到精确行（防大杂烩桥接连坐）
+	default: // 候选为 line=0 模糊形态
+		return fileSetIntersect(anchor.File, cand.File) && commentNearVague(anchor.Comment, cand.Comment)
 	}
-	return fileSetIntersect(a.File, b.File) && commentNearVague(a.Comment, b.Comment)
 }
 
 // suppressFamily 抑制家族传播（v3.133.1）：人工拒绝一条 = 拒绝同一问题的全部
