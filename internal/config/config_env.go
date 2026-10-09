@@ -119,6 +119,16 @@ type APITokenScope struct {
 	Repos string // 可选仓库约束（v3.135.0，"token:scope@platform:owner/repo"，支持 /* 通配）：
 	// 空 = 不限（仍受 ARGUS_REPO_ALLOWLIST 总白名单约束）；非空 = 该 token 只能
 	// 触达清单内仓库——把单个 token 的泄露半径压到单仓/单组。
+	Expires time.Time // 可选过期时间（v3.136.0，"…#2026-12-31" 或 RFC3339；零值=永不过期）。
+	// 轮换语义：新 token 先入清单并行跑，旧 token 标过期自动失效——无需停机换发。
+}
+
+// parseExpiry 过期时间解析：YYYY-MM-DD（当日 23:59:59 本地时间截止）或 RFC3339。
+func parseExpiry(v string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		return t.Add(24*time.Hour - time.Second), nil
+	}
+	return time.Parse(time.RFC3339, v)
 }
 
 // apiTokenScopeRank scope→覆盖等级（闭集校验单源；未知 scope = 0 = 不覆盖任何要求）。
@@ -138,7 +148,8 @@ func ParseAPITokens(raw string) []APITokenScope {
 		}
 		tok, rest, ok := strings.Cut(part, ":")
 		tok = strings.TrimSpace(tok)
-		// "token:scope" 或 "token:scope@repo-pattern"（v3.135.0）
+		// "token:scope[@repo-pattern][#expires]"（v3.135.0/v3.136.0）
+		rest, expiresRaw, hasExpires := strings.Cut(rest, "#")
 		scopePart, repos, hasRepos := strings.Cut(rest, "@")
 		scope := strings.TrimSpace(strings.ToLower(scopePart))
 		repos = strings.TrimSpace(repos)
@@ -146,11 +157,20 @@ func ParseAPITokens(raw string) []APITokenScope {
 			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope@repo-pattern（@ 后不能为空）")
 			continue
 		}
+		var expires time.Time
+		if hasExpires {
+			e, err := parseExpiry(strings.TrimSpace(expiresRaw))
+			if err != nil {
+				warnBadEnv("ARGUS_API_TOKENS", part, "#过期时间须为 YYYY-MM-DD 或 RFC3339")
+				continue
+			}
+			expires = e
+		}
 		if !ok || tok == "" || apiTokenScopeRank[scope] == 0 {
 			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope（scope ∈ read|ci|admin）")
 			continue
 		}
-		out = append(out, APITokenScope{Token: tok, Scope: scope, Repos: repos})
+		out = append(out, APITokenScope{Token: tok, Scope: scope, Repos: repos, Expires: expires})
 	}
 	return out
 }

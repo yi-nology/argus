@@ -23,3 +23,18 @@ func TestParseAPITokens_RepoScope(t *testing.T) {
 		t.Errorf("空 pattern 应跳过: %+v", got)
 	}
 }
+
+// TestParseAPITokens_Expiry 过期时间解析（v3.136.0）：#YYYY-MM-DD（当日截止）/
+// RFC3339/坏格式条目跳过。
+func TestParseAPITokens_Expiry(t *testing.T) {
+	toks := ParseAPITokens("a:ci#2099-01-01,b:read@github:o/r#2099-06-01T12:00:00Z,c:admin#notadate")
+	if len(toks) != 2 {
+		t.Fatalf("坏格式应跳过: %+v", toks)
+	}
+	if toks[0].Expires.IsZero() || toks[0].Expires.Year() != 2099 {
+		t.Errorf("日期解析错: %+v", toks[0].Expires)
+	}
+	if toks[1].Repos != "github:o/r" || toks[1].Expires.IsZero() {
+		t.Errorf("@+# 组合解析错: %+v", toks[1])
+	}
+}

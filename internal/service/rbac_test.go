@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -151,5 +152,27 @@ func TestBearer_ScopePropagatedToContext(t *testing.T) {
 		if code != http.StatusOK || got != tc.want {
 			t.Errorf("auth=%s: code=%d scope=%q want %q", tc.auth, code, got, tc.want)
 		}
+	}
+}
+
+// TestBearer_TokenExpired 过期 token 即拒（v3.136.0 轮换语义）。
+func TestBearer_TokenExpired(t *testing.T) {
+	svc := &Service{Cfg: &config.Config{
+		APITokens: []config.APITokenScope{
+			{Token: "live", Scope: "ci"},
+			{Token: "dead", Scope: "ci", Expires: time.Now().Add(-time.Hour)},
+		},
+	}}
+	got := ""
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.GET("/x", svc.BearerMiddleware(), func(ctx context.Context, c *app.RequestContext) {
+		got = ScopeFromContext(ctx)
+		c.String(http.StatusOK, "ok")
+	})
+	if code := doRBAC(h, http.MethodGet, "/x", "Bearer live"); code != http.StatusOK || got != "ci" {
+		t.Errorf("未过期 token 应放行: code=%d scope=%q", code, got)
+	}
+	if code := doRBAC(h, http.MethodGet, "/x", "Bearer dead"); code != http.StatusUnauthorized {
+		t.Errorf("过期 token 应 401: %d", code)
 	}
 }

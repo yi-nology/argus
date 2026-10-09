@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -23,9 +24,10 @@ var scopeRank = map[string]int{"read": 1, "ci": 2, "admin": 3}
 
 // authToken 中间件视图里的一条 token（旧单 token 等价 admin 条目）。
 type authToken struct {
-	token string
-	scope string
-	repos string // 可选仓库约束（v3.135.0）；空 = 不限
+	token   string
+	scope   string
+	repos   string    // 可选仓库约束（v3.135.0）；空 = 不限
+	expires time.Time // 过期时间（v3.136.0）；零值 = 永不过期
 }
 
 // authTokens 生效 token 表：ARGUS_APITOKEN（admin）+ ARGUS_API_TOKENS 条目。
@@ -35,7 +37,7 @@ func (s *Service) authTokens() []authToken {
 		out = append(out, authToken{token: s.Cfg.APIToken, scope: "admin"})
 	}
 	for _, t := range s.Cfg.APITokens {
-		out = append(out, authToken{token: t.Token, scope: t.Scope, repos: t.Repos})
+		out = append(out, authToken{token: t.Token, scope: t.Scope, repos: t.Repos, expires: t.Expires})
 	}
 	return out
 }
@@ -83,12 +85,24 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 		}
 		auth := string(c.GetHeader("Authorization"))
 		granted, grantedRepos := "", ""
+		expired := false
 		for _, t := range tokens {
 			// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
 			if subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+t.token)) == 1 {
+				if !t.expires.IsZero() && time.Now().After(t.expires) {
+					// 过期即拒（v3.136.0 轮换语义）：不给"匹配但过期"留任何灰度窗口，
+					// 换发新 token 由部署方在清单里并行挂两条完成。
+					expired = true
+					break
+				}
 				granted, grantedRepos = t.scope, t.repos
 				break
 			}
+		}
+		if expired {
+			s.log().Warn("argus.auth.token_expired", "path", string(c.URI().Path()))
+			mw.ErrorResp(c, http.StatusUnauthorized, "token 已过期（轮换：清单里挂新 token 并行过渡后移除旧条目）")
+			return
 		}
 		if granted == "" {
 			mw.ErrorResp(c, http.StatusUnauthorized, "缺少或错误的 Authorization: Bearer token")
