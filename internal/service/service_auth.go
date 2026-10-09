@@ -48,6 +48,20 @@ func requiredScope(method, path string) string {
 	}
 }
 
+// scopeKey 请求鉴权 scope 的 ctx 键（BearerMiddleware 写入，工具级二次判定读取）。
+type scopeKey struct{}
+
+// ContextWithScope 把鉴权授予的 scope 写入 ctx（v3.128.0 scope 透传）。
+func ContextWithScope(ctx context.Context, scope string) context.Context {
+	return context.WithValue(ctx, scopeKey{}, scope)
+}
+
+// ScopeFromContext 取请求的鉴权 scope；未鉴权路径返回空串（fail-closed 判据）。
+func ScopeFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(scopeKey{}).(string)
+	return s
+}
+
 // fail-closed（v3.0.1 修订——原实现在 APIToken 未配置时直接放行，等于鉴权裸奔）：
 // token 表全空（ARGUS_APITOKEN 与 ARGUS_API_TOKENS 均未配置）时 🔒 路由一律拒绝
 // 服务（webhook/健康检查不受影响）。v3.87.0 起带 scope 分级：命中 token 后按
@@ -83,7 +97,9 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 				fmt.Sprintf("token 权限档不足（%s < %s）", granted, need))
 			return
 		}
-		c.Next(ctx)
+		// scope 透传（v3.128.0）：/mcp 路由本身只需 ci 档，但部分工具（误报抑制）
+		// 是 admin 写操作——把授予档位写进 ctx，工具级二次判定在此收口。
+		c.Next(ContextWithScope(ctx, granted))
 	}
 }
 

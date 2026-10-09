@@ -129,3 +129,27 @@ func TestParseAPITokens(t *testing.T) {
 func apiScopeSet() map[string]struct{} {
 	return map[string]struct{}{"read": {}, "ci": {}, "admin": {}}
 }
+
+// v3.128.0：scope 透传——放行的请求 ctx 里必须带授予档位（工具级二次判定的输入）。
+func TestBearer_ScopePropagatedToContext(t *testing.T) {
+	svc := &Service{Cfg: &config.Config{
+		APIToken:  "adm",
+		APITokens: []config.APITokenScope{{Token: "ci1", Scope: "ci"}, {Token: "rd1", Scope: "read"}},
+	}}
+	got := ""
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.GET("/x", svc.BearerMiddleware(), func(ctx context.Context, c *app.RequestContext) {
+		got = ScopeFromContext(ctx)
+		c.String(http.StatusOK, "ok")
+	})
+	cases := []struct{ auth, want string }{
+		{"Bearer adm", "admin"}, {"Bearer ci1", "ci"}, {"Bearer rd1", "read"},
+	}
+	for _, tc := range cases {
+		got = "SENTINEL"
+		code := doRBAC(h, http.MethodGet, "/x", tc.auth)
+		if code != http.StatusOK || got != tc.want {
+			t.Errorf("auth=%s: code=%d scope=%q want %q", tc.auth, code, got, tc.want)
+		}
+	}
+}

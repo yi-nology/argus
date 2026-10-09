@@ -134,6 +134,49 @@ func fixFindingTool() mcp.Tool {
 	)
 }
 
+// FindingSuppressor 误报抑制扩展（v3.128.0 可选接口）：core 未实现时工具不注册。
+// 与 fix_finding 同为写侧工具，但权限更严：服务端按 scope 透传做 admin 二次判定
+// （/mcp 路由只需 ci 档），非 admin 调用返回明确错误——绝不静默放行。
+type FindingSuppressor interface {
+	// SuppressFindingScoped 按 fp 短码抑制单条意见（入库指纹解析，近重复容忍），
+	// 返回 {matched, fingerprint}。
+	SuppressFindingScoped(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error)
+}
+
+// NewSuppressorTool 注册 suppress_finding（New 内调用；core 未实现 FindingSuppressor
+// 时跳过注册）。
+func NewSuppressorTool(s *server.MCPServer, core Core) {
+	sup, ok := core.(FindingSuppressor)
+	if !ok {
+		return
+	}
+	s.AddTool(suppressFindingTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "fp")
+		if rerr != nil {
+			return rerr, nil
+		}
+		if !validFPShort(vals[4]) {
+			return mcp.NewToolResultError(fpShortMsg), nil
+		}
+		data, err := sup.SuppressFindingScoped(ctx, vals[0], vals[1], vals[2], vals[3], strings.ToLower(vals[4]))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return marshalToolResult(data)
+	})
+}
+
+func suppressFindingTool() mcp.Tool {
+	return mcp.NewTool("suppress_finding",
+		mcp.WithDescription("把一条审查意见标记为误报并抑制（按 fp 指纹短码，行号/措辞漂移容忍）：后续报告自动剔除该意见，结论回流知识库与学习环。**需 admin 档 token**（服务端 scope 透传二次判定，ci 档调用会报权限错）——确认是误报再调，这是信任边界写操作"),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
+		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
+		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),
+		mcp.WithString("fp", mcp.Required(), mcp.Description("意见指纹短码（报告/list_findings 中 fp: 后的十六进制串）")),
+	)
+}
+
 // marshalToolResult 统一 JSON 缩进输出（与既有工具同风格）。
 func marshalToolResult(data any) (*mcp.CallToolResult, error) {
 	b, err := json.MarshalIndent(data, "", "  ")
