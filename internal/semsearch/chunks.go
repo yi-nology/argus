@@ -62,6 +62,12 @@ func scanDir(dir string) ([]scannedFile, error) {
 			}
 			return nil
 		}
+		// 安全（v3.133.3）：只读常规文件——软链文件会被 os.ReadFile 跟随，
+		// 恶意 PR 提交 link -> /proc/self/environ 即把宿主全部密钥读进索引/
+		// 工具输出（实测泄漏确认）。与 codesearch 的 IsRegular 守卫同口径。
+		if !d.Type().IsRegular() {
+			return nil
+		}
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		if !codeExts[ext] {
 			return nil
