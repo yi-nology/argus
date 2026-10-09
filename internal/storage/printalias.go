@@ -43,11 +43,24 @@ func (PrintAlias) TableName() string { return "print_aliases" }
 // （同位置不同问题）远达不到，同一问题的措辞微调稳过。
 const nearSimilarityThreshold = 0.6
 
-// commentNear 归一化后互含或二元组重叠率达标。
+// looseNearSuppressedThreshold 抑制行专属宽松阈值（v3.130.0）：人工已判误报
+// （suppressed）的行按 ≥0.4 吸收**重措辞**复现——2026-10-09 实测：同一处硬编码
+// 密钥问题被模型改写为「新增了硬编码的生产密钥…」后与原措辞仅 ~0.43 相似，
+// 0.6 阈值失守、抑制被绕过复活。只对 suppressed 行放宽：普通行仍按 0.6 做
+// 合并/别名，宽松合并普通行会吞掉真正的新问题（同文件近邻的不同问题）。
+const looseNearSuppressedThreshold = 0.4
+
+// commentNear 归一化后互含或二元组重叠率 ≥0.6（v3.7.0 一般近重复语义）。
+func commentNear(a, b string) bool { return commentMatch(a, b, nearSimilarityThreshold) }
+
+// commentNearLoose 抑制行宽松近重复（≥0.4）：同 commentNear 度量、阈值放宽。
+func commentNearLoose(a, b string) bool { return commentMatch(a, b, looseNearSuppressedThreshold) }
+
+// commentMatch 归一化后互含（无阈值）或二元组重叠率达标。
 // 集合构造复用 agentkit v0.10.0 沉淀的 textutil.BigramSet；度量刻意不用
-// textutil.Jaccard（并集分母，更严）——本层阈值 0.6 按短侧重叠率校准，
-// 换 Jaccard 会漏掉合法的措辞漂移匹配（测试钉死该行为）。
-func commentNear(a, b string) bool {
+// textutil.Jaccard（并集分母，更严）——阈值按短侧重叠率校准，换 Jaccard 会
+// 漏掉合法的措辞漂移匹配（测试钉死该行为）。
+func commentMatch(a, b string, threshold float64) bool {
 	na, nb := akreportutil.NormalizeComment(a), akreportutil.NormalizeComment(b)
 	if na == "" || nb == "" {
 		return false
@@ -69,7 +82,7 @@ func commentNear(a, b string) bool {
 			hit++
 		}
 	}
-	return float64(hit) >= float64(len(small))*nearSimilarityThreshold
+	return float64(hit) >= float64(len(small))*threshold
 }
 
 // resolveAliasFP 别名一跳解析（alias → 规范指纹；无映射原样返回）。
@@ -85,13 +98,15 @@ func resolveAliasFP(tx *gorm.DB, platform, owner, repo, number, fingerprint stri
 
 // findNearPrint 在同 PR 同文件的既有条目里找近重复（行号相容 + 评语近重复）。
 // suppressed 行同样是候选——措辞漂移的复现应当延续抑制，而不是绕开抑制复活。
-// 两级匹配（v3.8.0）：
+// 三级匹配（v3.8.0 两级 + v3.130.0 抑制行宽松级）：
 //  1. exact：规范化评语**完全相等**——行号不限距。同 PR 推新提交使行号整体位移
 //     >±2 时，±2 窗口救不回（抑制/复现/regret 全部失忆、被抑制意见复活重发）；
 //     同文件同句评语视为行号漂移而非新问题。这也让 SuppressPrintNear 预插的
 //     line=0 行可以被真实意见回收。优先取行号相容者（真两处同模板意见时轮内
 //     byNC ±2 闸门已各自成行，此处行号相容优先可减少跨位置误并）。
 //  2. near：评语近重复（二元组重叠 ≥0.6）且行号 ±2——v3.7.0 原语义不动。
+//  3. loose：suppressed 行的宽松近重复（≥0.4）且行号 ±2（v3.130.0）——重措辞
+//     复现不再绕过人工抑制；只放宽已判误报的行，普通行不动。
 //
 // 返回 nil 表示无近重复；exact=true 表示走的是完全同评语通道（调用方可据此
 // 让行号跟随新值，行内评论位置不漂移）。
@@ -105,7 +120,7 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.F
 		return nil, false, err
 	}
 	nc := akreportutil.NormalizeComment(f.Comment)
-	var exact, near *FindingPrint
+	var exact, near, loose *FindingPrint
 	for i := range rows {
 		if nc != "" && akreportutil.NormalizeComment(rows[i].Comment) == nc {
 			// 完全同评语：行号相容者优先，否则取最新（rows 已按 last_seen_at DESC）
@@ -114,8 +129,13 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.F
 			}
 			continue
 		}
-		if near == nil && f.Line > 0 && linesClose(rows[i].Line, f.Line) && commentNear(rows[i].Comment, f.Comment) {
-			near = &rows[i]
+		if f.Line > 0 && linesClose(rows[i].Line, f.Line) {
+			switch {
+			case near == nil && commentNear(rows[i].Comment, f.Comment):
+				near = &rows[i]
+			case loose == nil && rows[i].Status == PrintSuppressed && commentNearLoose(rows[i].Comment, f.Comment):
+				loose = &rows[i]
+			}
 		}
 	}
 	if exact != nil {
@@ -123,6 +143,9 @@ func findNearPrint(tx *gorm.DB, platform, owner, repo, number string, f domain.F
 	}
 	if near != nil {
 		return near, false, nil
+	}
+	if loose != nil {
+		return loose, false, nil
 	}
 	return nil, false, nil
 }
