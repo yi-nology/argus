@@ -268,6 +268,13 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// AuditWebhookURL 审计事件外送端点（v3.137.0，SIEM 对接）：非空时
+	// audit.event 日志在本地留痕之外再 POST JSON 一份（旁路，失败只告警）。
+	// 字段值经 logredact 打码，外送载荷无明文密钥。
+	AuditWebhookURL string
+	// AuditWebhookToken 外送端点 Bearer（可选）。
+	AuditWebhookToken string
+
 	// APIRateRPM 每 token 的 API 调用速率上限（v3.135.0，ARGUS_API_RATE_RPM，
 	// 每分钟请求数；0 = 关闭）。缺省 120：防被盗 token 刷 LLM 成本/刷审查。
 	APIRateRPM int
@@ -367,6 +374,8 @@ func Load() *Config {
 		SemSearch:              envBool("ARGUS_SEMSEARCH", false),
 		RepoAllowlist:          envList("ARGUS_REPO_ALLOWLIST"),
 		APIRateRPM:             envInt("ARGUS_API_RATE_RPM", 120),
+		AuditWebhookURL:        os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),
+		AuditWebhookToken:      os.Getenv("ARGUS_AUDIT_WEBHOOK_TOKEN"),
 		RelatedRepos:           envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:       os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:           os.Getenv("ARGUS_FIX_VERIFY_CMD"),

@@ -109,6 +109,13 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 
 	s.log().Info("argus.api.task_created", "task", task.ID, "kind", kind,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number)
+	if tfp := TokenFPFromContext(ctx); tfp != "" {
+		// 外部 API 建任务取证（v3.137.0）：哪条 token 建的什么任务——webhook/
+		// poller 内部路径无 token 指纹，不产生噪音。
+		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "kind", kind, "source", "api",
+			"platform", platform, "owner", owner, "repo", repo, "number", number,
+			"token_fp", tfp)
+	}
 	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
 }
 
@@ -242,7 +249,8 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		"file", file, "matched", matched, "fp", fp[:8])
 	s.Audit.Log(auditFindingSuppress,
 		"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
-		"file", file, "fingerprint", fp[:8], "matched", matched)
+		"file", file, "fingerprint", fp[:8], "matched", matched,
+		"token_fp", TokenFPFromContext(ctx))
 	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 

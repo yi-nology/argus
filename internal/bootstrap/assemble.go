@@ -203,7 +203,15 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	sys.Dispatcher = dispatcher
 	sys.Merger = merger
 	sys.Poster = &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
-	auditLog := audit.New(log, "argus-audit") // v3.86.0：runner（verdict.posted/fix.push）与 service 共用同一审计器
+	// 审计外送（v3.137.0，SIEM 对接旁路）：URL 配置时包一层转发 logger，
+	// audit.event 本地留痕之外再 POST JSON 一份；未配置 = 原样。
+	auditLoggerIn := log
+	if cfg.AuditWebhookURL != "" {
+		fwd := service.NewAuditForwarder(cfg.AuditWebhookURL, cfg.AuditWebhookToken, log)
+		auditLoggerIn = fwd.Wrap(log)
+		log.Info("argus.boot.audit_forward_enabled", "endpoint_set", true)
+	}
+	auditLog := audit.New(auditLoggerIn, "argus-audit") // v3.86.0：runner（verdict.posted/fix.push）与 service 共用同一审计器
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: models.React, ModelName: cfg.LLM.Model,

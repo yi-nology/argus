@@ -110,7 +110,8 @@ func (s *Service) restoreFindingCore(ctx context.Context, platform, owner, repo,
 		return false, err
 	}
 	s.Audit.Log(auditFindingRestore, "platform", platform, "owner", owner,
-		"repo", repo, "number", number, "fingerprint", fpPrefix, "matched", matched)
+		"repo", repo, "number", number, "fingerprint", fpPrefix, "matched", matched,
+		"token_fp", TokenFPFromContext(ctx))
 	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
 		if err := s.Store.PatternRestore(ctx, platform, owner, repo, pluginName,
 			resolvedFinding, time.Now()); err != nil {

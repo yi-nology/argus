@@ -176,3 +176,21 @@ func TestBearer_TokenExpired(t *testing.T) {
 		t.Errorf("过期 token 应 401: %d", code)
 	}
 }
+
+// TestBearer_TokenFPPropagated token 指纹取证面（v3.137.0）：ctx 携带非原 token
+// 的指纹，审计可溯源"哪条 token 干了什么"。
+func TestBearer_TokenFPPropagated(t *testing.T) {
+	svc := &Service{Cfg: &config.Config{APITokens: []config.APITokenScope{{Token: "tok-x", Scope: "ci"}}}}
+	var fp string
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.GET("/x", svc.BearerMiddleware(), func(ctx context.Context, c *app.RequestContext) {
+		fp = TokenFPFromContext(ctx)
+		c.String(http.StatusOK, "ok")
+	})
+	if code := doRBAC(h, http.MethodGet, "/x", "Bearer tok-x"); code != http.StatusOK {
+		t.Fatalf("应放行: %d", code)
+	}
+	if fp == "" || fp == "tok-x" || len(fp) != 8 {
+		t.Errorf("token 指纹应为 8 位 hex 且非原 token: %q", fp)
+	}
+}

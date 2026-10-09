@@ -69,6 +69,20 @@ func ScopeFromContext(ctx context.Context) string {
 	return s
 }
 
+// tokenFPKey 请求 token 指纹的 ctx 键（v3.137.0 取证面）。
+type tokenFPKey struct{}
+
+// ContextWithTokenFP 写入请求 token 指纹（sha256 前 8 字节 hex，非原 token）。
+func ContextWithTokenFP(ctx context.Context, fp string) context.Context {
+	return context.WithValue(ctx, tokenFPKey{}, fp)
+}
+
+// TokenFPFromContext 取请求 token 指纹（内部路径无 token = 空串）。
+func TokenFPFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(tokenFPKey{}).(string)
+	return s
+}
+
 // fail-closed（v3.0.1 修订——原实现在 APIToken 未配置时直接放行，等于鉴权裸奔）：
 // token 表全空（ARGUS_APITOKEN 与 ARGUS_API_TOKENS 均未配置）时 🔒 路由一律拒绝
 // 服务（webhook/健康检查不受影响）。v3.87.0 起带 scope 分级：命中 token 后按
@@ -84,7 +98,7 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 			return
 		}
 		auth := string(c.GetHeader("Authorization"))
-		granted, grantedRepos := "", ""
+		granted, grantedRepos, grantedFP := "", "", ""
 		expired := false
 		for _, t := range tokens {
 			// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
@@ -96,6 +110,7 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 					break
 				}
 				granted, grantedRepos = t.scope, t.repos
+				grantedFP = tokenHash(t.token)[:8]
 				break
 			}
 		}
@@ -126,7 +141,7 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 		// scope+repos 透传（v3.128.0/v3.135.0）：/mcp 路由本身只需 ci 档，但部分
 		// 工具是 admin 写操作、且 token 可带仓库约束——把授予档位与仓库范围写进
 		// ctx，工具级二次判定/仓库门在此收口。
-		c.Next(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos))
+		c.Next(ContextWithTokenFP(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos), grantedFP))
 	}
 }
 
