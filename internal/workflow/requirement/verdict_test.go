@@ -5,6 +5,8 @@ import (
 
 	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
 
+	"git.example.com/enjoydream/agentkit/reportutil"
+
 	"argus/internal/plugin"
 )
 
@@ -263,4 +265,66 @@ func TestAlignChecksBackfill(t *testing.T) {
 			t.Fatalf("归一后应落 comment，got %s", v)
 		}
 	})
+}
+
+// ---------- 无需求类变更豁免（v3.143.0） ----------
+
+// TestVerdict_BenignEmptyACExemption docs/tests-only + 零意见 + AC=0 → APPROVE；
+// 任何代码路径/意见/模糊/scope creep 都关掉豁免——注入洞保持封死。
+func TestVerdict_BenignEmptyACExemption(t *testing.T) {
+	spec := &plugin.RequirementSpec{} // AC=0，无 Ambiguous
+	docsOnly := map[string]bool{"README.md": true, "docs/guide.md": true}
+	testsOnly := map[string]bool{"internal/x/a_test.go": true, "tests/b.py": true}
+	mixed := map[string]bool{"docs/guide.md": true, "main.go": true}
+
+	// 豁免命中：docs-only / tests-only
+	if v, r, _ := VerdictScoped(spec, nil, nil, docsOnly); v != VerdictApprove || r != "R5.5" {
+		t.Errorf("docs-only AC=0 应 APPROVE/R5.5, got %s/%s", v, r)
+	}
+	if v, r, _ := VerdictScoped(spec, nil, nil, testsOnly); v != VerdictApprove || r != "R5.5" {
+		t.Errorf("tests-only AC=0 应 APPROVE/R5.5, got %s/%s", v, r)
+	}
+	// 带代码路径：豁免关闭，AC=0 → R5.3（注入洞封死）
+	if v, r, _ := VerdictScoped(spec, nil, nil, mixed); v != VerdictComment || r != "R5.3" {
+		t.Errorf("混合代码路径应 R5.3 COMMENT, got %s/%s", v, r)
+	}
+	// inScope 缺失（无 diff 文件集）：保守 R5.3
+	if v, r, _ := VerdictScoped(spec, nil, nil, nil); v != VerdictComment || r != "R5.3" {
+		t.Errorf("inScope nil 应保守 R5.3, got %s/%s", v, r)
+	}
+	// 有意见（哪怕 low）：豁免关闭 → AC=0 先短路 R5.3（有意见的 docs 变更同样
+	// 落人工确认，比 R5.4 更保守，语义正确）
+	low := []plugin.Finding{{File: "README.md", Line: 1, Severity: reportutil.Low, Comment: "typo"}}
+	if v, r, _ := VerdictScoped(spec, nil, low, docsOnly); v != VerdictComment || r != "R5.3" {
+		t.Errorf("docs-only 带 low 意见应 R5.3, got %s/%s", v, r)
+	}
+	// 模糊需求：豁免关闭 → R5.3
+	amb := &plugin.RequirementSpec{Ambiguous: []string{"说不清"}}
+	if v, r, _ := VerdictScoped(amb, nil, nil, docsOnly); v != VerdictComment || r != "R5.3" {
+		t.Errorf("Ambiguous 应压过豁免 R5.3, got %s/%s", v, r)
+	}
+	// scope creep：豁免关闭 → R5.3
+	rep := &plugin.ComplianceReport{ScopeCreep: []plugin.ScopeCreepItem{{}}}
+	if v, r, _ := VerdictScoped(spec, rep, nil, docsOnly); v != VerdictComment || r != "R5.3" {
+		t.Errorf("scope creep 应压过豁免 R5.3, got %s/%s", v, r)
+	}
+}
+
+// TestBenignPath 路径分类边界：配置/锁文件/二进制不是无需求类（golden 契约
+// 41-binary-lockfile/60-config-yaml 期望 COMMENT，不得被豁免放行）。
+func TestBenignPath(t *testing.T) {
+	yes := []string{"README.md", "docs/a.md", "DOCs/b.MD", "CHANGELOG", "x_test.go",
+		"tests/y.py", "test/z.js", "a/b.test.ts", "testdata/f.txt", "guide.rst"}
+	for _, p := range yes {
+		if !benignPath(p) {
+			t.Errorf("%q 应为无需求类", p)
+		}
+	}
+	no := []string{"main.go", "config.yaml", "deploy/app.yml", "go.sum", "package-lock.json",
+		"a.bin", "Makefile", "src/x.ts", "test_helper.go", ".env"}
+	for _, p := range no {
+		if benignPath(p) {
+			t.Errorf("%q 不应为无需求类", p)
+		}
+	}
 }

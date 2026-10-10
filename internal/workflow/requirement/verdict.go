@@ -5,6 +5,8 @@ package requirement
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"git.example.com/enjoydream/agentkit/logredact"
@@ -62,7 +64,18 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 	}
 	needHuman := unverifiable > 0 || (report != nil && len(report.ScopeCreep) > 0)
 	if spec != nil { // requirement 模式：模糊需求 / 空清单强制人工确认
-		needHuman = needHuman || len(spec.Ambiguous) > 0 || len(spec.ACs) == 0
+		emptyAC := len(spec.ACs) == 0
+		// 无需求类变更豁免（v3.143.0）：变更**只**落在 docs/tests 路径、零意见、
+		// 零模糊时，AC=0 是合法形态（纯文档/纯测试本来就没有可验收需求）而非
+		// 可疑形态——不进 R5.3 人工确认，落 R5.5 APPROVE。判定是确定性路径分类，
+		// 不信任任何模型自判；带代码变更的 PR 进不了豁免，「空清单绕过 R5.1/R5.3」
+		// 的注入洞保持封死。eval-real 实测：生产模型对 docs/tests 变更系统性产出
+		// 零 AC，clean-docs/clean-tests 两案被 R5.3 压成 comment（期望 approve）。
+		if emptyAC && len(spec.Ambiguous) == 0 && len(findings) == 0 &&
+			inScope != nil && len(inScope) > 0 && allBenignPaths(inScope) {
+			emptyAC = false
+		}
+		needHuman = needHuman || len(spec.Ambiguous) > 0 || emptyAC
 	}
 	if needHuman {
 		return VerdictComment, "R5.3", outOfScope
@@ -71,6 +84,48 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 		return VerdictComment, "R5.4", outOfScope
 	}
 	return VerdictApprove, "R5.5", outOfScope
+}
+
+// benignPathClasses 无需求类路径（docs/tests）判定：纯文档与纯测试变更天然
+// 没有可验收需求清单。只看路径形态（扩展名/目录约定），零模型参与。
+func benignPath(p string) bool {
+	lower := strings.ToLower(p)
+	base := path.Base(lower)
+	switch {
+	case strings.HasSuffix(lower, ".md"), strings.HasSuffix(lower, ".markdown"),
+		strings.HasSuffix(lower, ".rst"), strings.HasSuffix(lower, ".txt"):
+		return true
+	case strings.HasPrefix(base, "readme"), base == "license", base == "changelog",
+		base == "authors", base == "contributors", base == "notice":
+		return true
+	case strings.HasPrefix(lower, "docs/"), strings.Contains(lower, "/docs/"),
+		strings.HasPrefix(lower, "documentation/"), strings.Contains(lower, "/documentation/"):
+		return true
+	case strings.HasSuffix(lower, "_test.go"), strings.HasSuffix(lower, "_test.py"),
+		strings.HasSuffix(lower, ".test.js"), strings.HasSuffix(lower, ".test.ts"),
+		strings.HasSuffix(lower, ".test.jsx"), strings.HasSuffix(lower, ".test.tsx"),
+		strings.HasSuffix(lower, ".spec.js"), strings.HasSuffix(lower, ".spec.ts"),
+		strings.HasSuffix(lower, "_test.rb"), strings.HasSuffix(lower, "test.java"):
+		return true
+	case strings.HasPrefix(lower, "test/"), strings.HasPrefix(lower, "tests/"),
+		strings.Contains(lower, "/test/"), strings.Contains(lower, "/tests/"),
+		strings.Contains(lower, "/testdata/"), strings.HasPrefix(lower, "testdata/"):
+		return true
+	}
+	return false
+}
+
+// allBenignPaths 变更文件集是否全部为无需求类（空集 = false，保守）。
+func allBenignPaths(files map[string]bool) bool {
+	if len(files) == 0 {
+		return false
+	}
+	for p := range files {
+		if !benignPath(p) {
+			return false
+		}
+	}
+	return true
 }
 
 // loadRepoConfig 仓库主权配置（§3.4：只从默认分支读；失败按无配置 + 告警）。
