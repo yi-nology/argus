@@ -84,7 +84,7 @@
 | `status` | string | | 空=全部 | enum：`pending` \| `running` \| `done` \| `failed` \| `stale` |
 | `limit` | number | | 20 | 上界 100（服务端钳制） |
 
-返回 `{tasks: [...]}` 数组，每条：`task_id/status/kind/platform/owner/repo/number/created_at`（Unix 秒），`head_sha`/`verdict` 非空才带。created_at 倒序。巡检工作流（list_tasks → list_findings → 分诊）的入口；非法 status 在工具层直接报错，不落 HTTP 码。
+返回 `{tasks: [...]}` 数组，每条字段为 **IDL 驼峰**：`taskId/status/kind/platform/owner/repo/number/createdAt`（Unix 秒），`headSha`/`verdict` 非空才带（注意与 get_report 的手写蛇形 `task_id` 不同源，勿混用）。createdAt 倒序。巡检工作流（list_tasks → list_findings → 分诊）的入口；非法 status 在工具层直接报错，不落 HTTP 码。
 
 ### get_task_stages
 
