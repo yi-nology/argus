@@ -2,8 +2,16 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"argus/internal/config"
+	"argus/internal/domain"
+	"argus/internal/semsearch"
+	"argus/internal/storage"
 
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"github.com/cloudwego/eino/components/tool"
@@ -72,5 +80,77 @@ func TestSearchKnowledge_Render(t *testing.T) {
 	out, err = s.SearchKnowledge(context.Background(), "没有的东西", 5)
 	if err != nil || !strings.Contains(out, "知识库无命中") {
 		t.Errorf("空命中应返回提示文本, out=%q err=%v", out, err)
+	}
+}
+
+// topicEmbedder 主题桩：密钥/凭据族 → dim0，注入族 → dim1（模拟语义相近但
+// 字面不同的检索能力，验证补位管路而非真实模型质量）。
+type topicEmbedder struct{ calls int32 }
+
+func (e *topicEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	atomic.AddInt32(&e.calls, 1)
+	out := make([][]float32, 0, len(texts))
+	for _, t := range texts {
+		v := []float32{0, 0}
+		for _, w := range []string{"密钥", "凭据", "泄漏", "泄露", "硬编码"} {
+			if strings.Contains(t, w) {
+				v[0] = 1
+			}
+		}
+		for _, w := range []string{"注入", "SQL", "拼接"} {
+			if strings.Contains(t, w) {
+				v[1] = 1
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func (e *topicEmbedder) Dim() int { return 2 }
+
+// TestSearchFindings_SemanticFallback 语义补位（v3.142.0）：关键词漏、语义中；
+// 关闭开关时只走关键词。
+func TestSearchFindings_SemanticFallback(t *testing.T) {
+	st, err := storage.Open(filepath.Join(t.TempDir(), "sem.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	up := func(file string, line int, comment string) {
+		f := domain.Finding{File: file, Line: line, Severity: "high", Comment: comment, By: "s"}
+		if r := st.UpsertPrints(ctx, "gitlab", "acme", "app", "2", "t-1", time.Now(),
+			[]domain.PrintUpsert{{FP: domain.Fingerprint(file, comment, line), Finding: f}}); r[0].Err != nil {
+			t.Fatal(r[0].Err)
+		}
+	}
+	up("db.go", 9, "硬编码的 API 密钥直接写入源码")
+	up("db.go", 12, "SQL 注入：id 直接拼接进查询")
+
+	emb := &topicEmbedder{}
+	s := &Service{
+		Cfg:       &config.Config{SemSearch: true},
+		Store:     st,
+		SemSearch: semsearch.NewManager(emb),
+	}
+	out, err := s.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "凭据泄漏", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "[语义1]") {
+		t.Fatalf("关键词漏应由语义补位:\n%s", out)
+	}
+	if !strings.Contains(out, "硬编码") || strings.Contains(out, "SQL 注入：") {
+		t.Errorf("语义补位应命中密钥族、不牵连注入族:\n%s", out)
+	}
+	// 关闭语义 → 只走关键词（无命中提示）
+	s2 := &Service{Cfg: &config.Config{SemSearch: false}, Store: st, SemSearch: semsearch.NewManager(emb)}
+	out2, _ := s2.SearchFindingsHistory(ctx, "gitlab", "acme", "app", "凭据泄漏", 5)
+	if strings.Contains(out2, "[语义") {
+		t.Errorf("开关关闭不应语义补位:\n%s", out2)
+	}
+	if !strings.Contains(out2, "无匹配") {
+		t.Errorf("关闭后关键词无命中应提示:\n%s", out2)
 	}
 }

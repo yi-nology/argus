@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -75,6 +76,11 @@ type Service struct {
 	// SemSearch 工作副本语义检索底座（v3.126.0，bootstrap 按 ARGUS_SEMSEARCH +
 	// ARGUS_EMBEDDING_* 双门构建；nil = search_sem 运行期报未启用）。
 	SemSearch *semsearch.Manager
+
+	// findingVecs/findingVecCount findings 语义补位的向量缓存（v3.142.0，
+	// key=print 指纹；进程内、有上限，embedder 复用 SemSearch）。
+	findingVecs     sync.Map
+	findingVecCount atomic.Int32
 
 	// qaEngine 问答引擎单例（Engine 无自有状态、字段全共享引用，会话在 Store）。
 	// 此前每次 Ask 都重建，纯浪费；sync.Once 保证并发首建安全。
