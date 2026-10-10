@@ -136,7 +136,7 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	recent, _ := conversation.Split(toConversationTurns(history), maxTurns)
 	historyText := conversation.Combine(summary, recent)
 
-	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText)
+	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText, "")
 	if err != nil {
 		e.log().Warn("argus.qa.react_fallback", "pr", prRef, "error", err.Error(), "fallback", "单轮直调")
 		answer, err = e.single(ctx, platform, owner, repo, number, question, historyText)
@@ -245,8 +245,9 @@ func systemPrompt(strategy, historyText string) string {
 // renderHistory/truncateLine 已下沉 agentkit conversation（v3.13.0）：
 // Render（"用户:/助手:" 行 + 单轮截断）。qa 侧经 conversation.Combine 组装注入文本。
 
-// react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本）。
-func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText string) (string, error) {
+// react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本；
+// reportAnchor 非空时以最近审查报告为锚注入——ask_argus 追问路径 v3.141.0）。
+func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, error) {
 	// 预建一次：工具表构造失败提前暴露（运行时由 ToolsFactory 按尝试重建）
 	_, strategy, err := e.tools(ctx, platform, owner, repo, number)
 	if err != nil {
@@ -258,6 +259,12 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		if idx := e.MemoryIndexFor(platform, owner, repo); idx != "" {
 			instruction += "\n\n===【本仓历史评审记忆（dream 导出索引，可参考既有结论）】===\n" + plugin.EscapeReminderTags(idx)
 		}
+	}
+	if reportAnchor != "" {
+		// 追问路径（v3.141.0）：报告为锚 + 工具可深挖（核实代码/调用方/历史账本），
+		// 报告没有的信息允许用工具补充，但仍须 file:line 证据、不得编造。
+		instruction += "\n\n" + plugin.DataFence("最近审查报告（数据）", reportAnchor) +
+			"\n用户的问题针对上述审查报告。优先以报告为锚作答；需要核实代码细节/调用方/历史处置时用工具，引用 file:line 证据。"
 	}
 	// 失败回喂重试一次（副作用守卫默认生效）；QA 产出是自然语言回答，
 	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
@@ -356,6 +363,13 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 		return "", false
 	}
 	rep, _ := lr["report"].(string)
+	// ReAct 优先（v3.141.0）：报告为锚 + 工具深挖（此前单轮直调，"这个函数的
+	// 调用方都有谁/历史上这条怎么裁的"一类追问答不了）。失败降级单轮，语义不倒退。
+	if ans, rerr := e.react(ctx, platform, owner, repo, number, question, "", rep); rerr == nil {
+		return ans, true
+	} else {
+		e.log().Warn("argus.qa.ask_react_degraded", "error", rerr.Error())
+	}
 	client := llm.NewClient(cm, "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage("你是 Argus——该仓库的 AI 审查助手。仅依据【最近审查报告（数据）】回答用户关于本次审查的追问；报告中没有的信息直说没有，不要编造。用中文，简洁。"),

@@ -468,10 +468,14 @@ func TestAnswerAboutReview_HitMissAndError(t *testing.T) {
 	if !ok || ans != "因为证据在 a.go:12" {
 		t.Fatalf("应返回答案: %q %v", ans, ok)
 	}
-	// user 文案含报告围栏与追问
+	// v3.141.0 ReAct 优先：报告锚进 system 指令（数据区围栏），追问在 user 输入
+	sys := m.lastSystemText()
 	u := m.lastUserText()
-	if !strings.Contains(u, "最近审查报告") || !strings.Contains(u, "为什么是 high") {
-		t.Fatalf("追问上下文不全:\n%s", u)
+	if !strings.Contains(sys, "最近审查报告") || !strings.Contains(sys, "有报告") {
+		t.Fatalf("报告锚应注入 system:\n%s", sys)
+	}
+	if !strings.Contains(u, "为什么是 high") {
+		t.Fatalf("追问应在 user 输入:\n%s", u)
 	}
 
 	// 模型失败 → false
