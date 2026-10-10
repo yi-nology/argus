@@ -108,6 +108,9 @@ func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any
 	if err != nil {
 		return nil, false
 	}
+	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
+		return nil, false // 域外任务按不存在处理（不泄露存在性）
+	}
 	stageDone := deriveStageDone(
 		storage.DecodeJSONMap(task.StageArtifacts),
 		storage.DecodeJSONMap(task.DebugJSON),
@@ -173,6 +176,9 @@ func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return nil, false
+	}
+	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
+		return nil, false // 域外任务按不存在处理
 	}
 	findings, ok := taskFindings(task.ResultJSON)
 	if !ok {

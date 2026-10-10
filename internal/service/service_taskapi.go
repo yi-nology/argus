@@ -136,6 +136,9 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 	resp := &api.ListTasksResponse{Tasks: []*api.TaskSummary{}}
 	for i := range tasks {
 		t := &tasks[i]
+		if !s.taskListable(ctx, t.Platform, t.Owner, t.Repo) {
+			continue // 数据可见性隔离（v3.140.0）：域外任务不进清单（含 local 元数据）
+		}
 		item := &api.TaskSummary{
 			TaskId:    t.ID,
 			Status:    t.Status,
@@ -327,6 +330,9 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskRespo
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
+	}
+	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
+		return nil, http.StatusForbidden // 数据可见性隔离（v3.140.0）：token 仓库域外任务
 	}
 	resp := &api.GetTaskResponse{
 		TaskId: task.ID,

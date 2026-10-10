@@ -62,3 +62,30 @@ func (s *Service) repoAllowed(platform, owner, repo string) bool {
 
 // errRepoDenied 白名单拒绝的统一错误文案。
 const errRepoDenied = "仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内"
+
+// taskVisible 任务级读取的 token 仓库域校验（v3.140.0 数据可见性隔离）：
+// token 带仓库约束时，task_id 维度读取（get_report/stages/findings/suggestion）
+// 同样只能触达约束内仓库的任务——此前只闸了 repo 入参工具，持 task_id 即可
+// 跨域读报告。platform=local（diff_preview 等无仓语义任务）按「持有 task_id ≈
+// 持有能力」放行：任务 ID 是 24 位随机 hex 不可枚举，且预审闭环（提交方轮询
+// 自己的 task_id）必须对被约束 token 可用。
+func (s *Service) taskVisible(ctx context.Context, platform, owner, repo string) bool {
+	tp := TokenReposFromContext(ctx)
+	if tp == "" || platform == "local" {
+		return true
+	}
+	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+}
+
+// taskListable 清单面的可见性（比单任务读取更严：local 任务也不列——任务存在性
+// 与时间线本身是元数据，跨租户不泄露；自己的预审任务走 get_report 按 id 直读）。
+func (s *Service) taskListable(ctx context.Context, platform, owner, repo string) bool {
+	tp := TokenReposFromContext(ctx)
+	if tp == "" {
+		return true
+	}
+	if platform == "local" {
+		return false
+	}
+	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+}
