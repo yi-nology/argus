@@ -273,15 +273,6 @@ func (ix *Index) Search(ctx context.Context, query string, topK int, minScore fl
 	return out, nil
 }
 
-// EmbedTexts 暴露嵌入能力（v3.142.0：findings 历史语义补位复用同一 embedder，
-// 不另建配置面）。
-func (m *Manager) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error) {
-	return m.embedder.Embed(ctx, texts)
-}
-
-// Cosine 余弦相似度（导出版；service 侧 findings 语义排序复用，避免重实现）。
-func Cosine(a, b []float32) float32 { return cosine(a, b) }
-
 // cosine 余弦相似度（零向量回 0；f64 中转避免 f32 累加误差）。
 func cosine(a, b []float32) float32 {
 	n := len(a)

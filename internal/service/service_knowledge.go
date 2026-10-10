@@ -14,8 +14,6 @@ import (
 	"git.example.com/enjoydream/agentkit/textutil"
 
 	"argus/internal/plugin"
-	"argus/internal/semsearch"
-	"argus/internal/storage"
 )
 
 // search_knowledge 的入参钳制与渲染预算（MCP 工具描述里的「缺省 5、上界 10」
@@ -108,13 +106,7 @@ func (s *Service) SearchFindingsHistory(ctx context.Context, platform, owner, re
 	if err != nil {
 		return "", fmt.Errorf("历史意见检索失败: %w", err)
 	}
-	// 语义补位（v3.142.0）：关键词命中不足且语义检索启用时，按 embedding 相似度
-	// 补足——「换了一种说法的历史意见」关键词查不到（与抑制家族的措辞漂移同源问题）。
-	var sem []storage.FindingHistoryItem
-	if len(items) < limit && query != "" && s.SemSearch != nil && s.Cfg != nil && s.Cfg.SemSearch {
-		sem = s.semanticFindings(ctx, platform, owner, repo, query, items, limit-len(items))
-	}
-	if len(items) == 0 && len(sem) == 0 {
+	if len(items) == 0 {
 		return "本仓无匹配的历史意见记录（可换关键词，或该问题此前未被报过）", nil
 	}
 	var b strings.Builder
@@ -124,80 +116,5 @@ func (s *Service) SearchFindingsHistory(ctx context.Context, platform, owner, re
 		fmt.Fprintf(&b, "\n[%d] %s:%d %s [%s ×%d] fp:%s\n%s\n",
 			i+1, it.File, it.Line, it.Severity, it.Status, it.TimesSeen, it.FP, comment)
 	}
-	for i, it := range sem {
-		comment, _ := textutil.TruncRunes(it.Comment, historyCommentCap)
-		fmt.Fprintf(&b, "\n[语义%d] %s:%d %s [%s ×%d] fp:%s\n%s\n",
-			i+1, it.File, it.Line, it.Severity, it.Status, it.TimesSeen, it.FP, comment)
-	}
 	return plugin.DataFence("search_findings 检索结果（数据）", b.String()), nil
-}
-
-// findings 语义补位的池/阈值/缓存上限（v3.142.0）。
-const (
-	findingsSemanticPool  = 200  // 参与语义排序的最近意见数
-	findingsSemanticFloor = 0.30 // 相似度下限（跨话题实测 ~0.05，同话题改写 ~0.4+）
-	findingsVecCacheCap   = 20000
-)
-
-// semanticFindings 关键词未命中面的语义补位：最近意见池 embedding（进程内缓存，
-// 按 fp 增量）→ 与 query 余弦 → 过下限、去重、按分补位。embedder 故障静默降级
-// （只回关键词结果，检索可用性优先）。
-func (s *Service) semanticFindings(ctx context.Context, platform, owner, repo, query string,
-	have []storage.FindingHistoryItem, need int) []storage.FindingHistoryItem {
-	pool, err := s.Store.SearchFindingsHistory(ctx, platform, owner, repo, "", findingsSemanticPool)
-	if err != nil || len(pool) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(have))
-	for _, it := range have {
-		seen[it.FP] = true
-	}
-	vecs := make([][]float32, len(pool))
-	var missTexts []string
-	var missIdx []int
-	for i, it := range pool {
-		if v, ok := s.findingVecs.Load(it.FP); ok {
-			vecs[i], _ = v.([]float32)
-		} else {
-			missTexts = append(missTexts, it.Comment)
-			missIdx = append(missIdx, i)
-		}
-	}
-	if len(missTexts) > 0 {
-		mv, merr := s.SemSearch.EmbedTexts(ctx, missTexts)
-		if merr != nil || len(mv) != len(missTexts) {
-			s.log().Warn("argus.findings.sem_embed_failed", "error", fmt.Sprint(merr))
-			return nil
-		}
-		for j, idx := range missIdx {
-			vecs[idx] = mv[j]
-			if int(s.findingVecCount.Load()) < findingsVecCacheCap {
-				s.findingVecs.Store(pool[idx].FP, mv[j])
-				s.findingVecCount.Add(1)
-			}
-		}
-	}
-	qv, qerr := s.SemSearch.EmbedTexts(ctx, []string{query})
-	if qerr != nil || len(qv) != 1 {
-		return nil
-	}
-	type scored struct {
-		it    storage.FindingHistoryItem
-		score float32
-	}
-	var cands []scored
-	for i, it := range pool {
-		if seen[it.FP] || vecs[i] == nil {
-			continue
-		}
-		if sc := semsearch.Cosine(qv[0], vecs[i]); sc >= findingsSemanticFloor {
-			cands = append(cands, scored{it: it, score: sc})
-		}
-	}
-	sort.Slice(cands, func(a, b int) bool { return cands[a].score > cands[b].score })
-	out := make([]storage.FindingHistoryItem, 0, need)
-	for i := 0; i < len(cands) && i < need; i++ {
-		out = append(out, cands[i].it)
-	}
-	return out
 }
