@@ -25,6 +25,7 @@ import (
 	"github.com/oekit/logx"
 	ekitmetrics "github.com/oekit/metrics"
 	"github.com/oekit/middleware/hmw"
+	mw "github.com/oekit/middleware/middleware"
 
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
@@ -168,6 +169,11 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	h.Use(hmw.Middleware()...)
 	// 请求级指标（v3.9.2）：状态码/路由模板计数 + 时延分布（5xx 率可告警）
 	h.Use(obs.HTTPMiddleware())
+	// panic 恢复（v3.146.0，oekit mw）：hertz 引擎兜底仅在 PanicHandler 非空时挂
+	//（默认 nil）、netpoll 事件循环显式不 recover——此前任一 handler panic 直接
+	// 打死进程。挂在 obs 内层：恢复出的 500 仍进指标；堆栈走 logx 结构化日志，
+	// 响应走 mw.ErrorResp 信封（与业务错误同形状）。
+	h.Use(mw.RecoveryMiddleware())
 	registerCustom(h, store, sys.SDK, cfg, svc)
 	// h.Run() 进 bootstrap 后台（关闭阶段先 h.Shutdown 排水，h.Run 退出由 wait 阶段收割）
 	ekithertz.RunServer(app, "http", h)
