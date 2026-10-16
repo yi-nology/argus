@@ -20,7 +20,6 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/notify"
-	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/poster"
 	"argus/internal/progress"
@@ -81,7 +80,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	if err := os.MkdirAll(wcRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("工作目录创建失败 %s: %w", wcRoot, err)
 	}
-	wc := workcopy.NewPool(wcRoot, obs.ToEkitLogx(log))
+	wc := workcopy.NewPool(wcRoot, log)
 	wc.CredentialOf = func(platform string) (string, string, bool) {
 		pc, ok := cfg.Platforms[platform]
 		// GitHub App 认证时，优先用 installation token（自动刷新）
@@ -212,7 +211,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		auditLoggerIn = fwd.Wrap(log)
 		log.Info("argus.boot.audit_forward_enabled", "endpoint_set", true)
 	}
-	auditLog := audit.New(obs.ToEkitLogx(auditLoggerIn), "argus-audit") // v3.86.0：runner（verdict.posted/fix.push）与 service 共用同一审计器
+	auditLog := audit.New(auditLoggerIn, "argus-audit") // v3.86.0：runner（verdict.posted/fix.push）与 service 共用同一审计器
 	runnerRef = &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: models.React, ModelName: cfg.LLM.Model,

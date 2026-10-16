@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/obs"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/oekit/logx"
@@ -624,7 +623,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	sdkCtx := argusctx.NewSDKCtxStubbed(log, provs)
 
 	// workcopy：指向本地 file:// fixture（CLI 插件场景用）
-	wc := workcopy.NewPool(cfg.WorkRoot, obs.ToEkitLogx(log))
+	wc := workcopy.NewPool(cfg.WorkRoot, log)
 	if opt.withOCR || opt.withACPX {
 		fixture := makeFixtureRepo(t, tmp)
 		wc.CredentialOf = func(string) (string, string, bool) { return "file://" + fixture, "x", true }
@@ -691,7 +690,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	if opt.workers > 0 {
-		wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store}, N: opt.workers, Log: obs.ToEkitLogx(log), Run: runnerRef.Execute}
+		wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store}, N: opt.workers, Log: log, Run: runnerRef.Execute}
 		wp.Start(ctx)
 	}
 

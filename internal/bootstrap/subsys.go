@@ -35,7 +35,7 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
 	// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
 	pollElector := agentkitworker.NewLeaderElector(store, "argus/poller", instanceID,
-		30*time.Second, 10*time.Second, agentkitworker.WithLeaderLogger(obs.ToEkitLogx(log)))
+		30*time.Second, 10*time.Second, agentkitworker.WithLeaderLogger(log))
 	pollElector.Start(ctx)
 	app.AddResource("poll-leader", func(context.Context) error {
 		pollElector.Stop() // 优雅停机主动让位，缩短换主窗口
@@ -44,7 +44,7 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
 	wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store},
-		N: cfg.MaxConcurrentTasks, Log: obs.ToEkitLogx(log), Run: sys.Runner.Execute}
+		N: cfg.MaxConcurrentTasks, Log: log, Run: sys.Runner.Execute}
 	wp.Start(ctx)
 	// 排水宽限可配（v3.8.0 ARGUS_WORKER_GRACE，默认 60s）：grace < 典型任务时长时
 	// 每次发布必打断重跑；与 ShutdownTimeout 的余量关系见 runbook。
