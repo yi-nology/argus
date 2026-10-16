@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // auditForwardQueue 外送队列深度（满即丢弃，防外送端故障积压）。

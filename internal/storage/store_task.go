@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"git.example.com/enjoydream/ekit/data/gormx"
+	"github.com/oekit/data/gormx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 

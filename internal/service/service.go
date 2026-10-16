@@ -15,8 +15,8 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"git.example.com/enjoydream/agentkit/workcopy"
-	"git.example.com/enjoydream/ekit/concurrency/async"
-	ekcache "git.example.com/enjoydream/ekit/data/cache"
+	"github.com/oekit/concurrency/async"
+	ekcache "github.com/oekit/data/cache"
 
 	api "argus/biz/model/api"
 	"argus/internal/config"

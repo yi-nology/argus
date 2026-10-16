@@ -9,7 +9,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	argusctx "argus/internal/context"
 	"argus/internal/progress"

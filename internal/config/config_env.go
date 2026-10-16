@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ekitconfig "git.example.com/enjoydream/ekit/config"
+	ekitconfig "github.com/oekit/core/config"
 )
 
 func envStr(key, def string) string {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"git.example.com/enjoydream/ekit/concurrency/async"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/concurrency/async"
+	"github.com/oekit/logx"
 	// 各平台 backend 在 init() 里注册到 provider 工厂
 	_ "github.com/yi-nology/go-git-platform/backends/all"
 	"github.com/yi-nology/go-git-platform/provider"

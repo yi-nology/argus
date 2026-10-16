@@ -17,14 +17,14 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/google/uuid"
 
-	ekitbootstrap "git.example.com/enjoydream/ekit/bootstrap"
-	"git.example.com/enjoydream/ekit/concurrency/async"
-	ekcache "git.example.com/enjoydream/ekit/data/cache"
-	ekithertz "git.example.com/enjoydream/ekit/hertz"
-	hertzmetrics "git.example.com/enjoydream/ekit/hertz/metrics"
-	"git.example.com/enjoydream/ekit/middleware/traceid/hmw"
-	"git.example.com/enjoydream/ekit/observability/logx"
-	ekitmetrics "git.example.com/enjoydream/ekit/observability/metrics"
+	ekitbootstrap "github.com/oekit/bootstrap/bootstrap"
+	"github.com/oekit/concurrency/async"
+	ekcache "github.com/oekit/data/cache"
+	ekithertz "github.com/oekit/hertz/hertz"
+	hertzmetrics "github.com/oekit/hertz/hertz/metrics"
+	"github.com/oekit/logx"
+	ekitmetrics "github.com/oekit/metrics"
+	"github.com/oekit/middleware/hmw"
 
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
@@ -61,13 +61,17 @@ func main() {
 			"hint", "ARGUS_APITOKEN 未配置：🔒 路由（/tasks /agents）将拒绝服务，webhook 不受影响；配置后立即恢复")
 	}
 
-	// ---- 生命周期（ekit bootstrap v0.17.2）：SIGINT/SIGTERM → ctx 取消 →
+	// ---- 生命周期（oekit bootstrap v0.4.2）：SIGINT/SIGTERM → ctx 取消 →
 	// 资源逆序关闭（http → worker → store）→ 后台 goroutine 排水（30s 超时）。
 	// ShutdownTimeout 须覆盖 http 排水（~5s）+ worker 两阶段停机（60s grace + ≤10s 硬取消）+ 关库。
-	if err := ekitbootstrap.Run(ekitbootstrap.Config{
-		ServiceName:     "argus",
-		ShutdownTimeout: 90 * time.Second,
-	}, func(app *ekitbootstrap.App) error {
+	boot, bootErr := ekitbootstrap.New(
+		ekitbootstrap.WithServiceName("argus"),
+		ekitbootstrap.WithShutdownTimeout(90*time.Second),
+	)
+	if bootErr != nil {
+		panic(bootErr)
+	}
+	if err := boot.Run(func(app *ekitbootstrap.App) error {
 		return runApp(app, cfg, log)
 	}); err != nil {
 		panic(err)

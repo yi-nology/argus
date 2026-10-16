@@ -3,7 +3,7 @@ package requirement
 import (
 	"testing"
 
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
+	"github.com/oekit/pkg/jsonrepair"
 
 	"git.example.com/enjoydream/agentkit/reportutil"
 

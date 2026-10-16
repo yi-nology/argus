@@ -26,7 +26,7 @@ import (
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
+	"github.com/oekit/pkg/jsonrepair"
 )
 
 // ReflectSummary R3.5 反思结果（Output.Reflect；nil = 未启用或无 findings）。

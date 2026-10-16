@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"git.example.com/enjoydream/agentkit/workcopy"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/config"
 	"argus/internal/plugin"

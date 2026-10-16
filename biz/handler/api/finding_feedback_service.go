@@ -6,10 +6,10 @@ import (
 	"context"
 
 	api "argus/biz/model/api"
-	"git.example.com/enjoydream/ekit/handler/validatorh"
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/oekit/hertz/validatorh"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // SuppressFinding 误报反馈（🔒）：把某条意见的指纹标记为 suppressed，

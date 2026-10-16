@@ -8,10 +8,10 @@ import (
 	"context"
 	"time"
 
-	hertzsse "git.example.com/enjoydream/ekit/hertz/sse"
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	hertzsse "github.com/oekit/hertz/hertz/sse"
+	mw "github.com/oekit/middleware/middleware"
 
 	"argus/internal/obs"
 )

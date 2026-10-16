@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/ekit/network/octopus"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
+	"github.com/oekit/network/network/octopus"
 
 	"argus/internal/obs"
 )

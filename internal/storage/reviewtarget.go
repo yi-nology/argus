@@ -11,7 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"git.example.com/enjoydream/ekit/data/gormx"
+	"github.com/oekit/data/gormx"
 )
 
 // ClearReviewTargetComment 显式清零 last_summary_comment_id（评论 404 后调用），

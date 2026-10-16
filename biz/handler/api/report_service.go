@@ -6,9 +6,9 @@ import (
 	"context"
 	"strconv"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // ReportByRef 按 head SHA 查最近一次成功审查报告。

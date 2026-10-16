@@ -11,8 +11,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
-	"git.example.com/enjoydream/ekit/middleware/traceid/hmw"
+	"github.com/oekit/middleware/hmw"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // TestTraceIDSmoke 验证 main 的装配组合：traceid.Middleware + mw 响应壳 → trace_id 自动填充。

@@ -11,8 +11,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/ekit/concurrency/async"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/concurrency/async"
+	"github.com/oekit/logx"
 
 	argusctx "argus/internal/context"
 	"argus/internal/obs"

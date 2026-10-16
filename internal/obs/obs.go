@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"time"
 
-	ekitmetrics "git.example.com/enjoydream/ekit/observability/metrics"
+	ekitmetrics "github.com/oekit/metrics"
 
 	"argus/internal/plugin"
 )

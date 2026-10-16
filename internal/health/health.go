@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/fence"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/learning"
 )

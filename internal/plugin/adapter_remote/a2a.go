@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	ekuidgen "git.example.com/enjoydream/ekit/pkg/uidgen"
+	ekuidgen "github.com/oekit/pkg/uidgen"
 
 	"argus/internal/plugin"
 )

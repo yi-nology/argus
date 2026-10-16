@@ -21,9 +21,9 @@ import (
 	"git.example.com/enjoydream/agentkit/procx"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
-	ekuidgen "git.example.com/enjoydream/ekit/pkg/uidgen"
+	ekuidgen "github.com/oekit/pkg/uidgen"
 
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
+	"github.com/oekit/pkg/jsonrepair"
 
 	"argus/internal/plugin"
 )

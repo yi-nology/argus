@@ -3,7 +3,7 @@ package plugin
 import (
 	"context"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // testNopLogger logx.Logger 全接口空实现（单测用）。

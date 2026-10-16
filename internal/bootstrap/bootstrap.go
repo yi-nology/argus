@@ -14,7 +14,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/skill"

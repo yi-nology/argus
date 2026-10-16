@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/poller"
 )

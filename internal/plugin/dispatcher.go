@@ -9,7 +9,7 @@ import (
 	"git.example.com/enjoydream/agentkit/breaker"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，

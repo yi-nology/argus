@@ -13,8 +13,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // BearerMiddleware 🔒 路由的 Bearer 静态 token 校验（§5；webhook 不挂，靠平台签名）。

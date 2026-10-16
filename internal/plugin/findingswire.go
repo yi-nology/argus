@@ -1,6 +1,6 @@
 package plugin
 
-import "git.example.com/enjoydream/ekit/pkg/jsonrepair"
+import "github.com/oekit/pkg/jsonrepair"
 
 // FindingsWire 审查产出的 findings JSON schema 单源（v3.64.0）：builtin ReAct/
 // 单轮、remote 三条路径同 schema，此前匿名结构体三处克隆。By 归属策略各调用方

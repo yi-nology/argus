@@ -10,7 +10,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/domain"
 	"argus/internal/learning"

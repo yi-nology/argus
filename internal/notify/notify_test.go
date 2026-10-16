@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 type nopLog struct{}

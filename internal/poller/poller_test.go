@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // TestStartLeaderGateSkipsNonLeader 多副本门控：非 leader 的 tick 直接跳过。

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ekcache "git.example.com/enjoydream/ekit/data/cache"
+	ekcache "github.com/oekit/data/cache"
 
 	"github.com/yi-nology/go-git-platform/provider"
 

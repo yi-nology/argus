@@ -10,8 +10,8 @@ import (
 	"unicode/utf8"
 
 	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
 	"github.com/cloudwego/eino/schema"
+	"github.com/oekit/pkg/jsonrepair"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/plugin"

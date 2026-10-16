@@ -5,9 +5,9 @@ package api
 import (
 	"context"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // HealthReport 学习环飞轮状态查询（噪声处置建议 / guidelines 增量建议 / 计数）。

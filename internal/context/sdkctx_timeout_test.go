@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 

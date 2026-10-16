@@ -8,7 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"golang.org/x/time/rate"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/config"
 	"argus/internal/obs"

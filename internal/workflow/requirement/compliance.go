@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/agentrun"
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/oekit/pkg/jsonrepair"
 
 	"argus/internal/plugin"
 )

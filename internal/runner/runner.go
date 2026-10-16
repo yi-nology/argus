@@ -17,7 +17,7 @@ import (
 	"git.example.com/enjoydream/agentkit/audit"
 	"git.example.com/enjoydream/agentkit/logredact"
 	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/llm"
@@ -28,6 +28,7 @@ import (
 	"argus/internal/learning"
 	"argus/internal/memory"
 	"argus/internal/notify"
+	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/poster"
 	"argus/internal/progress"
@@ -117,7 +118,7 @@ type Runner struct {
 // 预算（v3.36.0）并记任务级/进程级成本。PreviewLen 刻意留 0（不落消息内容）。
 func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, taskCost *llm.CostTracker) context.Context {
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
-	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
+	handlers := []callbacks.Handler{obsx.NewTracingHandler(obs.ToEkitLogx(r.Log), obsOpt)}
 	if r.Cost != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
 			// v3.94.0：agentkit v0.12 起校准内化为 FitModel 实例槽（主路径自动

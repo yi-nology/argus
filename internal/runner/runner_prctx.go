@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"git.example.com/enjoydream/agentkit/textutil"
-	ekcache "git.example.com/enjoydream/ekit/data/cache"
+	ekcache "github.com/oekit/data/cache"
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"

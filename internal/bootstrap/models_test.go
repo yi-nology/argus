@@ -7,7 +7,7 @@ import (
 
 	"argus/internal/config"
 	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // fullCfg 主模型 + 全局降级 + 全部 P6 阶段覆盖（构造离线：模型/Provider 构造不发网络请求）。

@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	ekmathx "git.example.com/enjoydream/ekit/pkg/mathx"
+	ekmathx "github.com/oekit/pkg/mathx"
 
 	"git.example.com/enjoydream/agentkit/reportutil"
 )

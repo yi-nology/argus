@@ -7,10 +7,10 @@ import (
 
 	api "argus/biz/model/api"
 	"argus/internal/service"
-	"git.example.com/enjoydream/ekit/handler/validatorh"
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/oekit/hertz/validatorh"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // Svc 由 main 装配注入（SetService）；handler 保持薄壳：绑定 → 调 service → 响应壳。

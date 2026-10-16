@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	argusctx "argus/internal/context"

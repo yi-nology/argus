@@ -21,7 +21,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"git.example.com/enjoydream/ekit/data/gormx"
+	"github.com/oekit/data/gormx"
 )
 
 // Task tasks 表记录。Status 词表钉死：pending / running / done / failed / stale（§10.4）。

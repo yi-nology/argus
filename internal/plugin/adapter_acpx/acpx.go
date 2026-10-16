@@ -22,11 +22,11 @@ import (
 	"git.example.com/enjoydream/agentkit/procx"
 	"git.example.com/enjoydream/agentkit/reportutil"
 	"git.example.com/enjoydream/agentkit/workcopy"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/ekit/pkg/jsonrepair"
+	"github.com/oekit/pkg/jsonrepair"
 )
 
 // ErrBinaryMissing agent 可执行文件不存在（插件停用而非报错启动）。

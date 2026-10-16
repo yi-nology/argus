@@ -5,9 +5,9 @@ package api
 import (
 	"context"
 
-	mw "git.example.com/enjoydream/ekit/middleware"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	mw "github.com/oekit/middleware/middleware"
 )
 
 // Receive 平台 webhook 入口：body 为平台原生 JSON 透传给 SDK 解析（签名校验需原始字节，

@@ -23,7 +23,7 @@ import (
 	"git.example.com/enjoydream/agentkit/fence"
 	"git.example.com/enjoydream/agentkit/knowledge/rag"
 	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/learning"
 	"argus/internal/memory"

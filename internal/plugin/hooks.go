@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"git.example.com/enjoydream/agentkit/agentrun"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // 观测钩子：本包不直接依赖 prometheus，由 obs 包在装配期注入实现（design §10.1）。

@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
-	"git.example.com/enjoydream/ekit/pkg/httpjson"
+	"github.com/oekit/logx"
+	"github.com/oekit/pkg/httpjson"
 
 	"argus/internal/plugin"
 )

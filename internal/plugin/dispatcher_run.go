@@ -10,7 +10,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/breaker"
 	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/ekit/concurrency/async"
+	"github.com/oekit/concurrency/async"
 )
 
 // costRank 越大越贵（预算裁剪按降序裁：heavy 先裁）。

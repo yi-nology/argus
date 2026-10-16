@@ -19,7 +19,7 @@ import (
 	"git.example.com/enjoydream/agentkit/agentrun"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/plugin"
 )

@@ -12,7 +12,7 @@ import (
 	"argus/internal/config"
 	"git.example.com/enjoydream/agentkit/llm"
 	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // stubChatModel 最小 BaseChatModel 桩（装配测试不发真实请求）。
