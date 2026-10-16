@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -33,7 +33,9 @@ func TestPrevFindingsSection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sup := f("已抑制意见")
+	// 被抑制意见放不同文件（src/b.go）：v3.133.0 起 suppress 家族传播一键全压，
+	// 同文件同行号的近重复措辞会被连带抑制，夹具必须与之解耦才能保住「open 保留」断言。
+	sup := plugin.Finding{File: "src/b.go", Line: 20, Severity: "low", Comment: "已抑制意见"}
 	if _, err := store.UpsertPrint(ctx, "gitlab", "o", "r", "1", "fp0009zzzz", sup, "t1", at); err != nil {
 		t.Fatal(err)
 	}

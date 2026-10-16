@@ -4,18 +4,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/ekit/observability/logx"
+	"github.com/oekit/logx"
 )
 
 // TestAuditForwarder 外送器：audit.event 转发为 JSON POST（带 Bearer）、
 // 非 audit 消息不转发、WithService 穿透保持外送。
 func TestAuditForwarder(t *testing.T) {
+	var mu sync.Mutex // server goroutine 写、测试主 goroutine 轮询读，必须互斥
 	var got []map[string]any
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
 		gotAuth = r.Header.Get("Authorization")
 		var ev map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&ev)
@@ -30,18 +34,26 @@ func TestAuditForwarder(t *testing.T) {
 	wrapped.Info("argus.other.event", "k", "v") // 非 audit：不转发
 	wrapped.Info("audit.event", "action", "finding.suppress", "matched", true)
 
+	snapshot := func() ([]map[string]any, string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return got, gotAuth
+	}
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && len(got) == 0 {
+	cur, _ := snapshot()
+	for time.Now().Before(deadline) && len(cur) == 0 {
 		time.Sleep(20 * time.Millisecond)
+		cur, _ = snapshot()
 	}
-	if len(got) != 1 {
-		t.Fatalf("应恰转发 1 条 audit.event，got %d", len(got))
+	cur, auth := snapshot()
+	if len(cur) != 1 {
+		t.Fatalf("应恰转发 1 条 audit.event，got %d", len(cur))
 	}
-	if got[0]["action"] != "finding.suppress" || got[0]["matched"] != true {
-		t.Errorf("载荷字段不符: %v", got[0])
+	if cur[0]["action"] != "finding.suppress" || cur[0]["matched"] != true {
+		t.Errorf("载荷字段不符: %v", cur[0])
 	}
-	if gotAuth != "Bearer hook-tok" {
-		t.Errorf("Bearer 头不符: %q", gotAuth)
+	if auth != "Bearer hook-tok" {
+		t.Errorf("Bearer 头不符: %q", auth)
 	}
 }
 
