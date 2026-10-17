@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/oekit/hertz/validatorh"
-	mw "github.com/oekit/middleware/middleware"
+	mw "github.com/oekit/middleware"
 )
 
 // SuppressFinding 误报反馈（🔒）：把某条意见的指纹标记为 suppressed，

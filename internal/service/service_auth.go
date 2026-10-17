@@ -15,7 +15,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/oekit/concurrency/ratelimit"
-	mw "github.com/oekit/middleware/middleware"
+	mw "github.com/oekit/middleware"
 )
 
 // BearerMiddleware 🔒 路由的 Bearer 静态 token 校验（§5；webhook 不挂，靠平台签名）。

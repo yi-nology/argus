@@ -33,7 +33,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	mw "github.com/oekit/middleware/middleware"
+	mw "github.com/oekit/middleware"
 
 	api "argus/biz/model/api"
 )

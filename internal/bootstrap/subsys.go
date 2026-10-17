@@ -5,7 +5,7 @@ import (
 	"time"
 
 	agentkitworker "git.example.com/enjoydream/agentkit/worker"
-	ekitbootstrap "github.com/oekit/bootstrap/bootstrap"
+	ekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/logx"
 
 	"argus/internal/config"

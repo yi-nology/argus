@@ -1,5 +1,5 @@
 // Package notify L1 扩展：审查终态 IM 推送（v3.1，经 octopus 消息平台）。
-// HTTP 层 v3.81.0 下沉 ekit/network/octopus（X-User-Id 机器账号纪律单源）；
+// HTTP 层曾于 v3.81.0 下沉 ekit/octopus，v3.148.0 回归本仓子包（X-User-Id 机器账号纪律单源）；
 // 本包保留任务终态文案渲染与指标记账。未配置 ARGUS_OCTOPUS_URL 时禁用（零调用）。
 package notify
 
@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"argus/internal/notify/octopus"
 	"git.example.com/enjoydream/agentkit/textutil"
 	"github.com/oekit/logx"
-	"github.com/oekit/network/network/octopus"
 
 	"argus/internal/obs"
 )

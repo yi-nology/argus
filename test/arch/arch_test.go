@@ -71,7 +71,10 @@ var layering = map[string][]string{
 	"argus/internal/config": {"argus/internal/learning"},
 	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）
 	"argus/internal/obs":    {"argus/internal/plugin"},
-	"argus/internal/notify": {"argus/internal/obs"},
+	"argus/internal/notify": {"argus/internal/notify/octopus", "argus/internal/obs"},
+
+	// ---- 自有协议客户端子包：零 internal 依赖（v3.148.0 octopus 回归本仓）----
+	"argus/internal/notify/octopus": {},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
 	"argus/internal/reportview": {"argus/internal/plugin"},

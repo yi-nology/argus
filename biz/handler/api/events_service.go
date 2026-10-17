@@ -10,8 +10,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	hertzsse "github.com/oekit/hertz/hertz/sse"
-	mw "github.com/oekit/middleware/middleware"
+	hertzsse "github.com/oekit/hertz/sse"
+	mw "github.com/oekit/middleware"
 
 	"argus/internal/obs"
 )

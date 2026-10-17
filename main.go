@@ -18,18 +18,18 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/google/uuid"
 
-	ekitbootstrap "github.com/oekit/bootstrap/bootstrap"
+	ekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/concurrency/async"
 	oekitversion "github.com/oekit/core/version"
 	ekcache "github.com/oekit/data/cache"
-	ekithertz "github.com/oekit/hertz/hertz"
-	health "github.com/oekit/hertz/hertz/health"
-	hertzmetrics "github.com/oekit/hertz/hertz/metrics"
+	ekithertz "github.com/oekit/hertz"
+	health "github.com/oekit/hertz/health"
+	hertzmetrics "github.com/oekit/hertz/metrics"
 	versionh "github.com/oekit/hertz/versionh"
 	"github.com/oekit/logx"
 	ekitmetrics "github.com/oekit/metrics"
+	mw "github.com/oekit/middleware"
 	"github.com/oekit/middleware/hmw"
-	mw "github.com/oekit/middleware/middleware"
 
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
@@ -183,9 +183,14 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	h.Use(mw.RecoveryMiddleware())
 	// 统一响应壳（v3.147.0，oekit mw）：裸 JSON（/ping 等）自动包
 	// {code,data,message,trace_id} 信封；已带 code 的响应（mw.SuccessResp/ErrorResp、
-	// health/version 端点自写信封）不重复包裹；协议端点（MCP JSON-RPC、A2A
-	// agent.json）以 SkipResponseWrap 豁免。
-	h.Use(mw.ResponseMiddleware())
+	// health/version 端点自写信封）不重复包裹。协议端点豁免清单收在栈装配处
+	//（v3.148.0 升 middleware v0.5.0 的声明式 WithSkipPaths/Prefixes）：
+	// /.well-known/（A2A agent card）与 /mcp（MCP JSON-RPC）按规范解析顶层字段，
+	// 禁止信封包裹；MCP 桥内部另带 SkipResponseWrap 组件级标记（挂到别的路径也安全）。
+	h.Use(mw.ResponseMiddleware(
+		mw.WithSkipPrefixes("/.well-known/"),
+		mw.WithSkipPaths("/mcp"),
+	))
 	registerCustom(h, store, cfg, svc)
 	// h.Run() 进 bootstrap 后台（关闭阶段先 h.Shutdown 排水，h.Run 退出由 wait 阶段收割）
 	ekithertz.RunServer(app, "http", h)
@@ -249,7 +254,7 @@ func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, s
 	// 评论会被 self-skip——等于没有恢复通道。
 	h.POST("/findings/restore", svc.BearerMiddleware(), hapi.RestoreFinding)
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
-		mw.SkipResponseWrap(c) // A2A 协议端点：消费方按规范解析顶层字段，禁止信封包裹
+		// A2A 协议端点：豁免声明在栈级 WithSkipPrefixes("/.well-known/")
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})
 	// register(h) 开头已包含 customizedRegister 的 /ping，勿重复注册
