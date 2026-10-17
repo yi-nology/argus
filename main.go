@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,9 +20,12 @@ import (
 
 	ekitbootstrap "github.com/oekit/bootstrap/bootstrap"
 	"github.com/oekit/concurrency/async"
+	oekitversion "github.com/oekit/core/version"
 	ekcache "github.com/oekit/data/cache"
 	ekithertz "github.com/oekit/hertz/hertz"
+	health "github.com/oekit/hertz/hertz/health"
 	hertzmetrics "github.com/oekit/hertz/hertz/metrics"
+	versionh "github.com/oekit/hertz/versionh"
 	"github.com/oekit/logx"
 	ekitmetrics "github.com/oekit/metrics"
 	"github.com/oekit/middleware/hmw"
@@ -32,7 +36,6 @@ import (
 	"argus/internal/bootstrap"
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
-	argusctx "argus/internal/context"
 	"argus/internal/obs"
 	"argus/internal/service"
 	"argus/internal/storage"
@@ -47,6 +50,10 @@ func main() {
 
 	log := logx.NewSlogLogger("argus")
 	obs.Init()
+	// 版本元数据单源：/version 端点（oekit core/version）与报告头/AgentCard
+	// 共用同一 ldflags 注入值（BuildCommit/BuildTime/BuildBranch 由 Makefile
+	// 直接注入 core/version 包变量）。
+	oekitversion.Version = version
 	// ekit async 的 panic 恢复日志注入 logx（裸 goroutine 已全部收编为 async.GoSafe）
 	async.SetPanicHandler(func(msg string, stack []byte) {
 		log.Error("argus.goroutine_panic", "error", msg, "stack", string(stack))
@@ -174,7 +181,12 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	// 打死进程。挂在 obs 内层：恢复出的 500 仍进指标；堆栈走 logx 结构化日志，
 	// 响应走 mw.ErrorResp 信封（与业务错误同形状）。
 	h.Use(mw.RecoveryMiddleware())
-	registerCustom(h, store, sys.SDK, cfg, svc)
+	// 统一响应壳（v3.147.0，oekit mw）：裸 JSON（/ping 等）自动包
+	// {code,data,message,trace_id} 信封；已带 code 的响应（mw.SuccessResp/ErrorResp、
+	// health/version 端点自写信封）不重复包裹；协议端点（MCP JSON-RPC、A2A
+	// agent.json）以 SkipResponseWrap 豁免。
+	h.Use(mw.ResponseMiddleware())
+	registerCustom(h, store, cfg, svc)
 	// h.Run() 进 bootstrap 后台（关闭阶段先 h.Shutdown 排水，h.Run 退出由 wait 阶段收割）
 	ekithertz.RunServer(app, "http", h)
 	log.Info("argus.boot.http_ready", "addr", cfg.Addr, "version", version)
@@ -185,29 +197,32 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 }
 
 // register 自定义路由：健康检查 / 指标 / MCP+A2A 占位（§5 路由表 v3.0 部分 + §9.2 方向 B 占位）。
-func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx, cfg *config.Config, svc *service.Service) {
+func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, svc *service.Service) {
 	register(h) // hz 生成路由（IDL 声明的 /webhook /tasks /agents + /ping）
 
-	// 存活（§10.1：hertz 无默认 healthz，自写一行）
-	h.GET("/healthz", func(ctx context.Context, c *app.RequestContext) {
-		c.JSON(http.StatusOK, map[string]any{"status": "ok", "version": version})
-	})
+	// 存活（v3.147.0：oekit hertz/health PingHandler，统一信封；进程级存活，零依赖检查）
+	h.GET("/healthz", health.PingHandler)
 
-	// 就绪：DB 连通 + LLM 端点可达（未配置 LLM 时跳过该检查）。
-	// v3.8.0：失败响应不再回显 BaseURL（内网信息面收敛；细节看日志）。
-	h.GET("/readyz", func(ctx context.Context, c *app.RequestContext) {
-		if err := store.Ping(ctx); err != nil {
-			c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "db unavailable"})
-			return
-		}
-		if cfg.LLM.BaseURL != "" {
-			if !llmReachableCached(cfg.LLM.BaseURL) {
-				c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "llm unreachable"})
-				return
-			}
-		}
-		c.JSON(http.StatusOK, map[string]any{"status": "ready", "platforms": sdk.Ready()})
-	})
+	// 就绪（v3.147.0：oekit NewHealthHandler，Checker 并发执行，任一失败 503，
+	// 总超时 5s 上界）：DB 连通 + LLM 端点可达（未配置 LLM 直接通过；探针仍走
+	// 下方 30s TTL 缓存）。失败细节只进 logx，响应统一 "check failed"（库内脱敏，与
+	// v3.8.0 不回显 BaseURL 的纪律同向）。
+	h.GET("/readyz", health.NewHealthHandler(
+		health.WithCheckers(
+			health.NamedChecker("db", func(ctx context.Context) error { return store.Ping(ctx) }),
+			health.NamedChecker("llm", func(ctx context.Context) error {
+				if cfg.LLM.BaseURL == "" || llmReachableCached(cfg.LLM.BaseURL) {
+					return nil
+				}
+				return errors.New("llm unreachable")
+			}),
+		),
+		health.WithCheckTimeout(5*time.Second),
+	))
+
+	// 版本端点（v3.147.0，oekit versionh）：core/version 的 ldflags 注入值 + 运行时
+	// uptime；自带 code/trace_id 信封，不会被 ResponseMiddleware 重复包裹。
+	h.GET("/version", versionh.Handler)
 
 	// Prometheus（ekit：挂 metrics.Registry——obs.Init 已补齐 go/process 收集器；
 	// MetricsHandlerFor 内部完成 RequestContext→http.ResponseWriter 适配）。
@@ -234,6 +249,7 @@ func registerCustom(h *server.Hertz, store *storage.Store, sdk *argusctx.SDKCtx,
 	// 评论会被 self-skip——等于没有恢复通道。
 	h.POST("/findings/restore", svc.BearerMiddleware(), hapi.RestoreFinding)
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
+		mw.SkipResponseWrap(c) // A2A 协议端点：消费方按规范解析顶层字段，禁止信封包裹
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})
 	// register(h) 开头已包含 customizedRegister 的 /ping，勿重复注册

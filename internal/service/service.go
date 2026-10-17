@@ -16,6 +16,7 @@ import (
 
 	"git.example.com/enjoydream/agentkit/workcopy"
 	"github.com/oekit/concurrency/async"
+	"github.com/oekit/concurrency/ratelimit"
 	ekcache "github.com/oekit/data/cache"
 
 	api "argus/biz/model/api"
@@ -93,8 +94,11 @@ type Service struct {
 	qaThrottleMu  sync.Mutex
 	qaThrottleCch *ekcache.LocalCache[bool]
 
-	// apiLimiters 每 token 速率限制器（v3.135.0，tokenRateOK 懒建；key=token 指纹）。
-	apiLimiters sync.Map
+	// rateLimiter 每 token 速率限制器（v3.135.0 引入；v3.147.0 换 oekit
+	// ratelimit.KeyedLimiter：按 key 隔离令牌桶 + TTL 驱逐闲置 key；tokenRateOK
+	// 懒建，key=token 指纹）。
+	rateOnce    sync.Once
+	rateLimiter *ratelimit.KeyedLimiter
 
 	// fixInflight @argus fix 在途去重（v3.85.0）：key=pr+fp，防同 finding 并发
 	// 双跑烧双倍 agent token。进程级即可（修复是交互式命令，不跨重启）。

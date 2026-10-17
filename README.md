@@ -251,7 +251,7 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
   插件耗时/失败、阶段耗时、golden 评测命中率（`argus_eval_verdict_match_ratio`，v3.14.0）；
   `GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
   `ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
-- **平台降级**：平台不可达时启动只告警降级（`/readyz` 可见），不会 crash loop；
+- **平台降级**：平台不可达时启动只告警降级（启动日志 + `/reports/health` 可见；`/readyz` 只看 db/llm 硬依赖），不会 crash loop；
 - **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
   分阶段模型路由（P6）可按 R1/R2/R3/R3.5/Reviewer/QA/Router 各配各的模型与窗口；
 - 凭据脱敏（克隆 URL 里的 token）、日志静默（预期内 not-found 不刷屏）；
@@ -367,7 +367,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 
 | 端点 | 鉴权 | 说明 |
 |---|---|---|
-| `GET /healthz` `GET /readyz` | 无 | 健康/就绪（平台降级在 readyz 可见）|
+| `GET /healthz` `GET /readyz` `GET /version` | 无 | 存活 / 就绪（db+llm Checker 并发，任一失败 503）/ 版本元数据；统一 `{code,data,message,trace_id}` 信封（oekit hertz/health·versionh，v3.147.0）|
 | `GET /metrics` | 无 | Prometheus 指标（argus_* 前缀）|
 | `POST /webhook/{gitea\|github\|gitlab}` | HMAC 签名 | 平台事件入口，delivery 幂等 |
 | `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|

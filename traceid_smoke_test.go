@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -11,6 +13,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
+	oekitversion "github.com/oekit/core/version"
+	health "github.com/oekit/hertz/hertz/health"
+	versionh "github.com/oekit/hertz/versionh"
 	"github.com/oekit/middleware/hmw"
 	mw "github.com/oekit/middleware/middleware"
 )
@@ -97,4 +102,115 @@ func TestPanicRecoverySmoke(t *testing.T) {
 	w2 := ut.PerformRequest(h.Engine, "GET", "/smoke-alive", nil)
 	resp2 := w2.Result()
 	assert.DeepEqual(t, consts.StatusOK, resp2.StatusCode())
+}
+
+// TestHealthVersionWrapSmoke 验证 v3.147.0 服务面收口的装配组合：
+// hmw → Recovery → Response 栈下，oekit health/version 端点自写信封不被二次包裹、
+// 裸 JSON 自动包信封并注入 trace_id、SkipResponseWrap 协议端点原样透出。
+func TestHealthVersionWrapSmoke(t *testing.T) {
+	prev := oekitversion.Version
+	oekitversion.Version = "v9.9.9-smoke"
+	t.Cleanup(func() { oekitversion.Version = prev })
+
+	h := server.Default(server.WithHostPorts("127.0.0.1:0"))
+	h.Use(hmw.Middleware()...)
+	h.Use(mw.RecoveryMiddleware())
+	h.Use(mw.ResponseMiddleware())
+	okCheck := func(context.Context) error { return nil }
+	h.GET("/healthz", health.PingHandler)
+	h.GET("/readyz", health.NewHealthHandler(health.WithCheckers(
+		health.NamedChecker("db", okCheck), health.NamedChecker("llm", okCheck))))
+	h.GET("/readyz-bad", health.NewHealthHandler(health.WithCheckers(
+		health.NamedChecker("db", okCheck),
+		health.NamedChecker("llm", func(context.Context) error { return errors.New("llm unreachable") }))))
+	h.GET("/version", versionh.Handler)
+	h.GET("/bare", func(ctx context.Context, c *app.RequestContext) {
+		c.JSON(consts.StatusOK, map[string]any{"message": "pong"})
+	})
+	h.GET("/agent.json", func(ctx context.Context, c *app.RequestContext) {
+		mw.SkipResponseWrap(c)
+		c.JSON(consts.StatusOK, map[string]any{"name": "argus"})
+	})
+
+	type envelope struct {
+		Code    int             `json:"code"`
+		Data    json.RawMessage `json:"data"`
+		Message string          `json:"message"`
+		TraceID string          `json:"trace_id"`
+	}
+	// requestid 校验 X-Trace-Id 字符集（含 / 等即判非法重新生成），trace 值只留字母数字与连字符
+	traceOf := func(path string) string { return "smoke-" + strings.NewReplacer("/", "", ".", "").Replace(path) }
+	get := func(path string) (int, envelope, []byte) {
+		w := ut.PerformRequest(h.Engine, "GET", path, nil, ut.Header{Key: "X-Trace-Id", Value: traceOf(path)})
+		resp := w.Result()
+		var e envelope
+		_ = json.Unmarshal(resp.Body(), &e)
+		return resp.StatusCode(), e, resp.Body()
+	}
+	type readyBody struct {
+		Status string                                 `json:"status"`
+		Checks []struct{ Name, Status, Error string } `json:"checks"`
+	}
+
+	// 存活：PingHandler 自写信封，trace_id 透传
+	code, e, _ := get("/healthz")
+	assert.DeepEqual(t, consts.StatusOK, code)
+	assert.DeepEqual(t, 0, e.Code)
+	assert.DeepEqual(t, "pong", e.Message)
+	assert.DeepEqual(t, traceOf("/healthz"), e.TraceID)
+
+	// 就绪：全过 200，checks 按注册顺序稳定输出
+	code, e, _ = get("/readyz")
+	assert.DeepEqual(t, consts.StatusOK, code)
+	var ready readyBody
+	if err := json.Unmarshal(e.Data, &ready); err != nil {
+		t.Fatal(err)
+	}
+	assert.DeepEqual(t, "ok", ready.Status)
+	assert.DeepEqual(t, 2, len(ready.Checks))
+	assert.DeepEqual(t, "db", ready.Checks[0].Name)
+	assert.DeepEqual(t, "ok", ready.Checks[1].Status)
+
+	// 就绪：任一失败 503 + code 503，失败项带错误信息
+	code, e, _ = get("/readyz-bad")
+	assert.DeepEqual(t, consts.StatusServiceUnavailable, code)
+	assert.DeepEqual(t, 503, e.Code)
+	if err := json.Unmarshal(e.Data, &ready); err != nil {
+		t.Fatal(err)
+	}
+	assert.DeepEqual(t, "error", ready.Status)
+	assert.DeepEqual(t, "check failed", ready.Checks[1].Error) // 库内脱敏：真实错误只进 logx
+
+	// 版本：core/version 注入值透出
+	code, e, _ = get("/version")
+	assert.DeepEqual(t, consts.StatusOK, code)
+	var ver struct{ Version, BuildCommit, Uptime string }
+	if err := json.Unmarshal(e.Data, &ver); err != nil {
+		t.Fatal(err)
+	}
+	assert.DeepEqual(t, "v9.9.9-smoke", ver.Version)
+
+	// 裸 JSON：ResponseMiddleware 自动包信封 + trace_id，原载荷进 data
+	code, e, _ = get("/bare")
+	assert.DeepEqual(t, consts.StatusOK, code)
+	assert.DeepEqual(t, 0, e.Code)
+	assert.DeepEqual(t, "success", e.Message)
+	assert.DeepEqual(t, traceOf("/bare"), e.TraceID)
+	var bare map[string]any
+	if err := json.Unmarshal(e.Data, &bare); err != nil {
+		t.Fatal(err)
+	}
+	assert.DeepEqual(t, "pong", bare["message"])
+
+	// 协议端点：SkipResponseWrap 原样透出，顶层无 code
+	code, _, raw := get("/agent.json")
+	assert.DeepEqual(t, consts.StatusOK, code)
+	var card map[string]any
+	if err := json.Unmarshal(raw, &card); err != nil {
+		t.Fatal(err)
+	}
+	if _, wrapped := card["code"]; wrapped {
+		t.Fatalf("协议端点不应被信封包裹: %s", raw)
+	}
+	assert.DeepEqual(t, "argus", card["name"])
 }

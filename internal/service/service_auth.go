@@ -14,6 +14,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/oekit/concurrency/ratelimit"
 	mw "github.com/oekit/middleware/middleware"
 )
 
@@ -145,17 +146,21 @@ func (s *Service) BearerMiddleware() app.HandlerFunc {
 	}
 }
 
-// tokenRateOK 每 token 速率闸（v3.135.0）：滑动窗按 token 独立限速。
-// APIRateRPM<=0 = 关闭；map 大小以配置 token 数为界，无泄漏增长。
+// tokenRateOK 每 token 速率闸（v3.135.0；v3.147.0 换 oekit ratelimit.KeyedLimiter）：
+// 每 token 独立令牌桶（rpm/60 速率、burst=max(10,rpm/6) 与此前 x/time/rate 参数
+// 等价），闲置 1h 的 key 由库清理协程驱逐（token 集合有界，驱逐仅重置闲置桶）。
+// APIRateRPM<=0 = 关闭；sync.Once 懒建，不开限速的实例不起清理协程。
 func (s *Service) tokenRateOK(rawToken string) bool {
 	if s.Cfg == nil || s.Cfg.APIRateRPM <= 0 {
 		return true
 	}
 	rpm := s.Cfg.APIRateRPM
-	key := tokenHash(rawToken)
-	v, _ := s.apiLimiters.LoadOrStore(key, rate.NewLimiter(
-		rate.Limit(float64(rpm)/60.0), max(10, rpm/6)))
-	return v.(*rate.Limiter).Allow()
+	s.rateOnce.Do(func() {
+		s.rateLimiter = ratelimit.NewKeyedLimiter(func() ratelimit.Limiter {
+			return ratelimit.NewTokenBucket(rate.Limit(float64(rpm)/60.0), max(10, rpm/6))
+		}, time.Hour)
+	})
+	return s.rateLimiter.Allow(tokenHash(rawToken))
 }
 
 // tokenHash 限速键指纹（不把原始 token 放 map 键）。

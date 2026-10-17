@@ -14,10 +14,14 @@ COPY . .
 RUN git config --global url."git@git.example.com:".insteadOf "https://git.example.com/" && \
     git config --global --add safe.directory /src
 ARG TARGETARCH=amd64
+# 版本元数据（v3.147.0）：--build-arg VERSION=v3.x.y GIT_COMMIT=abc123 注入 main.version 与
+# oekit core/version（/version 端点）；不传保持 dev/unknown。
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
 RUN --mount=type=ssh \
     GOPRIVATE=git.example.com/* GOINSECURE=git.example.com/* GOPROXY=https://goproxy.cn,direct \
     CGO_ENABLED=0 GOARCH=${TARGETARCH} \
-    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/argus . && \
+    go build -mod=mod -trimpath -ldflags "-s -w -X main.version=${VERSION} -X github.com/oekit/core/version.Version=${VERSION} -X github.com/oekit/core/version.BuildCommit=${GIT_COMMIT}" -o /out/argus . && \
     CGO_ENABLED=0 GOARCH=${TARGETARCH} \
     go build -mod=mod -trimpath -ldflags "-s -w" -o /out/ocrshim ./cmd/ocrshim
 

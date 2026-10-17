@@ -33,6 +33,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	mw "github.com/oekit/middleware/middleware"
 
 	api "argus/biz/model/api"
 )
@@ -591,6 +592,7 @@ func argBool(req mcp.CallToolRequest, key string) bool {
 func HertzBridge(mcpSrv *server.MCPServer) app.HandlerFunc {
 	inner := server.NewStreamableHTTPServer(mcpSrv)
 	return func(ctx context.Context, c *app.RequestContext) {
+		mw.SkipResponseWrap(c) // MCP JSON-RPC 协议载荷：客户端按规范解析顶层字段，禁止信封包裹
 		req, err := http.NewRequest(string(c.Method()), string(c.URI().RequestURI()), bytes.NewReader(c.Request.Body()))
 		if err != nil {
 			c.SetStatusCode(http.StatusBadRequest)

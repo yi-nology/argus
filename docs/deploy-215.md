@@ -13,7 +13,8 @@ ssh 215 'docker ps --format "{{.Names}} {{.Image}} {{.Status}}" | grep -i argus'
 ## 1. 构建新镜像（推荐：本地交叉编译 + FROM 旧镜像，免拉基底/免私有依赖）
 
 本地：`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v<ver>-215" -o bin/argus-v<ver>-215 .`
+  -ldflags "-s -w -X main.version=v<ver>-215 -X github.com/oekit/core/version.BuildCommit=$(git rev-parse --short HEAD)" -o bin/argus-v<ver>-215 .`
+（v3.147.0 起 `/version` 端点读 oekit core/version：main.version 由进程启动时同步过去，BuildCommit 需单独注入）
 
 ```bash
 scp -o ProxyJump=none bin/argus-v<ver>-215 215:/opt/argus/bin/
@@ -53,7 +54,8 @@ ssh 215 'docker tag argus:v<旧ver>-215 argus:rollback-$(date +%Y%m%d)
 
 ```bash
 ssh 215 'docker ps --format "{{.Image}} {{.Status}}" | grep argus'          # Up + 镜像版本
-ssh 215 'curl -s localhost:8899/readyz'                                     # {"platforms":[...],"status":"ready"}
+ssh 215 'curl -s localhost:8899/readyz'                                     # {"code":0,"data":{"status":"ok","checks":[{"name":"db","status":"ok"},{"name":"llm","status":"ok"}]},...}；任一失败 503 + code 503
+ssh 215 'curl -s localhost:8899/version'                                    # data.version=v<ver>-215（v3.147.0 起；healthz 不再带 version）
 ssh 215 'docker logs argus 2>&1 | grep -c "\"level\":\"ERROR\""'            # 0（过 1~2 个 poller 周期再看）
 ssh 215 'docker logs argus 2>&1 | grep -o "\"version\":\"v[^\"]*\""'        # ver 头
 # API 探针（Bearer=ARGUS_APITOKEN；路由是根路径，无 /api/v1 前缀）：

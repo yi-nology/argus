@@ -909,8 +909,9 @@ task_id, event_id, platform, owner/repo#number, stage(R1..R5|plugin:<name>), dur
 
 | 端点 | 用途 |
 |---|---|
-| `GET /healthz` | 存活探针（Hertz 无默认，自写一行） |
-| `GET /readyz` | 就绪探针：DB 连通 + LLM 端点可达（30s TTL 缓存） |
+| `GET /healthz` | 存活探针（oekit hertz/health PingHandler，信封 `{code:0,message:"pong"}`） |
+| `GET /readyz` | 就绪探针：oekit NewHealthHandler 并发 Checker（db 连通 + LLM 端点可达，30s TTL 缓存），任一失败 503，`data.checks` 逐项状态 |
+| `GET /version` | 版本元数据（oekit versionh：ldflags 注入 core/version + uptime，v3.147.0） |
 | `GET /metrics` | Prometheus（ekit metrics.Registry） |
 
 ### 审计锚点

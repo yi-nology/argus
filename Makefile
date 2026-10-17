@@ -1,6 +1,13 @@
 # Argus 构建与运行（学习期本机/内网；集群部署走 buildkit+ArgoCD）
 BINARY  := argus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# 版本元数据注入（v3.147.0）：main.version（报告头/AgentCard）与 oekit core/version.Version
+# （/version 端点）同值；BuildCommit/BuildBranch/BuildTime 只进 core/version。
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+OEKIT_VER  := github.com/oekit/core/version
+LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
 .PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real check docker compose-up compose-down k8s-apply clean
@@ -23,7 +30,7 @@ help:
 	@echo "make clean   - 清理本地产物"
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/$(BINARY) .
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) .
 
 build-ocrshim:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ocrshim ./cmd/ocrshim
