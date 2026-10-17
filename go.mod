@@ -16,7 +16,7 @@ require (
 	github.com/oekit/concurrency v0.4.0
 	github.com/oekit/core v0.6.0
 	github.com/oekit/data v0.8.2
-	github.com/oekit/hertz v0.5.1
+	github.com/oekit/hertz v0.5.2
 	github.com/oekit/logx v0.4.0
 	github.com/oekit/metrics v0.1.5
 	github.com/oekit/middleware v0.5.0
