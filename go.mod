@@ -34,6 +34,7 @@ require (
 	github.com/oekit/middleware v0.12.1
 	github.com/oekit/pkg v0.17.0
 	github.com/prometheus/client_golang v1.25.0
+	github.com/yi-nology/agent-harness v0.6.2
 	github.com/yi-nology/agent-memory v0.4.2
 	github.com/yi-nology/go-git-platform v0.78.0
 	golang.org/x/time v0.16.0
@@ -52,8 +53,8 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
-	github.com/bytedance/sonic v1.15.0 // indirect
-	github.com/bytedance/sonic/loader v0.5.0 // indirect
+	github.com/bytedance/sonic v1.15.4 // indirect
+	github.com/bytedance/sonic/loader v0.5.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.17 // indirect

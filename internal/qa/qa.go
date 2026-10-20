@@ -23,6 +23,7 @@ import (
 	"github.com/oagentkit/textx/conversation"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/yi-nology/agent-harness/budget"
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
@@ -52,6 +53,10 @@ type Engine struct {
 	// 「未启用」（工具不消失，fix_finding 同语义）。
 	SemSearch   *semsearch.Manager
 	SemSearchOn bool
+
+	// HistoryBudgetTokens 会话历史注入 token 预算（v3.152.0，ARGUS_QA_HISTORY_BUDGET；
+	// 0 = 缺省 6000）。到 Critical 档（≥90%）走 harness/budget 压实路径。
+	HistoryBudgetTokens int
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器
@@ -133,6 +138,13 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	// verbatim 注入窗口：只带最近 maxTurns 轮原文；更早内容由滚动摘要承接
 	//（v3.12.0 G2：此前第 7 轮起早期轮次被 FIFO 永久丢弃，追问跨不了轮）。
 	// v3.13.0：窗口切分/渲染/拼装下沉 agentkit conversation 包。
+	// v3.152.0：token 压力门（harness/budget）——历史估算总量到 Critical 档
+	// 先走预算压实（BuildPlan+Apply），轮数窗口只在预算富余时生效。
+	if _, _, total := historyItems(history, summary); budget.Classify(total, e.historyBudget()) == budget.PressureCritical {
+		if ns, tail, ok := e.compactHistory(ctx, prRef, history, summary); ok {
+			summary, history = ns, tail
+		}
+	}
 	recent, _ := conversation.Split(toConversationTurns(history), maxTurns)
 	historyText := conversation.Combine(summary, recent)
 
@@ -196,34 +208,51 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 // （v3.12.0 G2 规划口径：摘要生成走 QA 模型，失败不阻塞回答主流程）。
 // evicted 已是 conversation.Turn（v3.13.0 切 agentkit conversation 后窗口切分上收）。
 func (e *Engine) rollSummary(ctx context.Context, prRef, old string, evicted []conversation.Turn) string {
+	blocks := make([]string, 0, len(evicted)+1)
+	if old != "" {
+		blocks = append(blocks, "【已有摘要】\n"+old)
+	}
+	for _, t := range evicted {
+		blocks = append(blocks, "问："+t.Question+"\n答："+t.Answer)
+	}
+	s, err := e.summarizeTurns(ctx, prRef, blocks)
+	if err != nil || s == "" {
+		return old
+	}
+	return s
+}
+
+// summarizeTurns 滚动摘要模型调用单源（v3.152.0 自 rollSummary 抽出）：
+// blocks = 待并入的文本块（【已有摘要】+「问：…答：…」轮次块）。失败返回 err
+// （调用方决定回落语义：rollSummary 回落旧摘要，budget 压实回落轮数窗口）。
+func (e *Engine) summarizeTurns(ctx context.Context, prRef string, blocks []string) (string, error) {
 	cm := e.chatModel()
 	if cm == nil {
 		e.log().Warn("argus.qa.summary_no_model", "pr", prRef, "effect", "摘要不更新（纯 FIFO）")
-		return old
+		return "", fmt.Errorf("qa: 摘要模型不可用")
 	}
 	client := llm.NewClient(cm, "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage("你在维护同一个 PR 问答会话的滚动摘要。任务：把【新增轮次】的要点并入【已有摘要】" +
 			"（已有摘要为空则直接总结新增轮次）。保留：已确认的问题/结论、涉及的关键文件与行号、未决事项。" +
 			"中文、不超过 300 字、只输出摘要正文。"),
-		schema.UserMessage(plugin.DataFence("已有摘要（数据）", old) + "\n\n" +
-			plugin.DataFence("新增轮次（数据）", conversation.Render(evicted))),
+		schema.UserMessage(plugin.DataFence("待并入内容（数据）", strings.Join(blocks, "\n\n"))),
 	}
 	resp, err := client.Generate(ctx, "qa:summary", msgs)
 	if err != nil {
 		e.log().Warn("argus.qa.summary_failed", "pr", prRef, "error", err.Error(), "effect", "摘要不更新（纯 FIFO）")
-		return old
+		return "", err
 	}
 	s := strings.TrimSpace(resp.Content)
 	if s == "" {
-		return old
+		return "", fmt.Errorf("qa: 摘要返回空")
 	}
 	if rc := utf8.RuneCountInString(s); rc > summaryMaxRunes {
 		var trunc string
 		trunc, _ = textutil.TruncRunes(s, summaryMaxRunes)
 		s = trunc + "…"
 	}
-	return s
+	return s, nil
 }
 
 // systemPrompt Q&A 助手系统提示词。

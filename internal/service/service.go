@@ -299,6 +299,9 @@ func (s *Service) qa() *qa.Engine {
 			SemSearch:   s.SemSearch,
 			SemSearchOn: s.Cfg != nil && s.Cfg.SemSearch,
 		}
+		if s.Cfg != nil {
+			e.HistoryBudgetTokens = s.Cfg.QAHistoryBudget
+		}
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论。
 		// v3.151.0：内核开启时切八段召回 + MemoryBand 防伪包裹。
 		if s.Cfg != nil && s.Cfg.MemoryDir != "" {

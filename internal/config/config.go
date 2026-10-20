@@ -243,6 +243,11 @@ type Config struct {
 	// 灰度期与文件面并存，可对账可回退。库文件固定在 <MemoryDir>/kernel.db。
 	MemoryKernel bool
 
+	// QAHistoryBudget QA 会话历史注入 token 预算（ARGUS_QA_HISTORY_BUDGET；
+	// v3.152.0 harness/budget 压力档压实——到 90% 档先压实后进 prompt。
+	// 0 = 缺省 6000，本地估算 ceil(runes/3) 口径）。
+	QAHistoryBudget int
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -441,6 +446,7 @@ func Load() *Config {
 		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
 		MemoryKernel:           envBool("ARGUS_MEMORY_KERNEL", false),
+		QAHistoryBudget:        envInt("ARGUS_QA_HISTORY_BUDGET", 0),
 		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
 		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
 		ExternalToolCallLimit:  envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5),
