@@ -2,6 +2,11 @@
 
 > 指令：以 oekit/oagentkit llms.txt + yi-nology/agent-harness + yi-nology/agent-memory
 > 深度优化 argus，全部替换手写重叠面。本文是映射裁定单源。
+>
+> **落地终态**：v3.149.0（agentkit→oagentkit 在途迁移收口）→ v3.150.0（oekit+oagentkit
+> 全模块拉最新）→ v3.151.0（agent-memory 底座 opt-in）→ v3.152.0（harness budget
+> 接入 qa）→ v3.153.0 评估批（checkpoint 缓办/commitgate·toolfail·tooldisclose·
+> promptx·spill 裁定不接，理由在下）。全部批次四门禁绿（golden 69）已 push。
 
 ## 现状基线（v3.149.0）
 
@@ -52,22 +57,34 @@ qa 会话现按**轮数**切窗（conversation.Split maxTurns）+ 滚动摘要�
 分段计量 + Pressure 分档（75%/90%）+ 压实计划 + 归档接口。滚动摘要逻辑保留为
 Summarizer 实现。毛/净移除量分开取（NetRemovedTokens），分段估算不回填 provider 报数。
 
-### v3.153.0 harness checkpoint + commitgate 接入 runner
+### v3.153.0 harness checkpoint + commitgate 接入 runner（**终态裁定：不接/缓办**）
 
-- R1-R5 阶段快照经 `checkpoint.Committer`（抢序号→落库→仅失败回滚）落 SQLite CAS；
-  进程重启 `SeedFromStore` 回灌闸；`BuildPlan` 纯函数恢复判定
-  （空洞不采信/终态不自动重开/序号单调）。收益：大 MR ~15min 审查中断后续跑而非重跑。
-- verdict 提交经 `commitgate.Guard`（Acquire 令牌 + ReleaseLease 凭令牌回滚），
-  堵「两条分支都赢了」——poster stale_skip 是事后发现，本闸是事前独占。
+实施前评估改判（2026-10-20，实证在案）：
 
-### 后续候选（评估后定，不在本轮承诺）
+- **commitgate 不接**：它是进程内闸，而 argus 终态提交走 `FinishTaskFenced`
+  （DB 条件更新 + 执行归属 fencing，v3.8.0）——DB 闸跨进程天然更强，
+  进程内闸在多副本下管不住「两条分支都赢了」。poster stale_skip（R5.4）
+  是其上语义层，两者已闭合。
+- **checkpoint 缓办**：续跑而非重放的前提是「环节产物中途持久化」——
+  当前 R1-R5 只有阶段**进度标记**（v3.132.0 stage_progress），产物
+  （R3 findings/R4 报告草稿）只在终态落库。没有产物续跑只是「跳过阶段名
+  重跑全部」，是假续跑。前置专项（产物中途落库 + 再水合）另立，不混入本轮。
 
-- **tooldisclose**：qa ask 19 工具全量挂 ReAct → 渐进披露省 prompt；
-  先看 agent v0.10.0 agentrun 是否已内置等价面。
-- **toolfail**：工具失败分类表（可重试/退避/重发安全正交）——落点在 qa ReAct 的
-  MCP 工具错误面；agentrun CallID 配对已覆盖 watchdog 关注点。
-- **spill**：poster 截断提示契约化 + 分页取回。
-- **ptc**：ask ReAct 多轮塌缩成 1 轮（goja 沙箱）——新能力，独立评审。
+### 后续候选终态（评估完毕，全部有裁定）
+
+- **toolfail 不接**：模型侧指引 argus 已有等价面（plugin.ReminderNote 工具
+  错误指引逐工具在案）；失败分类表的消费方在 oagentkit agentrun 内部重试
+  编排（上游方向，非 argus 侧）。
+- **tooldisclose 不接**：argus 内部 ReAct 工具表个位数（get_file/search_*
+  等），全量披露开销可忽略；19 工具面是 argus 对外 MCP server 契约
+  （给外部 AI），不是内部消费面。
+- **watchdog 不接**：oagentkit agent v0.10.0 agentrun CallID 原生配对
+  （声明↔结果精确配对）已覆盖。
+- **spill 不接**：TruncNote 换写此前轮次已裁定不做；截断全文取回面已有
+  get_report/MCP 通道。
+- **promptx 不接**：argus prompt 是逐插件审查任务型定制（golden 钉住），
+  sysprompt Builder 面向 agent 系统提示词分节场景，替换=全插件改写净收益≈0。
+- **ptc 候选专项**（非替换）：程序化工具编排塌缩 ReAct 轮次，新能力评审另立。
 
 ### 裁定不做（留痕勿重探）
 
