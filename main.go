@@ -30,6 +30,8 @@ import (
 	ekitmetrics "github.com/oekit/metrics"
 	mw "github.com/oekit/middleware"
 	"github.com/oekit/middleware/hmw"
+	oekittracing "github.com/oekit/tracing"
+	gormotel "github.com/oekit/tracing/gormotel"
 
 	hapi "argus/biz/handler/api"
 	rapi "argus/biz/router/api"
@@ -92,6 +94,26 @@ func main() {
 // 保持 running 待下次启动重置）→ 选主让位 → 最后关库。
 func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	ctx := app.Context()
+
+	// ---- OTel 链路导出（v3.163.0，oekit/tracing；ARGUS_OTEL_ENDPOINT opt-in）----
+	// 全局 TracerProvider + W3C/B3 传播器 + gormotel 挂主库（DB 查询成 span）。
+	// Endpoint 空 = 完全不 Init（零开销）；flush 资源先于 store 注册（逆序关闭
+	// 时最后 flush——关库之后的残余 span 也能带出去）。
+	if cfg.OTelEndpoint != "" {
+		prov, terr := oekittracing.Init(oekittracing.Config{
+			ServiceName: "argus",
+			Endpoint:    cfg.OTelEndpoint,
+			Insecure:    cfg.OTelInsecure,
+			SampleRate:  cfg.OTelSampleRate,
+			Protocol:    cfg.OTelProtocol,
+		})
+		if terr != nil {
+			return fmt.Errorf("otel 初始化失败: %w", terr)
+		}
+		storage.SetGormPlugin(gormotel.NewPlugin(gormotel.WithDBName("argus")))
+		app.AddResource("otel-flush", func(ctx context.Context) error { return prov.Shutdown(ctx) })
+		log.Info("argus.boot.otel_enabled", "endpoint", cfg.OTelEndpoint, "protocol", cfg.OTelProtocol)
+	}
 
 	// ---- 存储（§5.2：三张表 + 幂等/去重/抢占/staleness）----
 	store, err := storage.Open(cfg.DBDSN)

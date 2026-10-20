@@ -182,6 +182,14 @@ func (s *Store) writeUnlock() {
 // gorm.ErrRecordNotFound——ORM 错误语义不出 storage 包。
 var ErrNotFound = errors.New("storage: record not found")
 
+// gormPlugin 可选 GORM 插件（v3.163.0 oekit/tracing 接入缝）：组合根在 Open 前
+// 经 SetGormPlugin 注入（gormotel），Open 后 db.Use 挂载——DB 查询成 OTel span。
+// nil = 不挂（缺省，零开销）。
+var gormPlugin gorm.Plugin
+
+// SetGormPlugin 注入 GORM 插件（须在 Open 前调用；后调用者生效）。
+func SetGormPlugin(p gorm.Plugin) { gormPlugin = p }
+
 // Open 打开数据库并自动迁移。DSN 以 "mysql://" 前缀或含 "@tcp("（go-sql-driver 形态）
 // 视为 MySQL，否则 SQLite——不做子串 "mysql" 判断：路径含 mysql 的 SQLite 文件会误判。
 func Open(dsn string) (*Store, error) {
@@ -224,6 +232,12 @@ func Open(dsn string) (*Store, error) {
 		sqlDB.SetMaxIdleConns(4) // idle=max-open 避免连接反复开关的 WAL 开销
 		// SQLite 不设 ConnMaxLifetime：单文件单连接，文件替换由 OS 语义保证一致性
 		s.db, s.sqlite = db, true
+	}
+	// OTel 追踪插件（可选）：挂在 AutoMigrate 之前——迁移查询也留 span。
+	if gormPlugin != nil {
+		if uerr := s.db.Use(gormPlugin); uerr != nil {
+			return nil, fmt.Errorf("storage: 挂载 gorm 插件失败: %w", uerr)
+		}
 	}
 	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
