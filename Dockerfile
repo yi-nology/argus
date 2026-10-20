@@ -6,7 +6,7 @@
 #   运行层需要 git（workcopy 浅克隆）与 ca-certificates（平台/LLM HTTPS）。
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /src
 RUN apk add --no-cache git openssh
 COPY go.mod go.sum ./

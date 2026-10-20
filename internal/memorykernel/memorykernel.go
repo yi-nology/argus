@@ -24,6 +24,8 @@ package memorykernel
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/oekit/logx"
@@ -47,12 +49,17 @@ type Kernel struct {
 	log   logx.Logger
 }
 
-// Open 打开（必要时创建）内核库并装配捕获/召回面。path 为 sqlite 文件路径。
+// Open 打开（必要时创建）内核库并装配捕获/召回面。path 为 sqlite 文件路径；
+// 父目录自动创建（sqlite.OpenFile 要求父目录已存在——215 实弹暴露 kernel.db
+// 建在新目录下时 "unable to open database file"，目录创建归本层，调用方不背）。
 // capture.New 缺 Redactor 直接失败（内核纪律：记忆是留存资产，脱敏必需）；
 // recall 注入面 MemoryBand 必需（防伪包裹不缺省）。
 func Open(path string, log logx.Logger) (*Kernel, error) {
 	if path == "" {
 		return nil, fmt.Errorf("memorykernel: 库路径不可空")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("memorykernel: 建库目录: %w", err)
 	}
 	st, err := sqlite.OpenFile(path)
 	if err != nil {

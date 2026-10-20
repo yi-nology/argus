@@ -2,6 +2,7 @@ package memorykernel
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,18 @@ func TestGCNilSafe(t *testing.T) {
 	}
 	if err := k.Vacuum(context.Background()); err != nil {
 		t.Fatalf("nil Vacuum 应 nil，got %v", err)
+	}
+}
+
+func TestOpenCreatesParentDir(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/nested/deeper/kernel.db" // 父目录不存在——Open 必须自建
+	k, err := Open(path, logx.NewSlogLogger("memorykernel-test"))
+	if err != nil {
+		t.Fatalf("Open 新目录库失败（父目录应自建）: %v", err)
+	}
+	defer k.Close()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("库文件未创建: %v", err)
 	}
 }
