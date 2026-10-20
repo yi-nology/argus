@@ -129,6 +129,11 @@ type Workflow struct {
 	// 池语义：注入只记路径不持引用，目录由 workcopy TTL 兜底存活；工具侧读不到
 	// 时按工具错误文本降级，不中断 ReAct。
 	CodeSearchDir string
+
+	// ckptMu R4 逐插件 checkpoint 落库序列化（v3.154.0）：
+	// MergeTaskStageArtifacts 是读-改-写合并，fan-out 并发落键不加锁会丢更新。
+	// 任务级实例锁，与 R1/R2 的顺序落库互不竞争。
+	ckptMu sync.Mutex
 }
 
 // skillsForKind 任务类型 → R4 分派的技能词表。
@@ -320,10 +325,20 @@ func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *plu
 	stageStart := time.Now()
 	w.onStage(plugin.LayerR4)
 
-	// R4：确定性路由 → 预算裁剪 → fan-out
+	// R4：确定性路由 → 同任务重试回流（v3.154.0）→ 预算裁剪 → fan-out
 	sel = w.Dispatcher.Select(&task.PR, changedFiles, skills, rc)
-	sel, pruned = w.Dispatcher.PruneByBudget(sel, budget)
-	outcomes = w.Dispatcher.Run(ctx, task, sel, budget)
+	// 逐插件 checkpoint 回流：命中 ckpt_r4/<plugin> 的插件直接复用产物——
+	// 进程崩溃/发布打断后的同任务重试不再整批重跑（R4 是 LLM 主体成本）。
+	// 复用产物并入 outcomes（视为已执行），执行集只含未命中插件。
+	execSel, restoredSel, restored := restoreR4Outcomes(task.Artifacts, sel)
+	if len(restored) > 0 {
+		w.Log.Info("argus.r4.ckpt_reuse", "restored", len(restored), "total", len(sel))
+	}
+	execSel, pruned = w.Dispatcher.PruneByBudget(execSel, budget)
+	outcomes = append(outcomes, restored...)
+	outcomes = append(outcomes, w.Dispatcher.RunWithHook(ctx, task, execSel, budget, w.r4CkptHook)...)
+	// sel 返回口径 = 覆盖全集（复用 + 本轮执行保留），G4 完备性裁判据此判覆盖
+	sel = append(restoredSel, execSel...)
 	// v3.4 编队共识模式：consensus 编队不进 fan-out（Select 已排除），在
 	// fan-out 后单独召集——成员黑板互看、共识收敛，产出按成员归属进 Merger。
 	for _, sq := range w.Dispatcher.ConsensusSquads(&task.PR, changedFiles) {

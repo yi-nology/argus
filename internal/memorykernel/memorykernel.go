@@ -179,7 +179,7 @@ func (k *Kernel) ClearRepo(ctx context.Context, ns store.Namespace) error {
 // GC 原始事件按龄回收（lifecycle.GC 委派；顺带退役证据全没的事实卡）。
 // 命名空间清单由调用方供给（dream 写侧域：_org + ListPatternRepos 派生，
 // 与 dream 供给面同源——内核不攒「dream 不管的库」）。ns 用 string 形态
-//（OrgNamespace/NamespaceOf 转字符串），不向调用方泄漏内核类型。
+// （OrgNamespace/NamespaceOf 转字符串），不向调用方泄漏内核类型。
 func (k *Kernel) GC(ctx context.Context, ns string, before time.Time) (int, error) {
 	if k == nil {
 		return 0, nil

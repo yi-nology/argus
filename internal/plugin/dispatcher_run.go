@@ -64,9 +64,20 @@ func (d *Dispatcher) PruneByBudget(sel []Selection, budget *TokenBudget) (keep [
 	return keep, pruned
 }
 
+// OutcomeHook 单插件产物落定回调（v3.154.0 R4 逐插件 checkpoint）。
+// 仅在 Result 非 nil（成功/部分成功）时触发；失败/跳过/取消不触发。
+// 契约：实现方必须快速返回（在 fan-out 热路径上被同步调用）。
+type OutcomeHook func(o Outcome)
+
 // Run fan-out 并发执行选中的插件（各带超时），部分失败容忍。
 // 返回顺序与输入 Selection 顺序一致。
 func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget *TokenBudget) []Outcome {
+	return d.RunWithHook(ctx, task, sel, budget, nil)
+}
+
+// RunWithHook 同 Run，逐插件产物落定（成功）时同步触发 hook。
+// hook=nil 与 Run 完全等价；hook 实现方须快速返回（热路径同步调用）。
+func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection, budget *TokenBudget, hook OutcomeHook) []Outcome {
 	outcomes := make([]Outcome, len(sel))
 	// 预算随 Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
 	task.Budget = budget
@@ -144,6 +155,9 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 						result = "partial"
 					}
 					ReportBestOfN(reg.Manifest.Name, result)
+					if hook != nil {
+						hook(*o)
+					}
 				case canceled:
 					// 任务级取消不是插件故障：Abandon 释放半开探测位（配对契约）
 					brk.AbandonGen(gen)
@@ -171,6 +185,9 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			case err == nil:
 				o.Result = &res
 				brk.SuccessGen(gen)
+				if hook != nil {
+					hook(*o)
+				}
 			case teardown(err, ctx):
 				// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
 				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）。

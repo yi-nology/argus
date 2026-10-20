@@ -1,0 +1,63 @@
+// r4ckpt.go —— R4 逐插件 checkpoint（v3.154.0）：插件产物一经落定即落库
+// （stage_artifacts 键 ckpt_r4/<plugin>），同任务重试时命中键的插件直接复用
+// 产物不再重跑——R4 是 LLM 主体成本，进程崩溃续跑不再整批重来。
+//
+// 与 harness checkpoint 的关系（评估在案勿重探）：checkpoint.BuildPlan 的
+// 「连续前缀」语义为有序步骤链设计，R4 fan-out 插件彼此独立、乱序完成——
+// 前缀规则会把「第 1 个没完成第 3 个完成」的合法完成集作废。故本面复用
+// v3.12.0 stage_artifacts 既有机制扩展（与 R1/R2 同构），不套 BuildPlan。
+//
+// 语义边界（与 R1/R2 checkpoint 一致）：
+//   - 只在任务内有效：键落在 tasks.stage_artifacts，新任务永远全量重跑；
+//   - 失败/跳过/取消的插件不落键——重试自然再跑（G4 补审语义不变）；
+//   - 复用的插件本轮零 token 消耗：预算是「本轮账」，复用不回灌
+//     （方向是低估，对预算闸是安全侧）。
+package requirement
+
+import (
+	"encoding/json"
+
+	"argus/internal/plugin"
+)
+
+// restoreR4Outcomes 同任务重试回流：命中 ckpt_r4/<plugin> 键的插件从执行集
+// 剔除、产物直接复用。返回（待执行集, 复用选中集, 复用产物）。
+// 键值损坏（JSON 解不出）= 当没命中，回执行集重跑——checkpoint 是成本优化，
+// 永不做正确性决策。
+func restoreR4Outcomes(artifacts map[string]string, sel []plugin.Selection) (exec, restoredSel []plugin.Selection, restored []plugin.Outcome) {
+	for _, s := range sel {
+		name := s.Reg.Manifest.Name
+		raw, ok := artifacts[plugin.ArtifactCkptR4Prefix+name]
+		if !ok || raw == "" {
+			exec = append(exec, s)
+			continue
+		}
+		var res plugin.Result
+		if err := json.Unmarshal([]byte(raw), &res); err != nil {
+			exec = append(exec, s)
+			continue
+		}
+		restoredSel = append(restoredSel, s)
+		restored = append(restored, plugin.Outcome{
+			Name:     name,
+			Manifest: s.Reg.Manifest,
+			Result:   &res,
+		})
+	}
+	return exec, restoredSel, restored
+}
+
+// r4CkptHook 逐插件落定落库（Dispatcher OutcomeHook 实现方）：
+// 成功产物序列化后经 checkpointSave 合并写（锁在调用方 hook 闭包内）。
+func (w *Workflow) r4CkptHook(o plugin.Outcome) {
+	if o.Result == nil {
+		return
+	}
+	b, err := json.Marshal(o.Result)
+	if err != nil {
+		return
+	}
+	w.ckptMu.Lock()
+	defer w.ckptMu.Unlock()
+	w.checkpointSave(map[string]string{plugin.ArtifactCkptR4Prefix + o.Name: string(b)})
+}

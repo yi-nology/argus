@@ -324,6 +324,12 @@ const (
 	ArtifactCkptR1Spec    = "checkpoint_r1_spec"    // RequirementSpec JSON
 	ArtifactCkptR2Summary = "checkpoint_r2_summary" // R2 变更摘要文本
 	ArtifactStageProgress = "stage_progress"        // 当前阶段标记（v3.132.0，onStage 每阶段开头落库）
+	// ArtifactCkptR4Prefix R4 逐插件 checkpoint 键前缀（v3.154.0）：
+	// 键 = ckpt_r4/<plugin>，值 = Result JSON。插件产物一经落定即落库，
+	// 同任务重试时命中键的插件不再重跑（R4 是 LLM 主体成本——进程崩溃
+	// 续跑不再整批重来）。与 R1/R2 同语义：只在任务内有效，新任务永远
+	// 全量重跑；失败/跳过/取消的插件不落键（重试自然再跑）。
+	ArtifactCkptR4Prefix = "ckpt_r4/"
 	// ArtifactDiffInput diff_preview 任务的输入 diff 文本（v3.123.0）：建任务时
 	// 一次性写入 artifacts_json，runner 执行时读取。上限 48KB（TEXT 列 64KB
 	// 上界减 JSON 转义膨胀余量）。

@@ -97,7 +97,7 @@ func (qaArchive) Archive(_ context.Context, items []budget.Item) (budget.Locator
 }
 
 // qaSummarizer budget.Summarizer 宿主实现：正文在装配时按 ID 同源捕获
-//（Item 无内容面），摘要走既有 QA 模型（与 rollSummary 同一模型选择）。
+// （Item 无内容面），摘要走既有 QA 模型（与 rollSummary 同一模型选择）。
 type qaSummarizer struct {
 	e       *Engine
 	prRef   string

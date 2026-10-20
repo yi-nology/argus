@@ -5,8 +5,9 @@
 >
 > **落地终态**：v3.149.0（agentkit→oagentkit 在途迁移收口）→ v3.150.0（oekit+oagentkit
 > 全模块拉最新）→ v3.151.0（agent-memory 底座 opt-in）→ v3.152.0（harness budget
-> 接入 qa）→ v3.153.0 评估批（checkpoint 缓办/commitgate·toolfail·tooldisclose·
-> promptx·spill 裁定不接，理由在下）。全部批次四门禁绿（golden 69）已 push。
+> 接入 qa）→ v3.153.0（agent-memory 生命周期 GC 日级 ticker）→ v3.154.0（R4 逐插件
+> checkpoint，同任务重试续跑闭环；commitgate·toolfail·tooldisclose·promptx·spill
+> 裁定不接，理由在下）。全部批次四门禁绿（golden 69）已 push。
 
 ## 现状基线（v3.149.0）
 
@@ -57,7 +58,7 @@ qa 会话现按**轮数**切窗（conversation.Split maxTurns）+ 滚动摘要�
 分段计量 + Pressure 分档（75%/90%）+ 压实计划 + 归档接口。滚动摘要逻辑保留为
 Summarizer 实现。毛/净移除量分开取（NetRemovedTokens），分段估算不回填 provider 报数。
 
-### v3.153.0 harness checkpoint + commitgate 接入 runner（**终态裁定：不接/缓办**）
+### v3.153.0 harness checkpoint + commitgate 接入 runner（**终态裁定：不接/部分翻案**）
 
 实施前评估改判（2026-10-20，实证在案）：
 
@@ -65,12 +66,28 @@ Summarizer 实现。毛/净移除量分开取（NetRemovedTokens），分段估�
   （DB 条件更新 + 执行归属 fencing，v3.8.0）——DB 闸跨进程天然更强，
   进程内闸在多副本下管不住「两条分支都赢了」。poster stale_skip（R5.4）
   是其上语义层，两者已闭合。
-- **checkpoint 缓办**：续跑而非重放的前提是「环节产物中途持久化」——
-  当前 R1-R5 只有阶段**进度标记**（v3.132.0 stage_progress），产物
-  （R3 findings/R4 报告草稿）只在终态落库。没有产物续跑只是「跳过阶段名
-  重跑全部」，是假续跑。前置专项（产物中途落库 + 再水合）另立，不混入本轮。
+- **checkpoint 部分翻案**：评估时判「产物中途落库是缺失前置」——错。
+  stage_artifacts 自 v3.12.0 就在（R1/R2 产物即时落库 + 同任务重试回流）。
+  真正的洞是 **R4（LLM 主体成本）不在 checkpoint 面**：进程崩溃 → 同任务
+  重试 → R4 整批重跑。**但 harness checkpoint.BuildPlan 语义不匹配 R4**：
+  BuildPlan「连续前缀」为有序步骤链设计，R4 fan-out 插件彼此独立、乱序
+  完成，前缀规则会把合法完成集作废（失序多跑）。故 R4 续跑复用既有
+  stage_artifacts 机制扩展（v3.154.0），BuildPlan 保持不接。
+- **v3.153.0 实装内容改为 agent-memory 生命周期接线**（GC 日级 ticker，
+  命名空间与 dream 供给面同源）。
 
-### 后续候选终态（评估完毕，全部有裁定）
+### v3.154.0 R4 逐插件 checkpoint（续跑真闭环）
+
+- Dispatcher 新增 `OutcomeHook` + `RunWithHook`（Run 签名不变委派 nil hook）：
+  产物落定（含 best-of-N 聚合成功）即回调；失败/跳过/取消不落。
+- workflow dispatchR4：`Select → restoreR4Outcomes 回流 → PruneByBudget →
+  RunWithHook(落键 ckpt_r4/<plugin>)`；返回 sel = 复用集+执行保留集
+  （G4 覆盖裁判口径不变）。
+- 并发安全：r4CkptHook 持任务级 ckptMu（MergeTaskStageArtifacts 读-改-写
+  合并不加锁会丢键，并发测试钉住）。
+- 回流失败模式：键损坏=当没命中回执行集重跑（checkpoint 永不做正确性决策）。
+- 编队共识（RunConsensus）本批不接 checkpoint——重试重跑（正确性不变，
+  节省面留后续）。
 
 - **toolfail 不接**：模型侧指引 argus 已有等价面（plugin.ReminderNote 工具
   错误指引逐工具在案）；失败分类表的消费方在 oagentkit agentrun 内部重试
