@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/procx"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/runtime/procx"
 )
 
 // runOCR 在工作副本目录执行 OCR range 审查，返回 stdout（JSON）。

@@ -15,7 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"git.example.com/enjoydream/agentkit/logredact"
+	"github.com/oagentkit/guardx/logredact"
 
 	"argus/internal/gitdeepen"
 	"argus/internal/plugin"

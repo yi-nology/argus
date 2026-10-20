@@ -9,7 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/obs"
 	"argus/internal/plugin"

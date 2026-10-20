@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/plugin"
 )

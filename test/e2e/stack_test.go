@@ -33,9 +33,9 @@ import (
 	"argus/internal/runner"
 	"argus/internal/service"
 	"argus/internal/storage"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
-	agentkitworker "git.example.com/enjoydream/agentkit/worker"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
+	agentkitworker "github.com/oagentkit/queue/worker"
 
 	argusworker "argus/internal/worker"
 	"github.com/cloudwego/hertz/pkg/app"

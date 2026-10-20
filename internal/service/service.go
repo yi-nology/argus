@@ -14,7 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/concurrency/ratelimit"
 	ekcache "github.com/oekit/data/cache"
@@ -31,10 +31,10 @@ import (
 	"argus/internal/storage"
 	"argus/internal/writing"
 
-	"git.example.com/enjoydream/agentkit/audit"
-	"git.example.com/enjoydream/agentkit/fence"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/guardx/audit"
+	"github.com/oagentkit/guardx/fence"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/llm/llm"
 )
 
 // Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).

@@ -14,8 +14,8 @@ import (
 
 	"gorm.io/gorm"
 
-	akreportutil "git.example.com/enjoydream/agentkit/reportutil"
-	"git.example.com/enjoydream/agentkit/textutil"
+	akreportutil "github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/domain"
 )

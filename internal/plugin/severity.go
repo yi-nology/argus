@@ -1,7 +1,7 @@
 package plugin
 
 import (
-	aktextutil "git.example.com/enjoydream/agentkit/textutil"
+	aktextutil "github.com/oagentkit/textx/textutil"
 
 	"argus/internal/domain"
 )

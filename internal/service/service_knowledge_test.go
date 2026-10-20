@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"github.com/oagentkit/rag/rag"
 	"github.com/cloudwego/eino/components/tool"
 )
 

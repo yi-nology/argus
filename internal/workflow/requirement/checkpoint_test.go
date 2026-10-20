@@ -10,7 +10,7 @@ import (
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/llm/llm"
 )
 
 // v3.12.0 G2 断点续审：checkpoint 助手纯函数测试（spec 回流/坏 JSON 容错/摘要复用/sink 落库）。

@@ -1,7 +1,7 @@
 package plugin
 
 import (
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 )
 
 // 仓库级评审行为过滤（v3.15.0 P0-2：.reviewagents.yaml review 段的运行时消费）。

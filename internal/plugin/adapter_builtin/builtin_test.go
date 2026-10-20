@@ -10,7 +10,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/skill"
+	"github.com/oagentkit/skillkit/skill"
 
 	"argus/internal/plugin"
 )

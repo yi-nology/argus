@@ -3,7 +3,6 @@ module argus
 go 1.26.3
 
 require (
-	git.example.com/enjoydream/agentkit v0.15.0
 	github.com/apache/thrift v0.13.0
 	github.com/cloudwego/eino v0.9.21
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
@@ -12,15 +11,28 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
-	github.com/oekit/bootstrap v0.5.0
-	github.com/oekit/concurrency v0.4.0
-	github.com/oekit/core v0.6.0
-	github.com/oekit/data v0.8.2
-	github.com/oekit/hertz v0.5.2
-	github.com/oekit/logx v0.4.0
-	github.com/oekit/metrics v0.1.5
-	github.com/oekit/middleware v0.5.0
-	github.com/oekit/pkg v0.9.0
+	github.com/oagentkit/agent v0.2.1
+	github.com/oagentkit/guardx v0.1.1
+	github.com/oagentkit/llm v0.4.0
+	github.com/oagentkit/mcpkit v0.2.1
+	github.com/oagentkit/obs v0.2.1
+	github.com/oagentkit/queue v0.2.1
+	github.com/oagentkit/rag v0.2.1
+	github.com/oagentkit/runtime v0.3.1
+	github.com/oagentkit/skillkit v0.1.0
+	github.com/oagentkit/textx v0.1.0
+	github.com/oagentkit/toolgate v0.2.1
+	github.com/oagentkit/tools v0.2.1
+	github.com/oekit/bootstrap v0.6.2
+	github.com/oekit/concurrency v0.16.0
+	github.com/oekit/core v0.9.0
+	github.com/oekit/data v0.13.0
+	github.com/oekit/hertz v0.6.4
+	github.com/oekit/kitx v0.2.0
+	github.com/oekit/logx v0.7.0
+	github.com/oekit/metrics v0.1.7
+	github.com/oekit/middleware v0.11.0
+	github.com/oekit/pkg v0.14.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/go-git-platform v0.78.0
 	golang.org/x/time v0.16.0
@@ -100,7 +112,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/meguminnnnnnnnn/go-openai v0.1.2 // indirect
+	github.com/meguminnnnnnnnn/go-openai v0.1.6 // indirect
 	github.com/milvus-io/milvus-proto/go-api/v2 v2.4.10-0.20240819025435-512e3b98866a // indirect
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -108,9 +120,9 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oekit/gormx v0.5.1 // indirect
-	github.com/oekit/registry v0.3.0 // indirect
-	github.com/oekit/tracing v0.2.0 // indirect
+	github.com/oekit/gormx v0.5.5 // indirect
+	github.com/oekit/registry v0.4.1 // indirect
+	github.com/oekit/tracing v0.2.2 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

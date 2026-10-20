@@ -9,7 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/llm/llm"
 )
 
 // stubModel 固定响应桩（GenerateJSON 走 Client 层 JSON 修复解析）。

@@ -16,9 +16,9 @@ import (
 
 	"github.com/oekit/logx"
 
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/config"
 	"argus/internal/plugin"

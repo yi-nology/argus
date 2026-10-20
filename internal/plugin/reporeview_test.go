@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 )
 
 func TestParseRepoConfigReviewSection(t *testing.T) {

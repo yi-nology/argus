@@ -8,8 +8,8 @@ import (
 	"context"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/obs"
 	"argus/internal/plugin"

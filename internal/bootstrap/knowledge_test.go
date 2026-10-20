@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"github.com/oagentkit/rag/rag"
 	"github.com/oekit/logx"
 
 	"argus/internal/config"

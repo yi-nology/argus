@@ -18,10 +18,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/procx"
-	"git.example.com/enjoydream/agentkit/reportutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/tools/acpx"
+	"github.com/oagentkit/runtime/procx"
+	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

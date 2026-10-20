@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/breaker"
-
 	"argus/internal/domain"
+
+	"github.com/oekit/concurrency/breaker"
 )
 
 func TestNormalizeSeverity(t *testing.T) {
@@ -121,29 +121,42 @@ func TestTriggerMatchEvents(t *testing.T) {
 }
 
 func TestBreaker(t *testing.T) {
-	bs := breaker.NewBreakers(0, 0)
 	now := time.Now()
-	bs.Now = func() time.Time { return now }
+	// 旧写法 breaker.NewBreakers(0, 0) 里的 0 是「用缺省」（trip=3 / cooldown=5min），
+	// 与上游语义**相反**：WithConsecutiveFailures(0) 是关闭计数触发、
+	// WithCooldown(0) 是沿用 probeTimeout。照抄 0 会让本测试完全失去意义，
+	// 所以必须显式写出真实参数。
+	bs, ok := breaker.NewBreaker("argus.test.p",
+		breaker.WithConsecutiveFailures(breakerTripThreshold),
+		breaker.WithCooldown(breakerCooldown),
+		breaker.WithBreakerClock(func() time.Time { return now }),
+	).(breaker.GenBreaker)
+	if !ok {
+		t.Fatal("oekit/concurrency 未实现 GenBreaker 扩展接口")
+	}
 
-	name := "p"
+	allow := func() (uint64, error) { _, g, e := bs.AllowGen(context.Background()); return g, e }
+
 	for i := 0; i < 3; i++ {
-		if !bs.Allow(name) {
+		gen, err := allow()
+		if err != nil {
 			t.Fatal("closed 应放行")
 		}
-		bs.Failure(name)
+		bs.FailureGen(context.Background(), gen)
 	}
-	if bs.Allow(name) {
+	if _, err := allow(); err == nil {
 		t.Fatal("3 连败后应熔断")
 	}
-	now = now.Add(breaker.DefaultCooldown + time.Second)
-	if !bs.Allow(name) {
+	now = now.Add(breakerCooldown + time.Second)
+	probeGen, err := allow()
+	if err != nil {
 		t.Fatal("冷却后应半开放行一个探测")
 	}
-	if bs.Allow(name) {
+	if _, err := allow(); err == nil {
 		t.Fatal("半开探测在途时不放行第二个")
 	}
-	bs.Success(name)
-	if !bs.Allow(name) {
+	bs.SuccessGen(probeGen)
+	if _, err := allow(); err != nil {
 		t.Fatal("探测成功后应闭合")
 	}
 }

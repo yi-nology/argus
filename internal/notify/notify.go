@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"argus/internal/notify/octopus"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
 	"argus/internal/obs"

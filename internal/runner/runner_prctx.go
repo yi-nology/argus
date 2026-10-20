@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/textutil"
 	ekcache "github.com/oekit/data/cache"
 
 	argusctx "argus/internal/context"

@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/procx"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/runtime/procx"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/plugin"
 )

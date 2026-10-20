@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/procx"
-	"git.example.com/enjoydream/agentkit/reportutil"
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/runtime/procx"
+	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

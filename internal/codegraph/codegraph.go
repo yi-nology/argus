@@ -7,7 +7,7 @@
 // 不经 LLM——现随 SDK 侧一并声明。
 package codegraph
 
-import "git.example.com/enjoydream/agentkit/codeintel"
+import "github.com/oagentkit/textx/codeintel"
 
 type (
 	// Symbol 一个顶层符号定义（func/type/var/const，含 receiver 与签名片段）。

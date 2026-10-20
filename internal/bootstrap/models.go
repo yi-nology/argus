@@ -13,8 +13,8 @@ import (
 	"argus/internal/config"
 	"argus/internal/obs"
 	"argus/internal/plugin"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/llm/wrap"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm/wrap"
 )
 
 // Models 装配期一次解析完成的模型栈。原散在 main.go 的 ~270 行 if/else 收敛于此：

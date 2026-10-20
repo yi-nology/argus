@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/fence"
-	"git.example.com/enjoydream/agentkit/reportutil"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/guardx/fence"
+	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 

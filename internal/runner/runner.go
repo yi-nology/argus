@@ -14,13 +14,13 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"golang.org/x/time/rate"
 
-	"git.example.com/enjoydream/agentkit/audit"
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/guardx/audit"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/llm/llm"
 	"github.com/cloudwego/eino/callbacks"
 
 	"argus/internal/config"
@@ -37,9 +37,9 @@ import (
 	"argus/internal/toolpool"
 	"argus/internal/workflow/requirement"
 
-	"git.example.com/enjoydream/agentkit/obsx"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/obs/obsx"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
 )
 
 // Runner 单任务执行器。

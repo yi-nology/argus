@@ -8,7 +8,7 @@ import (
 	"context"
 	"time"
 
-	agentkitworker "git.example.com/enjoydream/agentkit/worker"
+	agentkitworker "github.com/oagentkit/queue/worker"
 )
 
 // LeaderLease leader_leases 表：一行一个租约 key。列名 lease_key（避开 MySQL

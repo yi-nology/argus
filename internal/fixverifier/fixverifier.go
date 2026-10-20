@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/procx"
+	"github.com/oagentkit/runtime/procx"
 
 	"argus/internal/plugin"
 )

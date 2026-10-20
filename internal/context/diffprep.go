@@ -8,8 +8,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/agentkit/diffx"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/diffx"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/plugin"
 )

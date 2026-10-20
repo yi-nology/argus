@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/skill"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/skillkit/skill"
 	"github.com/cloudwego/eino/components/tool"
 
 	"argus/internal/plugin"

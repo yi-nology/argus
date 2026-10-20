@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
 	"argus/internal/domain"

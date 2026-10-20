@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/plugin"
 )

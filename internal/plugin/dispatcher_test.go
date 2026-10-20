@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"git.example.com/enjoydream/agentkit/breaker"
 	"time"
 )
 
@@ -395,17 +393,17 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 	sel2 := []Selection{{Reg: reg2, Reason: "base"}}
 	ctx := context.Background()
 
-	for i := 0; i < breaker.DefaultTripThreshold; i++ {
+	for i := 0; i < breakerTripThreshold; i++ {
 		d.Run(ctx, Task{}, sel1, nil)
 	}
-	if !d.breakers.Allow("canceled-agent") {
+	if _, _, berr := d.BreakerFor("canceled-agent").AllowGen(ctx); berr != nil {
 		t.Fatal("连续取消不应熔断插件")
 	}
 
-	for i := 0; i < breaker.DefaultTripThreshold; i++ {
+	for i := 0; i < breakerTripThreshold; i++ {
 		d.Run(ctx, Task{}, sel2, nil)
 	}
-	if d.breakers.Allow("fail-agent") {
+	if _, _, berr := d.BreakerFor("fail-agent").AllowGen(ctx); berr == nil {
 		t.Fatal("连续真失败应熔断插件")
 	}
 }
@@ -414,25 +412,28 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 // 探测位（agentkit v0.10.4 配对契约），下一次 Allow 立即放行新探测。此前
 // 探测位滞留至 probeTimeout，健康插件被"熔断中"误跳过最长约 10 分钟。
 func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
+	now := time.Now()
 	reg1 := &Registration{Manifest: AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
 		Plugin: &canceledPlugin{manifest: AgentManifest{Name: "canceled-agent"}}, Enabled: true}
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := newDispatcher(NewRegistry(), testNopLogger{}, func() time.Time { return now })
 	_ = d.reg.Register(reg1)
 	sel := []Selection{{Reg: reg1, Reason: "base"}}
 
-	bs := d.Breakers()
-	now := time.Now()
-	bs.Now = func() time.Time { return now }
-	for i := 0; i < breaker.DefaultTripThreshold; i++ {
-		bs.Failure("canceled-agent")
+	bs := d.BreakerFor("canceled-agent")
+	for i := 0; i < breakerTripThreshold; i++ {
+		_, gen, berr := bs.AllowGen(context.Background())
+		if berr != nil {
+			break
+		}
+		bs.FailureGen(context.Background(), gen)
 	}
 	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
 
-	// Run 内 Allow 放行半开探测 → 插件返回 Canceled → teardown → Abandon
+	// Run 内 Allow 放行半开探测 → 插件返回 Canceled → teardown → AbandonGen
 	_ = d.Run(context.Background(), Task{}, sel, nil)
 
-	if !bs.Allow("canceled-agent") {
-		t.Fatal("teardown 应经 Abandon 释放半开探测位，下一次 Allow 立即放行新探测")
+	if _, _, berr := bs.AllowGen(context.Background()); berr != nil {
+		t.Fatal("teardown 应经 AbandonGen 释放半开探测位，下一次 Allow 立即放行新探测")
 	}
 }
 

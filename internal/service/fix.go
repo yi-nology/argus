@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/procx"
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
-	ekuidgen "github.com/oekit/pkg/uidgen"
+	"github.com/oagentkit/tools/acpx"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/runtime/procx"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/workcopy"
+	ekuidgen "github.com/oekit/kitx/uidgen"
 
 	"github.com/oekit/pkg/jsonrepair"
 

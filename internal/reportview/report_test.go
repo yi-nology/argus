@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/fence"
+	"github.com/oagentkit/guardx/fence"
 
 	"argus/internal/plugin"
 )

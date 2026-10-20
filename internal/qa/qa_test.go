@@ -9,8 +9,8 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/conversation"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/conversation"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/storage"
 )

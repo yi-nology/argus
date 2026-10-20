@@ -162,7 +162,7 @@ func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 		t.Fatalf("复现计数 2/3: %+v", fs)
 	}
 	// 熔断配对：3 次采样共享一次 Allow→Success，熔断仍健康
-	if !d.breakers.Allow("expert") {
+	if _, _, berr := d.BreakerFor("expert").AllowGen(context.Background()); berr != nil {
 		t.Fatal("全成功不应影响熔断健康")
 	}
 }
@@ -183,7 +183,7 @@ func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
 	if !strings.Contains(o.Result.Notes, "best-of-N") || !strings.Contains(o.Result.Notes, "2/3") {
 		t.Fatalf("部分成功应有降级注记: %q", o.Result.Notes)
 	}
-	if !d.breakers.Allow("expert") {
+	if _, _, berr := d.BreakerFor("expert").AllowGen(context.Background()); berr != nil {
 		t.Fatal("部分失败（有成功采样）不应计熔断失败")
 	}
 }

@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/blackboard"
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/agent/blackboard"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/textx/textutil"
 )
 
 // ArtifactSquadBoard 共享黑板视图在 Task.Artifacts 中的注入键（v3.4）。
@@ -185,8 +185,11 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 		b.Write(name, boardKindNote, "预算耗尽，本轮跳过")
 		return false, nil
 	}
-	// 熔断门（Allow 后必然配对一次 Success/Failure/Abandon）
-	if !d.breakers.Allow(name) {
+	// 熔断门（Allow 后必然配对一次 Success/Failure/AbandonGen）
+	// gen 是本次放行的代：上游按代绑定回报，必须原样带到下方三个配对点。
+	brk := d.breakerFor(name)
+	_, gen, berr := brk.AllowGen(env.taskCtx)
+	if berr != nil {
 		st.skipped = "熔断中"
 		b.Write(name, boardKindNote, "熔断中，本轮跳过")
 		return false, nil
@@ -221,11 +224,11 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 			// 成员各记一次 Failure，连续 3 次滚动发布即误熔断
 			// security 类成员（v3.9.1）。结果未知也不计成功——
 			// Abandon 释放半开探测位（v0.10.4 配对契约）。
-			d.breakers.Abandon(name)
+			brk.AbandonGen(gen)
 			d.log.Warn("argus.squad.consensus_member_canceled", "squad", env.squad,
 				"member", name, "error", err.Error())
 		} else {
-			d.breakers.Failure(name)
+			brk.FailureGen(env.taskCtx, gen)
 			ReportPluginFailure(name)
 			d.log.Error("argus.squad.consensus_member_failed", "squad", env.squad,
 				"member", name, "error", logredact.Redact(err.Error()))
@@ -235,7 +238,7 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 		b.Write(name, boardKindNote, "执行失败: "+logredact.Redact(err.Error()))
 		return false, nil
 	}
-	d.breakers.Success(name)
+	brk.SuccessGen(gen)
 	st.ran = true
 
 	// 指纹差分：只把新发现写上黑板（成员自述的重复报告在此拦下）

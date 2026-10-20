@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	akseverity "git.example.com/enjoydream/agentkit/reportutil"
+	akseverity "github.com/oagentkit/textx/reportutil"
 
 	"argus/internal/domain"
 )

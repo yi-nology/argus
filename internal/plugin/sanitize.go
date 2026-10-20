@@ -1,7 +1,7 @@
 // sanitize.go —— 落盘文件名安全化（OCR 留档/dream 导出共用）。
 package plugin
 
-import "git.example.com/enjoydream/agentkit/textutil"
+import "github.com/oagentkit/textx/textutil"
 
 // SanitizeFileStem 文件名安全化：owner/repo/number 等 PR 标识里的路径分隔与
 // 引用语法字符归一为 "-"。GitLab 嵌套组 owner 含 "/"、TaskAPI 的 number 无

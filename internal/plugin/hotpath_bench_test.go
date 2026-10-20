@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	reportutil "git.example.com/enjoydream/agentkit/reportutil"
+	reportutil "github.com/oagentkit/textx/reportutil"
 )
 
 // BenchmarkFingerprint 指纹派生（SHA256 + 评语规范化）——每条意见每轮 ≥1 次。

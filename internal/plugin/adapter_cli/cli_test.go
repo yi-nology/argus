@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/procx"
+	"github.com/oagentkit/runtime/procx"
 )
 
 // 干净 PR 的合法"零意见"输出（[] 或 {"comments":[]}）不再是错误——

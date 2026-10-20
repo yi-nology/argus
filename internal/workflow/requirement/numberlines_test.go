@@ -3,7 +3,7 @@ package requirement
 import (
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/textutil"
 )
 
 // 深挖 P0 配套：get_file 输出逐行带 4 位宽行号前缀，行号从 1 起、跨空行连续——

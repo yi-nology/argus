@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/textx/reportutil"
 
 	"argus/internal/plugin"
 )

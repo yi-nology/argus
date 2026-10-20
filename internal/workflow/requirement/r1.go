@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/cloudwego/eino/schema"
 	"github.com/oekit/pkg/jsonrepair"
 	"github.com/yi-nology/go-git-platform/provider"

@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 
 	"argus/internal/domain"
 	"argus/internal/learning"

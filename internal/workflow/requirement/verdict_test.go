@@ -5,7 +5,7 @@ import (
 
 	"github.com/oekit/pkg/jsonrepair"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 
 	"argus/internal/plugin"
 )

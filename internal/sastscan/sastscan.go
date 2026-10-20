@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/sast"
+	"github.com/oagentkit/tools/sast"
 
 	"argus/internal/plugin"
 )

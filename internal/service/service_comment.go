@@ -12,7 +12,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
+	"github.com/oagentkit/rag/rag"
 
 	api "argus/biz/model/api"
 	"argus/internal/obs"

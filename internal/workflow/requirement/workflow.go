@@ -20,8 +20,8 @@ import (
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
 
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/llm/llm"
 )
 
 // TaskKind 词表（与 IDL TaskKind 对齐）：canonical 定义自 v3.5.6 上提

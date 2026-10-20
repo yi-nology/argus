@@ -2,7 +2,7 @@
 package config
 
 import (
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/llm/llm"
 
 	"argus/internal/learning"
 )

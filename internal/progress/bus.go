@@ -3,7 +3,7 @@
 package progress
 
 import (
-	agentkitprogress "git.example.com/enjoydream/agentkit/progress"
+	agentkitprogress "github.com/oagentkit/runtime/progress"
 )
 
 // 事件 Type 词表（v3.109.0 常量化——此前 5 处发布点裸字面量，词表只活在

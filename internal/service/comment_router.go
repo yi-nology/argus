@@ -26,7 +26,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 
-	"git.example.com/enjoydream/agentkit/router"
+	"github.com/oagentkit/agent/router"
 
 	"argus/internal/plugin"
 )

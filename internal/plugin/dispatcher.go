@@ -4,13 +4,44 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync/atomic"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/breaker"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/logredact"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/logx"
 )
+
+// 熔断参数。旧 agentkit/breaker 导出了 DefaultTripThreshold / DefaultCooldown /
+// DefaultProbeTimeout；迁到 oekit/concurrency/breaker 后上游不再导出这些缺省值
+// （它的缺省是「10s 滚动窗口 + 40 桶的错误率模型」，与旧的纯计数型不同构），
+// 因此在此显式固化，取值与旧缺省逐字一致，迁移不改变熔断行为。
+//
+// ⚠️ 上游的取值约定与旧 API 相反，迁移时别照抄旧的 0：
+// 旧 New(trip, cooldown) 里 0 表示「用缺省」；上游 WithConsecutiveFailures(0)
+// 表示「关闭计数型触发」，WithCooldown(0) 表示「沿用 probeTimeout」。
+const (
+	breakerTripThreshold = 3              // 连续失败 3 次熔断
+	breakerCooldown      = 5 * time.Minute // 熔断冷却期
+	breakerProbeTimeout  = time.Minute     // 半开探测在途的失联回收上限
+)
+
+// dispatcherSeq 给每个 Dispatcher 分配独立熔断命名空间。
+// GetBreaker 是进程级单例且「同名只认首次 opts」，而旧的 Breakers 是每 Dispatcher
+// 独立的——不隔离会让不同 Dispatcher 的熔断状态与参数互相串味。
+var dispatcherSeq atomic.Uint64
+
+// genBreaker 取按名共享的熔断器，并断言 GenBreaker 扩展接口可用。
+// 命名空间已保证 opts 在首次创建时必然生效（见 dispatcherSeq）。
+func genBreaker(name string, opts ...breaker.BreakerOption) breaker.GenBreaker {
+	gb, ok := breaker.GetBreaker(name, opts...).(breaker.GenBreaker)
+	if !ok {
+		// 上游 *circuitBreaker 同时实现 Breaker 与 GenBreaker，走到这里是编程错误。
+		panic("breaker: oekit/concurrency 未实现 GenBreaker 扩展接口")
+	}
+	return gb
+}
 
 // TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，
 // 不用 Prometheus 指标判定——那是聚合计数器，避免基数爆炸）。
@@ -52,40 +83,68 @@ func (o Outcome) Notes() string {
 // Dispatcher 确定性路由 + fan-out 执行（design §3.3）。
 type Dispatcher struct {
 	squads   []SquadDecl
-	reg      *Registry
-	breakers *breaker.Breakers
-	log      logx.Logger
-	Now      func() time.Time
+	reg    *Registry
+	// brkNS 是本 Dispatcher 的熔断命名空间前缀。熔断器按插件名惰性获取，
+	// 同一 Dispatcher 内同名共享状态，跨 Dispatcher 互相隔离。
+	brkNS   string
+	brkOpts []breaker.BreakerOption
+	log     logx.Logger
+	Now     func() time.Time
 	// MaxConcurrent 限制同时执行的插件数（0 = 不限制）。
 	// 百炼等 API 有 burst rate limit，并发过高会触发 429。
 	MaxConcurrent int
 }
 
 func NewDispatcher(reg *Registry, log logx.Logger) *Dispatcher {
-	// 熔断参数显式取 agentkit 缺省（trip=3/cooldown=5min），行为不变但
-	// SkippedReason 文案可从同一常量派生，不再硬编码"5 分钟"
+	return newDispatcher(reg, log, nil)
+}
+
+// newDispatcher 是可注入时钟的构造器。
+//
+// clock 非 nil 时整组熔断器都用它（测试用假时钟确定性地推进冷却与探测状态机）。
+// 必须走这里而不是事后设置：上游熔断器的时钟在构造时由 WithBreakerClock 绑定，
+// 没有可变的公开字段——旧 Breakers.Now 那种「拿到对象再改」的做法已不存在。
+func newDispatcher(reg *Registry, log logx.Logger, clock func() time.Time) *Dispatcher {
 	// 半开探测时限 ≥ 最长插件超时 + 30s 余量（深挖 P0 遗留修复，agentkit
 	// v0.10.1 WithProbeTimeout）：探测时限小于插件超时时，慢而健康的插件
 	//（如 600s compliance）在探测在途期间会被并发双探测双跑。
-	// 注册表为空（测试/极早调用）回退 agentkit 缺省。
+	// 注册表为空（测试/极早调用）回退缺省。
 	probe := time.Duration(0)
 	for _, r := range reg.Snapshot() {
 		if r.Manifest.Timeout > probe {
 			probe = r.Manifest.Timeout
 		}
 	}
-	var opts []breaker.Option
-	if probe > breaker.DefaultProbeTimeout {
+	opts := []breaker.BreakerOption{
+		breaker.WithConsecutiveFailures(breakerTripThreshold),
+		breaker.WithCooldown(breakerCooldown),
+	}
+	if probe > breakerProbeTimeout {
 		opts = append(opts, breaker.WithProbeTimeout(probe+30*time.Second))
 	}
-	return &Dispatcher{reg: reg, breakers: breaker.NewBreakers(breaker.DefaultTripThreshold, breaker.DefaultCooldown, opts...), log: log, Now: time.Now, MaxConcurrent: 2}
+	if clock != nil {
+		opts = append(opts, breaker.WithBreakerClock(clock))
+	}
+	return &Dispatcher{
+		reg:           reg,
+		brkNS:         fmt.Sprintf("argus.d%d.plugin.", dispatcherSeq.Add(1)),
+		brkOpts:       opts,
+		log:           log,
+		Now:           time.Now,
+		MaxConcurrent: 2,
+	}
+}
+
+// breakerFor 返回某插件的熔断器。
+func (d *Dispatcher) breakerFor(name string) breaker.GenBreaker {
+	return genBreaker(d.brkNS+name, d.brkOpts...)
 }
 
 // Registry 暴露注册表（workflow 加载仓库配置后做信任边界解析用）。
 func (d *Dispatcher) Registry() *Registry { return d.reg }
 
-// Breakers 暴露给观测/测试。
-func (d *Dispatcher) Breakers() *breaker.Breakers { return d.breakers }
+// BreakerFor 暴露给观测/测试。
+func (d *Dispatcher) BreakerFor(name string) breaker.GenBreaker { return d.breakerFor(name) }
 
 // Select 按 `技能需求 × 仓库配置 × Triggers` 选出插件集合（确定性，无 LLM）。
 // 语义：

@@ -20,7 +20,7 @@ import (
 
 	ekmathx "github.com/oekit/pkg/mathx"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 )
 
 // MaxReviewN reviewN 配置上限（与 MiMo Max Mode N≈5 同量级；防配置滥用放大成本）。

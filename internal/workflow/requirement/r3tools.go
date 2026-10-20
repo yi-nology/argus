@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/toolprior"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/toolgate/toolprior"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 

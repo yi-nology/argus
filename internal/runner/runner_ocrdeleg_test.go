@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
 	"argus/internal/config"

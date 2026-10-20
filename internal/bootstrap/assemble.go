@@ -29,11 +29,11 @@ import (
 	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
-	"git.example.com/enjoydream/agentkit/audit"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/skill"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/guardx/audit"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
 )
 
 // System 装配产物：全部子系统就绪后的共享引用集合。

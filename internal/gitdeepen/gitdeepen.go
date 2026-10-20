@@ -6,7 +6,7 @@
 // 再 `git fetch --deepen` 指数加深（64 起步 ×2）；详见 workcopy 包文档。
 package gitdeepen
 
-import "git.example.com/enjoydream/agentkit/workcopy"
+import "github.com/oagentkit/tools/workcopy"
 
 // EnsureMergeBase 确保 origin/<baseBranch> 与 HEAD 的 merge-base 可达。
 var EnsureMergeBase = workcopy.EnsureMergeBase

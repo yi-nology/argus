@@ -3,7 +3,7 @@ package plugin
 import (
 	"time"
 
-	"git.example.com/enjoydream/agentkit/agentrun"
+	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/logx"
 )
 

@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/fence"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/guardx/fence"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
 	"argus/internal/learning"

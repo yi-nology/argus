@@ -8,8 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/breaker"
-	"git.example.com/enjoydream/agentkit/logredact"
+	"github.com/oagentkit/guardx/logredact"
 	"github.com/oekit/concurrency/async"
 )
 
@@ -94,8 +93,12 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			continue
 		}
 		// 熔断门（Allow 后必然配对 Success/Failure/Abandon——见下方 invoke 分支）
-		if !d.breakers.Allow(reg.Manifest.Name) {
-			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breaker.DefaultCooldown)
+		// gen 是本次放行的代：上游按代绑定回报，必须原样带进下面的 goroutine，
+		// 否则回报会被判为陈旧代作废。
+		brk := d.breakerFor(reg.Manifest.Name)
+		_, gen, berr := brk.AllowGen(ctx)
+		if berr != nil {
+			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breakerCooldown)
 			ReportPluginSkipped("circuit")
 			d.log.Warn("argus.plugin.circuit_open", "plugin", reg.Manifest.Name)
 			continue
@@ -114,7 +117,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 					// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
 					// 探测位（不计失败；配对契约=Success/Failure/Abandon
 					// 恰好其一，v0.10.4）
-					d.breakers.Abandon(reg.Manifest.Name)
+					brk.AbandonGen(gen)
 					o.SkippedReason = "任务已取消（等待执行槽位）"
 					ReportPluginSkipped("canceled")
 					return
@@ -135,7 +138,7 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 				switch {
 				case k > 0:
 					o.Result = &res
-					d.breakers.Success(reg.Manifest.Name)
+					brk.SuccessGen(gen)
 					result := "full"
 					if k < n {
 						result = "partial"
@@ -143,11 +146,11 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 					ReportBestOfN(reg.Manifest.Name, result)
 				case canceled:
 					// 任务级取消不是插件故障：Abandon 释放半开探测位（配对契约）
-					d.breakers.Abandon(reg.Manifest.Name)
+					brk.AbandonGen(gen)
 					o.SkippedReason = "任务已取消"
 					d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
 				default:
-					d.breakers.Failure(reg.Manifest.Name)
+					brk.FailureGen(ctx, gen)
 					ReportPluginFailure(reg.Manifest.Name)
 					o.Err = sampleErr
 					d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
@@ -167,17 +170,17 @@ func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget
 			switch {
 			case err == nil:
 				o.Result = &res
-				d.breakers.Success(reg.Manifest.Name)
+				brk.SuccessGen(gen)
 			case teardown(err, ctx):
 				// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
 				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）。
 				// 结果未知也不计成功——Abandon 释放半开探测位（v0.10.4 配对契约）。
-				d.breakers.Abandon(reg.Manifest.Name)
+				brk.AbandonGen(gen)
 				o.SkippedReason = "任务已取消"
 				d.log.Warn("argus.plugin.canceled", "plugin", reg.Manifest.Name,
 					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
 			default:
-				d.breakers.Failure(reg.Manifest.Name)
+				brk.FailureGen(ctx, gen)
 				ReportPluginFailure(reg.Manifest.Name)
 				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 					"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))

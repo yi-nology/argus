@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/fence"
+	"github.com/oagentkit/guardx/fence"
 	"github.com/oekit/logx"
 
 	"argus/internal/learning"

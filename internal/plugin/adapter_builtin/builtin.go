@@ -16,9 +16,9 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/agentrun"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/skill"
+	"github.com/oagentkit/agent/agentrun"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

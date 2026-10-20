@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.example.com/enjoydream/agentkit/acpx"
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/tools/acpx"
+	"github.com/oagentkit/textx/reportutil"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

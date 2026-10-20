@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/toolprior"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/toolgate/toolprior"
+	"github.com/oagentkit/tools/workcopy"
 	"github.com/cloudwego/eino/components/tool"
 	toolutils "github.com/cloudwego/eino/components/tool/utils"
 	"github.com/yi-nology/go-git-platform/provider"

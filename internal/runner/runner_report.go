@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/notify"

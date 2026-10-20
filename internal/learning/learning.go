@@ -12,7 +12,7 @@ package learning
 import (
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 )
 
 // PatternTextMax 存入 pattern_signals.pattern_text 的人读样本上限（rune）。

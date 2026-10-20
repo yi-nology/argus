@@ -15,7 +15,7 @@ import (
 
 	"argus/internal/plugin"
 
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/llm/llm"
 )
 
 // garbageModel 恒返回不可解析文本的桩模型（R3 两轮全败的驱动器）。

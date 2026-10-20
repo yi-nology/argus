@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/agentrun"
+	"github.com/oagentkit/agent/agentrun"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oekit/pkg/jsonrepair"
 

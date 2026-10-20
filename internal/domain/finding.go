@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	akreportutil "git.example.com/enjoydream/agentkit/reportutil"
+	akreportutil "github.com/oagentkit/textx/reportutil"
 )
 
 // severity 词表钉死为 {high, medium, low}（design §3.3）。

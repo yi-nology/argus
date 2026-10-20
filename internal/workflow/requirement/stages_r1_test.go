@@ -11,7 +11,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"git.example.com/enjoydream/agentkit/llm"
+	"github.com/oagentkit/llm/llm"
 
 	"argus/internal/plugin"
 )

@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/mcp"
+	"github.com/oagentkit/mcpkit/mcp"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

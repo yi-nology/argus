@@ -11,8 +11,8 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/obs"
 )

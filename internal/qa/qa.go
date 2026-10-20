@@ -17,12 +17,12 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"git.example.com/enjoydream/agentkit/agentrun"
-	"git.example.com/enjoydream/agentkit/conversation"
-	"git.example.com/enjoydream/agentkit/knowledge/rag"
-	"git.example.com/enjoydream/agentkit/llm"
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/agent/agentrun"
+	"github.com/oagentkit/textx/conversation"
+	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/workcopy"
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"

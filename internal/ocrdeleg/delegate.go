@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/procx"
-	"git.example.com/enjoydream/agentkit/textutil"
+	"github.com/oagentkit/runtime/procx"
+	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/gitdeepen"
 	"argus/internal/plugin"

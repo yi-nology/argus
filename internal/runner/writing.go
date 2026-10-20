@@ -15,8 +15,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/procx"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/runtime/procx"
 
 	"argus/internal/fixverifier"
 	"argus/internal/plugin"

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/acpx"
+	"github.com/oagentkit/tools/acpx"
 )
 
 // initGitRepo 构造带初始提交的本地 git 仓（修复沙箱克隆源）。

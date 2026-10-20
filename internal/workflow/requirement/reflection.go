@@ -20,8 +20,8 @@ import (
 	"strconv"
 	"strings"
 
-	"git.example.com/enjoydream/agentkit/reflection"
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/agent/reflection"
+	"github.com/oagentkit/textx/reportutil"
 	"github.com/cloudwego/eino/components/model"
 
 	"argus/internal/plugin"

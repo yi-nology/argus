@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/reportutil"
+	"github.com/oagentkit/textx/reportutil"
 )
 
 type nopLogger struct{}

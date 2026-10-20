@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	agentkitworker "git.example.com/enjoydream/agentkit/worker"
+	agentkitworker "github.com/oagentkit/queue/worker"
 	ekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/logx"
 

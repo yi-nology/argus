@@ -1,7 +1,7 @@
 package plugin
 
 import (
-	"git.example.com/enjoydream/agentkit/fence"
+	"github.com/oagentkit/guardx/fence"
 )
 
 // DataFence 数据区包裹（防线 #1 的统一实现；v3.5.6 自 requirement/prompts.go 上提——

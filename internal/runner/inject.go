@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"git.example.com/enjoydream/agentkit/diffx"
-	"git.example.com/enjoydream/agentkit/logredact"
-	"git.example.com/enjoydream/agentkit/textutil"
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/textx/diffx"
+	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/codegraph"
 	"argus/internal/ocrdeleg"

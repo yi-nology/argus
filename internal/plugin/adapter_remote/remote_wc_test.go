@@ -10,7 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"git.example.com/enjoydream/agentkit/workcopy"
+	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/plugin"
 )
