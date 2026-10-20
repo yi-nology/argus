@@ -29,9 +29,9 @@ import (
 	"argus/internal/sink"
 	"argus/internal/storage"
 	"argus/internal/toolpool"
-	"github.com/oagentkit/guardx/audit"
-	"github.com/oagentkit/rag/rag"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/obs/audit"
+	"github.com/oagentkit/rag"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
 )

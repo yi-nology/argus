@@ -14,14 +14,15 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"golang.org/x/time/rate"
 
-	"github.com/oagentkit/guardx/audit"
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/obs/audit"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
-	"github.com/oagentkit/rag/rag"
-	"github.com/oagentkit/llm/llm"
 	"github.com/cloudwego/eino/callbacks"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/llm/port"
+	"github.com/oagentkit/rag"
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
@@ -37,7 +38,7 @@ import (
 	"argus/internal/toolpool"
 	"argus/internal/workflow/requirement"
 
-	"github.com/oagentkit/obs/obsx"
+	"github.com/oagentkit/llm/obsx"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
 )
@@ -124,8 +125,12 @@ func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, ta
 			// 校准），原 wrap.RecordUsage 回灌调用点删除。旁路无 stage 语义
 			//（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
 			budget.Add(rec.PromptTokens + rec.CompletionTokens)
-			taskCost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
-			r.Cost.Record(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, r.costRate(rec.Model))
+			// v3.150.0：Record → RecordPriced（旧 Record 按 1K 计费已退役，
+			// 新接口单位写在类型上=每 1M token；argus 配置侧仍是 per-1K，×1000 换算）。
+			rate := r.costRate(rec.Model)
+			price := port.Price{InputPerM: rate[0] * 1000, OutputPerM: rate[1] * 1000}
+			taskCost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
+			r.Cost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
 		}))
 	}
 	return callbacks.InitCallbacks(ctx, nil, handlers...)

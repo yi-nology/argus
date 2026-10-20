@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oagentkit/rag/rag"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/oagentkit/rag"
 )
 
 // fakeKnowledge rag.KnowledgeService 最小桩（AsTool 与 MCP 面无关，回 nil 同 Noop）。

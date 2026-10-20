@@ -18,9 +18,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/oagentkit/agent/agentrun"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/conversation"
-	"github.com/oagentkit/rag/rag"
-	"github.com/oagentkit/llm/llm"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 

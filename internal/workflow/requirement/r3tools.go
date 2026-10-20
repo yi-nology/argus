@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oagentkit/textx/textutil"
-	"github.com/oagentkit/toolgate/toolprior"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/toolgate/toolprior"
 
 	"argus/internal/codesearch"
 	"argus/internal/plugin"

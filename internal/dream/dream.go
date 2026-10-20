@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/fence"
-	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 

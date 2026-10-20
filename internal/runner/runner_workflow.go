@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/llm/llm"
-	"github.com/oagentkit/skillkit/skill"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/skillkit/skill"
 
 	"argus/internal/plugin"
 	"argus/internal/workflow/requirement"

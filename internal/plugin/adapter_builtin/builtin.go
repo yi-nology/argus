@@ -17,7 +17,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/oagentkit/agent/agentrun"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 

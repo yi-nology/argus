@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/oagentkit/textx/textutil"
 	"github.com/cloudwego/eino/schema"
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/pkg/jsonrepair"
 	"github.com/yi-nology/go-git-platform/provider"
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/obs"

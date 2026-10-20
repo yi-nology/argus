@@ -31,10 +31,10 @@ import (
 	"argus/internal/storage"
 	"argus/internal/writing"
 
-	"github.com/oagentkit/guardx/audit"
 	"github.com/oagentkit/guardx/fence"
-	"github.com/oagentkit/rag/rag"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/obs/audit"
+	"github.com/oagentkit/rag"
 )
 
 // Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).

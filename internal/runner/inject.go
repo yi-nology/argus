@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 

@@ -9,11 +9,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cloudwego/eino/components/tool"
+	toolutils "github.com/cloudwego/eino/components/tool/utils"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/toolgate/toolprior"
 	"github.com/oagentkit/tools/workcopy"
-	"github.com/cloudwego/eino/components/tool"
-	toolutils "github.com/cloudwego/eino/components/tool/utils"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/codesearch"

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/textutil"
 
 	"argus/internal/plugin"

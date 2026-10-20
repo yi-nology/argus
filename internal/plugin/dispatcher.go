@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/oagentkit/llm/llm"
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/llm"
 	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/logx"
 )
@@ -22,7 +22,7 @@ import (
 // 旧 New(trip, cooldown) 里 0 表示「用缺省」；上游 WithConsecutiveFailures(0)
 // 表示「关闭计数型触发」，WithCooldown(0) 表示「沿用 probeTimeout」。
 const (
-	breakerTripThreshold = 3              // 连续失败 3 次熔断
+	breakerTripThreshold = 3               // 连续失败 3 次熔断
 	breakerCooldown      = 5 * time.Minute // 熔断冷却期
 	breakerProbeTimeout  = time.Minute     // 半开探测在途的失联回收上限
 )
@@ -82,7 +82,7 @@ func (o Outcome) Notes() string {
 
 // Dispatcher 确定性路由 + fan-out 执行（design §3.3）。
 type Dispatcher struct {
-	squads   []SquadDecl
+	squads []SquadDecl
 	reg    *Registry
 	// brkNS 是本 Dispatcher 的熔断命名空间前缀。熔断器按插件名惰性获取，
 	// 同一 Dispatcher 内同名共享状态，跨 Dispatcher 互相隔离。

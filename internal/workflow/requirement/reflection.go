@@ -20,9 +20,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/oagentkit/agent/reflection"
 	"github.com/oagentkit/textx/reportutil"
-	"github.com/cloudwego/eino/components/model"
 
 	"argus/internal/plugin"
 

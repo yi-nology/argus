@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oagentkit/llm/llm"
-	"github.com/oagentkit/textx/textutil"
 	"github.com/cloudwego/eino/schema"
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/textx/textutil"
 )
 
 // diffMaxChars 写作输入的 diff 截断上限。describe/changelog 消费的是"改了什么"

@@ -7,7 +7,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/oagentkit/rag/rag"
+	"github.com/oagentkit/rag"
 )
 
 // Capabilities 能力面快照（纯读配置与装配态，零 IO）。

@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 
 	"argus/internal/plugin"
 )

@@ -16,7 +16,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
 

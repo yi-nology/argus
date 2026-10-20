@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"argus/internal/config"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oekit/logx"
 )
 

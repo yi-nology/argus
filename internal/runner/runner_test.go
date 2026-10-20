@@ -10,7 +10,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"argus/internal/config"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 )

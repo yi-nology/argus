@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/pkg/jsonrepair"
 
 	"argus/internal/plugin"

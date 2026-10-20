@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oagentkit/tools/acpx"
 	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/tools/acpx"
 	"github.com/oekit/logx"
 
 	"argus/internal/plugin"

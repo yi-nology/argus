@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/go-git-platform/provider"
 

@@ -13,7 +13,7 @@ import (
 	"argus/internal/config"
 	"argus/internal/obs"
 	"argus/internal/plugin"
-	"github.com/oagentkit/llm/llm"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/llm/wrap"
 )
 
