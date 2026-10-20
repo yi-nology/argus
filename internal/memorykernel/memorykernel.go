@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/oekit/logx"
@@ -256,6 +258,18 @@ func (k *Kernel) recallOne(ctx context.Context, ns store.Namespace, sessionID, q
 	if err != nil {
 		k.log.Warn("argus.memorykernel.recall_failed", "ns", string(ns), "error", err.Error())
 		return ""
+	}
+	// 丢弃可观测（agent-memory v0.6.0 契约件）：分路计数各自指向不同处置
+	//（budget=调总量/quota=调分桶占比/duplicate=提炼层在造重复条目），
+	// 只在真发生丢弃时留痕——静默丢弃是「以为带上了记忆、实际没有」的最难发现失效。
+	if res.Dropped > 0 {
+		reasons := make([]string, 0, len(res.Drops))
+		for r, n := range res.Drops {
+			reasons = append(reasons, fmt.Sprintf("%s=%d", r, n))
+		}
+		sort.Strings(reasons)
+		k.log.Info("argus.memorykernel.recall_dropped", "ns", string(ns),
+			"dropped", res.Dropped, "kept", len(res.Snippets), "reasons", strings.Join(reasons, ","))
 	}
 	return res.Render()
 }

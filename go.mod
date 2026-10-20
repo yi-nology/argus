@@ -13,16 +13,16 @@ require (
 	github.com/mark3labs/mcp-go v1.1.1
 	github.com/oagentkit/agent v0.10.0
 	github.com/oagentkit/guardx v0.8.2
-	github.com/oagentkit/llm v0.14.1
-	github.com/oagentkit/mcpkit v0.8.1
-	github.com/oagentkit/obs v0.9.2
+	github.com/oagentkit/llm v0.14.2
+	github.com/oagentkit/mcpkit v0.8.3
+	github.com/oagentkit/obs v0.9.3
 	github.com/oagentkit/queue v0.6.2
-	github.com/oagentkit/rag v0.8.2
+	github.com/oagentkit/rag v0.8.3
 	github.com/oagentkit/runtime v0.7.1
-	github.com/oagentkit/skillkit v0.8.1
+	github.com/oagentkit/skillkit v0.8.2
 	github.com/oagentkit/textx v0.6.1
 	github.com/oagentkit/toolgate v0.12.0
-	github.com/oagentkit/tools v0.10.0
+	github.com/oagentkit/tools v0.10.1
 	github.com/oekit/bootstrap v0.6.4
 	github.com/oekit/concurrency v0.18.0
 	github.com/oekit/core v0.10.0
@@ -32,10 +32,10 @@ require (
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
 	github.com/oekit/middleware v0.12.1
-	github.com/oekit/pkg v0.17.0
+	github.com/oekit/pkg v0.18.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/yi-nology/agent-harness v0.6.2
-	github.com/yi-nology/agent-memory v0.4.2
+	github.com/yi-nology/agent-harness v0.6.5
+	github.com/yi-nology/agent-memory v0.6.0
 	github.com/yi-nology/go-git-platform v0.94.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
