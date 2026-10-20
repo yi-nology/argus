@@ -156,6 +156,7 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 			Knowledge:    sys.Knowledge,
 			KnowledgeDir: cfg.KnowledgeDir,
 			MemoryDir:    cfg.MemoryDir,
+			Kernel:       sys.MemKernel,        // v3.151.0 opt-in 双写（nil = 只写文件面）
 			Learning:     cfg.LearningConfig(), // 前置门已保证 RegretLearning=true
 			ExportTopN:   cfg.RegretInjectTopN,
 			Log:          log,

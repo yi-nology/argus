@@ -19,6 +19,7 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/memorykernel"
 	"argus/internal/notify"
 	"argus/internal/plugin"
 	"argus/internal/poster"
@@ -56,6 +57,9 @@ type System struct {
 	Poster              *poster.Poster
 	Runner              *runner.Runner
 	Service             *service.Service
+	// MemKernel agent-memory 内核底座（v3.151.0，ARGUS_MEMORY_KERNEL opt-in；
+	// nil = 文件面）。进程退出即关库（sqlite WAL 逐提交落盘，无需显式 Close）。
+	MemKernel *memorykernel.Kernel
 }
 
 // Assemble 装配除存储/HTTP/生命周期外的全部子系统。
@@ -244,6 +248,8 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		CompletenessRetry:  cfg.CompletenessRetry,
 		// 模式级后悔学习环（v3.5）：默认关闭；阈值单源自 cfg.LearningConfig()
 		Learning: cfg.LearningConfig(),
+		// 评审记忆内核（v3.151.0 opt-in；nil = 文件面 LoadIndex 注入）
+		MemKernel: sys.MemKernel,
 	}
 	// 延迟绑定不变量自检：WorkflowFactory/ReviewTools 闭包捕获 runnerRef 指针，
 	// 依赖「Invoke 时装配已完成」。此处显式钉死——未来若出现条件构造路径，
@@ -269,14 +275,27 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim))
 		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
 	}
+	// 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：agent-memory 底座——
+	// 落库前强制脱敏 + 召回注入防伪（MemoryBand）+ 事实证据链闭合。打开失败降级
+	// 文件面（记忆是增强面，不许拖垮启动）；库文件固定 <MemoryDir>/kernel.db。
+	if cfg.MemoryKernel && cfg.MemoryDir != "" {
+		kpath := filepath.Join(cfg.MemoryDir, "kernel.db")
+		if k, err := memorykernel.Open(kpath, log); err != nil {
+			log.Warn("argus.boot.memorykernel_failed", "path", kpath, "error", err.Error())
+		} else {
+			sys.MemKernel = k
+			log.Info("argus.boot.memorykernel_enabled", "path", kpath)
+		}
+	}
 	sys.Service = &service.Service{
 		Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
 		Model: models.React, QAModel: models.QA,
 		LLM:         models.Generate, // diff 预审单轮写作（v3.123.0）
 		RouterModel: models.Router,
-		WC:          sys.WC, // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
-		SemSearch:   semMgr, // search_sem 底座（ARGUS_SEMSEARCH 启用；nil 安全）
+		WC:          sys.WC,        // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
+		SemSearch:   semMgr,        // search_sem 底座（ARGUS_SEMSEARCH 启用；nil 安全）
+		MemKernel:   sys.MemKernel, // 评审记忆内核（v3.151.0 opt-in；nil = 文件面）
 		Audit:       auditLog, Version: version,
 	}
 	return sys, nil

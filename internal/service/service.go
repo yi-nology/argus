@@ -23,6 +23,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/memory"
+	"argus/internal/memorykernel"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/progress"
@@ -76,6 +77,10 @@ type Service struct {
 	// SemSearch 工作副本语义检索底座（v3.126.0，bootstrap 按 ARGUS_SEMSEARCH +
 	// ARGUS_EMBEDDING_* 双门构建；nil = search_sem 运行期报未启用）。
 	SemSearch *semsearch.Manager
+
+	// MemKernel 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in；
+	// nil = 文件面 LoadIndex 注入）。
+	MemKernel *memorykernel.Kernel
 
 	// qaEngine 问答引擎单例（Engine 无自有状态、字段全共享引用，会话在 Store）。
 	// 此前每次 Ask 都重建，纯浪费；sync.Once 保证并发首建安全。
@@ -294,10 +299,20 @@ func (s *Service) qa() *qa.Engine {
 			SemSearch:   s.SemSearch,
 			SemSearchOn: s.Cfg != nil && s.Cfg.SemSearch,
 		}
-		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论
+		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论。
+		// v3.151.0：内核开启时切八段召回 + MemoryBand 防伪包裹。
 		if s.Cfg != nil && s.Cfg.MemoryDir != "" {
-			e.MemoryIndexFor = func(platform, owner, repo string) string {
-				return memory.LoadIndexWithOrg(s.Cfg.MemoryDir, memory.Ref{Platform: platform, Owner: owner, Repo: repo}, 0)
+			if s.MemKernel != nil {
+				k := s.MemKernel
+				e.MemoryIndexFor = func(platform, owner, repo string) string {
+					ref := memory.Ref{Platform: platform, Owner: owner, Repo: repo}
+					return k.RecallIndex(context.Background(), memorykernel.NamespaceOf(ref),
+						memorykernel.OrgNamespace, "", "", 0)
+				}
+			} else {
+				e.MemoryIndexFor = func(platform, owner, repo string) string {
+					return memory.LoadIndexWithOrg(s.Cfg.MemoryDir, memory.Ref{Platform: platform, Owner: owner, Repo: repo}, 0)
+				}
 			}
 		}
 		s.qaEng = e

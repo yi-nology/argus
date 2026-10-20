@@ -237,6 +237,12 @@ type Config struct {
 	// 缺省 2000，超限截断注明。≤0 用包内缺省）。
 	MemoryIndexBudget int
 
+	// MemoryKernel agent-memory 内核底座（v3.151.0，ARGUS_MEMORY_KERNEL=1 opt-in）：
+	// R3 记忆注入从「文件索引原文」切到「八段召回 + MemoryBand 注入防伪」，
+	// dream 写侧双写内核事实卡（落库前强制脱敏 + 证据链闭合）。缺省关——
+	// 灰度期与文件面并存，可对账可回退。库文件固定在 <MemoryDir>/kernel.db。
+	MemoryKernel bool
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -434,6 +440,7 @@ func Load() *Config {
 		MCPIdleReapInterval:    envDuration("ARGUS_MCP_IDLE_REAP_INTERVAL", 5*time.Minute),
 		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
+		MemoryKernel:           envBool("ARGUS_MEMORY_KERNEL", false),
 		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
 		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
 		ExternalToolCallLimit:  envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5),

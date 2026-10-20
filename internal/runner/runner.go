@@ -28,6 +28,7 @@ import (
 	argusctx "argus/internal/context"
 	"argus/internal/learning"
 	"argus/internal/memory"
+	"argus/internal/memorykernel"
 	"argus/internal/notify"
 	"argus/internal/plugin"
 	"argus/internal/poster"
@@ -101,6 +102,11 @@ type Runner struct {
 	// Learning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
 	Learning learning.Config
 
+	// MemKernel 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：
+	// 非 nil 时 R3 记忆注入走内核八段召回 + MemoryBand 防伪包裹，
+	// 替代文件面 LoadIndexWithOrg 原文索引。
+	MemKernel *memorykernel.Kernel
+
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
 	SkillProvider skill.Provider
 	SkillRefs     []string
@@ -142,9 +148,14 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 	wf := r.buildWorkflow(budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
 	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
-	wf.MemoryIndex = memory.LoadIndexWithOrg(r.Cfg.MemoryDir, memory.Ref{
-		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
-	}, r.Cfg.MemoryIndexBudget)
+	// v3.151.0：内核开启时切八段召回 + MemoryBand 防伪（sessionID=任务 ID 防回声）。
+	ref := memory.Ref{Platform: task.Platform, Owner: task.Owner, Repo: task.Repo}
+	if r.MemKernel != nil {
+		wf.MemoryIndex = r.MemKernel.RecallIndex(ctx, memorykernel.NamespaceOf(ref),
+			memorykernel.OrgNamespace, task.ID, "", r.Cfg.MemoryIndexBudget)
+	} else {
+		wf.MemoryIndex = memory.LoadIndexWithOrg(r.Cfg.MemoryDir, ref, r.Cfg.MemoryIndexBudget)
+	}
 	// 外部工具调用上限可配（v3.41.0）
 	wf.ExternalToolCallLimit = r.Cfg.ExternalToolCallLimit
 	// 仓库级评审规范（v3.38.0）：.argus/REVIEW.md @ head，R3/R4 注入
