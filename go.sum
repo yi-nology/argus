@@ -407,8 +407,8 @@ github.com/oekit/bootstrap v0.6.4 h1:0YuRznl8aT/57/eA5GFhxdBnPN/kpbvSs9zGTBLhPMc
 github.com/oekit/bootstrap v0.6.4/go.mod h1:YkLmN5GnLw8VRrWrAIxSiMAJ3Z8hfaCm4nMI1HxJnL4=
 github.com/oekit/concurrency v0.18.0 h1:gvW1Xni6oFyG0v+Zi7j+fZgZagUTLUETXioWvB1SdYs=
 github.com/oekit/concurrency v0.18.0/go.mod h1:2t5QeK3WHWbJVKwTnPiiBZqHxig3fzEPTefGedFU648=
-github.com/oekit/core v0.10.0 h1:/loDfdK7QIurWueLePTFCRNpmHPGim+0phEoKWqb1JA=
-github.com/oekit/core v0.10.0/go.mod h1:HhBTwYHU5MUp9tfNvHjfZv6P4yglQmn4jKmz98dUIsM=
+github.com/oekit/core v0.11.0 h1:HsSg80JPdJJz45P8plETgJDc9uOZrDDsyxngBk9WIx4=
+github.com/oekit/core v0.11.0/go.mod h1:HhBTwYHU5MUp9tfNvHjfZv6P4yglQmn4jKmz98dUIsM=
 github.com/oekit/data v0.16.0 h1:xLmqZRye1UNi3Yeg3fPnYS/4gtgQCZT00sbVEdFiQ9w=
 github.com/oekit/data v0.16.0/go.mod h1:Exln16LI4H1ZZg09Epkt258RD8t5oW8eenkeDEt0By4=
 github.com/oekit/gormx v0.6.0 h1:FWQ/29pSma6vR1lhVqce0A98Fzppr6ZWIGr9WNqX1Rg=

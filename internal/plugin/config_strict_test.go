@@ -40,6 +40,13 @@ agents:
 	if err == nil || !strings.Contains(err.Error(), "skils") {
 		t.Fatalf("typo 键应拒载且点名：%v", err)
 	}
+	// v3.160.0：oekit core v0.11.0 严格模式诊断面——嵌套路径 + 拼写建议 +
+	// 该层合法键清单（回退 KnownFields 即丢这三样，此断言防退化）
+	for _, want := range []string{"agents.skils", `"skills"`, "合法键"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("诊断面缺 %q：%v", want, err)
+		}
+	}
 }
 
 // TestLoadPluginsExampleShipsClean 随仓分发的 plugins.example.yaml 必须过严格
