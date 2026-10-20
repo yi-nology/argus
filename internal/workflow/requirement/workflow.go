@@ -96,7 +96,7 @@ type Workflow struct {
 	GetIssueMaxChars int
 	GetDiffMaxChars  int
 
-	// R3.5 报告反思（v3.4，agentkit/reflection）：>0 启用，值为"批判→修订"轮数上限
+	// R3.5 报告反思（v3.4，oagentkit/agent/reflection）：>0 启用，值为"批判→修订"轮数上限
 	//（包内钳制 ≤ reflectMaxRounds）。ReflectModel 为反思专用模型（nil = R3ChatModel
 	// → LLM.RawModel() 逐级回退）。ReflectEvidence 证据门：off|soft|strict（默认 off）。
 	ReflectRounds   int

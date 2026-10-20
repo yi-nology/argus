@@ -1,5 +1,5 @@
 // Package adapter_cli cli 形态适配器（design §3.2）：包装外部命令行（首个实战对象是
-// alibaba/open-code-review）。子进程托管整体委托 agentkit/procx.Run（v0.7.1 起）——
+// alibaba/open-code-review）。子进程托管整体委托 oagentkit/runtime/procx.Run（v0.7.1 起）——
 // 进程组（Setpgid）→ 超时/取消 TERM 整组 → 3s grace 后 KILL、环境白名单、stdout 限容、
 // ErrTimeout/ErrCanceled sentinel 全部由底座提供；本包只保留 OCR JSON 容错解析。
 // 供应链信任（§8）：cmd 只能来自 Hub plugins.yaml 白名单，仓库配置无权声明（§3.4 红线 2）。
@@ -61,7 +61,7 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	}
 	defer p.wc.Release(plugin.PRToKey(task.PR))
 
-	// 进程托管委托 agentkit/acpx（env 白名单按 plugins.yaml env 声明按名透传；
+	// 进程托管委托 oagentkit/tools/acpx（env 白名单按 plugins.yaml env 声明按名透传；
 	// MaxStdout 维持 1MB 上限防异常 cli 刷屏）
 	stdout, _, _, err := procx.Run(ctx, procx.RunRequest{
 		Argv:      p.Cmd,

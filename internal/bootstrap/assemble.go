@@ -38,7 +38,7 @@ import (
 )
 
 // System 装配产物：全部子系统就绪后的共享引用集合。
-// 生命周期（Start/Stop 顺序）仍由 main 经 ekit bootstrap 管理，本结构不做任何启停。
+// 生命周期（Start/Stop 顺序）仍由 main 经 oekit/bootstrap 管理，本结构不做任何启停。
 type System struct {
 	Models    *Models
 	SDK       *argusctx.SDKCtx

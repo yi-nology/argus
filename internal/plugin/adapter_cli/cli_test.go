@@ -32,7 +32,7 @@ func TestParseFindingsEmptyIsLegit(t *testing.T) {
 	}
 }
 
-// plugins.yaml env 声明经 RunProcess 白名单透传的语义由 agentkit/acpx 上游测试
+// plugins.yaml env 声明经 RunProcess 白名单透传的语义由 oagentkit/tools/acpx 上游测试
 // 锁定（TestEnvAllowlist/TestRunProcess）；此处端到端钉一遍声明确实传到了底座。
 func TestInvokeEnvWhitelistEndToEnd(t *testing.T) {
 	t.Setenv("ARGUS_GITEA_TOKEN", "secret-token")

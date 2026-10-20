@@ -36,9 +36,9 @@ type Pool interface {
 	Hints(specs []ToolSpec) map[string]RiskHints
 }
 
-// ---------- 真实现：agentkit/mcp.Pool 适配（v3.2；plugins.yaml mcpServers 段） ----------
+// ---------- 真实现：oagentkit/mcpkit/mcp.Pool 适配（v3.2；plugins.yaml mcpServers 段） ----------
 
-// NewRealPool 从 plugins.yaml 声明构建 agentkit/mcp 连接池（含 ${VAR} 头部环境展开）。
+// NewRealPool 从 plugins.yaml 声明构建 oagentkit/mcpkit/mcp 连接池（含 ${VAR} 头部环境展开）。
 // 声明为空返回 nil——workflow 对 nil Tools 安全（不挂工具）。
 func NewRealPool(decls []plugin.MCPServerDecl, log logx.Logger) *mcp.Pool {
 	if len(decls) == 0 {
@@ -81,7 +81,7 @@ func NewRealPool(decls []plugin.MCPServerDecl, log logx.Logger) *mcp.Pool {
 	return pool
 }
 
-// WithCallMeta/CallMeta v3.80.0 实现下沉 agentkit/mcp（任务级 _meta ctx 键
+// WithCallMeta/CallMeta v3.80.0 实现下沉 oagentkit/mcpkit/mcp（任务级 _meta ctx 键
 // 标准实现），本包保留别名——runner 调用方零改动。
 var (
 	WithCallMeta = mcp.WithCallMeta
@@ -97,7 +97,7 @@ func SpecsFromDecls(decls []plugin.ToolSpecDecl) []ToolSpec {
 	return specs
 }
 
-// RealAdapter agentkit/mcp.Pool 的 toolpool.Pool 适配（spec 词表映射 MCP→Allow）。
+// RealAdapter oagentkit/mcpkit/mcp.Pool 的 toolpool.Pool 适配（spec 词表映射 MCP→Allow）。
 type RealAdapter struct {
 	Pool *mcp.Pool
 }

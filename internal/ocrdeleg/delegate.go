@@ -3,7 +3,7 @@
 // 清单 + 排除原因）与 `delegate rule`（按规则内容分组的审查规则）——产物渲染成提示词
 // section 注入 R4。分工边界：OCR 只出确定性工程，审查 LLM 循环由 argus builtin 独家
 // 执行（OCR 端零 LLM、零凭证，对比 full 模式省一份 LLM 配置与双份审查成本）。
-// 进程托管/最小环境/stdout 限容复用 agentkit/acpx（与 adapter_cli/ocrshim 同底座）；
+// 进程托管/最小环境/stdout 限容复用 oagentkit/tools/acpx（与 adapter_cli/ocrshim 同底座）；
 // JSON 契约对齐上游 main（delegatePreviewJSON/delegateRulesJSON，schema_version=1）。
 package ocrdeleg
 

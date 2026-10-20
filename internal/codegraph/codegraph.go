@@ -1,4 +1,4 @@
-// Package codegraph 轻量代码图门面（v3.78.0 实现下沉 agentkit/codeintel——
+// Package codegraph 轻量代码图门面（v3.78.0 实现下沉 oagentkit/textx/codeintel——
 // 目录符号索引是 agent 工具链通用能力，argus 保留 API 门面与工具壳语义；
 // get_symbol/get_references/get_callers 的工具描述与注入面在本包消费方
 // runner/inject.go）。类型/构造别名直通 SDK，调用方零改动。

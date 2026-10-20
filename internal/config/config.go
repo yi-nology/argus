@@ -93,7 +93,7 @@ type Config struct {
 	// 阶段模型覆盖（P6 分阶段路由）：ARGUS_MODEL_<STAGE> 配模型名，
 	// ARGUS_MODEL_<STAGE>_CONTEXT_TOKENS 配该阶段窗口。
 	// v3.33.0 起窗口对全部阶段生效：Generator 链（R1/R2/REVIEWER）走 Client
-	// fitInput；直调阶段（R3/R35/QA/ROUTER）走 ctxfit 两级拟合（此前直调路径
+	// fitInput；直调阶段（R3/R35/QA/ROUTER）走 FitModel 两级拟合（原 ctxfit，v3.149.0 起实现归 oagentkit/llm/wrap）（此前直调路径
 	// 窗口被忽略并启动期告警——v3.8.0 如实化，现已闭环）。
 	// 覆盖阶段继承主 BaseURL/APIKey 与全局降级链（fallback 模型不覆盖）；
 	// 未配置的阶段走主模型。STAGE ∈ {R1, R2, R3, R35, REVIEWER, QA, ROUTER}。
@@ -225,7 +225,7 @@ type Config struct {
 	RepoGuideOff bool
 
 	// SkillContentCap use_skill 工具全文单次加载上限（ARGUS_SKILL_CONTENT_CAP，
-	// 字节；缺省 100_000 与 agentkit 缺省一致，≤0 = 不限——与 RenderList 的
+	// 字节；缺省 100_000 与 oagentkit 缺省一致，≤0 = 不限——与 RenderList 的
 	// 20K 清单预算构成两级纪律）。
 	SkillContentCap int
 
@@ -496,8 +496,8 @@ func Load() *Config {
 	return cfg
 }
 
-// env 读取助手：类型解析复用 ekit config（strconv 同源），非法值回退默认时
-// 保留 warnBadEnv 留痕——ekit 的 *WithDefault 系列是静默回退，不能直接换。
+// env 读取助手：类型解析复用 oekit/core/config（strconv 同源），非法值回退默认时
+// 保留 warnBadEnv 留痕——oekit/core/config 的 *WithDefault 系列是静默回退，不能直接换。
 
 // WarnLogger WarnOnly 的日志口（与 logx.Logger 解耦，测试可注入）。
 type WarnLogger interface{ Warn(msg string, kv ...any) }

@@ -1,7 +1,7 @@
 // Package learning 模式级后悔学习环的域模型、状态投影与消费阈值（v3.47.0 自
 // plugin 归位——本域消费方是 storage/dream/health/exportdata/config，与插件语义
 // 无关）。本包是纯叶子：零内部 argus 依赖；确定性数学与键派生已下沉
-// agentkit/reportutil（v3.77.0，与 WilsonCI/McNemarExact 同族归位 SDK），
+// oagentkit/textx/reportutil（v3.77.0，与 WilsonCI/McNemarExact 同族归位 SDK），
 // 本包保留 API 门面，39+ 消费方零改动。
 //
 // 设计：docs/review-closed-loop-design.md §3.2/§3.7。键不含 file/line——同一类问题在

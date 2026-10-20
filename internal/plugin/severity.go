@@ -7,7 +7,7 @@ import (
 )
 
 // severity 词表钉死为 {high, medium, low}（design §3.3）。
-// 单一来源在 internal/domain（委托 agentkit/reportutil）；本文件只是既有 API 门面。
+// 单一来源在 internal/domain（委托 oagentkit/textx/reportutil）；本文件只是既有 API 门面。
 const (
 	SeverityHigh   = domain.SeverityHigh
 	SeverityMedium = domain.SeverityMedium

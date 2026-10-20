@@ -1,9 +1,9 @@
-// Package progress Argus 进度事件定义 + agentkit 泛型总线适配。
-// Event 类型是 Argus 领域特有的；Bus 委托给 agentkit/progress.Bus[T]。
+// Package progress Argus 进度事件定义 + oagentkit 泛型总线适配。
+// Event 类型是 Argus 领域特有的；Bus 委托给 oagentkit/runtime/progress.Bus[T]。
 package progress
 
 import (
-	agentkitprogress "github.com/oagentkit/runtime/progress"
+	oagentprogress "github.com/oagentkit/runtime/progress"
 )
 
 // 事件 Type 词表（v3.109.0 常量化——此前 5 处发布点裸字面量，词表只活在
@@ -30,10 +30,10 @@ type Event struct {
 	At       string `json:"at"`
 }
 
-// Bus 类型别名：委托给 agentkit 泛型总线。
-type Bus = agentkitprogress.Bus[Event]
+// Bus 类型别名：委托给 oagentkit 泛型总线。
+type Bus = oagentprogress.Bus[Event]
 
 // NewBus 创建事件总线。
 func NewBus() *Bus {
-	return agentkitprogress.NewBus[Event]()
+	return oagentprogress.NewBus[Event]()
 }

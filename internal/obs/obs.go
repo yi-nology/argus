@@ -1,4 +1,4 @@
-// Package obs 运行时观测（design §10.1）：argus_* 指标定义并挂到 ekit metrics.Registry
+// Package obs 运行时观测（design §10.1）：argus_* 指标定义并挂到 oekit/metrics.Registry
 // （对齐工作区 kube-prometheus-stack 接入），在 router.go 暴露 /metrics。
 package obs
 
@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"time"
 
-	ekitmetrics "github.com/oekit/metrics"
+	"github.com/oekit/metrics"
 
 	"argus/internal/plugin"
 )
@@ -185,11 +185,11 @@ var (
 	}, []string{"method", "path", "status"})
 )
 
-// Init 把指标注册进 ekit Registry 并接通 plugin 观测钩子。幂等。
+// Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
 // metrics.Init 补齐 go/process/buildinfo 通用收集器（此前 /metrics 只有 argus_* 指标）。
 func Init() {
-	ekitmetrics.Init("argus")
-	ekitmetrics.Registry.MustRegister(
+	metrics.Init("argus")
+	metrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
 		findingsByRepo, taskDurationByRepo,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,

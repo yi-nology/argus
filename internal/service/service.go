@@ -17,7 +17,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/concurrency/ratelimit"
-	ekcache "github.com/oekit/data/cache"
+	datacache "github.com/oekit/data/cache"
 
 	api "argus/biz/model/api"
 	"argus/internal/config"
@@ -38,7 +38,7 @@ import (
 	"github.com/oagentkit/rag"
 )
 
-// Argus-specific audit actions (agentkit/audit provides the Logger, actions are domain-specific).
+// Argus-specific audit actions (oagentkit/obs/audit provides the Logger, actions are domain-specific).
 const (
 	auditTaskCreate      audit.Action = "task.create"
 	auditFindingSuppress audit.Action = "finding.suppress"
@@ -97,7 +97,7 @@ type Service struct {
 	// v3.82.0 曾改进程级单例，e2e 同进程多 Service 场景互相污染节流窗口）。
 	// 懒建（qaThrottleMu 护栏），生产行为不变——进程内恒一个 Service。
 	qaThrottleMu  sync.Mutex
-	qaThrottleCch *ekcache.LocalCache[bool]
+	qaThrottleCch *datacache.LocalCache[bool]
 
 	// rateLimiter 每 token 速率限制器（v3.135.0 引入；v3.147.0 换 oekit
 	// ratelimit.KeyedLimiter：按 key 隔离令牌桶 + TTL 驱逐闲置 key；tokenRateOK
@@ -187,8 +187,8 @@ func (s *Service) DrainComments(timeout time.Duration) {
 	}
 }
 
-// ---------- 统一响应壳（ekit mw：{code,data,message,trace_id}）----------
-// trace_id 由 ekit traceid.Middleware 注入（main 注册），mw 响应函数自动携带。
+// ---------- 统一响应壳（oekit/middleware mw：{code,data,message,trace_id}）----------
+// trace_id 由 oekit/middleware/hmw 注入（main 注册），mw 响应函数自动携带。
 
 // requirePlatform 平台准入检查：规范化 platform 名并返回 (pcfg, true) 表示已接入且有凭证（PAT 或 GitHub App）。
 func (s *Service) requirePlatform(platform string) (string, *config.PlatformConfig, bool) {

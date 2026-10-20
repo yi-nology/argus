@@ -1,4 +1,4 @@
-// Package worker 提供 agentkit/worker.TaskQueue 的 storage.Store 适配器。
+// Package worker 提供 oagentkit/queue/worker.TaskQueue 的 storage.Store 适配器。
 package worker
 
 import (
@@ -8,7 +8,7 @@ import (
 	"argus/internal/storage"
 )
 
-// StoreQueue 适配 *storage.Store 实现 agentkit/worker.TaskQueue 接口。
+// StoreQueue 适配 *storage.Store 实现 oagentkit/queue/worker.TaskQueue 接口。
 // ClaimNextPending 返回值从 *Task 适配为 taskID string。
 type StoreQueue struct {
 	Store *storage.Store

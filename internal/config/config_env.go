@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	ekitconfig "github.com/oekit/core/config"
+	oekitconfig "github.com/oekit/core/config"
 )
 
 func envStr(key, def string) string {
-	return ekitconfig.GetStringWithDefault(key, def)
+	return oekitconfig.GetStringWithDefault(key, def)
 }
 
 // normalizeEvidenceMode 把 ARGUS_REFLECTION_EVIDENCE 归一到 off|soft|strict。
@@ -60,7 +60,7 @@ func envBool(key string, def bool) bool {
 	if v == "" {
 		return def
 	}
-	b, ok := ekitconfig.GetBool(key)
+	b, ok := oekitconfig.GetBool(key)
 	if !ok {
 		warnBadEnv(key, v, def)
 		return def
@@ -73,7 +73,7 @@ func envInt(key string, def int) int {
 	if v == "" {
 		return def
 	}
-	n, ok := ekitconfig.GetInt(key)
+	n, ok := oekitconfig.GetInt(key)
 	if !ok {
 		warnBadEnv(key, v, def)
 		return def
@@ -181,8 +181,8 @@ func warnBadEnv(key, val string, def any) {
 }
 
 // LoadDotEnv 依次尝试常见位置的 .env（服务根目录、lacus/ 根目录；test 子目录
-// 多一级）。v3.81.0 实现下沉 ekit/config（服务开发期配置引导通用语义；
+// 多一级）。v3.81.0 实现下沉 oekit/core/config（服务开发期配置引导通用语义；
 // 候选路径与语义逐字保持：首个存在文件生效、已 export 的优先、无文件静默）。
 func LoadDotEnv() {
-	ekitconfig.LoadDotEnv()
+	oekitconfig.LoadDotEnv()
 }

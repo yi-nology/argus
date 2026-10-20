@@ -231,7 +231,7 @@ func (w *Workflow) digestSegment(ctx context.Context, seg reqSegment, chunkSize 
 			notes = append(notes, fmt.Sprintf("%s 片段提炼失败（块 %d/%d），以截断原文参与解析", seg.label, i+1, len(chunks)))
 			// 块级回退（深挖修复）：此前任一块失败即整段回退 seg.content——上限
 			// bodyMax×8（缺省 192k 字符），两级提炼的控量目标被单块失败击穿，
-			// 只剩 agentkit fitInput 静默截断兜底。只回退失败块并截到块长。
+			// 只剩 oagentkit/llm fitInput 静默截断兜底。只回退失败块并截到块长。
 			parts = append(parts, truncSummary(ch, chunkSize))
 			continue
 		}

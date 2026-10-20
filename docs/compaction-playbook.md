@@ -57,5 +57,5 @@
 
 - 判定用 **provider 真实 usage**（argus 已有：ctxfit 校准寄存器 +
   UsageHandler 回灌，v3.33.0），估算只做 fallback；
-- 阈值 = 窗口 − 输出预留 − buffer，与 agentkit fitInput 口径一致；
+- 阈值 = 窗口 − 输出预留 − buffer，与 oagentkit fitInput 口径一致；
 - 压缩轮本身也走 FitModel（压缩输入同样可能超窗）。

@@ -1,4 +1,4 @@
-// 租约存储（多副本选主）：实现 agentkit/worker.LeaseStore，供 worker.LeaderElector
+// 租约存储（多副本选主）：实现 oagentkit/queue/worker.LeaseStore，供 worker.LeaderElector
 // 收敛"只能跑一份"的控制面组件（出站轮询、定时清理）。SQL 条件更新保证原子性——
 // `WHERE lease_key=? AND (holder=? OR expires_at<?)` 单语句完成"判-占-续"。
 // 时间统一 UTC：跨实例时钟偏移（同 LAN 毫秒级）远小于 ttl 量级，可容忍。
@@ -24,7 +24,7 @@ func (LeaderLease) TableName() string { return "leader_leases" }
 
 var _ agentkitworker.LeaseStore = (*Store)(nil)
 
-// TryAcquire 原子获取或续约租约（agentkit/worker.LeaseStore 实现）。
+// TryAcquire 原子获取或续约租约（oagentkit/queue/worker.LeaseStore 实现）。
 // 两条路径：① 他人持有未过期 → 条件 UPDATE 仅在 holder=我 或已过期时生效；
 // ② 无行 → 首次 INSERT（唯一键冲突 = 他实例抢先，回退再试一次条件更新收敛）。
 func (s *Store) TryAcquire(ctx context.Context, key, holder string, ttl time.Duration) (bool, error) {
@@ -48,7 +48,7 @@ func (s *Store) TryAcquire(ctx context.Context, key, holder string, ttl time.Dur
 	return res.RowsAffected > 0, nil
 }
 
-// Release 释放租约（仅持有者本人生效；agentkit/worker.LeaseStore 实现）。
+// Release 释放租约（仅持有者本人生效；oagentkit/queue/worker.LeaseStore 实现）。
 func (s *Store) Release(ctx context.Context, key, holder string) error {
 	return s.db.WithContext(ctx).Exec("DELETE FROM leader_leases WHERE lease_key = ? AND holder = ?", key, holder).Error
 }

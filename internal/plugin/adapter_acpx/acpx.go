@@ -1,5 +1,5 @@
 // Package adapter_acpx acpx 形态适配器：把 CLI 编码 agent（codex/claude/kimi 等，
-// agentkit/acpx 注册表）接入 Argus 的 R4 专家委派。
+// oagentkit/tools/acpx 注册表）接入 Argus 的 R4 专家委派。
 //
 // 与 adapter_cli 的区别：cli 适配器执行确定性命令行（OCR），本适配器驱动的是
 // 有自主工具调用能力的编码 agent——它能在工作副本里读代码、跑 git，按提示词

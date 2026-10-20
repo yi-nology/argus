@@ -181,7 +181,7 @@ func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManif
 	var opts []adapter_builtin.ReviewerOption
 	opts = append(opts, adapter_builtin.WithLogger(d.Log))
 	if d.ReviewTools != nil {
-		// ReAct 模式（agentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
+		// ReAct 模式（oagentkit agentrun + R3 同源工具表）；单轮路径保留为降级兜底
 		opts = append(opts, adapter_builtin.WithToolsHook(d.ReviewTools))
 	}
 	if d.ReactModel != nil {

@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	ekmathx "github.com/oekit/pkg/mathx"
+	"github.com/oekit/pkg/mathx"
 
 	"github.com/oagentkit/textx/reportutil"
 )
@@ -27,9 +27,9 @@ import (
 const MaxReviewN = 5
 
 // ClampReviewN 钳制 reviewN 到 [1, MaxReviewN]（0/负数 = 关闭采样，返回 1）。
-// v3.82.0 引入 ekit ekmathx.Clamp（语义逐位一致，消除边界分支）。
+// v3.82.0 引入 ekit mathx.Clamp（语义逐位一致，消除边界分支）。
 func ClampReviewN(n int) int {
-	return ekmathx.Clamp(n, 1, MaxReviewN)
+	return mathx.Clamp(n, 1, MaxReviewN)
 }
 
 // BumpSeverity 严重度上调一级（low→medium→high；high 封顶）。

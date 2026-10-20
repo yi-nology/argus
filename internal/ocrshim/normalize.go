@@ -5,7 +5,7 @@
 // sidecar 形态：argus 侧准备工作副本（workcopy 池），目录经 payload.workcopy_dir
 // 下发；shim 在该目录执行 OCR（git 凭证已嵌在 clone URL 中，unshallow 后 OCR 的
 // merge-base range 审查可用），把 OCR JSON 归一化为 argus findings 契约返回。
-// 进程托管/环境白名单/stdout 限容全部复用 agentkit/acpx（与 adapter_cli 同底座）。
+// 进程托管/环境白名单/stdout 限容全部复用 oagentkit/tools/acpx（与 adapter_cli 同底座）。
 package ocrshim
 
 import (

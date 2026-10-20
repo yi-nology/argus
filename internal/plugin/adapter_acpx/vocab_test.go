@@ -2,7 +2,7 @@ package adapter_acpx
 
 import "testing"
 
-// TestAcpxAgentVocabulary 钉 argus 与 agentkit/acpx 的词表对齐：构造走 SDK
+// TestAcpxAgentVocabulary 钉 argus 与 oagentkit/tools/acpx 的词表对齐：构造走 SDK
 // Registry 单源后全量名可用；bins 探测词表与 SDK 真实 CLI 一致——minimax 曾
 // 手抄为不存在的 minimax-code（agentkit v0.13.0 起真实 CLI 是 mcode），删
 // vendor 后 replace 转活才暴露。

@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	ekuidgen "github.com/oekit/kitx/uidgen"
+	"github.com/oekit/kitx/uidgen"
 
 	"argus/internal/plugin"
 )
@@ -178,10 +178,10 @@ func a2aDoJSON(req *http.Request, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// a2aMessageID v3.82.0 引入 ekit ekuidgen.ShortUUID（16 位短 ID；旧实现
+// a2aMessageID v3.82.0 引入 ekit uidgen.ShortUUID（16 位短 ID；旧实现
 // crypto/rand 静默忽略读取错误，弱随机时产出重复 ID）。
 func a2aMessageID() string {
-	return "argus-" + ekuidgen.ShortUUID()
+	return "argus-" + uidgen.ShortUUID()
 }
 
 func trimRight(s string) string {

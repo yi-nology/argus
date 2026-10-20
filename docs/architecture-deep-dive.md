@@ -250,7 +250,7 @@ type AgentManifest struct {
 | `builtin` | 进程内 Eino ADK agent | requirement-compliance、security 等；支持 `skillRef` 注入 SKILL.md 进系统提示词；v3.3 起通用 Reviewer 可选挂工具表走 ReAct（`Workflow.ReviewTools`） | `internal/plugin/adapter_builtin/` |
 | `cli` | 外部命令行（OCR） | 声明 `Needs.WorkingCopy` → 上下文服务浅克隆 → exec + JSON 解析 → Result。进程组管理：`Setpgid` 建进程组、超时先向 `-pid` 发 SIGTERM、grace 后 SIGKILL | `internal/plugin/adapter_cli/` |
 | `remote` | 远端服务 | a2a：Agent Card 发现 → task 提交 → 轮询；mcp：薄封装 mark3labs/mcp-go client（v3.1 实装协议子集） | `internal/plugin/adapter_remote/` |
-| `acpx`（v3.2） | CLI 编码 agent（codex/kimi/claude…） | agentkit/acpx 驱动：只读沙箱内跑 CLI agent，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用不影响启动 | `internal/plugin/adapter_acpx/` |
+| `acpx`（v3.2） | CLI 编码 agent（codex/kimi/claude…） | oagentkit/tools/acpx 驱动：只读沙箱内跑 CLI agent，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用不影响启动 | `internal/plugin/adapter_acpx/` |
 
 **cli 适配器安全设计**：
 - 只允许运行 Hub 配置声明的白名单可执行文件
@@ -570,11 +570,11 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 
 ### 6.2 LLM 客户端
 
-> 位置变更：v3.0.3 起该层收敛进共享库 **agentkit/llm**（`git.example.com/enjoydream/agentkit/llm`），
+> 位置变更：v3.0.3 起该层收敛进共享库 **oagentkit/llm**（`github.com/oagentkit/llm`），
 > Argus 侧不再有 `internal/llm/`——下述机制原样保留，另新增降级链与分阶段路由（见第十四章）。
 
 ```go
-// agentkit/llm（原 internal/llm/llm.go）
+// oagentkit/llm（原 internal/llm/llm.go）
 
 type Client struct {
     Model           model.BaseChatModel
@@ -650,10 +650,10 @@ func (c *Client) fitInput(msgs []*schema.Message) {
 
 ### 6.3 知识子系统（RAG）
 
-> 位置变更：已收敛进共享库 **agentkit/knowledge/rag**；Argus 侧 `main.go` 只做模式装配。
+> 位置变更：已收敛进共享库 **oagentkit/rag**；Argus 侧 `main.go` 只做模式装配。
 
 ```go
-// agentkit/knowledge/rag
+// oagentkit/rag
 
 type KnowledgeService interface {
     // 模式一：预检索（确定性）—— workflow 阶段在拼 prompt 前取 topK 片段
@@ -675,7 +675,7 @@ R3 `search_knowledge` 命中历史误报即带抑制语境，同型误报率随�
 
 ### 6.4 Skill 方法论注入
 
-> 位置变更：已收敛进共享库 **agentkit/skill**（`skill.NewFileProvider`）。
+> 位置变更：已收敛进共享库 **oagentkit/skillkit/skill**（`skill.NewFileProvider`）。
 
 ```go
 type Provider interface {
@@ -1052,7 +1052,7 @@ log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model,
 ### 14.2 v3.2——acpx：CLI 编码 agent 进编
 
 `kind: acpx` 第四类适配器：把 codex/kimi/mimo/claude 等 CLI 编码 agent 当 R4 审查专家——
-agentkit/acpx 在只读沙箱里跑 CLI，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用，
+oagentkit/tools/acpx 在只读沙箱里跑 CLI，按 findings JSON 契约回收意见；CLI 未安装时插件自动停用，
 不影响启动。这让"外部最强模型"无需服务化即可进编队。
 
 ### 14.3 v3.3——agentkit v0.7.x 七项能力迭代

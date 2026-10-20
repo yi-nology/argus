@@ -42,10 +42,10 @@ OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGE
   多个 acpx 编码 agent）追加进本轮分派，Merger 对"仅一方报告"的意见标注交叉分歧——高危路径
   多模型互查；
 - **编队两种协作模式（v3.4）**：默认**互盲独立**（成员并发盲审，分歧由 Merger 事后标注"另一专家
-  未复现"）；`mode: consensus` 切换为**黑板共识**（agentkit/blackboard）——成员按轮互看共享黑板、
+  未复现"）；`mode: consensus` 切换为**黑板共识**（oagentkit/agent/blackboard）——成员按轮互看共享黑板、
   只补充他人未覆盖的新问题，一整轮无人补充即共识收敛（上限 2 轮），适合"要收敛结论"而非"要分歧
   信号"的高危变更；
-- **报告反思闸门（v3.4，可选）**：合并去重后由终审编辑（agentkit/reflection 批判→修订收敛循环）
+- **报告反思闸门（v3.4，可选）**：合并去重后由终审编辑（oagentkit/agent/reflection 批判→修订收敛循环）
   按误报特征 Rubric 复核 findings——剔除幻觉引用/纯风格/无证据定位条目、修正严重级别（只删改不新增，
   默认关闭，`ARGUS_REFLECTION_ROUNDS` 开启）。
 - **best-of-N 同质采样（v3.10.0，高危路径 opt-in）**：插件声明 `reviewN: 3` 即对同一审查者并发
@@ -492,7 +492,7 @@ agents:
   `env: [VAR...]` 声明按名透传的环境变量白名单（缺省最小环境，密钥类绝不继承——cli 在待审仓库工作树里执行）；
 - `kind: remote`：`protocol: a2a | mcp`，endpoint 只能在这里声明（v3.1 实装协议子集）；
 - `kind: acpx`（v3.2）：`agent: codex|kimi|mimo|claude|...` —— CLI 编码 agent 作为 R4 审查专家
-  （agentkit/acpx 驱动，只读沙箱 + findings JSON 契约；CLI 未安装时插件自动停用不影响启动）；
+  （oagentkit/tools/acpx 驱动，只读沙箱 + findings JSON 契约；CLI 未安装时插件自动停用不影响启动）；
 - `triggers: {events: [cr.opened]}`：可按事件收窄（SDK 归一化词表 cr.opened/synchronize/reopened）。
 
 编队声明（v3.3，`squads:` 段；v3.4 支持共识模式）：
@@ -555,10 +555,10 @@ internal/
     ├ registry.go              plugins.yaml → 注册表；仓库配置信任边界
     ├ dispatcher.go            确定性路由 + fan-out + 超时 + 熔断(3败/5min) + 预算裁剪
     ├ merger.go                指纹去重 + 冲突取高 + 误报抑制 + 交叉分歧标注
-    ├ squad_consensus.go       编队黑板共识（v3.4，agentkit/blackboard 驱动）
+    ├ squad_consensus.go       编队黑板共识（v3.4，oagentkit/agent/blackboard 驱动）
     ├ adapter_builtin/         requirement-compliance(workflow 外壳) + 通用审查 agent(可选 ReAct)
     ├ adapter_cli/             OCR CLI 适配器（进程组 exec；容错 JSON 解析）
-    ├ adapter_acpx/            CLI 编码 agent 适配器（v3.2，agentkit/acpx 只读沙箱）
+    ├ adapter_acpx/            CLI 编码 agent 适配器（v3.2，oagentkit/tools/acpx 只读沙箱）
     └ adapter_remote/          a2a/mcp 远端插件（v3.1 实装协议子集）
   workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度 / R3.5 反思(可选, v3.4)
                                / R4 委派 / R5 真值表
@@ -582,7 +582,7 @@ knowledge/                     本地知识库（markdown，R3 search_knowledge 
 ```
 
 > LLM 客户端（重试/JSON 反馈重试/token 记账/降级链/StageRouter 分阶段路由）与
-> 知识子系统（rag/skill）已收敛进共享库 **agentkit**（v3.0.3 起去重，argus 只做领域接线）；
+> 知识子系统（rag/skill）已收敛进共享库 **oagentkit**（v3.0.3 起去重，argus 只做领域接线）；
 > Milvus 模式下 knowledge/ 目录内容会在启动时索引进向量库。
 
 **设计骨架**（详见 `design.md`）：
@@ -616,7 +616,7 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 **剩余待办/已知边界**：
 - 生产升级部署验证（生产现运行 v3.0.x，仓库 HEAD 已 v3.9.x）；
 - 总结评论扫描兜底受 SDK 分页限制（评论被顶出第一页后走新建路径）；
-- 编队共识上限 2 轮（比 agentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
+- 编队共识上限 2 轮（比 oagentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
   （成本经 obsx/费率记账可见）；
 - remote 插件仅实装协议子集（a2a/mcp 的审查调用面），完整 agent 间互操作待需求驱动。
 

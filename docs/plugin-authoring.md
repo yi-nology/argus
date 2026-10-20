@@ -170,7 +170,7 @@ agents:
 **特点**：
 - Go 代码直接实现 `AgentPlugin` 接口
 - 运行在 Argus 进程内，无 IPC 开销
-- 可直接使用 LLM 客户端（agentkit/llm）调用模型
+- 可直接使用 LLM 客户端（oagentkit/llm）调用模型
 - 适合需要 LLM 推理的审查逻辑
 - v3.3 起可选挂载工具表（`Workflow.ReviewTools`：get_file/get_diff/search_knowledge/MCP 工具）
   走 ReAct 模式核实线索，失败自动落回单轮 GenerateJSON
@@ -280,7 +280,7 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 
 **特点**：
 - 把 codex / kimi / mimo / claude 等 CLI 编码 agent 当作 R4 审查专家
-- agentkit/acpx 驱动：只读沙箱内执行 CLI，按 findings JSON 契约回收意见
+- oagentkit/tools/acpx 驱动：只读沙箱内执行 CLI，按 findings JSON 契约回收意见
 - CLI 未安装时插件自动停用（LookPath 探测），不影响启动
 - `agent` 字段只能来自 Hub `plugins.yaml`（供应链信任，同 cli）
 
@@ -330,7 +330,7 @@ import (
 
     "github.com/cloudwego/eino/schema"
 
-    "git.example.com/enjoydream/agentkit/llm"
+    "github.com/oagentkit/llm"
     "argus/internal/plugin"
 )
 
@@ -704,7 +704,7 @@ routing:
 | `internal/plugin/registry.go` | 插件注册表（启动期填充，运行期只读） |
 | `internal/plugin/dispatcher.go` | 确定性路由 + fan-out 执行 + 预算裁剪 |
 | `internal/plugin/merger.go` | 合并器：归一化 + 去重 + 抑制 + 降级 + 交叉分歧标注 |
-| `internal/plugin/squad_consensus.go` | 编队黑板共识（v3.4，agentkit/blackboard 驱动） |
+| `internal/plugin/squad_consensus.go` | 编队黑板共识（v3.4，oagentkit/agent/blackboard 驱动） |
 | `internal/plugin/dispatcher.go` | 确定性路由 + fan-out 执行 + 熔断(3败/5min) + 预算裁剪 |
 | `internal/plugin/config.go` | `plugins.yaml` / `.reviewagents.yaml` 解析 |
 | `internal/plugin/severity.go` | Severity 词表归一化 |
@@ -714,7 +714,7 @@ routing:
 | `internal/plugin/adapter_acpx/acpx.go` | acpx 形态适配器（v3.2，CLI 编码 agent） |
 | `internal/plugin/adapter_remote/remote.go` | remote 形态适配器（MCP + A2A） |
 | `internal/bootstrap/bootstrap.go` | 启动装配：plugins.yaml -> 四类适配器 -> Registry |
-| `git.example.com/enjoydream/agentkit/llm` | LLM 客户端（重试/退避/截断重试/token 记账/降级链/StageRouter） |
+| `github.com/oagentkit/llm` | LLM 客户端（重试/退避/截断重试/token 记账/降级链/StageRouter） |
 | `internal/runner/runner.go` | 任务执行编排（runner.Execute） |
 | `internal/worker/worker.go` | worker 池（DB 即队列 + 心跳 + 优雅停机） |
 | `test/e2e/` | E2E 测试（16 个编号场景 + 真实 LLM 集成测试） |

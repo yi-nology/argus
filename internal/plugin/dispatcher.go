@@ -13,7 +13,7 @@ import (
 	"github.com/oekit/logx"
 )
 
-// 熔断参数。旧 agentkit/breaker 导出了 DefaultTripThreshold / DefaultCooldown /
+// 熔断参数。旧 agentkit/breaker（已退役）导出了 DefaultTripThreshold / DefaultCooldown /
 // DefaultProbeTimeout；迁到 oekit/concurrency/breaker 后上游不再导出这些缺省值
 // （它的缺省是「10s 滚动窗口 + 40 桶的错误率模型」，与旧的纯计数型不同构），
 // 因此在此显式固化，取值与旧缺省逐字一致，迁移不改变熔断行为。
@@ -45,7 +45,7 @@ func genBreaker(name string, opts ...breaker.BreakerOption) breaker.GenBreaker {
 
 // TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，
 // 不用 Prometheus 指标判定——那是聚合计数器，避免基数爆炸）。
-// 实现委托 agentkit/llm.Budget（此前为逐方法克隆）。
+// 实现委托 oagentkit/llm.Budget（此前为逐方法克隆）。
 type TokenBudget = llm.Budget
 
 // NewTokenBudget 创建任务预算累计器。

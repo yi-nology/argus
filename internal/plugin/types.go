@@ -18,7 +18,7 @@ const (
 	KindBuiltin Kind = "builtin"
 	KindCLI     Kind = "cli"
 	KindRemote  Kind = "remote"
-	KindACPX    Kind = "acpx" // CLI 编码 agent（codex/claude/kimi 等）作为审查专家（agentkit/acpx 驱动）
+	KindACPX    Kind = "acpx" // CLI 编码 agent（codex/claude/kimi 等）作为审查专家（oagentkit/tools/acpx 驱动）
 )
 
 // Protocol kind=remote 时的协议（v3.0 只留接口位，不做协议子集）。

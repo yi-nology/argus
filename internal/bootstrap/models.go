@@ -71,7 +71,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 
 	// ---- LLM 全局限速器（token bucket；ARGUS_LLM_RATE_LIMIT > 0 时启用）----
 	// v3.5.9 起覆盖主链 Client/Resilient（历史缺口：此前只到达非降级路径的阶段
-	// 覆盖 Client）。ReAct RawModel 旁路不经 Client/Resilient，仍不受限（agentkit 侧限制）。
+	// 覆盖 Client）。ReAct RawModel 旁路不经 Client/Resilient，仍不受限（oagentkit 侧限制）。
 	if cfg.LLMRateLimit > 0 {
 		m.Limiter = rate.NewLimiter(rate.Limit(cfg.LLMRateLimit), cfg.LLMRateBurst)
 		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
@@ -83,7 +83,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		APIKey:  cfg.LLM.APIKey,
 		Model:   cfg.LLM.Model,
 		Timeout: cfg.LLM.Timeout,
-		// 负值 = 不下发 max_tokens（agentkit 语义，推理模型兼容）
+		// 负值 = 不下发 max_tokens（oagentkit 语义，推理模型兼容）
 		MaxTokens: ptrNonNeg(maxTokens),
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 	m.Generate = resilient
 
 	// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
-	// FailoverModel 装饰补齐主备切换（agentkit v0.9.4；Resilient.RawModel 只返回主模型）
+	// FailoverModel 装饰补齐主备切换（oagentkit；Resilient.RawModel 只返回主模型）
 	fallbackBM, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		BaseURL: cfg.LLM.FallbackBaseURL,
 		APIKey:  cfg.LLM.FallbackAPIKey,

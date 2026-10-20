@@ -21,7 +21,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oagentkit/tools/workcopy"
-	ekuidgen "github.com/oekit/kitx/uidgen"
+	"github.com/oekit/kitx/uidgen"
 
 	"github.com/oekit/pkg/jsonrepair"
 
@@ -261,7 +261,7 @@ func cloneFixSandbox(ctx context.Context, src, workRoot string) (string, func(),
 	if workRoot == "" {
 		workRoot = os.TempDir()
 	}
-	dst := filepath.Join(workRoot, "fix-"+ekuidgen.ShortUUID())
+	dst := filepath.Join(workRoot, "fix-"+uidgen.ShortUUID())
 	if _, _, code, err := procx.Run(ctx, procx.RunRequest{
 		Argv:      []string{"git", "clone", "--quiet", "--local", src, dst},
 		Timeout:   2 * time.Minute,

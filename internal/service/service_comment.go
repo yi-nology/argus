@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ekcache "github.com/oekit/data/cache"
+	datacache "github.com/oekit/data/cache"
 
 	"github.com/yi-nology/go-git-platform/provider"
 
@@ -307,7 +307,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	prNum := fmt.Sprintf("%d", meta.PRNumber)
 	prRef := ev.Repo.Owner + "/" + ev.Repo.Name + "#" + prNum
 
-	// per-PR 节流（30 秒冷却）。v3.82.0 引入 ekit data/cache：TTL 过期 + 容量
+	// per-PR 节流（30 秒冷却）。v3.82.0 引入 oekit/data/cache：TTL 过期 + 容量
 	// 上限由库接管，取代手写 map+mutex+「超 100 清 1h 前旧条目」驱逐循环。
 	// v3.84.0 起实例回归 per-Service（进程级单例曾令 e2e 同进程多 Service
 	// 互相污染节流窗口；生产行为不变）。
@@ -435,11 +435,11 @@ func (s *Service) handleRestoreComment(ctx context.Context, ev *provider.Normali
 // qaThrottle Q&A 评论 per-PR 30s 冷却缓存（per-Service 懒建，v3.84.0 起；
 // v3.82.0 的进程级单例曾破坏 e2e 测试隔离。TTL 过期 + MaxSize LRU 上限由
 // 库负责；qaThrottleMu 护并发首建）。
-func (s *Service) qaThrottle() *ekcache.LocalCache[bool] {
+func (s *Service) qaThrottle() *datacache.LocalCache[bool] {
 	s.qaThrottleMu.Lock()
 	defer s.qaThrottleMu.Unlock()
 	if s.qaThrottleCch == nil {
-		s.qaThrottleCch = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
+		s.qaThrottleCch = datacache.NewLocalCache(datacache.LocalConfig[bool]{
 			TTL:     30 * time.Second,
 			MaxSize: 200,
 		})

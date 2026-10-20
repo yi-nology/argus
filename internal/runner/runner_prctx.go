@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/oagentkit/textx/textutil"
-	ekcache "github.com/oekit/data/cache"
+	datacache "github.com/oekit/data/cache"
 
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
@@ -118,10 +118,10 @@ const repoGuideAgentMaxBytes = 32_000
 var repoGuideAgentFiles = []string{"AGENTS.md", "CLAUDE.md", ".cursorrules"}
 
 // repoGuideCache 评审规范缓存（repo@sha → 内容；同 sha 多任务/重试复用，
-// 负缓存空串防同 sha 反复打平台 API）。v3.82.0 引入 ekit data/cache：
+// 负缓存空串防同 sha 反复打平台 API）。v3.82.0 引入 oekit/data/cache：
 // MaxSize LRU 精确淘汰（键含 sha 天然有限），取代手写 mutex+map+
 // 「满 64 整体清空」换防——热条目不再被无差别逐出。
-var repoGuideCache = ekcache.NewLocalCache(ekcache.LocalConfig[string]{MaxSize: 64})
+var repoGuideCache = datacache.NewLocalCache(datacache.LocalConfig[string]{MaxSize: 64})
 
 // RepoGuideFor 读取被评审仓库的评审规范 @ head（v3.38.0，v3.71.0 多源）：
 // .argus/REVIEW.md（argus 专属）+ 业界标准 agent 规范（AGENTS.md/CLAUDE.md/

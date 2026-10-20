@@ -1,5 +1,5 @@
 // Package sastscan 确定性 SAST 前置扫描的门面（v3.80.0 实现下沉
-// agentkit/sast——扫描核心与嵌入方 finding 契约解耦；本包保留 plugin.Outcome
+// oagentkit/tools/sast——扫描核心与嵌入方 finding 契约解耦；本包保留 plugin.Outcome
 // 契约映射与部署纪律：bin 路径只来自服务级 env、子进程环境白名单）。
 //
 // 与 cli 插件的区别不变：扫描结果作为独立 Outcome 注入合并，密钥泄漏等确定性

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	agentkitworker "github.com/oagentkit/queue/worker"
-	ekitbootstrap "github.com/oekit/bootstrap"
+	oagentworker "github.com/oagentkit/queue/worker"
+	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/logx"
 
 	"argus/internal/config"
@@ -29,15 +29,15 @@ import (
 //	[store(main) →] poll-leader → worker → github-app-refresher → comments(main) → [http(main)]
 //	停机：HTTP 先停（新任务入口关闭）→ 评论排水 → worker 两阶段排水 60s
 //	（在途自然完成，超时硬取消保持 running 待下次启动重置）→ 选主让位 → 最后关库。
-func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger,
+func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger,
 	store *storage.Store, sys *System, instanceID string) {
 	ctx := app.Context()
 
-	// ---- 多副本控制面选主（agentkit/worker.LeaderElector）----
+	// ---- 多副本控制面选主（oagentkit/queue/worker.LeaderElector）----
 	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
 	// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
-	pollElector := agentkitworker.NewLeaderElector(store, "argus/poller", instanceID,
-		30*time.Second, 10*time.Second, agentkitworker.WithLeaderLogger(log))
+	pollElector := oagentworker.NewLeaderElector(store, "argus/poller", instanceID,
+		30*time.Second, 10*time.Second, oagentworker.WithLeaderLogger(log))
 	pollElector.Start(ctx)
 	app.AddResource("poll-leader", func(context.Context) error {
 		pollElector.Stop() // 优雅停机主动让位，缩短换主窗口
@@ -45,7 +45,7 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 	})
 
 	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
-	wp := &agentkitworker.Pool{Queue: &argusworker.StoreQueue{Store: store},
+	wp := &oagentworker.Pool{Queue: &argusworker.StoreQueue{Store: store},
 		N: cfg.MaxConcurrentTasks, Log: log, Run: sys.Runner.Execute}
 	wp.Start(ctx)
 	// 排水宽限可配（v3.8.0 ARGUS_WORKER_GRACE，默认 60s）：grace < 典型任务时长时
@@ -63,7 +63,7 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 
 	// ---- 运维加固：任务保留清理 + 队列深度采样（WorkerManager 管理生命周期）----
 	// ctx 取消时所有 ticker 自动退出（cancel 先于 close），无需显式 Close
-	wm := ekitbootstrap.NewWorkerManager(ctx)
+	wm := oekitbootstrap.NewWorkerManager(ctx)
 	wm.AddTicker("workcopy-scavenger", time.Hour, func(context.Context) { sys.WC.Sweep(time.Hour) })
 	if cfg.TaskRetentionDays > 0 {
 		retention := time.Duration(cfg.TaskRetentionDays) * 24 * time.Hour

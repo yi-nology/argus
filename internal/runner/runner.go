@@ -67,7 +67,7 @@ type Runner struct {
 	Log     logx.Logger
 	Version string
 	// Audit 审计日志（v3.86.0：verdict.posted / fix.push 等关键动作留痕；
-	// agentkit/audit nil 接收者安全，未注入 = 只少审计不报错）。
+	// oagentkit/obs/audit nil 接收者安全，未注入 = 只少审计不报错）。
 	Audit *audit.Logger
 
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
@@ -84,7 +84,7 @@ type Runner struct {
 	// R3Model R3 ReAct 专用模型覆盖（P6：ARGUS_MODEL_R3；nil = 主模型）。
 	// 已由 main 侧 Failover 装饰时直接使用；nil 时 buildWorkflow 用 LLM.RawModel 再包。
 	R3Model model.BaseChatModel
-	// FallbackModel ReAct 主路径 failover 备模型（agentkit llm.FailoverModel；
+	// FallbackModel ReAct 主路径 failover 备模型（oagentkit llm.FailoverModel；
 	// nil = 不启用）。Resilient.RawModel 只返回主模型，ReAct 旁路靠本字段补齐降级。
 	FallbackModel model.BaseChatModel
 	FallbackName  string

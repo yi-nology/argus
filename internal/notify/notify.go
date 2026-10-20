@@ -65,7 +65,7 @@ func (n *Notifier) NotifyRaw(ctx context.Context, content string) {
 	n.send(ctx, "argus.notify.raw", "", content)
 }
 
-// send 推送执行体（HTTP 层 ekit/network/octopus；状态码/错误在此记账）。
+// send 推送执行体（HTTP 层 internal/notify/octopus；状态码/错误在此记账）。
 func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
 	n.once.Do(func() {
 		n.client = octopus.New(n.BaseURL, n.ChannelID, n.machineUser(), n.Token, 10*time.Second, nil)

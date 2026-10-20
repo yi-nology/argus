@@ -15,8 +15,8 @@ func (c *Config) contextTokens() int {
 	return 128_000
 }
 
-// budgetBase 窗口派生基准（agentkit/llm.BudgetConfig）——比例公式单一来源，
-// 防止 Argus 与 agentkit 两侧公式漂移。Argus 专属的 env 覆盖与下限仍留在本包。
+// budgetBase 窗口派生基准（oagentkit/llm.BudgetConfig）——比例公式单一来源，
+// 防止 Argus 与 oagentkit 两侧公式漂移。Argus 专属的 env 覆盖与下限仍留在本包。
 func (c *Config) budgetBase() llm.BudgetConfig {
 	return llm.BudgetConfig{ContextTokens: c.contextTokens()}
 }

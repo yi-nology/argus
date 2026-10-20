@@ -43,7 +43,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 		return nil, "", err
 	}
 
-	// ---- 优先级表：三层决策约束（指引/排序/限制），见 agentkit/toolprior ----
+	// ---- 优先级表：三层决策约束（指引/排序/限制），见 oagentkit/toolgate/toolprior ----
 	table := toolprior.NewTable()
 	getFileWhen := "核实 AC 证据的唯一来源：每条 implemented/partial 判定前必查"
 	if spec == nil {

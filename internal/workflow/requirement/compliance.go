@@ -116,7 +116,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 func (w *Workflow) r3Instruction(ctx context.Context, task plugin.Task, strategy string) string {
 	instruction := r3System
 	if strategy != "" {
-		// 工具优先级决策指引（agentkit/toolprior：优先级序 + 何时用 + 成本提示）
+		// 工具优先级决策指引（oagentkit/toolgate/toolprior：优先级序 + 何时用 + 成本提示）
 		instruction += "\n\n" + strategy
 	}
 	if ct := task.Artifacts[plugin.ArtifactCodegraphTouched]; ct != "" {
@@ -170,7 +170,7 @@ func reactMaxIterations(acCount int) int {
 	return n
 }
 
-// runAgent 运行 R3 ReAct agent（样板已沉淀至 agentkit/agentrun）。
+// runAgent 运行 R3 ReAct agent（样板已沉淀至 oagentkit/agent/agentrun）。
 // toolsFactory 每次调用重建工具表：agentkit v0.7.0 起 Config.ToolsFactory 生效于
 // 每次尝试——toolprior.WithCallLimit 的限流计数按尝试重置，重试不再继承首轮
 // 已耗尽的外部调用预算（此前共享实例导致重试轮外部工具一开始就被软止损）。

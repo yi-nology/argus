@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// 门面冒烟：确定性数学/键派生已下沉 agentkit reportutil（行为测试在 SDK 侧），
+// 门面冒烟：确定性数学/键派生已下沉 oagentkit reportutil（行为测试在 SDK 侧），
 // 此处钉门面接线与 FirstBy 记账键语义。
 func TestPatternKeyFacade(t *testing.T) {
 	base := "未检查 error 返回，可能导致后续逻辑使用空值"

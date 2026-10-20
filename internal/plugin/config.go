@@ -31,7 +31,7 @@ type PluginsFile struct {
 const (
 	// SquadModeIndependent 默认模式：成员互盲独立审查，分歧由 Merger 事后标注。
 	SquadModeIndependent = ""
-	// SquadModeConsensus 黑板共识模式：成员按轮互看共享黑板（agentkit/blackboard），
+	// SquadModeConsensus 黑板共识模式：成员按轮互看共享黑板（oagentkit/agent/blackboard），
 	// 一整轮无人补充 = 共识达成；上限 consensusMaxRounds 轮。
 	SquadModeConsensus = "consensus"
 )
@@ -102,7 +102,7 @@ type AgentDecl struct {
 	// 与 ocrshim 的 -auth-token/OCRSHIM_TOKEN 配对（非 loopback sidecar 建议开启）。
 	AuthTokenEnv string `yaml:"auth_token_env"`
 
-	// kind=acpx：CLI 编码 agent 名（agentkit/acpx 注册表词表：
+	// kind=acpx：CLI 编码 agent 名（oagentkit/tools/acpx 注册表词表：
 	// claude/zcode/codex/opencode/minimax/kimi/gemini/qwen/mimo）。
 	Agent string `yaml:"agent"`
 }

@@ -1,5 +1,5 @@
 // Argus —— 可插拔多 Agent 审查平台（design.md v3.0）。
-// main 只做进程生命周期：配置 → ekit bootstrap（信号/停机）→ storage 打开 →
+// main 只做进程生命周期：配置 → oekit/bootstrap（信号/停机）→ storage 打开 →
 // bootstrap.Assemble 装配对象图 → bootstrap.StartSubsystems 启动后台子系统 →
 // HTTP 接线 → 资源逆序关闭。全部对象构造与子系统组装在 internal/bootstrap
 // （v3.63.0 组合根单点闭环）。
@@ -18,7 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/google/uuid"
 
-	ekitbootstrap "github.com/oekit/bootstrap"
+	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/concurrency/async"
 	oekitversion "github.com/oekit/core/version"
 	ekcache "github.com/oekit/data/cache"
@@ -54,7 +54,7 @@ func main() {
 	// 共用同一 ldflags 注入值（BuildCommit/BuildTime/BuildBranch 由 Makefile
 	// 直接注入 core/version 包变量）。
 	oekitversion.Version = version
-	// ekit async 的 panic 恢复日志注入 logx（裸 goroutine 已全部收编为 async.GoSafe）
+	// oekit/concurrency async 的 panic 恢复日志注入 logx（裸 goroutine 已全部收编为 async.GoSafe）
 	async.SetPanicHandler(func(msg string, stack []byte) {
 		log.Error("argus.goroutine_panic", "error", msg, "stack", string(stack))
 	})
@@ -72,14 +72,14 @@ func main() {
 	// ---- 生命周期（oekit bootstrap v0.4.2）：SIGINT/SIGTERM → ctx 取消 →
 	// 资源逆序关闭（http → worker → store）→ 后台 goroutine 排水（30s 超时）。
 	// ShutdownTimeout 须覆盖 http 排水（~5s）+ worker 两阶段停机（60s grace + ≤10s 硬取消）+ 关库。
-	boot, bootErr := ekitbootstrap.New(
-		ekitbootstrap.WithServiceName("argus"),
-		ekitbootstrap.WithShutdownTimeout(90*time.Second),
+	boot, bootErr := oekitbootstrap.New(
+		oekitbootstrap.WithServiceName("argus"),
+		oekitbootstrap.WithShutdownTimeout(90*time.Second),
 	)
 	if bootErr != nil {
 		panic(bootErr)
 	}
-	if err := boot.Run(func(app *ekitbootstrap.App) error {
+	if err := boot.Run(func(app *oekitbootstrap.App) error {
 		return runApp(app, cfg, log)
 	}); err != nil {
 		panic(err)
@@ -90,7 +90,7 @@ func main() {
 // 资源按 [store, poll-leader, worker, http] 注册 → 逆序关闭：
 // HTTP 先停（新任务入口关闭）→ worker 两阶段排水 60s（在途自然完成，超时硬取消
 // 保持 running 待下次启动重置）→ 选主让位 → 最后关库。
-func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
+func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	ctx := app.Context()
 
 	// ---- 存储（§5.2：三张表 + 幂等/去重/抢占/staleness）----
@@ -157,10 +157,10 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	rapi.SetAuth = svc.BearerMiddleware()
 
 	// ---- HTTP（ARGUS_ADDR 默认 :8899）----
-	// ekit hlog 桥接：Hertz 框架内部日志（连接异常、路由警告等）统一走 logx。
+	// oekit/logx hlog 桥接：Hertz 框架内部日志（连接异常、路由警告等）统一走 logx。
 	// ⚠️ 必须传 slog 实例（NewSlogLogger），不能传 logx.WithService(...)——后者走
 	// logx 默认 hlog 后端，装回 hlog 后形成 adapter↔logx 无限递归（实测主 goroutine
-	// 卡死 + 100% CPU + SIGTERM 无响应，ekit AGENTS.md 的示例即此雷）。
+	// 卡死 + 100% CPU + SIGTERM 无响应，oekit AGENTS.md 的示例即此雷）。
 	hlog.SetLogger(ekithertz.NewLogger(logx.NewSlogLogger("argus-http")))
 	h := server.Default(
 		server.WithHostPorts(cfg.Addr),
@@ -171,7 +171,7 @@ func runApp(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 		server.WithReadTimeout(30*time.Second),
 		server.WithIdleTimeout(120*time.Second),
 	)
-	// ekit traceid：生成/透传 X-Trace-Id + 注入 RequestContext 与标准 context；
+	// oekit/middleware/hmw traceid：生成/透传 X-Trace-Id + 注入 RequestContext 与标准 context；
 	// mw 响应壳与 logx.Ctx* 日志的 trace_id 皆源于此
 	h.Use(hmw.Middleware()...)
 	// 请求级指标（v3.9.2）：状态码/路由模板计数 + 时延分布（5xx 率可告警）
