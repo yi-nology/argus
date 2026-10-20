@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path"
@@ -115,14 +116,22 @@ type TriggerDecl struct {
 }
 
 // LoadPluginsFile 读取并解析 plugins.yaml。
+// v3.159.0：严格解码（KnownFields）——自有配置的未知键拒载而非静默忽略
+// （插件作者把 skills 拼成 skils 时，旧语义=该插件悄悄不生效且无任何线索；
+// 严格语义=启动期响亮报错）。oekit core v0.10.0 严格模式（嵌套路径+合法键
+// 清单+拼写建议）面更友好，但其导出入口 LoadBootstrap 钉死 etc/config.yaml
+// 路径、字节级入口未导出——argus 按任意路径加载吃不上，缺口记档待上游。
+// 敌对面 .reviewagents.yaml 保持宽容解码不变（攻击者不能靠配置错误面搅黄审查）。
 func LoadPluginsFile(path string) (*PluginsFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	var pf PluginsFile
-	if err := yaml.Unmarshal(data, &pf); err != nil {
-		return nil, fmt.Errorf("解析 %s: %w", path, err)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&pf); err != nil {
+		return nil, fmt.Errorf("解析 %s（严格模式：未知键拒载，检查拼写）: %w", path, err)
 	}
 	return &pf, nil
 }
