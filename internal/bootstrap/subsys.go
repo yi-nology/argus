@@ -11,6 +11,8 @@ import (
 	"argus/internal/config"
 	"argus/internal/dream"
 	"argus/internal/health"
+	"argus/internal/memory"
+	"argus/internal/memorykernel"
 	"argus/internal/obs"
 	"argus/internal/poller"
 	"argus/internal/storage"
@@ -168,6 +170,36 @@ func StartSubsystems(app *ekitbootstrap.App, cfg *config.Config, log logx.Logger
 			}
 		})
 		log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
+	}
+
+	// ---- 评审记忆内核生命周期（v3.153.0）：原始事件按龄回收（缺省 30 天，
+	// 与 memory CLI gc 缺省同档）。命名空间与 dream 供给面同源——
+	// _org + ListPatternRepos 派生的仓桶；dream 不管的库内核不攒。
+	// 仅内核开启时挂载；单库故障只告警不阻断（运维面）。
+	if sys.MemKernel != nil {
+		wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
+			before := time.Now().Add(-30 * 24 * time.Hour)
+			nss := []string{string(memorykernel.OrgNamespace)}
+			if repos, err := store.ListPatternRepos(ctx); err == nil {
+				for _, r := range repos {
+					nss = append(nss, string(memorykernel.NamespaceOf(
+						memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
+				}
+			}
+			total := 0
+			for _, ns := range nss {
+				n, err := sys.MemKernel.GC(ctx, ns, before)
+				if err != nil {
+					log.Warn("argus.memorykernel.gc_failed", "ns", ns, "error", err.Error())
+					continue
+				}
+				total += n
+			}
+			if total > 0 {
+				log.Info("argus.memorykernel.gc_done", "namespaces", len(nss), "raw_deleted", total)
+			}
+		})
+		log.Info("argus.memorykernel.gc_enabled", "interval", "24h", "raw_max_age", "720h")
 	}
 
 	// ---- 审查健康报告（v3.11.0，G5）：周期聚合学习环状态，IM 推送给人看 ----

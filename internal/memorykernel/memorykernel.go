@@ -28,6 +28,7 @@ import (
 
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/agent-memory/lifecycle"
 	"github.com/yi-nology/agent-memory/pipeline/capture"
 	"github.com/yi-nology/agent-memory/pipeline/recall"
 	"github.com/yi-nology/agent-memory/ports"
@@ -173,6 +174,29 @@ func (k *Kernel) ClearRepo(ctx context.Context, ns store.Namespace) error {
 		return fmt.Errorf("memorykernel: 清原始事件: %w", err)
 	}
 	return nil
+}
+
+// GC 原始事件按龄回收（lifecycle.GC 委派；顺带退役证据全没的事实卡）。
+// 命名空间清单由调用方供给（dream 写侧域：_org + ListPatternRepos 派生，
+// 与 dream 供给面同源——内核不攒「dream 不管的库」）。ns 用 string 形态
+//（OrgNamespace/NamespaceOf 转字符串），不向调用方泄漏内核类型。
+func (k *Kernel) GC(ctx context.Context, ns string, before time.Time) (int, error) {
+	if k == nil {
+		return 0, nil
+	}
+	res, err := lifecycle.GC(ctx, k.store, store.Namespace(ns), before)
+	if err != nil {
+		return 0, fmt.Errorf("memorykernel: GC %s: %w", ns, err)
+	}
+	return res.RawDeleted, nil
+}
+
+// Vacuum 物理整理（sqlite VACUUM；低频，建议周级）。
+func (k *Kernel) Vacuum(ctx context.Context) error {
+	if k == nil {
+		return nil
+	}
+	return lifecycle.Vacuum(ctx, k.store)
 }
 
 // RecallIndex R3 注入面：组织桶 + 仓桶两级召回，预算分工与旧面

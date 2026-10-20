@@ -117,3 +117,39 @@ func TestRecallIndexOrgBucketSplit(t *testing.T) {
 		t.Fatalf("组织段标题缺失：%q", out)
 	}
 }
+
+func TestGCAgesRawEvents(t *testing.T) {
+	k := testKernel(t, "gc")
+	ctx := context.Background()
+	ns := store.Namespace("gitlab-g-r")
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := k.SaveFact(ctx, ns, "old-01", "pattern", "旧模式", "四十天前的事实正文", old); err != nil {
+		t.Fatalf("SaveFact old: %v", err)
+	}
+	if err := k.SaveFact(ctx, ns, "new-01", "pattern", "新模式", "新鲜事实正文", time.Now()); err != nil {
+		t.Fatalf("SaveFact new: %v", err)
+	}
+	deleted, err := k.GC(ctx, string(ns), time.Now().Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("GC 删除 = %d, want 1（仅超龄事件）", deleted)
+	}
+	// 新鲜事实仍可召回
+	out := k.RecallIndex(ctx, ns, "", "", "新鲜", 2000)
+	if !strings.Contains(out, "新鲜事实正文") {
+		t.Fatalf("GC 后新鲜事实召回失败：%q", out)
+	}
+}
+
+func TestGCNilSafe(t *testing.T) {
+	var k *Kernel
+	n, err := k.GC(context.Background(), "ns", time.Now())
+	if n != 0 || err != nil {
+		t.Fatalf("nil GC 应 (0,nil)，got (%d,%v)", n, err)
+	}
+	if err := k.Vacuum(context.Background()); err != nil {
+		t.Fatalf("nil Vacuum 应 nil，got %v", err)
+	}
+}
