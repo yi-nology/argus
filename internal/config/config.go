@@ -248,6 +248,11 @@ type Config struct {
 	// 0 = 缺省 6000，本地估算 ceil(runes/3) 口径）。
 	QAHistoryBudget int
 
+	// QAProgTools QA 程序化工具编排（v3.158.0，ARGUS_QA_PTC=1 opt-in）：ask 证据
+	// 采集走 harness/ptc（程序合成 + goja 沙箱执行 + 作答两轮 LLM，替代 ReAct
+	// 多轮往返）；失败自动回退 ReAct。缺省关。
+	QAProgTools bool
+
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端
 	// 零 LLM、零凭证），产物注入 R4 审查提示词。BIN 须为绝对路径（§8 供应链：
@@ -447,6 +452,7 @@ func Load() *Config {
 		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
 		MemoryKernel:           envBool("ARGUS_MEMORY_KERNEL", false),
 		QAHistoryBudget:        envInt("ARGUS_QA_HISTORY_BUDGET", 0),
+		QAProgTools:            envBool("ARGUS_QA_PTC", false),
 		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
 		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
 		ExternalToolCallLimit:  envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5),

@@ -57,6 +57,11 @@ type Engine struct {
 	// HistoryBudgetTokens 会话历史注入 token 预算（v3.152.0，ARGUS_QA_HISTORY_BUDGET；
 	// 0 = 缺省 6000）。到 Critical 档（≥90%）走 harness/budget 压实路径。
 	HistoryBudgetTokens int
+
+	// PTCEnabled 程序化工具编排（v3.158.0，ARGUS_QA_PTC opt-in）：ask 证据采集
+	// 从 ReAct 多轮塌缩为「程序合成 + ptc 沙箱执行 + 作答」两轮 LLM。失败自动
+	// 回退 ReAct（零损）。缺省关。
+	PTCEnabled bool
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器
@@ -148,13 +153,9 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 	recent, _ := conversation.Split(toConversationTurns(history), maxTurns)
 	historyText := conversation.Combine(summary, recent)
 
-	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText, "")
+	answer, err := e.askOnce(ctx, platform, owner, repo, number, question, historyText)
 	if err != nil {
-		e.log().Warn("argus.qa.react_fallback", "pr", prRef, "error", err.Error(), "fallback", "单轮直调")
-		answer, err = e.single(ctx, platform, owner, repo, number, question, historyText)
-		if err != nil {
-			return "", err
-		}
+		return "", err
 	}
 
 	// 乐观锁保存（深挖修复）：读→追加→覆盖写在并发评论下互相丢轮次；
@@ -274,6 +275,26 @@ func systemPrompt(strategy, historyText string) string {
 // renderHistory/truncateLine 已下沉 agentkit conversation（v3.13.0）：
 // Render（"用户:/助手:" 行 + 单轮截断）。qa 侧经 conversation.Combine 组装注入文本。
 
+// askOnce 单次作答编排（v3.158.0 抽出）：ptc（opt-in，程序化取证两轮）→
+// ReAct（多轮工具循环）→ 单轮直调，逐级回退——ptc/ReAct 失败都不是问答失败。
+func (e *Engine) askOnce(ctx context.Context, platform, owner, repo, number, question, historyText string) (string, error) {
+	prRef := platform + ":" + owner + "/" + repo + "#" + number
+	if e.PTCEnabled {
+		if ans, ok, err := e.ptcAsk(ctx, platform, owner, repo, number, question, historyText, ""); err == nil && ok {
+			return ans, nil
+		}
+	}
+	answer, err := e.react(ctx, platform, owner, repo, number, question, historyText, "")
+	if err != nil {
+		e.log().Warn("argus.qa.react_fallback", "pr", prRef, "error", err.Error(), "fallback", "单轮直调")
+		answer, err = e.single(ctx, platform, owner, repo, number, question, historyText)
+		if err != nil {
+			return "", err
+		}
+	}
+	return answer, nil
+}
+
 // react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本；
 // reportAnchor 非空时以最近审查报告为锚注入——ask_argus 追问路径 v3.141.0）。
 func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, error) {
@@ -392,6 +413,13 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 		return "", false
 	}
 	rep, _ := lr["report"].(string)
+	// ptc 优先（v3.158.0）：报告为锚的多轮深挖正是程序化取证的主场（循环调工具
+	// 归并证据，原始输出不过模型面）；未启用/未成立走 ReAct，语义不倒退。
+	if e.PTCEnabled {
+		if ans, ok, perr := e.ptcAsk(ctx, platform, owner, repo, number, question, "", rep); perr == nil && ok {
+			return ans, true
+		}
+	}
 	// ReAct 优先（v3.141.0）：报告为锚 + 工具深挖（此前单轮直调，"这个函数的
 	// 调用方都有谁/历史上这条怎么裁的"一类追问答不了）。失败降级单轮，语义不倒退。
 	if ans, rerr := e.react(ctx, platform, owner, repo, number, question, "", rep); rerr == nil {

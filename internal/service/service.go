@@ -301,6 +301,7 @@ func (s *Service) qa() *qa.Engine {
 		}
 		if s.Cfg != nil {
 			e.HistoryBudgetTokens = s.Cfg.QAHistoryBudget
+			e.PTCEnabled = s.Cfg.QAProgTools // v3.158.0 ARGUS_QA_PTC opt-in
 		}
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论。
 		// v3.151.0：内核开启时切八段召回 + MemoryBand 防伪包裹。
