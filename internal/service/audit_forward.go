@@ -4,10 +4,12 @@
 // 旁路语义与 sink 一致：失败只告警、绝不阻断审计主流程；队列满即丢弃并计数
 // （宁可丢外送不可拖垮服务）。字段值已由 audit 包统一 logredact 打码——
 // 外送载荷天然无明文密钥。
+// v3.164.0：POST 收编 pkg/httpjson 单源（与 sink 同一条外送线）——顺修一处
+// 实缺陷：旧手写路径不检查响应状态码，SIEM 端 5xx = 审计事件静默丢且无告警；
+// 现非 2xx 计入 forward_failed 留痕（重试 1 次吸收瞬态）。
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oekit/logx"
+	"github.com/oekit/pkg/httpjson"
 )
 
 // auditForwardQueue 外送队列深度（满即丢弃，防外送端故障积压）。
@@ -49,25 +52,28 @@ func (f *AuditForwarder) run() {
 		if err != nil {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.url, bytes.NewReader(body))
-		if err != nil {
-			cancel()
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if f.token != "" {
-			req.Header.Set("Authorization", "Bearer "+f.token)
-		}
-		resp, err := f.client.Do(req)
+		// 与 sink 同一条 httpjson 外送线：非 2xx 带状态码与响应摘要报错
+		//（旧手写路径不查状态码，SIEM 端 5xx 静默丢事件）；重试 1 次吸收瞬态。
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = httpjson.DoJSONWithRetry(ctx, f.client,
+			func() (httpjson.Request, error) {
+				return httpjson.Request{
+					Method: http.MethodPost,
+					URL:    f.url,
+					Body:   body,
+					Header: func(h http.Header) {
+						if f.token != "" {
+							h.Set("Authorization", "Bearer "+f.token)
+						}
+					},
+				}, nil
+			},
+			httpjson.RetryConfig{MaxAttempts: 2, BaseDelay: 500 * time.Millisecond},
+			new(map[string]any))
 		cancel()
-		if err != nil {
-			if f.log != nil {
-				f.log.Warn("argus.audit.forward_failed", "error", err.Error())
-			}
-			continue
+		if err != nil && f.log != nil {
+			f.log.Warn("argus.audit.forward_failed", "error", err.Error())
 		}
-		resp.Body.Close()
 	}
 }
 

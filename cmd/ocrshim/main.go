@@ -20,17 +20,15 @@ import (
 	"strings"
 	"time"
 
+	oekitconfig "github.com/oekit/core/config"
+
 	"argus/internal/ocrshim"
 )
 
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
 func main() {
+	// env 缺省读取收编 oekit/core/config 单源（v3.164.0；与 argus 主进程
+	// config_env.go 同一读取面——envOr 手写助手退役）。
+	envOr := oekitconfig.GetStringWithDefault
 	listen := flag.String("listen", envOr("OCRSHIM_LISTEN", ":8090"), "MCP 监听地址")
 	ocrBin := flag.String("ocr-bin", envOr("OCRSHIM_OCR_BIN", "/opt/argus/bin/ocr"),
 		"OCR 可执行文件路径（版本 pin + checksum 由 scripts/install-ocr.sh 负责）")
