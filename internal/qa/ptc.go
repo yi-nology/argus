@@ -5,13 +5,18 @@
 // host.<tool>('{"…"}')，ptc 三重预算（墙钟/调用数/字节数）内执行，只把程序
 // return 的归并小结果带回作答上下文，原始工具输出不过模型面。
 //
+// v3.158.1 诊断回喂：程序正确性类失败（syntax/runtime/bad_result/pending，
+// 以及 ptc 契约归为成功但 Value="null" 的「忘写 return」）回喂 harness 诊断面
+// （ErrorKind/行号/模型侧修复建议——USAGE §3.4：诊断面就是给模型读的）重试
+// 一次；预算/墙钟类失败不重试（方案太重，同型重试只再烧一遍预算），直接回退。
+//
 // 接入纪律（harness USAGE §3.4）与 argus 裁定：
 //   - Options.Stages 留 nil：harness 的 invoke.Stage 判定环属其编排域；argus 的
 //     qa 工具面在构造期已收口（进程内白名单工具 + 工作副本只读 + 检索预算），
 //     无动态披露/出站面，绑定 Call 直连 eino InvokableRun 不新增旁路面。
 //   - 绑定名经 harness toolname.Normalize 净化（撞名装配期即拒，规整单源不另写）。
-//   - 失败语义：程序面任何失败（syntax/runtime/budget/deadline）都回退既有
-//     ReAct 路径——ptc 是加速面不是正确性面，回退零损。
+//   - 失败语义：程序面任何失败（含回喂后再失败）都回退既有 ReAct 路径——
+//     ptc 是加速面不是正确性面，回退零损。
 //   - 回答纪律不变：作答轮仍要求 file:line 证据，程序输出经 DataFence 包裹
 //     （半可信数据面），防工具输出里的注入指令。
 package qa
@@ -85,9 +90,56 @@ func extractProgram(resp string) string {
 	return ""
 }
 
+// programFixable 该次执行失败是否值得回喂诊断重试一次。
+//
+// 正确性类（syntax/runtime/bad_result/pending）：修正程序即可救，重试有收益。
+// 预算类（budget_calls/budget_bytes/deadline）：方案本身太重，同型重试只会
+// 再烧一遍预算，直接回退 ReAct。stage_denied/stage_failed：argus 未接 Stage
+// 环，理论上不出现，出现即异常态，不重试。
+//
+// 特例——OK 但 Value=="null"：ptc 契约把「无 return 值」归为成功（undefined→
+// "null"），但忘写 return 是程序 bug 不是合法取证结果（作答轮拿到 null 证据
+// 只能瞎编或答非所问），按可修复处理（诊断面写明「缺 return」）。
+func programFixable(res ptc.Result) bool {
+	if res.OK {
+		return res.Value == "null"
+	}
+	switch res.ErrorKind {
+	case "syntax", "runtime", "bad_result", "pending":
+		return true
+	}
+	return false
+}
+
+// describePtcFailure 面向模型的诊断文本（harness 诊断面的回喂投影）。
+func describePtcFailure(res ptc.Result) string {
+	var b strings.Builder
+	if res.OK {
+		b.WriteString("程序没有 return 任何值（return 语句缺失）。\n")
+	} else {
+		fmt.Fprintf(&b, "错误类别: %s\n错误: %s\n", res.ErrorKind, res.Error)
+		if res.Location.Valid() {
+			fmt.Fprintf(&b, "位置: %s\n", describePos(res.Location))
+		}
+	}
+	if len(res.Suggestions) > 0 {
+		b.WriteString("修复建议:\n")
+		for _, s := range res.Suggestions {
+			b.WriteString("- " + s + "\n")
+		}
+	}
+	return b.String()
+}
+
+// describePos 诊断位置转文本（1-based 行列）。
+func describePos(p ptc.Position) string {
+	return fmt.Sprintf("第 %d 行第 %d 列", p.Line, p.Column)
+}
+
 // ptcAsk 程序化取证路径。返回 (answer, handled, err)：handled=false 表示程序面
 // 未成立（合成失败/执行失败/空产出），调用方回退 ReAct——不把 ptc 失败当问答失败。
 func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, bool, error) {
+	prRef := platform + ":" + owner + "/" + repo + "#" + number
 	tools, strategy, err := e.tools(ctx, platform, owner, repo, number)
 	if err != nil || len(tools) == 0 {
 		return "", false, nil
@@ -96,30 +148,42 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 	if len(bindings) == 0 {
 		return "", false, nil
 	}
+	sys := buildProgramPrompt(question, historyText, reportAnchor, strategy, tools)
+	runOpts := ptc.Options{Timeout: ptcTimeout, MaxCalls: ptcMaxCalls, MaxBytes: ptcMaxBytes}
 
 	// 第 1 轮：程序合成（qa 上下文 + 工具面 + 程序契约）。
-	prog, err := e.synthesizeProgram(ctx, question, historyText, reportAnchor, strategy, tools)
+	prog, err := e.generateProgram(ctx, sys, question, "")
 	if err != nil {
-		e.log().Warn("argus.qa.ptc_synth_failed", "pr", platform+":"+owner+"/"+repo+"#"+number, "error", err.Error())
+		e.log().Warn("argus.qa.ptc_synth_failed", "pr", prRef, "error", err.Error())
 		return "", false, nil
 	}
 	if prog == "" {
-		e.log().Warn("argus.qa.ptc_no_program", "pr", platform+":"+owner+"/"+repo+"#"+number, "effect", "回退 ReAct")
+		e.log().Warn("argus.qa.ptc_no_program", "pr", prRef, "effect", "回退 ReAct")
 		return "", false, nil
 	}
 
-	// 程序执行：三重预算内循环取证，原始输出不过模型面。
-	res := ptc.Run(ctx, prog, bindings, ptc.Options{
-		Timeout:  ptcTimeout,
-		MaxCalls: ptcMaxCalls,
-		MaxBytes: ptcMaxBytes,
-	})
-	if !res.OK {
-		e.log().Warn("argus.qa.ptc_run_failed", "pr", platform+":"+owner+"/"+repo+"#"+number,
-			"kind", res.ErrorKind, "error", res.Error, "calls", res.Calls, "effect", "回退 ReAct")
-		return "", false, nil
+	// 程序执行：三重预算内循环取证，原始输出不过模型面；正确性类失败回喂一次。
+	res := ptc.Run(ctx, prog, bindings, runOpts)
+	if !res.OK || res.Value == "null" {
+		if !programFixable(res) {
+			e.log().Warn("argus.qa.ptc_run_failed", "pr", prRef,
+				"kind", res.ErrorKind, "error", res.Error, "calls", res.Calls, "effect", "回退 ReAct")
+			return "", false, nil
+		}
+		feedback := describePtcFailure(res)
+		fixed, rerr := e.generateProgram(ctx, sys, question, feedback+"\n上一版程序（有错，请修复后重新完整输出）：\n"+prog+"\n")
+		if rerr != nil || fixed == "" || fixed == prog {
+			e.log().Warn("argus.qa.ptc_repair_gave_up", "pr", prRef, "kind", res.ErrorKind, "effect", "回退 ReAct")
+			return "", false, nil
+		}
+		res = ptc.Run(ctx, fixed, bindings, runOpts)
+		if !res.OK || res.Value == "null" {
+			e.log().Warn("argus.qa.ptc_run_failed_after_repair", "pr", prRef,
+				"kind", res.ErrorKind, "error", res.Error, "calls", res.Calls, "effect", "回退 ReAct")
+			return "", false, nil
+		}
 	}
-	e.log().Info("argus.qa.ptc_ok", "pr", platform+":"+owner+"/"+repo+"#"+number,
+	e.log().Info("argus.qa.ptc_ok", "pr", prRef,
 		"calls", res.Calls, "bytes", res.Bytes, "value_runes", len([]rune(res.Value)))
 
 	// 第 2 轮：作答（程序归并结果为证据锚，DataFence 包裹防注入）。
@@ -145,8 +209,8 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 	return ans, true, nil
 }
 
-// synthesizeProgram 程序合成轮：给出工具面与程序契约，返回程序体。
-func (e *Engine) synthesizeProgram(ctx context.Context, question, historyText, reportAnchor, strategy string, tools []tool.BaseTool) (string, error) {
+// buildProgramPrompt 程序合成的系统提示（合成与修复回喂共用一份基底）。
+func buildProgramPrompt(question, historyText, reportAnchor, strategy string, tools []tool.BaseTool) string {
 	var tb strings.Builder
 	for _, t := range tools {
 		info, ierr := t.Info(context.Background())
@@ -167,15 +231,25 @@ func (e *Engine) synthesizeProgram(ctx context.Context, question, historyText, r
 		"- 用 JSON.parse(host.x('{...}')) 取结果；JSON.stringify 包参数时注意引号转义。\n" +
 		"- 调用预算 " + fmt.Sprint(ptcMaxCalls) + " 次、墙钟 " + ptcTimeout.String() +
 		"、工具输出累计 " + fmt.Sprint(ptcMaxBytes>>10) + "KB——循环采集时在程序内归并（过滤/截断/计数），只 return 精炼后的少量结构化事实（含 file:line）。\n" +
-		"- return 值必须可 JSON 序列化；只输出程序本身（```js 围栏），不要解释。"
+		"- 必须有 return 语句；return 值必须可 JSON 序列化；只输出程序本身（```js 围栏），不要解释。"
 	if reportAnchor != "" {
 		sys += "\n\n" + plugin.DataFence("最近审查报告（数据）", reportAnchor) +
 			"\n问题可能针对该报告；程序取证可核实代码细节/调用方。"
 	}
+	return sys
+}
+
+// generateProgram 程序生成 LLM 调用（feedback 非空 = 修复回喂形态）。
+func (e *Engine) generateProgram(ctx context.Context, sys, question, feedback string) (string, error) {
+	user := question
+	if feedback != "" {
+		user = "上一版程序执行失败。诊断信息：\n" + feedback +
+			"\n请根据诊断修复，重新输出完整程序（同样只输出程序本身）。原问题：\n" + question
+	}
 	client := llm.NewClient(e.chatModel(), "", nil)
 	resp, err := client.Generate(ctx, "qa:ptc-program", []*schema.Message{
 		schema.SystemMessage(sys),
-		schema.UserMessage(question),
+		schema.UserMessage(user),
 	})
 	if err != nil {
 		return "", err

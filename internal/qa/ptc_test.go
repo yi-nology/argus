@@ -106,3 +106,77 @@ func TestPtcRunSandboxSubset(t *testing.T) {
 		t.Fatalf("fetch 应不可用：OK=%v value=%q", res.OK, res.Value)
 	}
 }
+
+func TestProgramFixable(t *testing.T) {
+	cases := []struct {
+		res  ptc.Result
+		want bool
+	}{
+		{ptc.Result{OK: true, Value: `{"hits":1}`}, false},
+		{ptc.Result{OK: true, Value: "null"}, true},    // 忘写 return
+		{ptc.Result{ErrorKind: "syntax"}, true},        // 语法错可修
+		{ptc.Result{ErrorKind: "runtime"}, true},       // JS 异常可修
+		{ptc.Result{ErrorKind: "bad_result"}, true},    // return 不可序列化可修
+		{ptc.Result{ErrorKind: "budget_calls"}, false}, // 预算类：方案太重不重试
+		{ptc.Result{ErrorKind: "budget_bytes"}, false},
+		{ptc.Result{ErrorKind: "deadline"}, false},
+		{ptc.Result{ErrorKind: "stage_denied"}, false}, // argus 未接 Stage 环，异常态不重试
+	}
+	for _, c := range cases {
+		if got := programFixable(c.res); got != c.want {
+			t.Fatalf("programFixable(%+v) = %v, want %v", c.res, got, c.want)
+		}
+	}
+}
+
+func TestDescribePtcFailure(t *testing.T) {
+	// OK-but-null：诊断文本须点明缺 return（模型侧可行动）
+	s := describePtcFailure(ptc.Result{OK: true, Value: "null"})
+	if !strings.Contains(s, "return") {
+		t.Fatalf("null 诊断应点明缺 return：%q", s)
+	}
+	// 带位置与建议的失败：位置行列 + 建议逐条可读
+	s2 := describePtcFailure(ptc.Result{
+		ErrorKind: "syntax", Error: "Unexpected token",
+		Location:    ptc.Position{Line: 3, Column: 7},
+		Suggestions: []string{"检查第 3 行的括号配对"},
+	})
+	if !strings.Contains(s2, "第 3 行第 7 列") || !strings.Contains(s2, "检查第 3 行的括号配对") {
+		t.Fatalf("诊断面回喂不完整：%q", s2)
+	}
+}
+
+// TestPtcRepairLoopEndToEnd 修复回喂端到端：坏程序（语法错）→ 诊断回喂 →
+// 修正程序预算内成功。模拟 ptcAsk 内层循环的两段执行（不经 LLM——用真实
+// ptc.Run 验证回喂产物确实是可执行程序）。
+func TestPtcRepairLoopEndToEnd(t *testing.T) {
+	calls := 0
+	b := []ptc.Binding{{
+		Name: "probe",
+		Call: func(context.Context, string) (string, error) {
+			calls++
+			return `{"i":` + string(rune('0'+calls)) + `}`, nil
+		},
+	}}
+	// 两类可修复形态都验：(a) 真语法错（未闭合大括号）；(b) 合法但缺 return
+	//（ptc 契约 OK/Value="null"——忘写 return 的静默 bug，programFixable 特例）
+	broken := "const r = JSON.parse(await host.probe('{}'));\nconst leak = {" // 语法错：未闭合
+	first := ptc.Run(context.Background(), broken, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	if first.OK || first.ErrorKind != "syntax" {
+		t.Fatalf("坏程序应 syntax 拒：%+v", first)
+	}
+	if !programFixable(first) {
+		t.Fatalf("语法错应可修复：%+v", first)
+	}
+	noReturn := "const r = JSON.parse(await host.probe('{}'));" // 合法但无 return
+	nr := ptc.Run(context.Background(), noReturn, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	if !nr.OK || nr.Value != "null" || !programFixable(nr) {
+		t.Fatalf("缺 return 应 OK/null 且可修复：OK=%v value=%q fixable=%v", nr.OK, nr.Value, programFixable(nr))
+	}
+	// 回喂修复产物（模型侧理想输出形态）
+	fixed := "const r = JSON.parse(await host.probe('{}'));\nreturn {got: r.i};"
+	second := ptc.Run(context.Background(), fixed, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	if !second.OK || second.Value == "null" {
+		t.Fatalf("修复后应成功：%+v", second)
+	}
+}

@@ -120,25 +120,12 @@ func (e *Engine) chatModel() model.BaseChatModel {
 	return e.Model
 }
 
-// Answer 生成 Q&A 回答：ReAct 优先 + 单轮降级；会话历史追加封顶 maxTurns 轮（FIFO 淘汰）。
+// Answer 生成 Q&A 回答：ptc（opt-in）→ ReAct → 单轮降级；会话历史经乐观锁
+// 落库（加载/持久化细节在 qa_session.go，v3.158.1 抽出）。
 func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRef, question string) (string, error) {
 	sessionKey := platform + ":" + owner + "/" + repo + "#" + number
-	sess, err := e.Store.GetQASession(ctx, sessionKey, sessionTTL)
-	if err != nil {
-		// 读失败留痕（深挖修复）：此前静默吞掉，DB 抖动表现为"失忆"无从排查
-		e.log().Warn("argus.qa.session_load_failed", "pr", prRef, "error", err.Error())
-		sess = nil
-	}
-	var history []storage.QATurn
-	summary := ""
-	if sess != nil {
-		// v3.8.0：坏 JSON 此前静默当无历史——与"读失败留痕"的自我要求不一致
-		if err := json.Unmarshal([]byte(sess.HistoryJSON), &history); err != nil {
-			e.log().Warn("argus.qa.history_corrupt", "pr", prRef, "error", err.Error())
-			history = nil
-		}
-		summary = sess.Summary
-	}
+	sess := e.loadQASession(ctx, sessionKey, prRef)
+	history, summary := sess.turns, sess.summary
 
 	// verbatim 注入窗口：只带最近 maxTurns 轮原文；更早内容由滚动摘要承接
 	//（v3.12.0 G2：此前第 7 轮起早期轮次被 FIFO 永久丢弃，追问跨不了轮）。
@@ -158,50 +145,13 @@ func (e *Engine) Answer(ctx context.Context, platform, owner, repo, number, prRe
 		return "", err
 	}
 
-	// 乐观锁保存（深挖修复）：读→追加→覆盖写在并发评论下互相丢轮次；
-	// 冲突时重读最新历史把本轮追加其后重放一次（至少不丢本轮）。
-	// 轮次追加封顶 rawTurnsCap（超出部分已由摘要承接，允许 FIFO 淘汰）。
-	appendTurn := func(h []storage.QATurn) []storage.QATurn {
-		h = append(h, storage.QATurn{Question: question, Answer: answer, At: time.Now().UTC().Format(time.RFC3339)})
-		if len(h) > rawTurnsCap {
-			h = h[len(h)-rawTurnsCap:]
-		}
-		return h
-	}
-	var save func(h []storage.QATurn, sum string, expect time.Time, check bool)
-	save = func(h []storage.QATurn, sum string, expect time.Time, check bool) {
-		hj, err := json.Marshal(h)
-		if err != nil {
-			e.log().Warn("argus.qa.session_marshal_failed", "pr", prRef, "error", err.Error())
-			return
-		}
-		written, err := e.Store.SaveQASessionCas(ctx, &storage.QASession{
-			SessionKey: sessionKey, HistoryJSON: string(hj), Summary: sum,
-		}, expect, check)
-		if err != nil {
-			e.log().Warn("argus.qa.session_save_failed", "pr", prRef, "error", err.Error())
-		} else if !written && check {
-			if fresh, ferr := e.Store.GetQASession(ctx, sessionKey, sessionTTL); ferr == nil && fresh != nil {
-				var fh []storage.QATurn
-				_ = json.Unmarshal([]byte(fresh.HistoryJSON), &fh)
-				// 重放路径不重算摘要（CAS 冲突罕见，摘要允许滞后一轮）
-				save(appendTurn(fh), sum, time.Time{}, false)
-				return
-			}
-			e.log().Warn("argus.qa.session_conflict", "pr", prRef, "action", "重读失败，放弃本轮落库")
-		}
-	}
 	// 滚动摘要：append 后跌出 verbatim 窗口的轮次要并入摘要（失败保旧=纯 FIFO 退化）
-	newTurns := appendTurn(history)
+	newTurns := appendTurn(history, question, answer)
 	sum := summary
 	if _, evicted := conversation.Split(toConversationTurns(newTurns), maxTurns); len(evicted) > 0 {
 		sum = e.rollSummary(ctx, prRef, summary, evicted)
 	}
-	var expect time.Time
-	if sess != nil {
-		expect = sess.UpdatedAt
-	}
-	save(newTurns, sum, expect, sess != nil)
+	e.persistTurn(ctx, sessionKey, prRef, sess, question, answer, newTurns, sum)
 	return answer, nil
 }
 
