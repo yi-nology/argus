@@ -1,6 +1,6 @@
 module argus
 
-go 1.27
+go 1.27.2
 
 require (
 	github.com/apache/thrift v0.13.0
@@ -24,8 +24,8 @@ require (
 	github.com/oagentkit/toolgate v0.12.0
 	github.com/oagentkit/tools v0.10.0
 	github.com/oekit/bootstrap v0.6.4
-	github.com/oekit/concurrency v0.17.1
-	github.com/oekit/core v0.9.2
+	github.com/oekit/concurrency v0.18.0
+	github.com/oekit/core v0.10.0
 	github.com/oekit/data v0.16.0
 	github.com/oekit/hertz v0.7.1
 	github.com/oekit/kitx v0.2.1
@@ -36,7 +36,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.6.2
 	github.com/yi-nology/agent-memory v0.4.2
-	github.com/yi-nology/go-git-platform v0.78.0
+	github.com/yi-nology/go-git-platform v0.94.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
@@ -147,7 +147,7 @@ require (
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yi-nology/go-gitcode v0.7.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	gitlab.com/gitlab-org/api/client-go/v3 v3.15.0 // indirect
+	gitlab.com/gitlab-org/api/client-go/v3 v3.18.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.14.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect

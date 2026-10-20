@@ -66,7 +66,9 @@ vet:
 
 # staticcheck 钉版本：CI 与本地缺失时安装同一版本，避免 @latest 漂移把
 # "新检查器报新问题"冒充代码回归；升级版本是显式动作（改这个变量 + 过一次全量）。
-STATICCHECK_VERSION ?= 2026.2.1
+# 2026.2.2：go toolchain 1.27.2 起 export data v5，2026.2.1 内嵌 x/tools 只认到 v4
+# （"export data version 5 is greater than maximum supported version 4"）。
+STATICCHECK_VERSION ?= 2026.2.2
 
 # 静态门禁三合一（与 CI lint job 同参）：vet + staticcheck + gofmt。
 # 命令口径单源在此——本地 make lint 过 = CI lint 过，不再各自拼参数。

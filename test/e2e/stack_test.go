@@ -101,14 +101,15 @@ func (f *fakeProvider) GetRepo(_ context.Context, _, _ string) (*provider.Platfo
 	return f.repo, nil
 }
 
-func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
+func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.cr == nil {
-		return nil, 0, nil
+		return nil, nil, nil
 	}
 	cp := *f.cr
-	return []*provider.ChangeRequest{&cp}, 1, nil
+	total := 1
+	return []*provider.ChangeRequest{&cp}, &total, nil
 }
 
 func (f *fakeProvider) GetCRDiff(_ context.Context, _, _, _ string) (*provider.MergeDiff, error) {

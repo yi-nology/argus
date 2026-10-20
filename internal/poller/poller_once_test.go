@@ -27,12 +27,13 @@ type listFakePR struct {
 	got   []provider.ListCROptions
 }
 
-func (f *listFakePR) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
+func (f *listFakePR) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
 	f.got = append(f.got, opts)
+	total := len(f.pages)
 	if opts.Page < 1 || opts.Page > len(f.pages) {
-		return nil, len(f.pages), nil
+		return nil, &total, nil
 	}
-	return f.pages[opts.Page-1], len(f.pages), nil
+	return f.pages[opts.Page-1], &total, nil
 }
 
 func cr(num, sha string, state provider.CRState, draft bool) *provider.ChangeRequest {

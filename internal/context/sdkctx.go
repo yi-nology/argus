@@ -331,10 +331,16 @@ func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number st
 }
 
 // ListCRs 列出仓库 PR（轮询兜底任务源用）。
+// v0.94.0 起 SDK total 语义显式化（*int：nil=平台未提供权威总数）——
+// 本包装保持 int 返回面不变（消费方仅 poller 且丢弃 total），nil 归 0。
 func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
-	return call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*provider.ChangeRequest, int, error) {
+	items, total, err := call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*provider.ChangeRequest, *int, error) {
 		return p.ListCRs(ctx, opts)
 	})
+	if total == nil {
+		return items, 0, err
+	}
+	return items, *total, err
 }
 
 // GetRepo 拉取仓库信息（默认分支）。

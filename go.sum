@@ -397,10 +397,10 @@ github.com/oagentkit/tools v0.10.0 h1:iZgqLivOTLzppGtreJOoz7q0uT0w2hQleABB+DEU5O
 github.com/oagentkit/tools v0.10.0/go.mod h1:Zc8EwEWydpN4Pt4po2QUeO6L1aZd2edTxlRT933waaY=
 github.com/oekit/bootstrap v0.6.4 h1:0YuRznl8aT/57/eA5GFhxdBnPN/kpbvSs9zGTBLhPMc=
 github.com/oekit/bootstrap v0.6.4/go.mod h1:YkLmN5GnLw8VRrWrAIxSiMAJ3Z8hfaCm4nMI1HxJnL4=
-github.com/oekit/concurrency v0.17.1 h1:AEYElvycBC7UTqVp6EPe6avWGE3ljjVT8N3+SDlChQA=
-github.com/oekit/concurrency v0.17.1/go.mod h1:2t5QeK3WHWbJVKwTnPiiBZqHxig3fzEPTefGedFU648=
-github.com/oekit/core v0.9.2 h1:UmNJwkAWDxoQJlXlsSP0Gz99/pc6hbP1z+qLhxmnSLk=
-github.com/oekit/core v0.9.2/go.mod h1:HhBTwYHU5MUp9tfNvHjfZv6P4yglQmn4jKmz98dUIsM=
+github.com/oekit/concurrency v0.18.0 h1:gvW1Xni6oFyG0v+Zi7j+fZgZagUTLUETXioWvB1SdYs=
+github.com/oekit/concurrency v0.18.0/go.mod h1:2t5QeK3WHWbJVKwTnPiiBZqHxig3fzEPTefGedFU648=
+github.com/oekit/core v0.10.0 h1:/loDfdK7QIurWueLePTFCRNpmHPGim+0phEoKWqb1JA=
+github.com/oekit/core v0.10.0/go.mod h1:HhBTwYHU5MUp9tfNvHjfZv6P4yglQmn4jKmz98dUIsM=
 github.com/oekit/data v0.16.0 h1:xLmqZRye1UNi3Yeg3fPnYS/4gtgQCZT00sbVEdFiQ9w=
 github.com/oekit/data v0.16.0/go.mod h1:Exln16LI4H1ZZg09Epkt258RD8t5oW8eenkeDEt0By4=
 github.com/oekit/gormx v0.6.0 h1:FWQ/29pSma6vR1lhVqce0A98Fzppr6ZWIGr9WNqX1Rg=
@@ -542,8 +542,8 @@ github.com/yi-nology/agent-harness v0.6.2 h1:QG6nxDoPsost++s64idBuvpzULhiYxJwyUn
 github.com/yi-nology/agent-harness v0.6.2/go.mod h1:XPf/fT667AhFrk9K5b4CYhgSIG7NjtlT8M6xrx4xrV4=
 github.com/yi-nology/agent-memory v0.4.2 h1:hBkJ/1yiAgpfEniQIBgcSApJTjeZi6f84MHDyp+rF6s=
 github.com/yi-nology/agent-memory v0.4.2/go.mod h1:co4jhVUMkq1vU/UuksUd4L1Y1cwbGNdfihZI+Efo6ro=
-github.com/yi-nology/go-git-platform v0.78.0 h1:MA0KeMdIWGhVDtyf4+O/Bo9tfYarfJ4Xa1za/O40J1I=
-github.com/yi-nology/go-git-platform v0.78.0/go.mod h1:Y7j9TsmBgnykLbUtFPwXT7P2ZCUyhKjeZvSOvxVcG7M=
+github.com/yi-nology/go-git-platform v0.94.0 h1:uEwJ3RkqCWwhYQA9K7rTGKYPLisfBW6LRhX6UmAa3GM=
+github.com/yi-nology/go-git-platform v0.94.0/go.mod h1:46F3m3z8gmqBIGVs/OPiuuRvY66GrMXe7agkzgTxje8=
 github.com/yi-nology/go-gitcode v0.7.2 h1:ULEoYgRzhLXBlvZAfj7/9yP9F9pTqHL5vpNebiZcSr8=
 github.com/yi-nology/go-gitcode v0.7.2/go.mod h1:YE9snaa9ChVY7FoPj/4huVDkVNJaI/gpxHcWgNNGYls=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
@@ -554,8 +554,8 @@ github.com/yudai/pp v2.0.1+incompatible/go.mod h1:PuxR/8QJ7cyCkFp/aUDS+JY727OFEZ
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
-gitlab.com/gitlab-org/api/client-go/v3 v3.15.0 h1:67OL6f2VrQJ4sBYBLgZPpP4XEbnA5qfCBKbbn46GBoU=
-gitlab.com/gitlab-org/api/client-go/v3 v3.15.0/go.mod h1:k7uYxRoIeuSqyWZSJfAPZlf0L32OH0lUBImAl4gWUFc=
+gitlab.com/gitlab-org/api/client-go/v3 v3.18.0 h1:P89gqz5MAuj/+VQi+l47O8QXyHsvNPZGq2oIl2o0LIU=
+gitlab.com/gitlab-org/api/client-go/v3 v3.18.0/go.mod h1:UQl7jIdE6nbYNDtc4XWXeiam0V4MJx459e637POlpnQ=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.47.0 h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=
