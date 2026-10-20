@@ -7,22 +7,26 @@
 // 调用），归档为会话内 no-op（原文本来就在 QASession.HistoryJSON，Locator
 // 只给对账句柄）。budget.Item 只携带 ID+Tokens（内核不碰内容），正文由
 // 摘要器装配时按 ID 对齐捕获——两侧必须同源切片，错位即编不出正确摘要。
+//
+// v3.162.0：token 估算收编 textx/compact 单源（EstimateTokens：逐 rune
+// CJK/ASCII 分类计量）。旧手写 ceil(runes/3) 是全 CJK 上界——英文型问答
+// 内容（代码标识符/英文注释）被系统性高估 ~2×，Critical 门提前触发白压实。
+// 非 provider 报数的纪律不变（budget 包纪律：分段估算永不回填 provider 报数）。
 package qa
 
 import (
 	"context"
 	"fmt"
 	"strconv"
-	"unicode/utf8"
 
+	"github.com/oagentkit/textx/compact"
 	"github.com/yi-nology/agent-harness/budget"
 
 	"argus/internal/storage"
 )
 
 // defaultHistoryBudgetTokens 历史注入 token 预算缺省（ARGUS_QA_HISTORY_BUDGET 可配）。
-// 口径：本地估算 ceil(runes/3)（与 textx/compact.EstimateTokens 同口径），
-// 非 provider 报数——分段估算永不回填 provider 报数（budget 包纪律）。
+// 口径：textx/compact 本地估算（CJK/ASCII 分类计量），非 provider 报数。
 const defaultHistoryBudgetTokens = 6000
 
 // summaryItemID 摘要作为段内首条目的固定 ID（防「摘要条目混进轮次序号」）。
@@ -36,9 +40,14 @@ func (e *Engine) historyBudget() int {
 	return defaultHistoryBudgetTokens
 }
 
-// estimateTurnTokens 单轮（问+答）本地 token 估算：ceil(runes/3)。
-func estimateTurnTokens(q, a string) int {
-	return (utf8.RuneCountInString(q) + utf8.RuneCountInString(a) + 2) / 3
+// estimateTextTokens 单段文本 token 估算（compact 单源；Message 复用其
+// per-rune 分类计量，无本地公式）。
+func estimateTextTokens(texts ...string) int {
+	msgs := make([]compact.Message, 0, len(texts))
+	for _, t := range texts {
+		msgs = append(msgs, compact.Message{Text: t})
+	}
+	return compact.EstimateTokens(msgs)
 }
 
 // historyItems 会话段条目化：摘要（非空时）为第 0 条，其后逐轮。
@@ -46,13 +55,13 @@ func estimateTurnTokens(q, a string) int {
 // total 为全段 token 合计（含摘要）。
 func historyItems(history []storage.QATurn, summary string) (items []budget.Item, contents []string, total int) {
 	if summary != "" {
-		t := (utf8.RuneCountInString(summary) + 2) / 3
+		t := estimateTextTokens(summary)
 		items = append(items, budget.Item{ID: summaryItemID, Tokens: t})
 		contents = append(contents, "【已有摘要】\n"+summary)
 		total += t
 	}
 	for i, turn := range history {
-		t := estimateTurnTokens(turn.Question, turn.Answer)
+		t := estimateTextTokens(turn.Question, turn.Answer)
 		items = append(items, budget.Item{ID: strconv.Itoa(i), Tokens: t})
 		contents = append(contents, "问："+turn.Question+"\n答："+turn.Answer)
 		total += t
@@ -113,5 +122,5 @@ func (s *qaSummarizer) Summarize(ctx context.Context, _ []budget.Item) (budget.S
 	if err != nil || text == "" {
 		return budget.Summary{}, fmt.Errorf("qa: 摘要生成失败: %w", err)
 	}
-	return budget.Summary{Text: text, Tokens: (utf8.RuneCountInString(text) + 2) / 3}, nil
+	return budget.Summary{Text: text, Tokens: estimateTextTokens(text)}, nil
 }
