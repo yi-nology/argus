@@ -10,6 +10,7 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oekit/concurrency/async"
+	"github.com/oekit/concurrency/syncx"
 )
 
 // costRank 越大越贵（预算裁剪按降序裁：heavy 先裁）。
@@ -82,11 +83,11 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 	// 预算随 Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
 	task.Budget = budget
 
-	// 并发信号量：限制同时执行的插件数，避免百炼等 API 触发 burst rate limit (429)。
-	var sem chan struct{}
-	if d.MaxConcurrent > 0 {
-		sem = make(chan struct{}, d.MaxConcurrent)
-	}
+	// 并发闸门（v3.174.0 手写信号量收编 oekit/concurrency/syncx.Gate）：
+	// 限制同时执行的插件数，避免百炼等 API 触发 burst rate limit (429)。
+	// Acquire 等待可取消（任务级 ctx 终止即拒）、release 幂等——与手写
+	// sem chan 同语义，多一层幂等防双归还。
+	gate := syncx.NewGate(d.MaxConcurrent)
 
 	var wg sync.WaitGroup
 	for i, s := range sel {
@@ -118,22 +119,19 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 		wg.Add(1)
 		async.GoSafe(func() {
 			defer wg.Done()
-			// 获取信号量（限制并发）。等待必须可取消：任务级 ctx 终止后，
+			// 获取并发名额（限制并发）。等待必须可取消：任务级 ctx 终止后，
 			// 排队 goroutine 不能继续傻等前序插件跑完（深挖修复）。
-			if sem != nil {
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }()
-				case <-ctx.Done():
-					// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
-					// 探测位（不计失败；配对契约=Success/Failure/Abandon
-					// 恰好其一，v0.10.4）
-					brk.AbandonGen(gen)
-					o.SkippedReason = "任务已取消（等待执行槽位）"
-					ReportPluginSkipped("canceled")
-					return
-				}
+			release, gerr := gate.Acquire(ctx)
+			if gerr != nil {
+				// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
+				// 探测位（不计失败；配对契约=Success/Failure/Abandon
+				// 恰好其一，v0.10.4）
+				brk.AbandonGen(gen)
+				o.SkippedReason = "任务已取消（等待执行槽位）"
+				ReportPluginSkipped("canceled")
+				return
 			}
+			defer release()
 			timeout := reg.Manifest.Timeout
 			if timeout <= 0 {
 				timeout = 120 * time.Second

@@ -16,6 +16,7 @@ import (
 	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/pkg/jsonrepair"
+	"github.com/oekit/pkg/pathx"
 
 	"argus/internal/plugin"
 )
@@ -99,16 +100,12 @@ func gitDiffCapped(ctx context.Context, dir string) (stat, diff string, truncate
 }
 
 // safeRelPath finding 文件路径护栏（拒绝绝对路径与目录穿越）。
+// v3.175.0：判定收编 oekit/pkg/pathx.SanitizeRel 单源（宽松档：可抵消的 `..`
+// 抵消，越出根的拒绝——与本处旧实现同语义，但额外覆盖反斜杠分隔符与 Windows
+// 盘符前缀两类逃逸形态）。
 func safeRelPath(p string) error {
-	if p == "" {
-		return fmt.Errorf("finding 文件路径为空")
-	}
-	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") {
-		return fmt.Errorf("finding 文件路径非相对路径: %s", p)
-	}
-	clean := filepath.Clean(filepath.FromSlash(p))
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("finding 文件路径越界: %s", p)
+	if _, ok := pathx.SanitizeRel(p); !ok {
+		return fmt.Errorf("finding 文件路径非法或越界: %s", p)
 	}
 	return nil
 }
