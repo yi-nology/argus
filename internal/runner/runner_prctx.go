@@ -10,6 +10,7 @@ import (
 	datacache "github.com/oekit/data/cache"
 
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 	"argus/internal/storage"
 )
@@ -96,7 +97,7 @@ func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plug
 		r.Log.Warn("argus.runner.repo_config_failed", "error", err.Error())
 		return plugin.EmptyRepoConfig()
 	}
-	if warns := plugin.ResolveRepoConfig(rc, r.Dispatcher.Registry()); len(warns) > 0 {
+	if warns := dispatch.ResolveRepoConfig(rc, r.Dispatcher.Registry()); len(warns) > 0 {
 		for _, wn := range warns {
 			r.Log.Warn("argus.runner.repo_config_warning", "warning", wn)
 		}

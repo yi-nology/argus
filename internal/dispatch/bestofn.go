@@ -11,7 +11,7 @@
 // 模型自评 verdict 不参与裁决。复现计数不进 Comment——指纹（Fingerprint 由
 // 评语派生）与跨轮抑制/学习环身份必须稳定，标注放结构化字段 Finding.Samples，
 // 由渲染层展示（v3.9.1 错账教训：标注文本入键会让身份漂移）。
-package plugin
+package dispatch
 
 import (
 	"fmt"

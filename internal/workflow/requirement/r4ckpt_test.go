@@ -6,14 +6,15 @@ import (
 	"sync"
 	"testing"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
-func r4sel(names ...string) []plugin.Selection {
-	out := make([]plugin.Selection, 0, len(names))
+func r4sel(names ...string) []dispatch.Selection {
+	out := make([]dispatch.Selection, 0, len(names))
 	for _, n := range names {
 		name := n
-		out = append(out, plugin.Selection{Reg: &plugin.Registration{
+		out = append(out, dispatch.Selection{Reg: &dispatch.Registration{
 			Manifest: plugin.AgentManifest{Name: name},
 			Enabled:  true,
 		}})
@@ -54,7 +55,7 @@ func TestRestoreR4Outcomes_EmptyArtifacts(t *testing.T) {
 func TestR4CkptHook_WritesEncodedResult(t *testing.T) {
 	var got map[string]string
 	w := &Workflow{CheckpointSink: func(a map[string]string) { got = a }}
-	w.r4CkptHook(plugin.Outcome{Name: "sec", Result: &plugin.Result{Notes: "n1"}})
+	w.r4CkptHook(dispatch.Outcome{Name: "sec", Result: &plugin.Result{Notes: "n1"}})
 	raw, ok := got[plugin.ArtifactCkptR4Prefix+"sec"]
 	if !ok {
 		t.Fatal("hook 未落键")
@@ -65,7 +66,7 @@ func TestR4CkptHook_WritesEncodedResult(t *testing.T) {
 	}
 	// nil Result 不落
 	got = nil
-	w.r4CkptHook(plugin.Outcome{Name: "bad"})
+	w.r4CkptHook(dispatch.Outcome{Name: "bad"})
 	if got != nil {
 		t.Fatal("nil Result 不应落键")
 	}
@@ -89,7 +90,7 @@ func TestR4CkptHook_ConcurrentNoLostUpdate(t *testing.T) {
 		wg.Add(1)
 		go func(n string) {
 			defer wg.Done()
-			w.r4CkptHook(plugin.Outcome{Name: n, Result: &plugin.Result{Notes: n}})
+			w.r4CkptHook(dispatch.Outcome{Name: n, Result: &plugin.Result{Notes: n}})
 		}(name)
 	}
 	wg.Wait()

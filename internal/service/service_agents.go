@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	api "argus/biz/model/api"
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 	"argus/internal/storage"
 )
@@ -73,8 +74,8 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 		return view
 	}
 	view.Loaded = rc.Loaded
-	statuses, warnings := plugin.ObserveRepoConfig(s.Registry, rc)
-	plugin.SortStatuses(statuses)
+	statuses, warnings := dispatch.ObserveRepoConfig(s.Registry, rc)
+	dispatch.SortStatuses(statuses)
 	view.Use = rc.Use
 	view.Disable = rc.Disable
 	for _, rule := range rc.Routing {

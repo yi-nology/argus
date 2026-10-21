@@ -1,9 +1,11 @@
-package plugin
+package dispatch
 
 import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/oekit/logx"
 )
 
 // hookReg 构造 hook 测试用选中项（name + 插件实现）。
@@ -17,7 +19,7 @@ func hookReg(name string, p AgentPlugin) *Registration {
 
 // TestRunWithHook_SuccessFires 成功产物落定触发 hook；失败/跳过不触发。
 func TestRunWithHook_SuccessFires(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	okReg := hookReg("sec", &nopPlugin{manifest: AgentManifest{Name: "sec"}})
 	badReg := hookReg("bad", &failPlugin{manifest: AgentManifest{Name: "bad"}})
 
@@ -45,7 +47,7 @@ func TestRunWithHook_SuccessFires(t *testing.T) {
 
 // TestRunWithHook_BestOfNFires best-of-N 聚合成功同样触发 hook（一次执行一次落定）。
 func TestRunWithHook_BestOfNFires(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	r := hookReg("sec", &nopPlugin{manifest: AgentManifest{Name: "sec"}})
 	r.Manifest.ReviewN = 3
 	var mu sync.Mutex
@@ -65,7 +67,7 @@ func TestRunWithHook_BestOfNFires(t *testing.T) {
 
 // TestRun_NilHookUnchanged Run（hook=nil）行为与此前逐字一致。
 func TestRun_NilHookUnchanged(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	out := d.Run(context.Background(), Task{ID: "t3"},
 		[]Selection{{Reg: hookReg("sec", &nopPlugin{manifest: AgentManifest{Name: "sec"}})}}, nil)
 	if len(out) != 1 || out[0].Result == nil || out[0].Err != nil {

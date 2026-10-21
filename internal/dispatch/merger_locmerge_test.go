@@ -1,9 +1,11 @@
-package plugin
+package dispatch
 
 import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/oekit/logx"
 	"time"
 )
 
@@ -12,7 +14,7 @@ import (
 // 场景原型：PR#11 实测 correctness(HIGH) 与 security(MEDIUM) 各报一条相同的
 // os.Args[1][:10] 切片越界，旧逻辑按 file+comment 精确指纹去重拦不住。
 func TestMergeGroupsSameLocationAcrossPlugins(t *testing.T) {
-	m := NewMerger(nil, testNopLogger{})
+	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{
 			{Name: "correctness", Result: &Result{Findings: []Finding{
@@ -45,7 +47,7 @@ func TestMergeGroupsSameLocationAcrossPlugins(t *testing.T) {
 // 控制组：同文件不同行号不合并（相邻行常是两个真实的不同问题）；
 // 不同文件同行也不合并。
 func TestMergeKeepsDistinctLocationsSeparate(t *testing.T) {
-	m := NewMerger(nil, testNopLogger{})
+	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{
 			{Name: "correctness", Result: &Result{Findings: []Finding{

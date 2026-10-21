@@ -27,6 +27,7 @@ import (
 	"argus/internal/channel/mcpserver"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/learning"
 	"argus/internal/plugin"
 	"argus/internal/poster"
@@ -406,7 +407,7 @@ type stack struct {
 	llm     *mockLLM
 	mcpBase string
 	runner  *runner.Runner
-	reg     *plugin.Registry
+	reg     *dispatch.Registry
 	engine  *server.Hertz
 	cancel  context.CancelFunc
 }
@@ -656,13 +657,13 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher := plugin.NewDispatcher(reg, log)
+	dispatcher := dispatch.NewDispatcher(reg, log)
 	// 编队声明（收尾批修复）：e2e 装配此前漏了 WithSquads——plugins.yaml squads
 	// 段在 e2e 从未生效（生产 bootstrap.Assemble 有此步）
 	if pf, perr := plugin.LoadPluginsFile(cfg.PluginsFile); perr == nil && len(pf.Squads) > 0 {
 		dispatcher.WithSquads(pf.Squads)
 	}
-	merger := plugin.NewMerger(store, log)
+	merger := dispatch.NewMerger(store, log)
 	if opt.regretLearning {
 		// e2e 阈值放宽：MinSamples=1 便于单轮/两轮内触发消费。SoftFloor=0.55：
 		// v3.9.1 记账口径修正后，轮 2 发布使真实模式行置信度恰达 1+1 计数的

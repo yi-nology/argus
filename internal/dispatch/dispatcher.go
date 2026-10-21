@@ -1,8 +1,7 @@
-package plugin
+package dispatch
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -42,11 +41,6 @@ func genBreaker(name string, opts ...breaker.BreakerOption) breaker.GenBreaker {
 	}
 	return gb
 }
-
-// TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，
-// 不用 Prometheus 指标判定——那是聚合计数器，避免基数爆炸）。
-// 实现委托 oagentkit/llm.Budget（此前为逐方法克隆）。
-type TokenBudget = llm.Budget
 
 // NewTokenBudget 创建任务预算累计器。
 func NewTokenBudget(limit int) *TokenBudget { return llm.NewBudget(limit) }
@@ -367,28 +361,6 @@ func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []strin
 	s.routing()
 	s.squads()
 	return s.out
-}
-
-func matchAnyGlob(pats, files []string) bool {
-	for _, f := range files {
-		for _, p := range pats {
-			if GlobMatch(p, f) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// listOverlap 两列表是否有公共元素（技能交集/标签匹配共用谓词，v3.76.0
-// 由 skillsIntersect/matchAnyLabel 两份同逻辑合一）。
-func listOverlap(a, b []string) bool {
-	for _, x := range a {
-		if slices.Contains(b, x) {
-			return true
-		}
-	}
-	return false
 }
 
 // OutcomeNames 结果里的插件名列表（报告元信息）。

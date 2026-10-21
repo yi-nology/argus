@@ -12,6 +12,7 @@ import (
 
 	"github.com/oagentkit/skillkit/skill"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -134,7 +135,7 @@ func TestBuildReviewUser_FencesAndDiscipline(t *testing.T) {
 		Diff: &plugin.DiffContext{Text: "diff --git a/pkg/a.go b/pkg/a.go"},
 		Artifacts: map[string]string{
 			plugin.ArtifactChangeSummary: "SUM-TEXT",
-			plugin.ArtifactSquadBoard:    "BOARD-TEXT",
+			dispatch.ArtifactSquadBoard:  "BOARD-TEXT",
 		},
 	}
 	user := r.buildReviewUser(task)

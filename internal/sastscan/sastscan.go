@@ -1,5 +1,5 @@
 // Package sastscan 确定性 SAST 前置扫描的门面（v3.80.0 实现下沉
-// oagentkit/tools/sast——扫描核心与嵌入方 finding 契约解耦；本包保留 plugin.Outcome
+// oagentkit/tools/sast——扫描核心与嵌入方 finding 契约解耦；本包保留 dispatch.Outcome
 // 契约映射与部署纪律：bin 路径只来自服务级 env、子进程环境白名单）。
 //
 // 与 cli 插件的区别不变：扫描结果作为独立 Outcome 注入合并，密钥泄漏等确定性
@@ -14,6 +14,7 @@ import (
 
 	"github.com/oagentkit/tools/sast"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -42,10 +43,10 @@ func filterRegularFiles(dir string, paths []string) []string {
 	return out
 }
 
-// Run 执行全部已配置工具，产出 plugin.Outcome（失败置 Err，不 panic 不中断）。
+// Run 执行全部已配置工具，产出 dispatch.Outcome（失败置 Err，不 panic 不中断）。
 // dir 为工作副本根；baseRef 非空时 gitleaks 按提交范围扫描；paths 为 diffprep
 // Included 的聚焦清单（nil/空 = 全仓）。
-func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, log sast.Logger) []plugin.Outcome {
+func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, log sast.Logger) []dispatch.Outcome {
 	cfg.EnvAllow = sastEnvAllow
 	if len(paths) > 0 {
 		paths = filterRegularFiles(dir, paths)
@@ -54,9 +55,9 @@ func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, l
 	if len(results) == 0 {
 		return nil
 	}
-	outcomes := make([]plugin.Outcome, 0, len(results))
+	outcomes := make([]dispatch.Outcome, 0, len(results))
 	for _, res := range results {
-		o := plugin.Outcome{Name: res.Tool, Manifest: manifest(res.Tool, cfg.TimeoutResolved())}
+		o := dispatch.Outcome{Name: res.Tool, Manifest: manifest(res.Tool, cfg.TimeoutResolved())}
 		o.Err = res.Err
 		if len(res.Findings) > 0 || res.Err == nil {
 			findings := make([]plugin.Finding, 0, len(res.Findings))

@@ -26,7 +26,7 @@ func fakeBin(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-// 门面映射契约：SDK Scan 结果 → plugin.Outcome（Name/Findings/By 映射 + 密钥
+// 门面映射契约：SDK Scan 结果 → dispatch.Outcome（Name/Findings/By 映射 + 密钥
 // 红线在端到端仍可见）。SDK 侧行为测试（解析/封顶/聚焦/参数构造）在 oagentkit/tools/sast。
 func TestRunMapsToOutcomes(t *testing.T) {
 	dir := t.TempDir()

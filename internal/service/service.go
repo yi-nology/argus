@@ -22,10 +22,10 @@ import (
 	api "argus/biz/model/api"
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/memory"
 	"argus/internal/memorykernel"
 	"argus/internal/obs"
-	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/qa"
 	"argus/internal/semsearch"
@@ -57,7 +57,7 @@ type Service struct {
 	Audit     *audit.Logger // 审计日志（nil 安全：Logger.Log 对 nil receiver no-op，调用处免判空）
 	Store     *storage.Store
 	SDK       *argusctx.SDKCtx
-	Registry  *plugin.Registry
+	Registry  *dispatch.Registry
 	Log       Logger
 	Version   string
 	Bus       *progress.Bus        // 任务进度事件（v3.1 SSE 数据源；nil 安全）

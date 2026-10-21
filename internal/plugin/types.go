@@ -126,10 +126,10 @@ func (t Trigger) Match(changedFiles, labels []string, eventType string) bool {
 	if len(t.Events) > 0 && eventType != "" && !slices.Contains(t.Events, eventType) {
 		return false
 	}
-	if len(t.Paths) > 0 && !matchAnyGlob(t.Paths, changedFiles) {
+	if len(t.Paths) > 0 && !MatchAnyGlob(t.Paths, changedFiles) {
 		return false
 	}
-	if len(t.Labels) > 0 && !listOverlap(t.Labels, labels) {
+	if len(t.Labels) > 0 && !ListOverlap(t.Labels, labels) {
 		return false
 	}
 	return true
@@ -354,3 +354,27 @@ const (
 
 // ArtifactTrigger TaskAPI 建任务元数据键：触发来源标注（如 comment:review 重审）。
 const ArtifactTrigger = "trigger"
+
+// MatchAnyGlob 任一 glob 命中任一文件（路由 paths 匹配谓词；v3.173.0 自
+// dispatcher.go 上移——消费方 types.go 路由匹配在契约侧）。
+func MatchAnyGlob(pats, files []string) bool {
+	for _, f := range files {
+		for _, p := range pats {
+			if GlobMatch(p, f) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ListOverlap 两列表是否有公共元素（技能交集/标签匹配共用谓词，v3.76.0
+// 由 skillsIntersect/matchAnyLabel 两份同逻辑合一）。
+func ListOverlap(a, b []string) bool {
+	for _, x := range a {
+		if slices.Contains(b, x) {
+			return true
+		}
+	}
+	return false
+}

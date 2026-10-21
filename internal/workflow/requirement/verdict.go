@@ -12,6 +12,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/reportutil"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -148,7 +149,7 @@ func (w *Workflow) loadRepoConfig(ctx context.Context, task plugin.Task) *plugin
 		w.Log.Warn("argus.workflow.repo_config_failed", "error", err.Error())
 		return plugin.EmptyRepoConfig()
 	}
-	if warns := plugin.ResolveRepoConfig(rc, w.Dispatcher.Registry()); len(warns) > 0 {
+	if warns := dispatch.ResolveRepoConfig(rc, w.Dispatcher.Registry()); len(warns) > 0 {
 		for _, wn := range warns {
 			w.Log.Warn("argus.workflow.repo_config_warning", "warning", wn)
 		}
@@ -171,8 +172,8 @@ func diffPaths(dc *plugin.DiffContext) []string {
 // R5.0 空产出守门 → SAST 失败注明 → R5.C 完备性降级门 → 增量审查范围透出。
 // merged 的 Degraded 按原顺序追加。
 func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
-	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []plugin.Selection,
-	outcomes []plugin.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
+	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []dispatch.Selection,
+	outcomes []dispatch.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
 	w.onStage(plugin.LayerR5)
 
 	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/

@@ -21,6 +21,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 
 	"argus/internal/config"
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_acpx"
 	"argus/internal/plugin/adapter_builtin"
@@ -55,7 +56,7 @@ type Deps struct {
 // BuildRegistry 读取 plugins.yaml（缺文件时回退内置默认配置；Deps.Plugins 非空时
 // 直接使用预加载清单）并注册全部插件。
 // 返回 registry 与 requirement-compliance 的 skillRefs（要传给 runner 做 R3 注入）。
-func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
+func BuildRegistry(d *Deps) (*dispatch.Registry, []string, error) {
 	pf := d.Plugins
 	if pf == nil {
 		var err error
@@ -64,7 +65,7 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 		}
 	}
 
-	reg := plugin.NewRegistry()
+	reg := dispatch.NewRegistry()
 	var complianceSkillRefs []string
 
 	for i := range pf.Agents {
@@ -88,17 +89,17 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 		// best-of-N 采样次数钳制（0/负 = 关闭；上限 MaxReviewN 防配置滥用）。
 		// 执行期 Dispatcher.Run 再经 ClampReviewN 归一，manifest 保留语义原值。
 		reviewN := decl.ReviewN
-		if reviewN > plugin.MaxReviewN {
+		if reviewN > dispatch.MaxReviewN {
 			d.Log.Warn("argus.bootstrap.review_n_clamped", "plugin", decl.Name,
-				"configured", decl.ReviewN, "effective", plugin.MaxReviewN)
-			reviewN = plugin.MaxReviewN
+				"configured", decl.ReviewN, "effective", dispatch.MaxReviewN)
+			reviewN = dispatch.MaxReviewN
 		}
 		if reviewN < 0 {
 			d.Log.Warn("argus.bootstrap.review_n_clamped", "plugin", decl.Name,
 				"configured", decl.ReviewN, "effective", 0)
 			reviewN = 0
 		}
-		manifest := plugin.AgentManifest{
+		manifest := dispatch.AgentManifest{
 			Name:     decl.Name,
 			Version:  decl.Version,
 			Kind:     plugin.Kind(decl.Kind),
@@ -132,7 +133,7 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 			complianceSkillRefs = decl.SkillRefs
 		}
 
-		if err := reg.Register(&plugin.Registration{
+		if err := reg.Register(&dispatch.Registration{
 			Manifest:       p.Manifest(),
 			Plugin:         p,
 			LockRepoConfig: decl.LockRepoConfig,
@@ -149,7 +150,7 @@ func BuildRegistry(d *Deps) (*plugin.Registry, []string, error) {
 
 // newBuiltinAgent builtin 工厂：requirement-compliance 外壳（isCompliance=true，主循环
 // 收集 skillRefs）或 Reviewer（P6 覆盖链 + ReAct 工具表）。错误 = 启动失败（fail-fast）。
-func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (
+func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest dispatch.AgentManifest) (
 	plugin.AgentPlugin, bool, error) {
 	if strings.EqualFold(decl.Name, "requirement-compliance") ||
 		slices.Contains(decl.Skills, plugin.SkillRequirementCompliance) {
@@ -202,7 +203,7 @@ func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManif
 // newCLIAgent cli 工厂。返回 enabled=false 的情形一律装 unavailablePlugin（可观测）：
 // 未声明 cmd / delegate 模式（delegate 由 runner 前置实装）/ 可执行文件不存在（§8 供应链
 // 白名单：绝不尝试其他解析路径）。
-func newCLIAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+func newCLIAgent(d *Deps, decl *plugin.AgentDecl, manifest dispatch.AgentManifest) (plugin.AgentPlugin, bool) {
 	if len(decl.Cmd) == 0 {
 		return &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 cmd"}, false
 	}
@@ -224,7 +225,7 @@ func newCLIAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest)
 // newRemoteAgent remote 工厂。protocol 白名单（深挖修复）：拼错的 protocol 此前启动
 // 照常注册，运行期每次 Invoke 走 default 分支报错 → 3 个 PR 后熔断。auth_token_env
 // 声明了凭证而环境未给时同样启动期停用（与 needs:[working-copy] 缺池同款语义）。
-func newRemoteAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+func newRemoteAgent(d *Deps, decl *plugin.AgentDecl, manifest dispatch.AgentManifest) (plugin.AgentPlugin, bool) {
 	if manifest.Protocol != plugin.ProtocolA2A && manifest.Protocol != plugin.ProtocolMCP {
 		d.Log.Warn("argus.bootstrap.remote_bad_protocol", "plugin", decl.Name,
 			"protocol", string(manifest.Protocol), "allowed", "a2a|mcp")
@@ -250,7 +251,7 @@ func newRemoteAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManife
 }
 
 // newACPXAgent acpx 工厂。二进制缺失（未装该 CLI）= 正常形态，停用并说明；未知名才值得留 probe。
-func newACPXAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest) (plugin.AgentPlugin, bool) {
+func newACPXAgent(d *Deps, decl *plugin.AgentDecl, manifest dispatch.AgentManifest) (plugin.AgentPlugin, bool) {
 	if decl.Agent == "" {
 		return &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 agent"}, false
 	}
@@ -300,11 +301,11 @@ func loadPluginsFile(cfg *config.Config, log logx.Logger) (*plugin.PluginsFile, 
 
 // unavailablePlugin 已声明但不可用的插件（可观测：/agents 能看到它以及为何没启用）。
 type unavailablePlugin struct {
-	manifest plugin.AgentManifest
+	manifest dispatch.AgentManifest
 	reason   string
 }
 
-func (u *unavailablePlugin) Manifest() plugin.AgentManifest { return u.manifest }
+func (u *unavailablePlugin) Manifest() dispatch.AgentManifest { return u.manifest }
 
 func (u *unavailablePlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
 	return plugin.Result{}, fmt.Errorf("插件不可用: %s", u.reason)

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -26,7 +27,7 @@ const unverifiableRatioThreshold = 0.5
 //   - outcomes：fan-out（含受限补审后）的最终结果；
 //   - pruned：预算裁剪名单（Dispatcher.PruneByBudget 返回）；
 //   - spec/report：R1/R3 产物（可为 nil——nil 本身是覆盖缺口信号）。
-func JudgeCompleteness(sel []plugin.Selection, outcomes []plugin.Outcome, pruned []string,
+func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pruned []string,
 	task plugin.Task, spec *plugin.RequirementSpec, report *plugin.ComplianceReport) *plugin.CompletenessReport {
 
 	rep := &plugin.CompletenessReport{OK: true}

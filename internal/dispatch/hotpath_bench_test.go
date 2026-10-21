@@ -1,4 +1,4 @@
-package plugin
+package dispatch
 
 // 热路径基准（v3.25.1）：指纹与 best-of-N 聚簇是 Merger/R4 的每意见必经点
 // （Fingerprint 由评语派生、跨轮身份依赖它；Aggregate 供 reviewN 聚簇）。

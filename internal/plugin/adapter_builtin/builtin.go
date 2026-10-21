@@ -21,6 +21,7 @@ import (
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -356,7 +357,7 @@ func (r *Reviewer) buildReviewUser(task plugin.Task) string {
 		user.WriteString(plugin.DataFence("变更摘要", s))
 		user.WriteString("\n")
 	}
-	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
+	if s := task.Artifacts[dispatch.ArtifactSquadBoard]; s != "" {
 		// v3.4 编队共识模式：黑板记录同队专家已报告的发现（指令在围栏外，
 		// 围栏内是纯数据——防注入纪律与 change_summary 一致；ReAct 与单轮
 		// 降级两路径语义一致）

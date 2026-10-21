@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/oagentkit/llm"
 )
 
 // 本文件是 workflow 与插件外壳之间的边界契约（v3.5.6 自 adapter_builtin /
@@ -88,3 +89,18 @@ type ToolDiffIn struct{}
 type ToolDiffOut struct {
 	Diff string `json:"diff"`
 }
+
+// MergedFindings 合并产物（v3.173.0 自 merger.go 上移：契约侧输出类型，
+// 消费方 service/runner/workflow 反射层均以此为准；Merger 引擎经别名引用）。
+type MergedFindings struct {
+	Findings    []Finding // 归一化 + 轮内去重 + 抑制剔除后，severity 降序
+	Suppressed  int       // 因误报反馈被抑制的条数（报告脚注提示）
+	Degraded    []string  // 降级注明（插件失败/超时/裁剪）
+	CrossReview string    // 交叉审查编队注记（"claude+kimi，分歧 1 处"；空 = 无编队）
+}
+
+// TokenBudget 任务内 token 累计器（design §10.3：预算判定用任务内累计器，
+// 不用 Prometheus 指标判定——那是聚合计数器，避免基数爆炸）。
+// 实现委托 oagentkit/llm.Budget（此前为逐方法克隆）。v3.173.0 自 dispatcher.go
+// 上移：契约侧（Task.Budget/核心接口）与引擎侧共用同一别名。
+type TokenBudget = llm.Budget

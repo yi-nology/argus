@@ -1,10 +1,12 @@
-package plugin
+package dispatch
 
 import (
 	"context"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/oekit/logx"
 	"time"
 )
 
@@ -46,7 +48,7 @@ func withTrigger(paths []string) func(*Registration) {
 // ---- Select tests ----
 
 func TestSelect_Basic(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
@@ -58,7 +60,7 @@ func TestSelect_Basic(t *testing.T) {
 }
 
 func TestSelect_NoSkillMatch(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}))
 
 	pr := &PRContext{Platform: "gitea"}
@@ -69,7 +71,7 @@ func TestSelect_NoSkillMatch(t *testing.T) {
 }
 
 func TestSelect_Disabled(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}, withDisabled))
 
 	pr := &PRContext{Platform: "gitea"}
@@ -80,7 +82,7 @@ func TestSelect_Disabled(t *testing.T) {
 }
 
 func TestSelect_LockBypassesDisable(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}, withLock))
 
 	pr := &PRContext{Platform: "gitea"}
@@ -96,7 +98,7 @@ func TestSelect_LockBypassesDisable(t *testing.T) {
 }
 
 func TestSelect_RepoConfigUseWhitelist(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
@@ -109,7 +111,7 @@ func TestSelect_RepoConfigUseWhitelist(t *testing.T) {
 }
 
 func TestSelect_RepoConfigDisableBlacklist(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
@@ -122,7 +124,7 @@ func TestSelect_RepoConfigDisableBlacklist(t *testing.T) {
 }
 
 func TestSelect_TriggerMatch(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}, withTrigger([]string{"src/**"})))
 
 	pr := &PRContext{Platform: "gitea"}
@@ -139,7 +141,7 @@ func TestSelect_TriggerMatch(t *testing.T) {
 }
 
 func TestSelect_Dedup(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("security", []string{"security"}, withLock))
 	// routing 也引用 security → 应去重
 	rc := &RepoConfig{Routing: []RoutingRule{{Paths: []string{"**"}, Use: []string{"security"}}}}
@@ -157,7 +159,7 @@ func TestSelect_Dedup(t *testing.T) {
 // ---- PruneByBudget tests ----
 
 func TestPruneByBudget_NilBudget(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	sel := []Selection{{Reg: reg("a", nil)}}
 	keep, pruned := d.PruneByBudget(sel, nil)
 	if len(keep) != 1 || len(pruned) != 0 {
@@ -166,7 +168,7 @@ func TestPruneByBudget_NilBudget(t *testing.T) {
 }
 
 func TestPruneByBudget_HeavyPrunedFirst(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	// remaining=50 < reserve=100(10%)：循环直到所有非锁定插件被裁
 	budget := NewTokenBudget(1000)
 	budget.Add(950) // 剩余 50，低于 10% reserve (100)
@@ -186,7 +188,7 @@ func TestPruneByBudget_HeavyPrunedFirst(t *testing.T) {
 }
 
 func TestPruneByBudget_LockExempt(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	budget := NewTokenBudget(1000)
 	budget.Add(999) // 剩余 1，几乎耗尽
 
@@ -207,7 +209,7 @@ func TestPruneByBudget_LockExempt(t *testing.T) {
 // ---- Run tests ----
 
 func TestRun_CircuitBreakerSkips(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(&Registration{
 		Manifest: AgentManifest{Name: "fail-plugin"},
 		Plugin:   &failPlugin{manifest: AgentManifest{Name: "fail-plugin"}},
@@ -237,7 +239,7 @@ func TestRun_CircuitBreakerSkips(t *testing.T) {
 }
 
 func TestRun_BudgetExhaustedSkips(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	budget := NewTokenBudget(100)
 	budget.Add(100) // 耗尽
 
@@ -259,7 +261,7 @@ func TestRun_BudgetExhaustedSkips(t *testing.T) {
 }
 
 func TestRun_LockBudgetExempt(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	d.MaxConcurrent = 1
 	budget := NewTokenBudget(100)
 	budget.Add(100) // 耗尽
@@ -301,7 +303,7 @@ func TestSelect_SquadAppendsMembers(t *testing.T) {
 	registry.Register(reg("gpt", []string{"code-review"}))
 	registry.Register(reg("claude", []string{"code-review"}))
 	registry.Register(reg("kimi", []string{"code-review"}))
-	d := NewDispatcher(registry, testNopLogger{}).
+	d := NewDispatcher(registry, logx.NewSlogLogger("dispatch-test")).
 		WithSquads([]SquadDecl{{
 			Name: "sec", Paths: []string{"**/auth/**"}, Members: []string{"claude", "kimi"},
 		}})
@@ -330,7 +332,7 @@ func TestSelect_SquadAppendsMembers(t *testing.T) {
 }
 
 func TestMergerAnnotateCrossReview(t *testing.T) {
-	m := NewMerger(nil, testNopLogger{})
+	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
 	mf := &MergedFindings{Findings: []Finding{
 		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针风险", By: "claude"},
 		{File: "a.go", Line: 12, Severity: "medium", Comment: "边界未检查", By: "kimi"},
@@ -386,7 +388,7 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 	reg2 := &Registration{Manifest: AgentManifest{Name: "fail-agent", Skills: []string{"correctness"}},
 		Plugin: &failPlugin{manifest: AgentManifest{Name: "fail-agent"}}, Enabled: true}
 
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg1)
 	_ = d.reg.Register(reg2)
 	sel1 := []Selection{{Reg: reg1, Reason: "base"}}
@@ -415,7 +417,7 @@ func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	now := time.Now()
 	reg1 := &Registration{Manifest: AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
 		Plugin: &canceledPlugin{manifest: AgentManifest{Name: "canceled-agent"}}, Enabled: true}
-	d := newDispatcher(NewRegistry(), testNopLogger{}, func() time.Time { return now })
+	d := newDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"), func() time.Time { return now })
 	_ = d.reg.Register(reg1)
 	sel := []Selection{{Reg: reg1, Reason: "base"}}
 
@@ -466,7 +468,7 @@ func TestRun_QueuedWaitCancellable(t *testing.T) {
 	queued := &Registration{Manifest: AgentManifest{Name: "queued", Skills: []string{"security"}},
 		Plugin: &nopPlugin{manifest: AgentManifest{Name: "queued"}}, Enabled: true}
 
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(regB)
 	_ = d.reg.Register(queued)
 	d.MaxConcurrent = 1
@@ -486,7 +488,7 @@ func TestRun_QueuedWaitCancellable(t *testing.T) {
 // 深挖修复回归：Merge 阶段多插件命中同题会把 By 拼成 "a,b"——合并条目（专家意见
 // 一致的证据）此前进不了 recs，反而被误标「另一专家未复现」，标注方向反了。
 func TestMergerAnnotateCrossReview_MergedByCountsAsReplicated(t *testing.T) {
-	m := NewMerger(nil, testNopLogger{})
+	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
 	mf := &MergedFindings{Findings: []Finding{
 		// 双专家命中同题被 Merge 合并：By 已拼为 "claude,kimi"
 		{File: "a.go", Line: 10, Severity: "high", Comment: "同位置同问题", By: "claude,kimi"},
@@ -506,7 +508,7 @@ func TestMergerAnnotateCrossReview_MergedByCountsAsReplicated(t *testing.T) {
 // 收尾批修复回归：指纹不含行号——同文件两处不同位置的同模板意见（相差 >2 行）
 // 不再被轮内指纹合并吞掉第二条；行号相容（±2 内）仍正常合并。
 func TestMerge_SameFingerprintFarLinesKeptSeparate(t *testing.T) {
-	m := NewMerger(nil, testNopLogger{})
+	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1", []Outcome{
 		{Name: "ocr", Result: &Result{Findings: []Finding{
 			{File: "a.go", Line: 10, Severity: SeverityMedium, Comment: "error 未检查"},
@@ -527,7 +529,7 @@ func TestMerge_SameFingerprintFarLinesKeptSeparate(t *testing.T) {
 // 收尾批修复回归：已触发的 consensus 编队成员不进 fan-out（此前注释声称已排除、
 // 代码漏了——同一专家盲审一次+共识再跑一次）；编队未触发时照常参与基础选择。
 func TestSelect_ConsensusMembersExcludedFromFanout(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	_ = d.reg.Register(reg("correctness", []string{"code-review"}))
 	_ = d.reg.Register(reg("security", []string{"code-review"}))
 	d.WithSquads([]SquadDecl{{

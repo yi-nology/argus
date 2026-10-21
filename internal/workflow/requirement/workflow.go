@@ -16,6 +16,7 @@ import (
 	"github.com/oekit/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
 	"github.com/oagentkit/textx/codeintel"
@@ -53,8 +54,8 @@ type Workflow struct {
 	// R3ChatModel R3 ReAct 专用模型（P6 阶段覆盖；nil = LLM.RawModel()）。
 	R3ChatModel model.BaseChatModel
 	SDK         *argusctx.SDKCtx
-	Dispatcher  *plugin.Dispatcher
-	Merger      *plugin.Merger
+	Dispatcher  *dispatch.Dispatcher
+	Merger      *dispatch.Merger
 	Tools       toolpool.Pool // v3.0 mock 或 nil
 	ToolSpecs   []toolpool.ToolSpec
 	Knowledge   rag.KnowledgeService             // v3.1 知识检索（nil/Noop = 不挂 search_knowledge）
@@ -120,7 +121,7 @@ type Workflow struct {
 	RepoConfig *plugin.RepoConfig
 	// SASTOutcomes 确定性 SAST 前置产出（v3.15.0：runner 在工作副本上跑
 	// gitleaks/semgrep 后注入；finish 内并入 fan-out outcomes 一起合并）。
-	SASTOutcomes []plugin.Outcome
+	SASTOutcomes []dispatch.Outcome
 	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
 	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
 	CodeGraph *codeintel.Index
@@ -305,7 +306,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 		Spec:         spec,
 		Report:       report,
 		Merged:       merged,
-		PluginsRun:   plugin.OutcomeNames(outcomes),
+		PluginsRun:   dispatch.OutcomeNames(outcomes),
 		Summary:      summary,
 		Elapsed:      time.Since(start),
 		Reflect:      reflectInfo,
@@ -319,8 +320,8 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 // 并入 → G4 受限补审。返回裁决所需的全量产物（sel 供完备性裁判、retryNotes
 // 供降级注明）。
 func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
-	rc *plugin.RepoConfig, changedFiles, skills []string) (sel []plugin.Selection,
-	outcomes []plugin.Outcome, pruned, retryNotes []string) {
+	rc *plugin.RepoConfig, changedFiles, skills []string) (sel []dispatch.Selection,
+	outcomes []dispatch.Outcome, pruned, retryNotes []string) {
 
 	stageStart := time.Now()
 	w.onStage(plugin.LayerR4)
@@ -360,7 +361,7 @@ func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *plu
 
 // mergeAndReflect 合并与修订：Merger 归一化/指纹去重/抑制过滤 → R2 缺失与预算
 // 裁剪注明 → R3.5 报告反思 → 学习环低置信标注重放 → 交叉审查分歧标注。
-func (w *Workflow) mergeAndReflect(ctx context.Context, task plugin.Task, outcomes []plugin.Outcome,
+func (w *Workflow) mergeAndReflect(ctx context.Context, task plugin.Task, outcomes []dispatch.Outcome,
 	pruned []string, summary string, changedFiles []string) (*plugin.MergedFindings, *plugin.ReflectSummary, error) {
 
 	// Merger：归一化 + 指纹去重 + 抑制过滤（store 由 Merger 持有）
@@ -449,13 +450,13 @@ func (w *Workflow) applyRepoPolicies(merged *plugin.MergedFindings, rc *plugin.R
 // （已熔断插件会被跳过，保留原错误）；重试成功**替换**原 outcome——不叠加 findings，
 // 不产生双重指纹。consensus 产物不重试（黑板轮转语义由 RunConsensus 自管）。
 func (w *Workflow) retryFailedPlugins(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
-	sel []plugin.Selection, outcomes []plugin.Outcome) ([]plugin.Outcome, []string) {
+	sel []dispatch.Selection, outcomes []dispatch.Outcome) ([]dispatch.Outcome, []string) {
 
-	selByName := make(map[string]plugin.Selection, len(sel))
+	selByName := make(map[string]dispatch.Selection, len(sel))
 	for _, s := range sel {
 		selByName[s.Reg.Manifest.Name] = s
 	}
-	var retrySel []plugin.Selection
+	var retrySel []dispatch.Selection
 	for _, o := range outcomes {
 		if o.Err != nil && o.SkippedReason == "" {
 			if s, ok := selByName[o.Name]; ok {
@@ -475,7 +476,7 @@ func (w *Workflow) retryFailedPlugins(ctx context.Context, task plugin.Task, bud
 	}
 	w.Log.Info("argus.completeness.retry", "plugins", strings.Join(names, ","))
 	retried := w.Dispatcher.Run(ctx, task, retrySel, budget)
-	retryByName := make(map[string]plugin.Outcome, len(retried))
+	retryByName := make(map[string]dispatch.Outcome, len(retried))
 	for _, o := range retried {
 		retryByName[o.Name] = o
 	}

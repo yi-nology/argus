@@ -24,6 +24,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
@@ -169,7 +170,7 @@ func buildPrompt(task plugin.Task, hasWorkDir bool) string {
 	b.WriteString("\n```")
 	// v3.4 编队共识模式：黑板记录同队专家已报告的发现（CLI agent 上下文里
 	// 没有围栏纪律约束，用显式指令行 + 独立段落划清数据边界）
-	if s := task.Artifacts[plugin.ArtifactSquadBoard]; s != "" {
+	if s := task.Artifacts[dispatch.ArtifactSquadBoard]; s != "" {
 		b.WriteString("\n\n【编队共识】同队专家已报告以下发现，只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，输出 []：\n")
 		b.WriteString(s)

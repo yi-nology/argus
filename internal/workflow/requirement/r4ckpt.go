@@ -17,6 +17,7 @@ package requirement
 import (
 	"encoding/json"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -24,7 +25,7 @@ import (
 // 剔除、产物直接复用。返回（待执行集, 复用选中集, 复用产物）。
 // 键值损坏（JSON 解不出）= 当没命中，回执行集重跑——checkpoint 是成本优化，
 // 永不做正确性决策。
-func restoreR4Outcomes(artifacts map[string]string, sel []plugin.Selection) (exec, restoredSel []plugin.Selection, restored []plugin.Outcome) {
+func restoreR4Outcomes(artifacts map[string]string, sel []dispatch.Selection) (exec, restoredSel []dispatch.Selection, restored []dispatch.Outcome) {
 	for _, s := range sel {
 		name := s.Reg.Manifest.Name
 		raw, ok := artifacts[plugin.ArtifactCkptR4Prefix+name]
@@ -38,7 +39,7 @@ func restoreR4Outcomes(artifacts map[string]string, sel []plugin.Selection) (exe
 			continue
 		}
 		restoredSel = append(restoredSel, s)
-		restored = append(restored, plugin.Outcome{
+		restored = append(restored, dispatch.Outcome{
 			Name:     name,
 			Manifest: s.Reg.Manifest,
 			Result:   &res,
@@ -49,7 +50,7 @@ func restoreR4Outcomes(artifacts map[string]string, sel []plugin.Selection) (exe
 
 // r4CkptHook 逐插件落定落库（Dispatcher OutcomeHook 实现方）：
 // 成功产物序列化后经 checkpointSave 合并写（锁在调用方 hook 闭包内）。
-func (w *Workflow) r4CkptHook(o plugin.Outcome) {
+func (w *Workflow) r4CkptHook(o dispatch.Outcome) {
 	if o.Result == nil {
 		return
 	}

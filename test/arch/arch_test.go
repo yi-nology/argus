@@ -65,6 +65,9 @@ var layering = map[string][]string{
 	// ---- 域类型层：只依赖更纯的域类型 ----
 	"argus/internal/domain": {"argus/internal/learning"},
 
+	// ---- 引擎面（v3.173.0 自 plugin 拆出）：契约/观测经别名桥引用 plugin，方向单一 ----
+	"argus/internal/dispatch": {"argus/internal/agent/agentrun", "argus/internal/agent/blackboard", "argus/internal/learning", "argus/internal/domain", "argus/internal/llm", "argus/internal/plugin", "argus/internal/storage"},
+
 	// ---- L4 核心域与横切底座 ----
 	"argus/internal/plugin": {"argus/internal/domain", "argus/internal/learning"},
 	"argus/internal/config": {"argus/internal/learning"},
@@ -76,9 +79,9 @@ var layering = map[string][]string{
 	"argus/internal/notify/octopus": {},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
-	"argus/internal/reportview": {"argus/internal/plugin"},
+	"argus/internal/reportview": {"argus/internal/dispatch", "argus/internal/plugin"},
 	"argus/internal/toolpool":   {"argus/internal/plugin"},
-	"argus/internal/sastscan":   {"argus/internal/plugin"},
+	"argus/internal/sastscan":   {"argus/internal/dispatch", "argus/internal/plugin"},
 	"argus/internal/sink":       {"argus/internal/plugin"},
 	"argus/internal/storage":    {"argus/internal/domain", "argus/internal/learning"},
 	"argus/internal/worker":     {"argus/internal/storage"},
@@ -89,7 +92,7 @@ var layering = map[string][]string{
 	// v3.151.0：agent-memory 内核适配层（ARGUS_MEMORY_KERNEL opt-in）；
 	// 依赖 memory 仅取 Ref 形态同形，不反向。
 	"argus/internal/memorykernel": {"argus/internal/memory"},
-	"argus/internal/poster":       {"argus/internal/context", "argus/internal/plugin", "argus/internal/reportview", "argus/internal/storage"},
+	"argus/internal/poster":       {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
 	"argus/internal/poller":       {"argus/internal/context", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
 	"argus/internal/ocrdeleg":     {"argus/internal/gitdeepen", "argus/internal/plugin"},
 	"argus/internal/ocrshim":      {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/plugin/adapter_cli"},
@@ -97,10 +100,12 @@ var layering = map[string][]string{
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
 	"argus/internal/workflow/requirement": {
 		"argus/internal/codesearch", "argus/internal/context",
+		"argus/internal/dispatch",
 		"argus/internal/obs", "argus/internal/plugin", "argus/internal/toolpool",
 	},
 	"argus/internal/runner": {
 		"argus/internal/config", "argus/internal/context",
+		"argus/internal/dispatch",
 		"argus/internal/fixverifier", "argus/internal/learning", "argus/internal/memory",
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
@@ -110,6 +115,7 @@ var layering = map[string][]string{
 	},
 	"argus/internal/service": {
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",
+		"argus/internal/dispatch",
 		"argus/internal/memory", "argus/internal/memorykernel", "argus/internal/obs",
 		"argus/internal/plugin", "argus/internal/progress", "argus/internal/qa",
 		"argus/internal/semsearch", "argus/internal/storage",
@@ -123,8 +129,8 @@ var layering = map[string][]string{
 	"argus/internal/channel/mcpserver": {},
 
 	// ---- 适配器子包：单向依赖核心域（plugin 不得反向 import 适配器）----
-	"argus/internal/plugin/adapter_acpx":    {"argus/internal/plugin"},
-	"argus/internal/plugin/adapter_builtin": {"argus/internal/plugin"},
+	"argus/internal/plugin/adapter_acpx":    {"argus/internal/dispatch", "argus/internal/plugin"},
+	"argus/internal/plugin/adapter_builtin": {"argus/internal/dispatch", "argus/internal/plugin"},
 	"argus/internal/plugin/adapter_cli":     {"argus/internal/plugin"},
 	"argus/internal/plugin/adapter_remote":  {"argus/internal/plugin"},
 }

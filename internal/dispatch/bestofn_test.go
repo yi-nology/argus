@@ -1,4 +1,4 @@
-package plugin
+package dispatch
 
 import (
 	"context"
@@ -7,6 +7,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/oekit/logx"
+
+	"argus/internal/plugin"
 )
 
 // ---- aggregateSamples ----
@@ -136,14 +140,14 @@ func (p *seqPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
 
 func sampleReg(name string, n int, p AgentPlugin) *Registration {
 	return &Registration{
-		Manifest: AgentManifest{Name: name, Skills: []string{SkillCodeReview}, ReviewN: n, Timeout: 5 * time.Second},
+		Manifest: AgentManifest{Name: name, Skills: []string{plugin.SkillCodeReview}, ReviewN: n, Timeout: 5 * time.Second},
 		Plugin:   p,
 		Enabled:  true,
 	}
 }
 
 func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, outputs: []Result{
 		{Findings: []Finding{finding}},
@@ -152,7 +156,7 @@ func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 	}}
 	_ = d.reg.Register(sampleReg("expert", 3, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{SkillCodeReview}, nil)
+	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
 	outcomes := d.Run(context.Background(), Task{}, sel, nil)
 	if len(outcomes) != 1 || outcomes[0].Err != nil || outcomes[0].Result == nil {
 		t.Fatalf("应单 Outcome 成功: %+v", outcomes)
@@ -168,13 +172,13 @@ func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 }
 
 func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, failOn: map[int]bool{1: true},
 		outputs: []Result{{Findings: []Finding{finding}}, {Findings: []Finding{finding}}, {Findings: []Finding{finding}}}}
 	_ = d.reg.Register(sampleReg("expert", 3, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{SkillCodeReview}, nil)
+	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
 	outcomes := d.Run(context.Background(), Task{}, sel, nil)
 	o := outcomes[0]
 	if o.Err != nil || o.Result == nil {
@@ -189,12 +193,12 @@ func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
 }
 
 func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 2},
 		failOn: map[int]bool{0: true, 1: true}}
 	_ = d.reg.Register(sampleReg("expert", 2, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{SkillCodeReview}, nil)
+	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
 	outcomes := d.Run(context.Background(), Task{}, sel, nil)
 	if outcomes[0].Err == nil || outcomes[0].Result != nil {
 		t.Fatalf("全失败应透出错误: %+v", outcomes[0])
@@ -206,13 +210,13 @@ func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
 
 func TestDispatcher_RunBestOfN_OffByDefault(t *testing.T) {
 	// ReviewN=0/1：单次执行语义不变（只 invoke 一次）
-	d := NewDispatcher(NewRegistry(), testNopLogger{})
+	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert"}, outputs: []Result{{Findings: []Finding{
 		{File: "a.go", Line: 3, Severity: SeverityLow, Comment: "x"},
 	}}}}
 	_ = d.reg.Register(sampleReg("expert", 1, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{SkillCodeReview}, nil)
+	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
 	outcomes := d.Run(context.Background(), Task{}, sel, nil)
 	fs := outcomes[0].Result.Findings
 	if len(fs) != 1 || fs[0].Samples != "" {

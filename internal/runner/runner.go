@@ -22,6 +22,7 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/learning"
 	"argus/internal/memory"
 	"argus/internal/memorykernel"
@@ -49,8 +50,8 @@ type Runner struct {
 	ModelName string
 	// LLM 装配期构造的生成器（*llm.Client 或 *llm.Resilient）。非 nil 时优先于 Model。
 	LLM        llm.Generator
-	Dispatcher *plugin.Dispatcher
-	Merger     *plugin.Merger
+	Dispatcher *dispatch.Dispatcher
+	Merger     *dispatch.Merger
 	ToolPool   toolpool.Pool
 	ToolSpecs  []toolpool.ToolSpec
 	Knowledge  rag.KnowledgeService
@@ -164,7 +165,7 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
-	budget := plugin.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
+	budget := dispatch.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
 	taskCost := llm.NewCostTracker()
 	ctx = r.execContext(ctx, budget, taskCost)
 	task, err := r.Store.GetTask(ctx, taskID)

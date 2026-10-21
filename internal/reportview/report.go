@@ -9,6 +9,7 @@ import (
 
 	"github.com/oagentkit/guardx/fence"
 
+	"argus/internal/dispatch"
 	"argus/internal/plugin"
 )
 
@@ -197,10 +198,10 @@ func renderFindings(b *strings.Builder, r Report) {
 		}
 		// 多行 comment 以两空格缩进续行，保持 markdown 列表结构
 		comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
-		if ann := plugin.SamplesAnnotation(f); ann != "" {
+		if ann := dispatch.SamplesAnnotation(f); ann != "" {
 			comment += ann // best-of-N 复现计数（结构化字段，指纹不受影响）
 		}
-		if ann := plugin.ConfidenceAnnotation(f); ann != "" {
+		if ann := dispatch.ConfidenceAnnotation(f); ann != "" {
 			comment += ann
 		}
 		if f.Verified {

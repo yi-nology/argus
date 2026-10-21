@@ -47,7 +47,7 @@ var (
 	HookBestOfN func(plugin string, result string)
 )
 
-func obsPluginDuration(name string, d time.Duration) {
+func ObsPluginDuration(name string, d time.Duration) {
 	if HookPluginDuration != nil {
 		HookPluginDuration(name, d)
 	}
@@ -59,7 +59,7 @@ func obsLLMTokens(stage, model string, tokens int) {
 	}
 }
 
-func obsFindings(severity, name string, n int) {
+func ObsFindings(severity, name string, n int) {
 	if HookFindings != nil && n > 0 {
 		HookFindings(severity, name, n)
 	}

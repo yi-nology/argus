@@ -1,4 +1,4 @@
-package plugin
+package dispatch
 
 import (
 	"context"
@@ -23,13 +23,6 @@ type PatternStore = domain.PatternStore
 type PrintState = domain.PrintState
 
 // MergedFindings Merger 产出。
-type MergedFindings struct {
-	Findings    []Finding // 归一化 + 轮内去重 + 抑制剔除后，severity 降序
-	Suppressed  int       // 因误报反馈被抑制的条数（报告脚注提示）
-	Degraded    []string  // 降级注明（插件失败/超时/裁剪）
-	CrossReview string    // 交叉审查编队注记（"claude+kimi，分歧 1 处"；空 = 无编队）
-}
-
 // Merger 合并器（design §3.3，全部确定性）：
 //  1. severity 入口归一化（越界归 low + 告警）；
 //  2. 轮内精确指纹去重（规范化评论文本哈希 + file；冲突 severity 取高）；

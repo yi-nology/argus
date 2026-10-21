@@ -19,6 +19,7 @@ import (
 
 	"argus/internal/config"
 	argusctx "argus/internal/context"
+	"argus/internal/dispatch"
 	"argus/internal/memorykernel"
 	"argus/internal/notify"
 	"argus/internal/plugin"
@@ -48,12 +49,12 @@ type System struct {
 	Bus       *progress.Bus
 	Notify    *notify.Notifier // nil = 未配置 octopus
 
-	Registry            *plugin.Registry
+	Registry            *dispatch.Registry
 	ComplianceSkillRefs []string
 	ToolPool            toolpool.Pool
 	ToolSpecs           []toolpool.ToolSpec
-	Dispatcher          *plugin.Dispatcher
-	Merger              *plugin.Merger
+	Dispatcher          *dispatch.Dispatcher
+	Merger              *dispatch.Merger
 	Poster              *poster.Poster
 	Runner              *runner.Runner
 	Service             *service.Service
@@ -194,9 +195,9 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	}
 
 	// ---- 裁决/合并/回帖/执行编排 ----
-	dispatcher := plugin.NewDispatcher(reg, log).WithSquads(squads)
+	dispatcher := dispatch.NewDispatcher(reg, log).WithSquads(squads)
 	dispatcher.MaxConcurrent = cfg.PluginMaxConcurrent
-	merger := plugin.NewMerger(store, log)
+	merger := dispatch.NewMerger(store, log)
 	if cfg.RegretLearning {
 		merger.WithLearning(store, cfg.LearningConfig())
 		log.Info("argus.regret_learning.enabled",
