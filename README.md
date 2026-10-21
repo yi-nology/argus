@@ -436,6 +436,20 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_METRICS_AUTH` | false | /metrics 鉴权开关（公网/办公网直露部署建议开启）|
 | `ARGUS_EVAL_RESULTS_PATH` | eval/results/latest.json | golden 评测结果文件路径（eval-real 落盘 → /metrics 的 argus_eval_* 指标；不存在则静默跳过）|
 | `ARGUS_REPO_MONTHLY_TOKEN_BUDGET` | 0（不限） | 仓库月度 token 预算 |
+| `ARGUS_MEMORY_DIR` / `ARGUS_MEMORY_INDEX_BUDGET` | memory / 2000 | 评审记忆目录与 R3 索引注入 rune 预算（v3.35.0） |
+| `ARGUS_MEMORY_KERNEL` | false | agent-memory 内核底座（v3.151.0）：R3 记忆注入切八段召回 + 注入防伪 + 落库前脱敏，dream 写侧双写；库文件 `<MemoryDir>/kernel.db`，缺省关与文件面并存可回退 |
+| `ARGUS_QA_HISTORY_BUDGET` | 6000 | QA 会话历史注入 token 预算（v3.152.0）：到 Critical 档（≥90%）走 harness/budget 压实后再进 prompt |
+| `ARGUS_QA_PTC` | false | QA 程序化工具编排（v3.158.0）：ask 证据采集走 harness/ptc（程序合成+goja 沙箱+作答两轮 LLM，替代 ReAct 多轮）；失败自动回退 ReAct，缺省关 |
+| `ARGUS_OTEL_ENDPOINT` / `ARGUS_OTEL_PROTOCOL` / `ARGUS_OTEL_INSECURE` / `ARGUS_OTEL_SAMPLE_RATE` | 空（关闭）/ http / true / 0（全量） | OTLP 链路导出（v3.163.0，oekit/tracing）：Endpoint 非空启用——全局 TracerProvider + gormotel 挂主库，DB 查询成 span 导出（jaeger all-in-one 接 4318 即活）；空 = 零开销 |
+| `ARGUS_KNOWLEDGE_DIR` | 空 | 本地知识目录（markdown；Milvus 不可用时的降级检索源，dream 导出落盘处） |
+| `ARGUS_EMBEDDING_BASE_URL` / `ARGUS_EMBEDDING_API_KEY` / `ARGUS_EMBEDDING_MODEL` / `ARGUS_EMBEDDING_DIM` | 空 | embedding 端点四件套（search_sem 与 Milvus 知识库共用；DIM 须与模型维度一致） |
+| `ARGUS_LLM_RESILIENCE_RETRIES` / `ARGUS_LLM_RESILIENCE_BASE_DELAY` | - | LLM 客户端韧性参数（重试次数/基础退避；其余口径见 config.go） |
+| `ARGUS_EXTERNAL_TOOL_CALL_LIMIT` | 5 | 单任务外部 MCP 工具调用上限（v3.41.0；破坏性工具可再配低） |
+| `ARGUS_SKILL_MODE` / `ARGUS_SKILL_CONTENT_CAP` | inject / 100000 | R3 方法论注入形态（inject=全文 / tool=渐进披露清单）与 use_skill 单次加载字节上限 |
+| `ARGUS_REPO_GUIDE_OFF` | false | 关闭仓库级评审规范加载（.argus/REVIEW.md @ head 注入 R3/R4） |
+| `ARGUS_FIX_VERIFY_TIMEOUT` | - | `@argus fix fp:` 沙箱验证超时（config.go 缺省口径） |
+| `ARGUS_MCP_IDLE_REAP_INTERVAL` / `ARGUS_MCP_IDLE_REAP_MAX_IDLE` | 5m / 0 | MCP 连接闲置回收检查周期 / 闲置阈值（⚠️ 仅 MAX_IDLE>0 时生效） |
+| `ARGUS_OCTOPUS_URL` / `ARGUS_OCTOPUS_USER` / `ARGUS_OCTOPUS_CHANNEL_ID` / `ARGUS_OCTOPUS_TOKEN` | 空 | octopus IM 推送（URL 非空启用；机器账号 X-User-Id 必填/渠道/Bearer 可选；未配置仅写日志） |
 
 ### 6. 仓库侧配置（.reviewagents.yaml，放业务仓库默认分支）
 
