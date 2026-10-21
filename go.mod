@@ -24,7 +24,7 @@ require (
 	github.com/oagentkit/toolgate v0.12.0
 	github.com/oagentkit/tools v0.10.1
 	github.com/oekit/bootstrap v0.6.4
-	github.com/oekit/concurrency v0.18.0
+	github.com/oekit/concurrency v0.18.1
 	github.com/oekit/core v0.11.0
 	github.com/oekit/data v0.16.0
 	github.com/oekit/hertz v0.7.1
@@ -32,7 +32,7 @@ require (
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
 	github.com/oekit/middleware v0.12.1
-	github.com/oekit/pkg v0.18.0
+	github.com/oekit/pkg v0.19.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.6.5
