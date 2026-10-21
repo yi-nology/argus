@@ -10,14 +10,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
-	"github.com/oekit/pkg/httpjson"
 )
 
 // auditForwardQueue 外送队列深度（满即丢弃，防外送端故障积压）。
@@ -52,27 +55,37 @@ func (f *AuditForwarder) run() {
 		if err != nil {
 			continue
 		}
-		// 与 sink 同一条 httpjson 外送线：非 2xx 带状态码与响应摘要报错
-		//（旧手写路径不查状态码，SIEM 端 5xx 静默丢事件）；重试 1 次吸收瞬态。
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err = httpjson.DoJSONWithRetry(ctx, f.client,
-			func() (httpjson.Request, error) {
-				return httpjson.Request{
-					Method: http.MethodPost,
-					URL:    f.url,
-					Body:   body,
-					Header: func(h http.Header) {
-						if f.token != "" {
-							h.Set("Authorization", "Bearer "+f.token)
-						}
-					},
-				}, nil
-			},
-			httpjson.RetryConfig{MaxAttempts: 2, BaseDelay: 500 * time.Millisecond},
-			new(map[string]any))
+		// 刻意不走 pkg/httpjson（v3.169.0 回退 v3.164.0 的误收编）：审计端点
+		// 契约是 fire-and-forget，响应体无关（215 实测 200 空响应体），而
+		// DoJSON 无条件 json.Unmarshal——空体必报「响应解析失败」，每条成功
+		// 外送都误报 WARN。手写路径保留 v3.164 的核心修复：**检查状态码**，
+		// 非 2xx 带状态与响应摘要告警（旧版 5xx 静默丢事件的缺陷不再复发）。
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.url, bytes.NewReader(body))
+		if err != nil {
+			cancel()
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if f.token != "" {
+			req.Header.Set("Authorization", "Bearer "+f.token)
+		}
+		resp, err := f.client.Do(req)
+		if err != nil {
+			cancel()
+			if f.log != nil {
+				f.log.Warn("argus.audit.forward_failed", "error", err.Error())
+			}
+			continue
+		}
+		summary, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
 		cancel()
-		if err != nil && f.log != nil {
-			f.log.Warn("argus.audit.forward_failed", "error", err.Error())
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			if f.log != nil {
+				note := textutil.TruncNote(strings.TrimSpace(string(summary)), 200, "截断")
+				f.log.Warn("argus.audit.forward_failed", "status", resp.StatusCode, "body", note)
+			}
 		}
 	}
 }

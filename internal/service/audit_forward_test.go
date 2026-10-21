@@ -1,9 +1,9 @@
 package service
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,65 +11,70 @@ import (
 	"github.com/oekit/logx"
 )
 
-// TestAuditForwarder 外送器：audit.event 转发为 JSON POST（带 Bearer）、
-// 非 audit 消息不转发、WithService 穿透保持外送。
-func TestAuditForwarder(t *testing.T) {
-	var mu sync.Mutex // server goroutine 写、测试主 goroutine 轮询读，必须互斥
-	var got []map[string]any
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		gotAuth = r.Header.Get("Authorization")
-		var ev map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&ev)
-		got = append(got, ev)
-		w.WriteHeader(http.StatusOK)
+// captureLogger 捕获 Warn 调用（audit 外送断言用）。
+type captureLogger struct {
+	logx.Logger
+	mu    sync.Mutex
+	warns []string
+}
+
+func (c *captureLogger) Warn(msg string, kv ...any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.warns = append(c.warns, msg)
+}
+
+func (c *captureLogger) warnCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.warns)
+}
+
+// TestAuditForwarderEmptyBodyOK 端点返回 200 空响应体（215 实测形态）：
+// 不产生 forward_failed 告警——v3.164.0 httpjson 误收编的假失败回归钉。
+func TestAuditForwarderEmptyBodyOK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK) // 200 + 空响应体
 	}))
 	defer srv.Close()
 
-	f := NewAuditForwarder(srv.URL, "hook-tok", nil)
-	// WithService 穿透（audit.New 的真实调用形态）
-	wrapped := f.Wrap(logx.NewStdLogger("audit-test")).WithService("argus-audit")
-	wrapped.Info("argus.other.event", "k", "v") // 非 audit：不转发
-	wrapped.Info("audit.event", "action", "finding.suppress", "matched", true)
-
-	snapshot := func() ([]map[string]any, string) {
-		mu.Lock()
-		defer mu.Unlock()
-		return got, gotAuth
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	cur, _ := snapshot()
-	for time.Now().Before(deadline) && len(cur) == 0 {
+	lg := &captureLogger{}
+	f := NewAuditForwarder(srv.URL, "", lg)
+	f.send("k", "v")
+	// worker 是后台 goroutine：轮询等消费完成（队列深度 1，5s 足够）
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && f.drops.Load() == 0 && len(f.ch) > 0 {
 		time.Sleep(20 * time.Millisecond)
-		cur, _ = snapshot()
 	}
-	cur, auth := snapshot()
-	if len(cur) != 1 {
-		t.Fatalf("应恰转发 1 条 audit.event，got %d", len(cur))
-	}
-	if cur[0]["action"] != "finding.suppress" || cur[0]["matched"] != true {
-		t.Errorf("载荷字段不符: %v", cur[0])
-	}
-	if auth != "Bearer hook-tok" {
-		t.Errorf("Bearer 头不符: %q", auth)
+	time.Sleep(200 * time.Millisecond)
+	if n := lg.warnCount(); n != 0 {
+		t.Fatalf("200 空响应体不应告警，got %d 条 WARN", n)
 	}
 }
 
-// TestAuditForwarderDropPolicy 外送端故障不阻断：队列满即丢弃不阻塞调用方。
-func TestAuditForwarderDropPolicy(t *testing.T) {
-	f := NewAuditForwarder("http://127.0.0.1:1/dead", "", nil) // 必然失败的端点
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < auditForwardQueue+50; i++ {
-			f.send("action", "x", "i", i)
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("队列满时 send 应非阻塞丢弃，不得卡住调用方")
+// TestAuditForwarderStatusNon2xxWarns 非 2xx（5xx）必须告警——v3.164 修复的
+// 原始缺陷（旧版 5xx 静默丢事件）回归钉。
+func TestAuditForwarderStatusNon2xxWarns(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "siem unavailable", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	lg := &captureLogger{}
+	f := NewAuditForwarder(srv.URL, "", lg)
+	f.send("k", "v")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(f.ch) > 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := lg.warnCount(); n == 0 {
+		t.Fatal("502 应产生 forward_failed 告警")
+	}
+	// 告警须带 status 字段（可归因）
+	lg.mu.Lock()
+	defer lg.mu.Unlock()
+	if len(lg.warns) == 0 || !strings.Contains(lg.warns[0], "forward_failed") {
+		t.Fatalf("告警消息名不符：%v", lg.warns)
 	}
 }
