@@ -14,13 +14,13 @@ require (
 	github.com/oagentkit/agent v0.10.1
 	github.com/oagentkit/guardx v0.13.1
 	github.com/oagentkit/llm v0.14.2
-	github.com/oagentkit/mcpkit v0.8.3
-	github.com/oagentkit/obs v0.9.3
-	github.com/oagentkit/queue v0.6.2
-	github.com/oagentkit/rag v0.8.3
-	github.com/oagentkit/runtime v0.7.1
-	github.com/oagentkit/skillkit v0.8.2
-	github.com/oagentkit/textx v0.6.1
+	github.com/oagentkit/mcpkit v0.8.4
+	github.com/oagentkit/obs v0.9.5
+	github.com/oagentkit/queue v0.6.3
+	github.com/oagentkit/rag v0.8.5
+	github.com/oagentkit/runtime v0.7.2
+	github.com/oagentkit/skillkit v0.8.4
+	github.com/oagentkit/textx v0.6.2
 	github.com/oagentkit/toolgate v0.12.0
 	github.com/oagentkit/tools v0.10.1
 	github.com/oekit/bootstrap v0.6.4
