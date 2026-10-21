@@ -11,8 +11,8 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
-	github.com/oagentkit/agent v0.10.0
-	github.com/oagentkit/guardx v0.8.2
+	github.com/oagentkit/agent v0.10.1
+	github.com/oagentkit/guardx v0.13.1
 	github.com/oagentkit/llm v0.14.2
 	github.com/oagentkit/mcpkit v0.8.3
 	github.com/oagentkit/obs v0.9.3
@@ -32,7 +32,7 @@ require (
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
 	github.com/oekit/middleware v0.12.1
-	github.com/oekit/pkg v0.19.0
+	github.com/oekit/pkg v0.20.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.6.5
