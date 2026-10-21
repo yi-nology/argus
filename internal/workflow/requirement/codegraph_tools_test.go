@@ -8,8 +8,8 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/codegraph"
 	"argus/internal/plugin"
+	"github.com/oagentkit/textx/codeintel"
 )
 
 // v3.15.0 P0-1：CodeGraph 非 nil 时 R3/R4 工具表挂 get_symbol/get_references，
@@ -20,7 +20,7 @@ func TestR3ToolsCodegraph(t *testing.T) {
 		[]byte("package app\n\nfunc Handler() error { return nil }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	idx, err := codegraph.NewIndex(dir, 10)
+	idx, err := codeintel.NewIndex(dir, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

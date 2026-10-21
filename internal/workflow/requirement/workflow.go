@@ -15,10 +15,10 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/codegraph"
 	argusctx "argus/internal/context"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
+	"github.com/oagentkit/textx/codeintel"
 
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/rag"
@@ -123,7 +123,7 @@ type Workflow struct {
 	SASTOutcomes []plugin.Outcome
 	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
 	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
-	CodeGraph *codegraph.Index
+	CodeGraph *codeintel.Index
 	// CodeSearchDir 工作副本根路径（v3.84.0：runner 就绪后注入；非空时 r3Tools/R4
 	// ReviewTools 挂 search_code 全文检索工具，覆盖符号索引到不了的词法线索）。
 	// 池语义：注入只记路径不持引用，目录由 workcopy TTL 兜底存活；工具侧读不到

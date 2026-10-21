@@ -55,7 +55,6 @@ func TestMain(m *testing.M) {
 // 规则变更 = 架构变更：必须同步 docs/architecture-deep-dive.md 并在 CHANGELOG 记档。
 var layering = map[string][]string{
 	// ---- L0 纯底座：零 internal 依赖 ----
-	"argus/internal/codegraph":  {},
 	"argus/internal/codesearch": {},
 	"argus/internal/semsearch":  {},
 	"argus/internal/learning":   {},
@@ -97,11 +96,11 @@ var layering = map[string][]string{
 
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
 	"argus/internal/workflow/requirement": {
-		"argus/internal/codegraph", "argus/internal/codesearch", "argus/internal/context",
+		"argus/internal/codesearch", "argus/internal/context",
 		"argus/internal/obs", "argus/internal/plugin", "argus/internal/toolpool",
 	},
 	"argus/internal/runner": {
-		"argus/internal/codegraph", "argus/internal/config", "argus/internal/context",
+		"argus/internal/config", "argus/internal/context",
 		"argus/internal/fixverifier", "argus/internal/learning", "argus/internal/memory",
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",

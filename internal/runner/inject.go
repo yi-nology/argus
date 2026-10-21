@@ -14,11 +14,11 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/codegraph"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
 	"argus/internal/sastscan"
 	"argus/internal/workflow/requirement"
+	"github.com/oagentkit/textx/codeintel"
 )
 
 // reviewGuidelinesPath 仓库级审查指引文件（默认分支根目录）。
@@ -162,7 +162,7 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	defer r.WC.Release(key)
-	idx, err := codegraph.NewIndex(dir, 2000)
+	idx, err := codeintel.NewIndex(dir, 2000)
 	if err != nil {
 		r.Log.Warn("argus.codegraph.index_failed", "error", logredact.Redact(err.Error()))
 		return
@@ -281,7 +281,7 @@ func renderRelatedSection(files []relatedFile) string {
 const maxTouchedSymbols = 30
 
 // renderTouchedSymbols 汇总触达符号并渲染提示词 section（含可用性提示与数据区纪律）。
-func renderTouchedSymbols(idx *codegraph.Index, ranges map[string][][2]int) string {
+func renderTouchedSymbols(idx *codeintel.Index, ranges map[string][][2]int) string {
 	seen := map[string]bool{}
 	var lines []string
 	for file, rs := range ranges {
