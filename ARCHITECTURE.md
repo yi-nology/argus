@@ -36,7 +36,7 @@
   └──┬───────────────────────────────────────────────────────────────┘
      │
   ┌──▼───────────────────────────────────────────────────────────────┐
-  │ L0 纯底座  config(配置) obs(指标) codegraph(符号索引)            │  零业务依赖
+  │ L0 纯底座  config(配置) obs(指标)            │  零业务依赖
   └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@
 
 | 层 | 包 | 允许的 internal 依赖 | 禁止 |
 |---|---|---|---|
-| L0 纯底座 | codegraph / learning / memory / progress / gitdeepen | （无） | 一切业务包 |
+| L0 纯底座 | learning / memory / progress / gitdeepen | （无） | 一切业务包 |
 | 域类型 | domain | learning | — |
 | L4 核心域 | plugin | domain, learning | runner/service/poster/workflow…（一切上层） |
 | 横切 | config | learning | 业务包（obs 例外见下） |
@@ -53,7 +53,7 @@
 | L3 能力 | reportview | plugin | 其余（纯渲染，无 IO） |
 | L3 能力 | context | config, obs, plugin | runner/service/workflow/storage… |
 | L3 能力 | poster / qa / dream / poller / ocrdeleg / ocrshim / toolpool / sastscan / sink / worker / health / notify | 见白名单 | 编排层互依 |
-| L2 编排 | workflow/requirement | codegraph, context, obs, plugin, toolpool | runner/service/storage/poster |
+| L2 编排 | workflow/requirement | context, obs, plugin, toolpool | runner/service/storage/poster |
 | L2 编排 | runner | 能力层全集 | service/bootstrap/channel |
 | L2 编排 | service | config/context/health/memory/obs/plugin/progress/qa/storage | runner/workflow/poster/bootstrap |
 | L1 组合根 | bootstrap | 一切 | **被任何包 import** |
