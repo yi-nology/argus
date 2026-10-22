@@ -131,9 +131,16 @@ func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, ta
 			// v3.150.0：Record → RecordPriced（旧 Record 按 1K 计费已退役，
 			// 新接口单位写在类型上=每 1M token；argus 配置侧仍是 per-1K，×1000 换算）。
 			rate := r.costRate(rec.Model)
-			price := port.Price{InputPerM: rate[0] * 1000, OutputPerM: rate[1] * 1000}
+			// v3.180.0 省 token 盲区修复：CachedTokens 是命中前缀缓存的 prompt token
+			// （便宜得多），旧记账按全价入账 → 成本高估。摊薄 InputPerM 折扣缓存命中
+			// 部分（cacheAdjustedInput），token 计数保持真实。
+			inputPerM := cacheAdjustedInput(rate[0]*1000, rec.PromptTokens, rec.CachedTokens, r.Cfg.CacheReadRatio())
+			price := port.Price{InputPerM: inputPerM, OutputPerM: rate[1] * 1000}
 			taskCost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
 			r.Cost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
+			// 缓存命中率观测（前缀缓存命中率=cached/prompt）：CachedTokens 此前被
+			// 采集但全仓零消费，命中率不可见；现入 argus_llm_cached/prompt_tokens_total。
+			plugin.ReportLLMCache(rec.Model, rec.CachedTokens, rec.PromptTokens)
 		}))
 	}
 	return callbacks.InitCallbacks(ctx, nil, handlers...)

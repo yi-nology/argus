@@ -22,7 +22,7 @@ func TestDeriveDefaults_ContextTokenZero(t *testing.T) {
 	if got := c.ReqIssueMaxChars(); got < 8_000 {
 		t.Fatalf("需求 issue 下限失效: %d", got)
 	}
-	if got := c.GetFileMaxRunes(); got < 20_000 {
+	if got := c.GetFileMaxRunes(); got < 8_000 {
 		t.Fatalf("get_file 下限失效: %d", got)
 	}
 	if got := c.GetIssueMaxRunes(); got < 8_000 {
@@ -30,6 +30,55 @@ func TestDeriveDefaults_ContextTokenZero(t *testing.T) {
 	}
 	if got := c.GetDiffMaxRunes(); got < 10_000 {
 		t.Fatalf("get_diff 下限失效: %d", got)
+	}
+}
+
+// TestGetFileMaxRunes_LoweredFloor get_file floor 从 20k 降到 8k（v3.180.0 省 token）：
+// get_file 走 stashOverflowAt 两级化（get_detail 可取全文），收紧 inline 上限无损。
+func TestGetFileMaxRunes_LoweredFloor(t *testing.T) {
+	c := &Config{LLM: LLMConfig{ContextToken: 4000}} // 4k 窗口 → 公式值 480 < floor
+	if got := c.GetFileMaxRunes(); got != 8_000 {
+		t.Fatalf("get_file floor: want 8000, got %d", got)
+	}
+}
+
+// TestTruncationOverrides 显式 ARGUS_GET_FILE/ISSUE_MAX_RUNES 覆盖公式派生。
+func TestTruncationOverrides(t *testing.T) {
+	c := &Config{
+		LLM:                      LLMConfig{ContextToken: 1_000_000},
+		GetFileMaxRunesOverride:  12_000,
+		GetIssueMaxRunesOverride: 3_000,
+	}
+	if got := c.GetFileMaxRunes(); got != 12_000 {
+		t.Fatalf("get_file 显式覆盖应生效: want 12000, got %d", got)
+	}
+	if got := c.GetIssueMaxRunes(); got != 3_000 {
+		t.Fatalf("get_issue 显式覆盖应生效: want 3000, got %d", got)
+	}
+	// 覆盖值 <=0 = 回落公式派生
+	c2 := &Config{LLM: LLMConfig{ContextToken: 1_000_000}}
+	if got := c2.GetFileMaxRunes(); got <= 12_000 {
+		t.Fatalf("无覆盖应回落大窗口公式派生（>12k）: %d", got)
+	}
+}
+
+// TestCacheReadRatio 缓存命中计价折扣归一化到 [0,1]，越界/NaN 回落缺省 0.1。
+func TestCacheReadRatio(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want float64
+	}{
+		{0.1, 0.1},  // 缺省
+		{0.0, 0.0},  // 显式 0（缓存命中按全价？0=免费，合法）
+		{1.0, 1.0},  // 不折扣
+		{-0.5, 0.1}, // 负值回落缺省
+		{2.0, 1.0},  // >1 钳到 1
+	}
+	for _, tc := range cases {
+		c := &Config{LLMCacheReadRatio: tc.in}
+		if got := c.CacheReadRatio(); got != tc.want {
+			t.Fatalf("CacheReadRatio(%v): want %v, got %v", tc.in, tc.want, got)
+		}
 	}
 }
 

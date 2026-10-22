@@ -392,6 +392,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_PLUGIN_MAX_CONCURRENT` | 2 | 单任务内插件 fan-out 并发上限（防 API burst 429） |
 | `ARGUS_TASK_TOKEN_BUDGET` | 200k | 单任务 token 预算，heavy 插件先裁 |
 | `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文窗口（**须配模型真实窗口**：虚高如 flash 档配 1M 会让 FitModel 工具历史清理线到百万级 runes 永不触发，工具结果随 ReAct 轮数膨胀烧 token——启动期 >256K 告警 argus.boot.window_suspect）|
+| `ARGUS_GET_FILE_MAX_RUNES` / `ARGUS_GET_ISSUE_MAX_RUNES` | 0（公式派生）| get_file/get_issue 进上下文截断上限（rune）显式覆盖。get_file 走 get_detail 可取全文（收紧无损）；get_issue 有损，收紧需质量 A/B |
 | `ARGUS_SKIP_DRAFT` | true | 跳过 Draft PR |
 | `ARGUS_TASK_RETENTION_DAYS` | 30 | 终态任务保留天数（0=永久；tasks 产物每任务 MB 级，长期运行建议保留默认） |
 | `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|
@@ -402,6 +403,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - | Milvus 向量知识库（需配 `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM`；不配回退本地词元检索，知识飞轮随之关闭）|
 | `ARGUS_OCTOPUS_URL` / `_CHANNEL_ID` / `_USER` / `_TOKEN` | - | octopus IM 推送（审查完成通知）|
 | `ARGUS_LLM_COST_PROMPT_PER_1K` / `ARGUS_LLM_COST_COMPLETION_PER_1K` | 0 | 成本费率（$/1k token），报告元信息"成本 ≈ $X" |
+| `ARGUS_LLM_COST_CACHE_READ_RATIO` | 0.1 | 缓存命中 prompt token 计价折扣（命中前缀缓存便宜得多，0.1=按全价 10% 计；1.0=不折扣）。缓存命中率看 argus_llm_cached/prompt_tokens_total |
 | `ARGUS_LLM_RATE_LIMIT` | 0（禁用）| LLM 请求速率限制（token bucket，单位 req/s）|
 | `ARGUS_LLM_RATE_BURST` | =MaxConcurrentTasks | 速率限制器突发容量 |
 | `ARGUS_SDK_TIMEOUT` | 120s | 单次平台 SDK 调用兜底超时（入参 ctx 无 deadline 时生效；负值关闭）——弱网/VPN 下防连接停滞挂死 |

@@ -86,6 +86,22 @@ func (c *Config) CostPer1K() [2]float64 {
 	return [2]float64{c.LLMCostPromptPer1K, c.LLMCostCompletionPer1K}
 }
 
+// CacheReadRatio 缓存命中 prompt token 的计价折扣（0.1 = 命中按全价 10% 计）。
+// 归一化到 [0,1]：越界值钳回边界，负值/NaN 回落缺省 0.1。
+func (c *Config) CacheReadRatio() float64 {
+	r := c.LLMCacheReadRatio
+	if r != r { // NaN
+		return 0.1
+	}
+	if r < 0 {
+		return 0.1
+	}
+	if r > 1 {
+		return 1
+	}
+	return r
+}
+
 // MaxTokensParam LLM 请求参数用：显式负值原样透传（agentkit v0.7.0 语义 = 不下发
 // max_tokens 参数，兼容要求 max_completion_tokens 的推理模型）；未显式配置时走
 // MaxTokensResolved 派生正值。
@@ -120,17 +136,29 @@ func (c *Config) SASTEnabled() bool {
 	return c.SASTGitleaksBin != "" || c.SASTSemgrepBin != ""
 }
 
-// GetFileMaxRunes R3 get_file 工具单文件内容上限（rune）：窗口 6% 折算，min 20k。
+// GetFileMaxRunes R3 get_file 工具单文件内容上限（rune）：窗口 6% 折算，min 8k。
+// 显式 ARGUS_GET_FILE_MAX_RUNES 优先。floor 从 20k 收到 8k（v3.180.0 省 token 面）：
+// get_file 走 stashOverflowAt 两级化，全文入详情库（get_detail 可取回），进上下文的
+// 只是 head + 取回指引——收紧 inline 上限**无损**（证据在截断线外时模型按 ref 取全文），
+// 直接省每次 get_file 的输入 token。
 func (c *Config) GetFileMaxRunes() int {
+	if c.GetFileMaxRunesOverride > 0 {
+		return c.GetFileMaxRunesOverride
+	}
 	n := c.contextTokens() * 6 / 100 * 2
-	if n < 20_000 {
-		n = 20_000
+	if n < 8_000 {
+		n = 8_000
 	}
 	return n
 }
 
 // GetIssueMaxRunes R3 get_issue 工具正文上限（rune）：窗口 1.5% 折算，min 8k。
+// 显式 ARGUS_GET_ISSUE_MAX_RUNES 优先。issue 走 TruncNote（有损，无 get_detail 取回），
+// floor 保持 8k 不收紧——质量容忍需 A/B 校准后才动。
 func (c *Config) GetIssueMaxRunes() int {
+	if c.GetIssueMaxRunesOverride > 0 {
+		return c.GetIssueMaxRunesOverride
+	}
 	n := c.contextTokens() * 15 / 1000 * 2
 	if n < 8_000 {
 		n = 8_000

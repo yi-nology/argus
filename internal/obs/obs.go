@@ -36,6 +36,16 @@ var (
 		Name: "argus_llm_tokens_total", Help: "LLM token 消耗（成本核算；聚合计数器，不做预算判定）",
 	}, []string{"stage", "model"})
 
+	// llmCachedTokens prompt 缓存命中 token（model）。前缀缓存命中率 = cached/prompt，
+	// 命中 token 计价折扣（省 token 盲区修复：此前 CachedTokens 被采集但零消费，
+	// 缓存命中率不可见、成本按全价入账高估）。
+	llmCachedTokens = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_llm_cached_tokens_total", Help: "LLM prompt 缓存命中 token（前缀缓存命中率=cached/prompt）",
+	}, []string{"model"})
+	llmPromptTokens = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_llm_prompt_tokens_total", Help: "LLM prompt token（缓存命中率分母）",
+	}, []string{"model"})
+
 	findingsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_findings_total", Help: "审查产出分布",
 	}, []string{"severity", "plugin"})
@@ -191,6 +201,7 @@ func Init() {
 	metrics.Init("argus")
 	metrics.Registry.MustRegister(
 		tasksTotal, stageDuration, pluginDuration, pluginFailures, llmTokens, findingsTotal,
+		llmCachedTokens, llmPromptTokens,
 		findingsByRepo, taskDurationByRepo,
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
@@ -213,6 +224,10 @@ func Init() {
 	}
 	plugin.HookLLMTokens = func(stage, model string, n int) {
 		llmTokens.WithLabelValues(stage, model).Add(float64(n))
+	}
+	plugin.HookLLMCache = func(model string, cached, prompt int) {
+		llmCachedTokens.WithLabelValues(model).Add(float64(cached))
+		llmPromptTokens.WithLabelValues(model).Add(float64(prompt))
 	}
 	plugin.HookFindings = func(severity, name string, n int) {
 		findingsTotal.WithLabelValues(severity, name).Add(float64(n))

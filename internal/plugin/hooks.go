@@ -20,6 +20,9 @@ var (
 	HookPluginFailure func(plugin string)
 	// HookLLMTokens LLM token 消耗（stage, model）——只做观测，不参与预算判定。
 	HookLLMTokens func(stage, model string, tokens int)
+	// HookLLMCache LLM prompt 缓存命中记账（model, cached, prompt；cached ⊆ prompt）。
+	// 前缀缓存命中率 = cached/prompt，命中 token 计价折扣见 Config.CacheReadRatio。
+	HookLLMCache func(model string, cached, prompt int)
 	// HookFindings 审查产出分布（severity, plugin）。
 	HookFindings func(severity, plugin string, n int)
 	// HookFindingsByRepo 按仓 findings 趋势（v3.73.0，repo=owner/name，severity）。
@@ -69,6 +72,14 @@ func ObsFindings(severity, name string, n int) {
 func ReportLLMTokens(stage, model string, tokens int) {
 	if tokens > 0 {
 		obsLLMTokens(stage, model, tokens)
+	}
+}
+
+// ReportLLMCache 供 llm 记账回调上报 prompt 缓存命中（model, cached, prompt；cached ⊆ prompt）。
+// 前缀缓存命中率 = cached/prompt；cached 只记观测，不影响预算判定。
+func ReportLLMCache(model string, cached, prompt int) {
+	if HookLLMCache != nil && (cached > 0 || prompt > 0) {
+		HookLLMCache(model, cached, prompt)
 	}
 }
 

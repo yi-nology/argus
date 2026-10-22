@@ -26,6 +26,22 @@ func (r *Runner) costRate(mdl string) [2]float64 {
 	return [2]float64{}
 }
 
+// cacheAdjustedInput 按缓存命中折扣摊薄输入单价（v3.180.0 成本口径修正）。
+// cached ⊆ prompt 是命中前缀缓存的 prompt token（便宜得多，cacheRatio=0.1）；
+// 旧记账把整块 prompt 按全价入账 → 成本高估。此处把 InputPerM 摊薄为
+// (uncached + cached×ratio)/prompt，**token 计数保持真实**（PromptTokens 不被
+// 「等效计费量」污染）。cached<=0 或 prompt<=0 时原价返回；cached 超 prompt 钳回。
+func cacheAdjustedInput(inputPerM float64, prompt, cached int, cacheRatio float64) float64 {
+	if cached <= 0 || prompt <= 0 {
+		return inputPerM
+	}
+	if cached > prompt {
+		cached = prompt
+	}
+	blended := (float64(prompt-cached) + float64(cached)*cacheRatio) / float64(prompt)
+	return inputPerM * blended
+}
+
 // buildReport 报告输入组装（模板渲染交给 reportview）。taskCost 非 nil 时附成本摘要。
 func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requirement.Output,
 	taskCost *llm.CostTracker) reportview.Report {
