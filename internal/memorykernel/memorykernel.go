@@ -34,6 +34,7 @@ import (
 
 	"github.com/yi-nology/agent-memory/lifecycle"
 	"github.com/yi-nology/agent-memory/pipeline/capture"
+	qanalyze "github.com/yi-nology/agent-memory/pipeline/query"
 	"github.com/yi-nology/agent-memory/pipeline/recall"
 	"github.com/yi-nology/agent-memory/ports"
 	"github.com/yi-nology/agent-memory/storage/sqlite"
@@ -81,7 +82,7 @@ func openWithStore(st *sqlite.Store, log logx.Logger) (*Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 装配捕获面: %w", err)
 	}
-	rc, err := recall.New(recall.DefaultConfig(), st, ports.StaticEstimator{}, ports.MemoryBand{})
+	rc, err := recall.New(recallCfg(0), st, ports.StaticEstimator{}, ports.MemoryBand{})
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 装配召回面: %w", err)
 	}
@@ -146,10 +147,14 @@ func (k *Kernel) SaveFact(ctx context.Context, ns store.Namespace, slug, factTyp
 		SearchTerms:  dreamSearchTerms(factType, description),
 		Confidence:   types.ConfidenceMed,
 		Importance:   types.ImportanceMed,
-		OccurredAt:   at,
-		CreatedAt:    at,
-		UpdatedAt:    at,
-		Provenance:   out.Event.Provenance,
+		// 时效类别 = lesson（v3.177.0 memory v0.8 FactKind）：dream 模式是
+		// 长期经验（「命中类似表述请提高举证标准」）——不因时间失效、
+		// 不被事件召回窗口挡掉，只在被推翻时失效。
+		Kind:       types.FactLesson,
+		OccurredAt: at,
+		CreatedAt:  at,
+		UpdatedAt:  at,
+		Provenance: out.Event.Provenance,
 	}
 	if err := k.store.SaveAtom(ctx, ns, card); err != nil {
 		return fmt.Errorf("memorykernel: 落事实卡: %w", err)
@@ -238,21 +243,29 @@ func (k *Kernel) RecallIndex(ctx context.Context, repoNS, orgNS store.Namespace,
 	}
 }
 
+// recallCfg 召回配置单源（v3.177.0）：缺省 + 逐调用预算 + 查询理解器。
+// Analyzer（memory v0.8）：代词消解/时间窗解析——R3 注入的空查询场景补
+// 画像线索，与宿主显式 Request 字段并行生效（宿主优先语义在内核侧）。
+func recallCfg(budgetTokens int) recall.Config {
+	cfg := recall.DefaultConfig()
+	cfg.TotalBudget = budgetTokens
+	cfg.Analyzer = qanalyze.New(qanalyze.Config{})
+	return cfg
+}
+
 // recallOne 单命名空间召回（失败降级空串：记忆是增强面，不许拖垮主流程）。
-func (k *Kernel) recallOne(ctx context.Context, ns store.Namespace, sessionID, query string, budgetTokens int) string {
+func (k *Kernel) recallOne(ctx context.Context, ns store.Namespace, sessionID, q string, budgetTokens int) string {
 	if budgetTokens <= 0 {
 		return ""
 	}
-	cfg := recall.DefaultConfig()
-	cfg.TotalBudget = budgetTokens
-	rec, err := recall.New(cfg, k.store, ports.StaticEstimator{}, ports.MemoryBand{})
+	rec, err := recall.New(recallCfg(budgetTokens), k.store, ports.StaticEstimator{}, ports.MemoryBand{})
 	if err != nil {
 		k.log.Warn("argus.memorykernel.recall_build_failed", "ns", string(ns), "error", err.Error())
 		return ""
 	}
 	res, err := rec.Recall(ctx, recall.Request{
 		Namespace: ns,
-		Query:     query,
+		Query:     q,
 		SessionID: sessionID,
 	})
 	if err != nil {

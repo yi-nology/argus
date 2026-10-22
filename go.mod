@@ -11,32 +11,32 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
-	github.com/oagentkit/agent v0.10.1
+	github.com/oagentkit/agent v0.10.4
 	github.com/oagentkit/guardx v0.13.1
-	github.com/oagentkit/llm v0.14.2
-	github.com/oagentkit/mcpkit v0.8.4
-	github.com/oagentkit/obs v0.9.5
+	github.com/oagentkit/llm v0.15.2
+	github.com/oagentkit/mcpkit v0.8.5
+	github.com/oagentkit/obs v0.9.6
 	github.com/oagentkit/queue v0.6.3
 	github.com/oagentkit/rag v0.8.5
 	github.com/oagentkit/runtime v0.7.2
 	github.com/oagentkit/skillkit v0.8.4
 	github.com/oagentkit/textx v0.6.2
-	github.com/oagentkit/toolgate v0.12.0
-	github.com/oagentkit/tools v0.10.1
+	github.com/oagentkit/toolgate v0.12.4
+	github.com/oagentkit/tools v0.10.3
 	github.com/oekit/bootstrap v0.6.4
-	github.com/oekit/concurrency v0.19.0
-	github.com/oekit/core v0.11.0
-	github.com/oekit/data v0.16.0
-	github.com/oekit/hertz v0.7.1
-	github.com/oekit/kitx v0.2.1
+	github.com/oekit/concurrency v0.20.0
+	github.com/oekit/core v0.12.0
+	github.com/oekit/data v0.17.0
+	github.com/oekit/hertz v0.8.1
+	github.com/oekit/kitx v0.3.0
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
-	github.com/oekit/middleware v0.12.1
-	github.com/oekit/pkg v0.20.0
+	github.com/oekit/middleware v0.13.1
+	github.com/oekit/pkg v0.21.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/yi-nology/agent-harness v0.6.5
-	github.com/yi-nology/agent-memory v0.6.0
+	github.com/yi-nology/agent-harness v0.9.0
+	github.com/yi-nology/agent-memory v0.8.0
 	github.com/yi-nology/go-git-platform v0.96.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -71,6 +71,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/getsentry/sentry-go v0.12.0 // indirect
@@ -133,7 +134,7 @@ require (
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oekit/gormx v0.6.0 // indirect
-	github.com/oekit/registry v0.4.1 // indirect
+	github.com/oekit/registry v0.5.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -157,6 +158,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/gitlab-org/api/client-go/v3 v3.18.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.72.0 // indirect
 	go.opentelemetry.io/contrib/propagators/b3 v1.47.0 // indirect
 	go.opentelemetry.io/contrib/propagators/ot v1.47.0 // indirect

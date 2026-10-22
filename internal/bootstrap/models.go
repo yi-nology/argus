@@ -3,12 +3,15 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"golang.org/x/time/rate"
 
 	"github.com/oekit/logx"
+	"github.com/oekit/tracing/httpotel"
 
 	"argus/internal/config"
 	"argus/internal/obs"
@@ -16,6 +19,18 @@ import (
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/llm/wrap"
 )
+
+// tracedLLMClient LLM 出站 HTTP 客户端（v3.177.0，llm v0.15 HTTPClient +
+// eino-ext HTTPClient 注入缝）：Transport 挂 oekit/tracing httpotel——LLM 调用
+// 成 OTel span 导出（此前 OTel 只有 gormotel DB 查询面，LLM 主耗时面无 trace）。
+// 注入的 Client 完全接管超时（两侧同一语义：设了 HTTPClient 就不再用
+// config.Timeout），timeout<=0 取 provider 缺省 60s 行为同款。
+func tracedLLMClient(timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	return &http.Client{Timeout: timeout, Transport: httpotel.WrapTransport(http.DefaultTransport)}
+}
 
 // Models 装配期一次解析完成的模型栈。原散在 main.go 的 ~270 行 if/else 收敛于此：
 // 主模型 + 全局降级链（OPENAI_FALLBACK_*）+ P6 阶段覆盖（ARGUS_MODEL_{R1,R2,R3,R35,
@@ -79,10 +94,11 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 
 	maxTokens := cfg.MaxTokensParam()
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL: cfg.LLM.BaseURL,
-		APIKey:  cfg.LLM.APIKey,
-		Model:   cfg.LLM.Model,
-		Timeout: cfg.LLM.Timeout,
+		BaseURL:    cfg.LLM.BaseURL,
+		APIKey:     cfg.LLM.APIKey,
+		Model:      cfg.LLM.Model,
+		Timeout:    cfg.LLM.Timeout,
+		HTTPClient: tracedLLMClient(cfg.LLM.Timeout),
 		// 负值 = 不下发 max_tokens（oagentkit 语义，推理模型兼容）
 		MaxTokens: ptrNonNeg(maxTokens),
 	})
@@ -128,7 +144,8 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 	primary, e := llm.NewOpenAIProvider(ctx, llm.OpenAIProviderConfig{
 		BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
 		ContextTokens: cfg.LLM.ContextToken, MaxOutputTokens: cfg.MaxTokensParam(),
-		Timeout: cfg.LLM.Timeout,
+		Timeout:    cfg.LLM.Timeout,
+		HTTPClient: tracedLLMClient(cfg.LLM.Timeout),
 		// v0.10.16：429 响应捕获 Retry-After，重试环按服务端建议退避（限流窗口
 		// 还剩多久只有端点知道；mimo 并发限流下比本地指数曲线更准）
 		CaptureRetryAfter: true,
@@ -140,6 +157,7 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 		BaseURL: cfg.LLM.FallbackBaseURL, APIKey: cfg.LLM.FallbackAPIKey, Model: cfg.LLM.FallbackModel,
 		ContextTokens:     cfg.LLM.FallbackContextToken,
 		CaptureRetryAfter: true,
+		HTTPClient:        tracedLLMClient(cfg.LLM.Timeout),
 	})
 	if e != nil {
 		return nil, fmt.Errorf("构造降级 LLM Provider 失败: %w", e)
@@ -163,10 +181,11 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 	// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
 	// FailoverModel 装饰补齐主备切换（oagentkit；Resilient.RawModel 只返回主模型）
 	fallbackBM, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL: cfg.LLM.FallbackBaseURL,
-		APIKey:  cfg.LLM.FallbackAPIKey,
-		Model:   cfg.LLM.FallbackModel,
-		Timeout: cfg.LLM.Timeout,
+		BaseURL:    cfg.LLM.FallbackBaseURL,
+		APIKey:     cfg.LLM.FallbackAPIKey,
+		Model:      cfg.LLM.FallbackModel,
+		Timeout:    cfg.LLM.Timeout,
+		HTTPClient: tracedLLMClient(cfg.LLM.Timeout),
 	})
 	if e != nil {
 		return nil, fmt.Errorf("构造降级 BaseChatModel 失败: %w", e)
@@ -195,6 +214,7 @@ func (m *Models) buildStageLLMs(ctx context.Context, cfg *config.Config, log log
 		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: so.Model,
 			MaxTokens: ptrNonNeg(cfg.MaxTokensParam()), Timeout: cfg.LLM.Timeout,
+			HTTPClient: tracedLLMClient(cfg.LLM.Timeout),
 		})
 	}
 	buildStageGen := func(so *config.StageOverride) (llm.Generator, error) {
@@ -203,6 +223,7 @@ func (m *Models) buildStageLLMs(ctx context.Context, cfg *config.Config, log log
 			ContextTokens: so.ContextTokens, MaxOutputTokens: cfg.MaxTokensParam(),
 			Timeout:           cfg.LLM.Timeout,
 			CaptureRetryAfter: true,
+			HTTPClient:        tracedLLMClient(cfg.LLM.Timeout),
 		})
 		if err != nil {
 			return nil, err
