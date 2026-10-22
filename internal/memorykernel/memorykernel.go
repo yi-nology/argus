@@ -48,7 +48,6 @@ import (
 type Kernel struct {
 	store *sqlite.Store
 	cap   *capture.Capturer
-	rec   *recall.Pipeline
 	log   logx.Logger
 }
 
@@ -82,11 +81,10 @@ func openWithStore(st *sqlite.Store, log logx.Logger) (*Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 装配捕获面: %w", err)
 	}
-	rc, err := recall.New(recallCfg(0), st, ports.StaticEstimator{}, ports.MemoryBand{})
-	if err != nil {
-		return nil, fmt.Errorf("memorykernel: 装配召回面: %w", err)
-	}
-	return &Kernel{store: st, cap: cap, rec: rc, log: log}, nil
+	// 召回面不在此预建（v3.178.0 死代码清理）：recallOne 按预算逐次建 pipeline，
+	// 预建实例只存不读；recall.New 的配置校验（分桶归一）对常量配置不可能失败，
+	// 首次召回的失败也已在 recallOne 走 Warn 降级。
+	return &Kernel{store: st, cap: cap, log: log}, nil
 }
 
 // Close 关闭底层库。
@@ -243,13 +241,17 @@ func (k *Kernel) RecallIndex(ctx context.Context, repoNS, orgNS store.Namespace,
 	}
 }
 
+// sharedAnalyzer 查询理解器单例（v3.178.0）：query.Analyzer 是纯只读配置态
+// （now/loc/weekStart 三字段 New 后不变），包级复用省每次召回的重复分配。
+var sharedAnalyzer = qanalyze.New(qanalyze.Config{})
+
 // recallCfg 召回配置单源（v3.177.0）：缺省 + 逐调用预算 + 查询理解器。
 // Analyzer（memory v0.8）：代词消解/时间窗解析——R3 注入的空查询场景补
 // 画像线索，与宿主显式 Request 字段并行生效（宿主优先语义在内核侧）。
 func recallCfg(budgetTokens int) recall.Config {
 	cfg := recall.DefaultConfig()
 	cfg.TotalBudget = budgetTokens
-	cfg.Analyzer = qanalyze.New(qanalyze.Config{})
+	cfg.Analyzer = sharedAnalyzer
 	return cfg
 }
 

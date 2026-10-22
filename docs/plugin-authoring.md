@@ -534,7 +534,7 @@ type testStack struct {
     engine  *server.Hertz
     store   *storage.Store
     runner  *runner.Runner
-    reg     *plugin.Registry
+    reg     *dispatch.Registry
     llm     *mockLLM       // mock LLM 客户端
     fake    *fakePlatform  // mock 平台 API
 }

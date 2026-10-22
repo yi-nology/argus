@@ -419,8 +419,8 @@ MergedFindings{Findings, Suppressed, Degraded}
 type Workflow struct {
     LLM              *llm.Client
     SDK              *argusctx.SDKCtx
-    Dispatcher       *plugin.Dispatcher
-    Merger           *plugin.Merger
+    Dispatcher       *dispatch.Dispatcher
+    Merger           *dispatch.Merger
     Tools            toolpool.Pool
     Knowledge        rag.KnowledgeService
     SkillText        func(context.Context) string  // 方法论注入

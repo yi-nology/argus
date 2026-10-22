@@ -13,6 +13,7 @@ import (
 
 	"github.com/yi-nology/agent-memory/storage/sqlite"
 	"github.com/yi-nology/agent-memory/store"
+	"github.com/yi-nology/agent-memory/types"
 )
 
 func testKernel(t *testing.T, name string) *Kernel {
@@ -165,5 +166,35 @@ func TestOpenCreatesParentDir(t *testing.T) {
 	defer k.Close()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("库文件未创建: %v", err)
+	}
+}
+
+// TestSaveFactLessonKind 时效语义钉（v3.177.0 memory v0.8 FactKind）：dream 模式
+// 是长期经验——落库 Kind 必须是 FactLesson（不因时间失效、不被事件窗口挡掉）。
+func TestSaveFactLessonKind(t *testing.T) {
+	k := testKernel(t, "lesson-kind")
+	ctx := context.Background()
+	ns := store.Namespace("gitlab-g-r")
+	if err := k.SaveFact(ctx, ns, "pattern-01", "pattern", "教训描述", "教训正文", time.Now()); err != nil {
+		t.Fatalf("SaveFact: %v", err)
+	}
+	card, err := k.store.GetAtom(ctx, ns, "pattern-01")
+	if err != nil {
+		t.Fatalf("GetAtom: %v", err)
+	}
+	if card.Kind != types.FactLesson {
+		t.Fatalf("dream 事实时效类别 = %q, want %q（教训不因时间失效）", card.Kind, types.FactLesson)
+	}
+}
+
+// TestRecallCfgAnalyzerWired 查询理解接线钉（v3.177.0）：recallCfg 的 Analyzer
+// 非 nil 且为包级单例——query.Analyzer 纯只读，复用安全。
+func TestRecallCfgAnalyzerWired(t *testing.T) {
+	cfg := recallCfg(100)
+	if cfg.Analyzer == nil {
+		t.Fatal("recallCfg 未接查询理解器")
+	}
+	if cfg.Analyzer != sharedAnalyzer {
+		t.Fatal("Analyzer 应为包级单例（纯只读复用）")
 	}
 }
