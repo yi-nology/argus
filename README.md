@@ -391,7 +391,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_MAX_CONCURRENT_TASKS` | 2 | worker 数，按 LLM 配额调 |
 | `ARGUS_PLUGIN_MAX_CONCURRENT` | 2 | 单任务内插件 fan-out 并发上限（防 API burst 429） |
 | `ARGUS_TASK_TOKEN_BUDGET` | 200k | 单任务 token 预算，heavy 插件先裁 |
-| `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文预算 |
+| `ARGUS_MAX_DIFF_CHARS` / `ARGUS_MODEL_CONTEXT_TOKENS` | - | diff 截断 / 上下文窗口（**须配模型真实窗口**：虚高如 flash 档配 1M 会让 FitModel 工具历史清理线到百万级 runes 永不触发，工具结果随 ReAct 轮数膨胀烧 token——启动期 >256K 告警 argus.boot.window_suspect）|
 | `ARGUS_SKIP_DRAFT` | true | 跳过 Draft PR |
 | `ARGUS_TASK_RETENTION_DAYS` | 30 | 终态任务保留天数（0=永久；tasks 产物每任务 MB 级，长期运行建议保留默认） |
 | `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|

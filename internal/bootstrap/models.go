@@ -344,6 +344,17 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 		}
 		return cfg.LLM.ContextToken
 	}
+	// 窗口配置防呆（v3.179.0 省 token 面）：FitModel 清理触发线 =(窗口-输出预留)
+	// ×3/2×0.9（CJK 感知）——窗口虚高（如 flash 档配 1M）时触发线到百万级 runes，
+	// 单请求上下文（工具预算合计 ~6 万 runes）永远到不了，microcompact 的「旧工具
+	// 结果置占位」永不触发 → 工具结果随 ReAct 轮数线性膨胀（215 实测 role=tool
+	// 累计 5000 万 runes = 上下文面 70%）。命中告警提示校正为模型真实窗口。
+	const windowSanityTokens = 256_000
+	if cfg.LLM.ContextToken > windowSanityTokens {
+		log.Warn("argus.boot.window_suspect", "context_tokens", cfg.LLM.ContextToken,
+			"hint", "窗口疑似虚高：FitModel 工具历史清理线将远超实际请求量级，"+
+				"工具结果随轮数膨胀烧 token——按模型真实窗口校正 ARGUS_MODEL_CONTEXT_TOKENS")
+	}
 	wrapStage := func(bm model.BaseChatModel, stage string, window int) model.BaseChatModel {
 		if bm == nil {
 			return nil
