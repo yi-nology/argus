@@ -17,6 +17,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/concurrency/ratelimit"
+	"github.com/oekit/concurrency/syncx"
 	datacache "github.com/oekit/data/cache"
 
 	api "argus/biz/model/api"
@@ -89,9 +90,11 @@ type Service struct {
 
 	// 评论链路资源闸（v3.8.0）：有界并发 + 超时 + 停机排水。此前评论事件挂
 	// 无超时的 Background ctx、无并发上限、停机直接杀在途 ReAct（用户永无回复）。
-	commentOnce  sync.Once
-	commentSlots chan struct{}  // 有界并发（容量 Cfg.CommentConcurrency）
-	commentWG    sync.WaitGroup // 在途评论事件（DrainComments 等待）
+	// v3.178.0 手写 sem chan 收编 oekit/concurrency/syncx.Gate.TryAcquire
+	//（v0.20.0 补的非阻塞档——正是本闸的 fail-fast 忙拒收语义）。
+	commentOnce sync.Once
+	commentGate *syncx.Gate    // 有界并发（容量 Cfg.CommentConcurrency）
+	commentWG   sync.WaitGroup // 在途评论事件（DrainComments 等待）
 
 	// qaThrottle Q&A 评论 per-PR 30s 冷却缓存（v3.84.0 回归 per-Service 实例：
 	// v3.82.0 曾改进程级单例，e2e 同进程多 Service 场景互相污染节流窗口）。
@@ -139,7 +142,7 @@ func (s *Service) initCommentGate() {
 		if n <= 0 {
 			n = 2
 		}
-		s.commentSlots = make(chan struct{}, n)
+		s.commentGate = syncx.NewGate(n)
 	})
 }
 
@@ -150,9 +153,8 @@ func (s *Service) initCommentGate() {
 // 返回 false = 并发闸满载（调用方回"忙"，不排队——排队会把 webhook 线程池拖垮）。
 func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.NormalizedEvent, delivery string) bool {
 	s.initCommentGate()
-	select {
-	case s.commentSlots <- struct{}{}:
-	default:
+	release, ok := s.commentGate.TryAcquire()
+	if !ok {
 		obs.IncrCommentBusy()
 		return false
 	}
@@ -165,7 +167,7 @@ func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.Normali
 	async.GoSafe(func() {
 		defer cancel()
 		defer s.commentWG.Done()
-		defer func() { <-s.commentSlots }()
+		defer release()
 		s.HandleComment(ctx, ev, delivery)
 	})
 	return true
