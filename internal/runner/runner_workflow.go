@@ -156,7 +156,9 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		gen = c
 	}
 	// R3 ReAct 模型解析：阶段覆盖 > RawModel；配置了备模型则包 FailoverModel
-	//（ADK 直调 BaseChatModel，不走 Resilient 链）。
+	//（ADK 直调 BaseChatModel，不走 Resilient 链）。⚠️ 这层包**不可删**：阶段覆盖的
+	// R3Model 是裸模型（buildStageModel 出 openai.NewChatModel，无降级），靠它补
+	// 主备切换；仅当来源是 RawModel（v0.10.9+ 自带 failover）时它才是冗余。
 	r3Chat := r.R3Model
 	if r3Chat == nil && r.LLM != nil {
 		r3Chat = r.LLM.RawModel()

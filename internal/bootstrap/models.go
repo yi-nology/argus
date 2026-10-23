@@ -11,6 +11,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/oekit/logx"
+	"github.com/oekit/pkg/httpjson"
 	"github.com/oekit/tracing/httpotel"
 
 	"argus/internal/config"
@@ -25,11 +26,19 @@ import (
 // 成 OTel span 导出（此前 OTel 只有 gormotel DB 查询面，LLM 主耗时面无 trace）。
 // 注入的 Client 完全接管超时（两侧同一语义：设了 HTTPClient 就不再用
 // config.Timeout），timeout<=0 取 provider 缺省 60s 行为同款。
+//
+// v3.182.0：外层再包 httpjson.RetryAfterTransport——429 的 Retry-After 头写入
+// ctx sink，供 agentrun 重试环按服务端建议退避（比本地指数准）。这是**单点**捕获：
+// eino ChatModel 直调出口（ReAct，无 CaptureRetryAfter 可设）与 oagentkit Provider
+// 出口（httpClient 会再套一层，RetryAfterTransport 幂等——只是重复 set 同值，无害）。
+// 此前只有 Provider 出口捕获、ReAct 主路径漏（agentrun 已注入 sink 但无人写入）。
 func tracedLLMClient(timeout time.Duration) *http.Client {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
-	return &http.Client{Timeout: timeout, Transport: httpotel.WrapTransport(http.DefaultTransport)}
+	return &http.Client{Timeout: timeout, Transport: httpjson.RetryAfterTransport{
+		Base: httpotel.WrapTransport(http.DefaultTransport),
+	}}
 }
 
 // Models 装配期一次解析完成的模型栈。原散在 main.go 的 ~270 行 if/else 收敛于此：
@@ -37,7 +46,10 @@ func tracedLLMClient(timeout time.Duration) *http.Client {
 // REVIEWER,QA,ROUTER}）。不变量：
 //   - Generator 路径（workflow 生成 / Reviewer 覆盖链）走 Resilient（主备）或 Client；
 //   - 所有 BaseChatModel 直调出口（ReAct/单轮直调）统一包 FailoverModel——
-//     Resilient.RawModel 只返回主模型，ReAct 旁路靠 Failover 补齐主备切换；
+//     阶段覆盖的**裸模型**（R3Model，buildStageModel 出 openai.NewChatModel，无降级）
+//     靠它补齐主备切换（此包装是其唯一 failover，勿删）；无覆盖时 r3Chat 来自
+//     Resilient.RawModel（v0.10.9+ 已是 RawModelWithFailover，本身 failover 感知），
+//     再包一次属无害冗余（总败时多试一次 fallback）——故统一包而非按来源分支；
 //   - 阶段覆盖继承主 BaseURL/APIKey；fallback 模型自身不做二级覆盖。
 //
 // 字段 nil 语义：Ready()==false 时全部为 nil（仅 cli 插件可用）；其余覆盖类字段
@@ -179,7 +191,8 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 	m.Generate = resilient
 
 	// ReAct 主路径（ADK ChatModelAgent 直调 BaseChatModel）绕过 Resilient——
-	// FailoverModel 装饰补齐主备切换（oagentkit；Resilient.RawModel 只返回主模型）
+	// FailoverModel 装饰补齐主备切换（oagentkit；阶段覆盖裸模型无降级，靠它补；
+	// 无覆盖时 RawModel 自带 failover，再包为无害冗余，见上方不变量注）。
 	fallbackBM, e := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		BaseURL:    cfg.LLM.FallbackBaseURL,
 		APIKey:     cfg.LLM.FallbackAPIKey,
