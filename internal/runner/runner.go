@@ -133,13 +133,16 @@ func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, ta
 			rate := r.costRate(rec.Model)
 			// v3.180.0 省 token 盲区修复：CachedTokens 是命中前缀缓存的 prompt token
 			// （便宜得多），旧记账按全价入账 → 成本高估。摊薄 InputPerM 折扣缓存命中
-			// 部分（cacheAdjustedInput），token 计数保持真实。
+			// 部分（cacheAdjustedInput），token 计数保持真实。llm v0.17.0 起用
+			// RecordPricedCached 让 cached 落进 CostRecord.CachedTokens（CacheHitRatio
+			// 可派生）——缓存折扣本就该调用方在 Price 层表达（上游 Price 文档明示），
+			// 故 cacheAdjustedInput 保留而非上游内置。
 			inputPerM := cacheAdjustedInput(rate[0]*1000, rec.PromptTokens, rec.CachedTokens, r.Cfg.CacheReadRatio())
 			price := port.Price{InputPerM: inputPerM, OutputPerM: rate[1] * 1000}
-			taskCost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
-			r.Cost.RecordPriced(rec.Model, "", rec.PromptTokens, rec.CompletionTokens, price)
-			// 缓存命中率观测（前缀缓存命中率=cached/prompt）：CachedTokens 此前被
-			// 采集但全仓零消费，命中率不可见；现入 argus_llm_cached/prompt_tokens_total。
+			taskCost.RecordPricedCached(rec.Model, "", rec.PromptTokens, rec.CachedTokens, rec.CompletionTokens, price)
+			r.Cost.RecordPricedCached(rec.Model, "", rec.PromptTokens, rec.CachedTokens, rec.CompletionTokens, price)
+			// 缓存命中率观测（前缀缓存命中率=cached/prompt）：argus 侧 Prometheus 时序
+			// 监控面（Grafana），与上游 CostTracker 的 pull 式 Summary 互补不冗余。
 			plugin.ReportLLMCache(rec.Model, rec.CachedTokens, rec.PromptTokens)
 		}))
 	}

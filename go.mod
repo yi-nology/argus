@@ -13,7 +13,7 @@ require (
 	github.com/mark3labs/mcp-go v1.1.1
 	github.com/oagentkit/agent v0.10.4
 	github.com/oagentkit/guardx v0.13.1
-	github.com/oagentkit/llm v0.15.2
+	github.com/oagentkit/llm v0.17.0
 	github.com/oagentkit/mcpkit v0.8.5
 	github.com/oagentkit/obs v0.9.6
 	github.com/oagentkit/queue v0.6.3
@@ -24,7 +24,7 @@ require (
 	github.com/oagentkit/toolgate v0.12.4
 	github.com/oagentkit/tools v0.10.3
 	github.com/oekit/bootstrap v0.6.4
-	github.com/oekit/concurrency v0.20.0
+	github.com/oekit/concurrency v0.20.1
 	github.com/oekit/core v0.12.0
 	github.com/oekit/data v0.17.0
 	github.com/oekit/hertz v0.8.1
@@ -32,12 +32,14 @@ require (
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
 	github.com/oekit/middleware v0.13.1
-	github.com/oekit/pkg v0.21.0
+	github.com/oekit/pkg v0.22.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.9.0
 	github.com/yi-nology/agent-memory v0.8.0
 	github.com/yi-nology/go-git-platform v0.96.0
+	go.opentelemetry.io/otel v1.47.0
+	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
@@ -162,7 +164,6 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.72.0 // indirect
 	go.opentelemetry.io/contrib/propagators/b3 v1.47.0 // indirect
 	go.opentelemetry.io/contrib/propagators/ot v1.47.0 // indirect
-	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
@@ -170,7 +171,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
