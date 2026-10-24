@@ -11,18 +11,18 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
-	github.com/oagentkit/agent v0.10.4
-	github.com/oagentkit/guardx v0.13.1
-	github.com/oagentkit/llm v0.17.0
-	github.com/oagentkit/mcpkit v0.8.5
-	github.com/oagentkit/obs v0.9.6
+	github.com/oagentkit/agent v0.11.0
+	github.com/oagentkit/guardx v0.15.0
+	github.com/oagentkit/llm v0.17.1
+	github.com/oagentkit/mcpkit v0.8.6
+	github.com/oagentkit/obs v0.9.7
 	github.com/oagentkit/queue v0.6.3
 	github.com/oagentkit/rag v0.8.5
 	github.com/oagentkit/runtime v0.7.2
-	github.com/oagentkit/skillkit v0.8.4
+	github.com/oagentkit/skillkit v0.8.5
 	github.com/oagentkit/textx v0.6.2
-	github.com/oagentkit/toolgate v0.12.4
-	github.com/oagentkit/tools v0.10.3
+	github.com/oagentkit/toolgate v0.12.5
+	github.com/oagentkit/tools v0.10.4
 	github.com/oekit/bootstrap v0.6.5
 	github.com/oekit/concurrency v0.20.4
 	github.com/oekit/core v0.12.0
