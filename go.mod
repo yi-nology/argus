@@ -26,7 +26,7 @@ require (
 	github.com/oekit/bootstrap v0.6.5
 	github.com/oekit/concurrency v0.20.4
 	github.com/oekit/core v0.12.0
-	github.com/oekit/data v0.18.0
+	github.com/oekit/data v0.19.0
 	github.com/oekit/hertz v0.8.3
 	github.com/oekit/kitx v0.3.1
 	github.com/oekit/logx v0.7.1
