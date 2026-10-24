@@ -18,6 +18,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
+	"github.com/oekit/pkg/pathx"
 
 	"argus/internal/plugin"
 )
@@ -92,7 +93,10 @@ func sanitizeTestPath(p string) string {
 	if p == "" || !strings.HasSuffix(p, "_test.go") {
 		return ""
 	}
-	if strings.Contains(p, "..") || strings.HasPrefix(p, "/") || filepath.IsAbs(p) {
+	// 路径合法性交给上游 pathx.SanitizeRelStrict：拒绝越界（".." 段）、绝对路径、
+	// Windows 盘符、UNC 与反斜杠分隔符。此前是子串判定 Contains("..") + 平台
+	// 相关的 IsAbs——"..\\.." 形绕过在 Linux 上按平台解释会漏过。
+	if _, ok := pathx.SanitizeRelStrict(p); !ok {
 		return ""
 	}
 	if strings.ContainsAny(p, "\\\n\t") {
