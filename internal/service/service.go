@@ -19,6 +19,7 @@ import (
 	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/concurrency/syncx"
 	datacache "github.com/oekit/data/cache"
+	"github.com/oekit/pkg/container"
 
 	api "argus/biz/model/api"
 	"argus/internal/config"
@@ -110,7 +111,9 @@ type Service struct {
 
 	// fixInflight @argus fix 在途去重（v3.85.0）：key=pr+fp，防同 finding 并发
 	// 双跑烧双倍 agent token。进程级即可（修复是交互式命令，不跨重启）。
-	fixInflight sync.Map
+	// 用上游 oekit/pkg/container.Map 取代裸 sync.Map：键值类型化，取用免断言。
+	// 取值字段（零值即可用，Service 构造点无须逐个初始化）。
+	fixInflight container.Map[string, bool]
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。
