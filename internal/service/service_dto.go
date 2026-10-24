@@ -9,16 +9,18 @@ import (
 
 	api "argus/biz/model/api"
 	"argus/internal/plugin"
+
+	"github.com/oekit/pkg/ptrx"
 )
 
 // strPtr 可选字段指针化（hz 生成 DTO 的 optional 字段均为指针）。
-func strPtr(s string) *string { return &s }
+func strPtr(s string) *string { return ptrx.Of(s) }
 
 func strPtrOrEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}
-	return &s
+	return ptrx.Of(s)
 }
 
 // ---------- helpers ----------
