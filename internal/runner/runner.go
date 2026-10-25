@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -191,22 +192,56 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		"repo":    task.Owner + "/" + task.Repo,
 		"mr":      task.Number,
 	})
-	start := time.Now()
-	wf := r.wireWorkflow(ctx, task, budget)
-	r.publish(progress.EventTaskRunning, task, "", "")
+	// v3.185.4：任务体统一 panic 出口——上游 queue/worker 的 panic 隔离只记
+	// 日志不留终态（心跳过期复位重跑），对确定性 panic 是「复位→再炸」死循环
+	// （live 实测：影响面注入 nil map panic 后任务卡 running）；argus 的
+	// failed-retry 退避是重试正道，panic 必须经 handleRunFailure 落 failed 终态。
+	if err = guardPanic(r.Log, task.ID, func() error {
+		start := time.Now()
+		wf := r.wireWorkflow(ctx, task, budget)
+		r.publish(progress.EventTaskRunning, task, "", "")
 
-	// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
-	r.postStartMarker(ctx, task)
+		// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
+		r.postStartMarker(ctx, task)
 
-	if r.repoBudgetGate(ctx, task) {
+		if r.repoBudgetGate(ctx, task) {
+			return nil
+		}
+
+		if rerr := r.run(ctx, task, wf, budget, start, taskCost); rerr != nil {
+			r.handleRunFailure(ctx, task, budget, rerr)
+		}
 		return nil
+	}); err != nil {
+		// 守卫唯一上抛 = 任务体 panic：此时 run 已中断，handleRunFailure 未及
+		// 执行——在守卫外补一次失败终态（其自身若再炸仅日志，终态缺失由心跳
+		// 复位兜底，但确定性 panic 已从「无限复位重炸」变为 failed-retry 退避）
+		defer func() {
+			if rec := recover(); rec != nil {
+				r.Log.Error("argus.runner.finalize_panic", "task", task.ID,
+					"panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
+			}
+		}()
+		r.handleRunFailure(ctx, task, budget, err)
+		return err
 	}
+	return nil
+}
 
-	if err = r.run(ctx, task, wf, budget, start, taskCost); err == nil {
-		return nil
-	}
-	r.handleRunFailure(ctx, task, budget, err)
-	return nil // 已终结为 failed，不再向 worker 上抛
+// guardPanic 任务体 panic → error 的统一安全出口（v3.185.4）。上游
+// queue/worker 的 runTask 对 panic 只记一行日志（无栈、无终态），依赖心跳
+// 过期复位——确定性 panic 下等于无限「复位→再炸」。本守卫把 panic 转成
+// error 交回调用方走 handleRunFailure 的 failed-retry 退避正道，并补全栈
+// 日志（此前排查影响面注入 panic 被迫临时 defer 才拿到栈）。
+func guardPanic(log logx.Logger, taskID string, body func() error) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("任务执行 panic: %v", rec)
+			log.Error("argus.runner.task_panic", "task", taskID,
+				"panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
+		}
+	}()
+	return body()
 }
 
 // run 单任务管线执行体。v3.58.0 拆分为四个命名子步骤（顺序即语义）：
