@@ -9,10 +9,10 @@ import (
 
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
+	"github.com/oekit/pkg/shellx"
 
 	"argus/internal/config"
 	"argus/internal/plugin"
-	"argus/internal/testkit"
 )
 
 const ocrdelegPreviewFixture = `{"schema_version":"1","mode":"range","merge_base":"abc123",` +
@@ -37,10 +37,10 @@ func ocrdelegFakeBin(t *testing.T) (binPath, argvProbe string) {
 	if err := os.WriteFile(rulesFile, []byte(ocrdelegRulesFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(argvProbe) + "\n" +
+	script := "#!/bin/sh\necho \"$@\" >> " + shellx.Quote(argvProbe) + "\n" +
 		"case \"$*\" in\n" +
-		"  *preview*) /bin/cat " + testkit.Shq(previewFile) + " ;;\n" +
-		"  *) /bin/cat " + testkit.Shq(rulesFile) + " ;;\n" +
+		"  *preview*) /bin/cat " + shellx.Quote(previewFile) + " ;;\n" +
+		"  *) /bin/cat " + shellx.Quote(rulesFile) + " ;;\n" +
 		"esac\n"
 	binPath = filepath.Join(dir, "ocr")
 	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {

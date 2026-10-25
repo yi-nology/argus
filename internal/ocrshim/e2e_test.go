@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/oekit/pkg/shellx"
 
 	"argus/internal/plugin"
 	"argus/internal/plugin/adapter_remote"
-	"argus/internal/testkit"
 )
 
 // 假 OCR：把收到的 argv 与 OPENAI_API_KEY 写探针文件，stdout 打新 schema JSON。
@@ -23,8 +23,8 @@ func fakeOCR(t *testing.T, bin string) (argvProbe, envProbe string) {
 	argvProbe = filepath.Join(bin, "argv.probe")
 	envProbe = filepath.Join(bin, "env.probe")
 	script := "#!/bin/sh\n" +
-		"echo \"$@\" >> " + testkit.Shq(argvProbe) + "\n" +
-		"echo \"$OPENAI_API_KEY\" >> " + testkit.Shq(envProbe) + "\n" +
+		"echo \"$@\" >> " + shellx.Quote(argvProbe) + "\n" +
+		"echo \"$OPENAI_API_KEY\" >> " + shellx.Quote(envProbe) + "\n" +
 		`echo '{"comments":[{"path":"a.go","content":"竞态","start_line":7,"severity":"critical","suggestion_code":"加锁"}]}'` + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "ocr"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func fakeGitOnPath(t *testing.T) (probe string) {
 	t.Helper()
 	bin := t.TempDir()
 	probe = filepath.Join(bin, "called")
-	script := "#!/bin/sh\necho \"$@\" >> " + testkit.Shq(probe) + "\nexit 0\n"
+	script := "#!/bin/sh\necho \"$@\" >> " + shellx.Quote(probe) + "\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
