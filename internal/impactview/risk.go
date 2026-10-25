@@ -56,8 +56,17 @@ func scoreRisk(in riskInput) Risk {
 		score += add
 		reasons = append(reasons, strconv.Itoa(add)+"分：历史强共变文件 "+strconv.Itoa(in.StrongCoupling)+" 个（import 图外的隐性耦合）")
 	}
+	if in.DepsChanged {
+		score += 8
+		reasons = append(reasons, "8分：依赖清单变更（go.mod/go.sum）——传递面超出本仓静态图")
+	}
+	if in.TestsOnlyChanged {
+		add := -8
+		score += add
+		reasons = append(reasons, "-8分：改动仅为测试文件（不达产线，影响面收敛）")
+	}
 
-	r.Score = minInt(score, 100)
+	r.Score = maxInt(minInt(score, 100), 0)
 	switch {
 	case r.Score >= 55:
 		r.Level = RiskHigh
@@ -77,7 +86,9 @@ type riskInput struct {
 	SignatureChanged  bool // diff 中有 func 声明行增删
 	TestsMissing      bool // 受影响包全部无测试
 	EntrypointTouched bool
-	StrongCoupling    int // ≥MinCoupleCount 的共变对数
+	StrongCoupling    int  // ≥MinCoupleCount 的共变对数
+	DepsChanged       bool // go.mod/go.sum 在改动清单（依赖面变更）
+	TestsOnlyChanged  bool // 改动全部为测试文件（降分项）
 }
 
 // detectSignatureChange diff 文本里是否有 func 声明行的增/删（近似判定：
@@ -139,6 +150,13 @@ func testsMissing(pkgs []PkgImpact) bool {
 
 func minInt(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b

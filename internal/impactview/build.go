@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oagentkit/textx/codeintel"
@@ -118,6 +119,8 @@ func Build(ctx context.Context, in Input) *Snapshot {
 		TestsMissing:      testsMissing(affected),
 		EntrypointTouched: touchesEntrypoint(s.Changed, syms),
 		StrongCoupling:    strongCoupling,
+		DepsChanged:       depsChanged(s.Changed),
+		TestsOnlyChanged:  testsOnlyChanged(s.Changed),
 	})
 
 	finalize(s)
@@ -409,4 +412,27 @@ func countForeignPackages(pkgs []PkgImpact, changed []string) int {
 		}
 	}
 	return n
+}
+
+// depsChanged 改动是否触及依赖清单（go.mod/go.sum——传递影响超出本仓静态图）。
+func depsChanged(changed []string) bool {
+	for _, f := range changed {
+		if f == "go.mod" || f == "go.sum" {
+			return true
+		}
+	}
+	return false
+}
+
+// testsOnlyChanged 改动是否全部为测试文件（降分口径：不达产线）。
+func testsOnlyChanged(changed []string) bool {
+	if len(changed) == 0 {
+		return false
+	}
+	for _, f := range changed {
+		if !strings.HasSuffix(f, "_test.go") {
+			return false
+		}
+	}
+	return true
 }

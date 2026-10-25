@@ -100,15 +100,16 @@ type Stats struct {
 
 // 容量封顶（防巨型仓库/巨型 PR 把快照与渲染吃爆；触发即记 Notes+Truncated）。
 const (
-	MaxImportFiles   = 4000 // L1 扫描的 Go 文件上限（与 codeintel.NewIndex 同量级）
-	MaxPackages      = 400  // 受影响包闭包上限（BFS 展开封顶）
-	MaxImportDepth   = 3    // 反向闭包跳数
-	MaxSymbols       = 15   // 触达符号入快照数
-	MaxCallersPerSym = 8    // 单符号调用方数
-	MaxCoupling      = 10   // 共变对上限
-	MinCoupleCount   = 3    // 共变入榜最低共现次数
-	MaxMermaidNodes  = 24   // mermaid 节点上限（超出聚合到包级）
-	MaxMermaidRunes  = 4400 // mermaid 源字符上限（Gitea/Forgejo 默认 5000 上界留余量）
-	DefaultCommits   = 100  // 共变扫描默认深度
-	MaxCommits       = 1000 // 共变扫描深度上限
+	MaxImportFiles    = 4000 // L1 扫描的 Go 文件上限（与 codeintel.NewIndex 同量级）
+	MaxPackages       = 400  // 受影响包闭包上限（BFS 展开封顶）
+	MaxImportDepth    = 3    // 反向闭包跳数
+	MaxSymbols        = 15   // 触达符号入快照数
+	MaxCallersPerSym  = 8    // 单符号调用方数
+	MaxCoupling       = 10   // 共变对上限
+	MinCoupleCount    = 3    // 共变入榜最低共现次数
+	MaxMermaidNodes   = 24   // mermaid 节点上限（超出聚合到包级）
+	MaxMermaidRunes   = 4400 // mermaid 源字符上限（Gitea/Forgejo 默认 5000 上界留余量）
+	DefaultCommits    = 100  // 共变扫描默认深度
+	MaxCommits        = 1000 // 共变扫描深度上限
+	MaxPromptPackages = 12   // prompt 段包清单/无测试包清单展示封顶（预算守卫）
 )

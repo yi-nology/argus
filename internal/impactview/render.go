@@ -6,6 +6,7 @@ package impactview
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -265,8 +266,16 @@ func RenderReportSection(s *Snapshot) string {
 	}
 	if mermaid != "" {
 		b.WriteString("```mermaid\n" + mermaid + "```\n")
+		// 截断注明（渲染端点在 keep 集外的边会静默消失——与悬挂边同形态，
+		// 必须让读者知道这是视图截断而非完整面）
+		if len(s.Nodes) > MaxMermaidNodes {
+			fmt.Fprintf(&b, "\n> 图示按影响权重截断至 %d 节点；完整影响面见交互视图（`GET /tasks/:id/impact`）或 MCP `get_impact`。\n", MaxMermaidNodes)
+		}
 	} else if l := RenderList(s); l != "" {
 		b.WriteString(l + "\n")
+		if len(s.Nodes) > 24 {
+			b.WriteString("\n> 清单已截断；完整影响面见交互视图（`GET /tasks/:id/impact`）或 MCP `get_impact`。\n")
+		}
 	}
 	if len(s.Notes) > 0 {
 		b.WriteString("\n> 注：" + strings.Join(s.Notes, "；") + "\n")
@@ -300,7 +309,20 @@ func RenderPromptSection(s *Snapshot) string {
 		b.WriteString("依据：" + strings.Join(s.Risk.Reasons, "；") + "。")
 	}
 	if pkgs := nonDirectPackages(s); len(pkgs) > 0 {
-		fmt.Fprintf(&b, "\n受影响包（import 反向闭包）：%s。", strings.Join(pkgs, "、"))
+		shown, more := capStrings(pkgs, MaxPromptPackages)
+		if more > 0 {
+			fmt.Fprintf(&b, "\n受影响包（import 反向闭包，%d 个）：%s 等。", len(pkgs), strings.Join(shown, "、"))
+		} else {
+			fmt.Fprintf(&b, "\n受影响包（import 反向闭包）：%s。", strings.Join(shown, "、"))
+		}
+	}
+	if noTests := packagesWithoutTests(s); len(noTests) > 0 {
+		shown, more := capStrings(noTests, MaxPromptPackages)
+		note := ""
+		if more > 0 {
+			note = " 等 " + strconv.Itoa(len(noTests)) + " 包"
+		}
+		fmt.Fprintf(&b, "\n无测试覆盖的受影响包：%s%s（评估影响时可将「缺测试」作为风险线索注明，不因此新增泛化意见）。", strings.Join(shown, "、"), note)
 	}
 	if callers := callerLines(s); len(callers) > 0 {
 		fmt.Fprintf(&b, "\n调用方（前 %d 处）：%s。", len(callers), strings.Join(callers, "；"))
@@ -326,6 +348,25 @@ func nonDirectPackages(s *Snapshot) []string {
 		}
 	}
 	return out
+}
+
+// packagesWithoutTests 无 *_test.go 覆盖的受影响包（prompt 风险线索）。
+func packagesWithoutTests(s *Snapshot) []string {
+	var out []string
+	for _, p := range s.Packages {
+		if p.Tests == 0 {
+			out = append(out, pkgLabel(p.Path))
+		}
+	}
+	return out
+}
+
+// capStrings 封顶截取（返回展示集与溢出数）。
+func capStrings(in []string, max int) (shown []string, more int) {
+	if len(in) <= max {
+		return in, 0
+	}
+	return in[:max], len(in) - max
 }
 
 // callerLines 调用方线索行（节点 Detail 已带调用方函数名）。

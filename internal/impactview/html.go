@@ -134,8 +134,9 @@ func nodeFill(n Node) (fill, stroke string) {
 // svgBody 产出 SVG 主体（框 + 标签 + 贝塞尔边）。
 func svgBody(s *Snapshot, pos map[string][2]int) string {
 	var b strings.Builder
-	// 边先画（垫底）
-	for _, e := range s.Edges {
+	// 边先画（垫底）；data-i 携带快照边序——JS 搜索联动按它回查 data.edges,
+	// 不依赖「DOM 序=数据序」的隐式对齐
+	for i, e := range s.Edges {
 		p1, ok1 := pos[e.From]
 		p2, ok2 := pos[e.To]
 		if !ok1 || !ok2 {
@@ -146,8 +147,8 @@ func svgBody(s *Snapshot, pos map[string][2]int) string {
 		x2 := p2[0]
 		y2 := p2[1] + nodeH/2
 		mid := (x1 + x2) / 2
-		fmt.Fprintf(&b, `<path d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s"/><text class="elabel" x="%d" y="%d">%s</text>`+"\n",
-			x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+		fmt.Fprintf(&b, `<path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s"/><text class="elabel" x="%d" y="%d">%s</text>`+"\n",
+			i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
 	}
 	for _, n := range s.Nodes {
 		p, ok := pos[n.ID]
@@ -156,8 +157,13 @@ func svgBody(s *Snapshot, pos map[string][2]int) string {
 		}
 		fill, stroke := nodeFill(n)
 		label := truncateRunes(n.Label, 30)
-		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text></g>`+"\n",
-			n.Kind, html.EscapeString(n.ID), p[0], p[1], nodeW, nodeH, fill, stroke, html.EscapeString(label))
+		tip := n.Kind + " · " + n.ID
+		if n.Detail != "" {
+			tip += "\n" + n.Detail
+		}
+		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text></g>`+"\n",
+			n.Kind, html.EscapeString(n.ID), p[0], p[1],
+			html.EscapeString(tip), nodeW, nodeH, fill, stroke, html.EscapeString(label))
 	}
 	return b.String()
 }
@@ -246,12 +252,19 @@ document.getElementById('zout').onclick=()=>{scale=Math.max(.2,scale/1.25);apply
 document.getElementById('fit').onclick=()=>{scale=1;tx=0;ty=0;q.value='';filter('');panel.style.display='none';apply();};
 q.addEventListener('input',()=>filter(q.value.trim().toLowerCase()));
 function filter(kw){
+ const hit={};
  document.querySelectorAll('#g .node').forEach(g=>{
   const id=g.dataset.id,n=byId[id];
-  const hit=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw)));
-  g.classList.toggle('dim',!hit);
+  hit[id]=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw)));
+  g.classList.toggle('dim',!hit[id]);
  });
- document.querySelectorAll('#g .edge').forEach(p=>p.classList.toggle('dim',!!kw));
+ // 边联动：kw 为空全亮；有 kw 时仅两端都命中的边保持可见
+ //（data-i 回查快照边序，不依赖 DOM 序=数据序）
+ document.querySelectorAll('#g .edge').forEach(p=>{
+  if(!kw){p.classList.remove('dim');return;}
+  const e=data.edges[+p.dataset.i];
+  p.classList.toggle('dim',!(e&&hit[e.from]&&hit[e.to]));
+ });
 }
 svg.addEventListener('click',e=>{
  const g=e.target.closest('.node');if(!g)return;
