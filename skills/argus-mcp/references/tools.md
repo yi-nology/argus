@@ -194,7 +194,7 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 |---|---|---|---|
 | `task_id` | string | ✓ | 任务 ID |
 
-返回快照 JSON：`changed`（改动文件）、`nodes`/`edges`（影响图；边方向 From=变更源→To=受影响方，rel ∈ import/caller/test_of/coupled）、`packages`（受影响包聚合，含 tests 覆盖数与 exposed 出口标记）、`risk`（level/score/reasons 逐条加分依据）、`coupling`（历史共变对）、`mermaid` 不在此工具返回（报告评论里）——本工具为结构化数据面，渲染由调用方自行处理。任务 running 早期快照可能尚未生成（无此键），或 `ARGUS_IMPACTVIEW=0` 关闭，均返回提示文本。同数据面另有交互视图：`GET /tasks/:taskId/impact`（Bearer，自包含 HTML）。
+返回快照 JSON：`changed`（改动文件）、`nodes`/`edges`（影响图；边方向 From=变更源→To=受影响方，rel ∈ import/caller/test_of/coupled）、`packages`（受影响包聚合，含 tests 覆盖数与 exposed 出口标记）、`risk`（level/score/reasons 逐条加分依据）、`coupling`（历史共变对）、`func_diffs`（v3.185.0 函数/方法级图 diff：签名变更/函数增删/调用边 ±，带 before/after 签名原文）、`mermaid` 不在此工具返回（报告评论里）——本工具为结构化数据面，渲染由调用方自行处理。任务 running 早期快照可能尚未生成（无此键），或 `ARGUS_IMPACTVIEW=0` 关闭，均返回提示文本。同数据面另有交互视图：`GET /tasks/:taskId/impact`（Bearer，自包含 HTML）。
 
 ### search_findings
 

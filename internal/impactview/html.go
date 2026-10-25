@@ -230,7 +230,7 @@ summary{cursor:pointer;color:#334155}
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
 <details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
-<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
+` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
 <div id="viewport"><svg id="g" width="` + fmt.Sprint(w) + `" height="` + fmt.Sprint(h) + `" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `">
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#94a3b8"/></marker></defs>
 ` + svg + `</svg></div>
@@ -292,4 +292,76 @@ func taskMeta(taskID string) string {
 		return ""
 	}
 	return "任务 " + html.EscapeString(taskID)
+}
+
+// funcDiffDetails 函数级图 diff 区块（before/after 双列卡片 + 调用边增减
+// chips；无数据整块省略）。状态徽标：🟢 新增 / 🔴 删除 / 🟡 变更。
+func funcDiffDetails(s *Snapshot) string {
+	if s == nil || len(s.FuncDiffs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<details open><summary>函数级图 diff（` + fmt.Sprint(len(s.FuncDiffs)) + ` · base 对比，🟢 新增 / 🔴 删除 / 🟡 变更）</summary>`)
+	b.WriteString(`<style>
+.fdcard{border:1px solid #e2e8f0;border-radius:8px;margin:8px 0;padding:10px;background:#fff}
+.fdhead{display:flex;gap:8px;align-items:center;font-size:13px}
+.fdst{padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.st-add{background:#dcfce7;color:#14532d}.st-rem{background:#fecaca;color:#7f1d1d}.st-mod{background:#fef9c3;color:#713f12}
+.fdcols{display:flex;gap:8px;margin-top:8px}
+.fdcol{flex:1;min-width:0}
+.fdcol h4{margin:0 0 4px;font-size:11px;color:#64748b;font-weight:600}
+.fdcol pre{background:#f1f5f9;padding:6px 8px;border-radius:6px;overflow:auto;font-size:12px;margin:0;white-space:pre-wrap;word-break:break-all}
+.fdcalls{margin-top:6px;font-size:12px}
+.chip{display:inline-block;padding:1px 8px;border-radius:999px;margin:2px 4px 0 0;font-size:12px}
+.chip-add{background:#dcfce7;color:#14532d}.chip-rem{background:#fecaca;color:#7f1d1d}
+</style><div>`)
+	shown := s.FuncDiffs
+	if len(shown) > 12 {
+		shown = shown[:12]
+	}
+	for _, fd := range shown {
+		var st, stCls string
+		switch fd.Status {
+		case FuncAdded:
+			st, stCls = "新增", "st-add"
+		case FuncRemoved:
+			st, stCls = "删除", "st-rem"
+		default:
+			st, stCls = "变更", "st-mod"
+		}
+		b.WriteString(`<div class="fdcard"><div class="fdhead"><span class="fdst ` + stCls + `">` + st + `</span><b>` + html.EscapeString(fd.Name) + `</b><span style="color:#64748b;font-size:12px">` + html.EscapeString(fd.File) + `</span></div>`)
+		before, after := "", ""
+		if fd.Before != nil {
+			before = fd.Before.Signature
+		}
+		if fd.After != nil {
+			after = fd.After.Signature
+		}
+		if fd.Status != FuncAdded && before != "" {
+			b.WriteString(`<div class="fdcols"><div class="fdcol"><h4>BEFORE</h4><pre>` + html.EscapeString(before) + `</pre></div>`)
+		} else {
+			b.WriteString(`<div class="fdcols"><div class="fdcol"><h4>BEFORE</h4><pre>（无）</pre></div>`)
+		}
+		if fd.Status != FuncRemoved && after != "" {
+			b.WriteString(`<div class="fdcol"><h4>AFTER</h4><pre>` + html.EscapeString(after) + `</pre></div></div>`)
+		} else {
+			b.WriteString(`<div class="fdcol"><h4>AFTER</h4><pre>（已删除）</pre></div></div>`)
+		}
+		if len(fd.CallsAdded) > 0 || len(fd.CallsRemoved) > 0 {
+			b.WriteString(`<div class="fdcalls">`)
+			for _, c := range capShown(fd.CallsAdded, 6) {
+				b.WriteString(`<span class="chip chip-add">+ ` + html.EscapeString(c) + `</span>`)
+			}
+			for _, c := range capShown(fd.CallsRemoved, 6) {
+				b.WriteString(`<span class="chip chip-rem">− ` + html.EscapeString(c) + `</span>`)
+			}
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+	if rest := len(s.FuncDiffs) - len(shown); rest > 0 {
+		b.WriteString(`<div style="color:#64748b;font-size:12px">…其余 ` + fmt.Sprint(rest) + ` 条略（完整见 MCP get_impact / JSON 快照）</div>`)
+	}
+	b.WriteString(`</div></details>`)
+	return b.String()
 }

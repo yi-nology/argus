@@ -214,6 +214,7 @@ func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin
 		DiffText:     diff.Text,
 		Index:        idx,
 		MaxCommits:   r.Cfg.ImpactCoupling,
+		BaseRef:      impactBaseRef(pr),
 	})
 	if len(snap.Nodes) == 0 {
 		return
@@ -231,6 +232,19 @@ func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin
 	r.Log.Info("argus.impactview.ready", "task", taskID, "nodes", len(snap.Nodes),
 		"pkgs", len(snap.Packages), "calls", snap.Stats.CallSites,
 		"coupling", len(snap.Coupling), "risk", snap.Risk.Level, "took_ms", snap.Stats.TookMS)
+}
+
+// impactBaseRef 函数级 diff 的 base 参照：PR base 分支优先，缺省回落默认
+// 分支（workcopy 克隆的 origin/* 引用由 gitdeepen 保 merge-base 可达）。
+func impactBaseRef(pr *plugin.PRContext) string {
+	base := pr.BaseBranch
+	if base == "" {
+		base = pr.DefaultBranch
+	}
+	if base == "" {
+		return ""
+	}
+	return "origin/" + base
 }
 
 // injectCodeSearch 全文检索前置（v3.84.0）：就绪工作副本路径注入 Workflow，

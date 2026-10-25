@@ -38,11 +38,12 @@ type Snapshot struct {
 	Version     int         `json:"version"`
 	GeneratedAt time.Time   `json:"generated_at"`
 	Risk        Risk        `json:"risk"`
-	Changed     []string    `json:"changed"`            // 纳入审查的改动文件（相对路径，有序）
-	Nodes       []Node      `json:"nodes"`              // 节点（含 changed 标记的源节点）
-	Edges       []Edge      `json:"edges"`              // 边（见方向契约）
-	Packages    []PkgImpact `json:"packages,omitempty"` // 受影响包聚合（含测试覆盖数与对外暴露面）
-	Coupling    []Couple    `json:"coupling,omitempty"` // 历史共变 Top（P2；未开/未命中无此字段）
+	Changed     []string    `json:"changed"`              // 纳入审查的改动文件（相对路径，有序）
+	Nodes       []Node      `json:"nodes"`                // 节点（含 changed 标记的源节点）
+	Edges       []Edge      `json:"edges"`                // 边（见方向契约）
+	Packages    []PkgImpact `json:"packages,omitempty"`   // 受影响包聚合（含测试覆盖数与对外暴露面）
+	Coupling    []Couple    `json:"coupling,omitempty"`   // 历史共变 Top（P2；未开/未命中无此字段）
+	FuncDiffs   []FuncDiff  `json:"func_diffs,omitempty"` // 函数/方法级图 diff（v3.185.0；无 base 参照/非 Go 变更无此字段）
 	Stats       Stats       `json:"stats"`
 	Notes       []string    `json:"notes,omitempty"` // 降级/截断注明（逐层失败不阻断）
 }
@@ -89,12 +90,13 @@ type Couple struct {
 
 // Stats 构建期统计（可观测面）。
 type Stats struct {
-	GoFiles   int   `json:"go_files"`            // import 图扫描到的 Go 文件数
-	Packages  int   `json:"packages"`            // 仓库内含 Go 文件的目录数
-	Symbols   int   `json:"symbols,omitempty"`   // 触达符号数（L2）
-	CallSites int   `json:"call_sites"`          // 调用方命中数（L2，词法+AST 合并后）
-	Commits   int   `json:"commits,omitempty"`   // 共变扫描的 commit 数（P2）
-	Truncated bool  `json:"truncated,omitempty"` // 任一层触发封顶截断
+	GoFiles   int   `json:"go_files"`             // import 图扫描到的 Go 文件数
+	Packages  int   `json:"packages"`             // 仓库内含 Go 文件的目录数
+	Symbols   int   `json:"symbols,omitempty"`    // 触达符号数（L2）
+	CallSites int   `json:"call_sites"`           // 调用方命中数（L2，词法+AST 合并后）
+	Commits   int   `json:"commits,omitempty"`    // 共变扫描的 commit 数（P2）
+	FuncDiffs int   `json:"func_diffs,omitempty"` // 函数级 diff 条数（v3.185.0）
+	Truncated bool  `json:"truncated,omitempty"`  // 任一层触发封顶截断
 	TookMS    int64 `json:"took_ms"`
 }
 

@@ -23,6 +23,7 @@ type Input struct {
 	DiffText     string              // 清洗后 diff 文本（签名变更近似判定）
 	Index        *codeintel.Index    // 工作副本符号索引（nil = 跳过 L2；runner 复用 codegraph 已建索引）
 	MaxCommits   int                 // P2 共变扫描深度（0 = DefaultCommits；负 = 关闭）
+	BaseRef      string              // 函数级 diff 的 base 参照（如 origin/main；空 = 跳过该层）
 	Timeout      time.Duration       // 构建总预算（0 = 30s；超时逐层降级不阻断）
 }
 
@@ -96,6 +97,16 @@ func Build(ctx context.Context, in Input) *Snapshot {
 		appendCouplingNodes(s, couples)
 	} else if commits > 0 && in.Dir == "" {
 		s.Notes = append(s.Notes, "无工作副本，历史共变扫描跳过")
+	}
+
+	// ---- v3.185.0 函数/方法级图 diff：base 切面对比（预算内才做） ----
+	if in.BaseRef != "" && in.Dir != "" && hasGoChanged(s.Changed) && ctx.Err() == nil && time.Now().Before(deadline) {
+		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges)
+		s.FuncDiffs = fds
+		s.Notes = append(s.Notes, fnNotes...)
+		s.Stats.FuncDiffs = len(fds)
+	} else if in.BaseRef == "" && in.Dir != "" && hasGoChanged(s.Changed) {
+		s.Notes = append(s.Notes, "未提供 base 参照，函数级 diff 跳过")
 	}
 
 	// ---- 风险分（确定性） ----
@@ -330,6 +341,7 @@ func appendCouplingNodes(s *Snapshot, couples []Couple) {
 const (
 	MaxSnapshotNodes = 150
 	MaxSnapshotJSON  = 48 << 10 // 与 ArtifactDiffInput 的 48KB 落库纪律对齐
+	MaxChangedList   = 500      // Changed 展示清单封顶（千文件级 PR 单清单即可顶爆体积守卫；L0 节点/风险分在封顶前已消费全量）
 )
 
 // finalize 确定化排序 + 重复边去重 + 容量守卫（节点按影响权重封顶 →
@@ -353,6 +365,16 @@ func finalize(s *Snapshot) {
 		dedup = append(dedup, e)
 	}
 	s.Edges = dedup
+
+	// Changed 展示清单封顶（L0 节点/风险分已在封顶前消费全量，此处只影响
+	// MCP/HTML 的清单展示）
+	if len(s.Changed) > MaxChangedList {
+		total := len(s.Changed)
+		s.Changed = s.Changed[:MaxChangedList]
+		s.Stats.Truncated = true
+		s.Notes = append(s.Notes,
+			"改动清单超 "+strconv.Itoa(MaxChangedList)+" 文件，展示截断 "+strconv.Itoa(total)+"→"+strconv.Itoa(MaxChangedList))
+	}
 
 	// 节点封顶（影响权重序：改动 > 包 > 测试 > 其他），边随端点裁剪——
 	// 悬挂边违反快照不变量（TestNoDanglingEdges）
@@ -508,4 +530,14 @@ func testsOnlyChanged(changed []string) bool {
 		}
 	}
 	return true
+}
+
+// hasGoChanged 改动中是否含 Go 文件（函数级 diff 的前置条件）。
+func hasGoChanged(changed []string) bool {
+	for _, f := range changed {
+		if strings.HasSuffix(f, ".go") {
+			return true
+		}
+	}
+	return false
 }

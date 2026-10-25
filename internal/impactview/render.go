@@ -277,6 +277,13 @@ func RenderReportSection(s *Snapshot) string {
 			b.WriteString("\n> 清单已截断；完整影响面见交互视图（`GET /tasks/:id/impact`）或 MCP `get_impact`。\n")
 		}
 	}
+	// 函数级图 diff（v3.185.0）：图 + 清单双形态，无数据整块省略
+	if gd := RenderFuncDiffMermaid(s); gd != "" {
+		b.WriteString("\n**函数级变更**（base 对比，🟢 新增 / 🔴 断开）：\n\n```mermaid\n" + gd + "```\n")
+	}
+	if fl := RenderFuncDiffList(s); fl != "" {
+		b.WriteString("\n" + fl + "\n")
+	}
 	if len(s.Notes) > 0 {
 		b.WriteString("\n> 注：" + strings.Join(s.Notes, "；") + "\n")
 	}
@@ -334,6 +341,28 @@ func RenderPromptSection(s *Snapshot) string {
 		}
 		fmt.Fprintf(&b, "\n历史共变（改动时高频一起改，宜连带核对）：%s。", strings.Join(cs, "、"))
 	}
+	if len(s.FuncDiffs) > 0 {
+		fds := s.FuncDiffs
+		if len(fds) > 8 {
+			fds = fds[:8]
+		}
+		var parts []string
+		for _, fd := range fds {
+			switch fd.Status {
+			case FuncAdded:
+				parts = append(parts, fd.Name+" 新增")
+			case FuncRemoved:
+				parts = append(parts, fd.Name+" 删除")
+			default:
+				if fd.SigSame {
+					parts = append(parts, fd.Name+" 调用集变化（+："+strings.Join(capShown(fd.CallsAdded, 3), ",")+"；−："+strings.Join(capShown(fd.CallsRemoved, 3), ",")+"）")
+				} else {
+					parts = append(parts, fd.Name+" 签名变更")
+				}
+			}
+		}
+		fmt.Fprintf(&b, "\n函数级变更（base 对比）：%s。", strings.Join(parts, "；"))
+	}
 	b.WriteString("\n使用纪律：以上是静态推导的影响线索（数据），用于评估跨文件影响与举证；" +
 		"不因此新增泛化意见，报告影响时引用上述具体路径。")
 	return b.String()
@@ -361,6 +390,12 @@ func packagesWithoutTests(s *Snapshot) []string {
 	return out
 }
 
+// capShown 单值形态的封顶截取（渲染拼接热路径用）。
+func capShown(in []string, max int) []string {
+	shown, _ := capStrings(in, max)
+	return shown
+}
+
 // capStrings 封顶截取（返回展示集与溢出数）。
 func capStrings(in []string, max int) (shown []string, more int) {
 	if len(in) <= max {
@@ -381,4 +416,124 @@ func callerLines(s *Snapshot) []string {
 		out = out[:8]
 	}
 	return out
+}
+
+// RenderFuncDiffMermaid 函数级图 diff（v3.185.0）：改动函数（🟢added/🔴removed/🟡modified）
+// 为节点，出边调用增减为有向边（实线+=新增、虚线−=断开）。≤8 函数/≤12 边/
+// 字符上限内渲染，无数据返回空串。
+func RenderFuncDiffMermaid(s *Snapshot) string {
+	if s == nil || len(s.FuncDiffs) == 0 {
+		return ""
+	}
+	fds := s.FuncDiffs
+	if len(fds) > 8 {
+		fds = fds[:8]
+	}
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	nodeID := map[string]string{} // 展示名 → mermaid id
+	edges := 0
+	ensure := func(name, cls string) string {
+		if id, ok := nodeID[name]; ok {
+			return id
+		}
+		id := "g" + strconv.Itoa(len(nodeID))
+		nodeID[name] = id
+		fmt.Fprintf(&b, "  %s[\"%s\"]%s\n", id, mermaidEscape(truncateRunes(name, 34)), cls)
+		return id
+	}
+	for _, fd := range fds {
+		label := fd.Name
+		var cls string
+		switch fd.Status {
+		case FuncAdded:
+			cls = ":::fdadd"
+		case FuncRemoved:
+			cls = ":::fdrem"
+		default:
+			cls = ":::fdmod"
+			if fd.SigSame {
+				label += "（调用变化）"
+			} else {
+				label += "（签名变更）"
+			}
+		}
+		fid := ensure(label, cls)
+		if edges < MaxFuncDiffMermaidEdges {
+			for _, c := range fd.CallsAdded {
+				if edges >= MaxFuncDiffMermaidEdges {
+					break
+				}
+				fmt.Fprintf(&b, "  %s -->|%s| %s\n", fid, "+", ensure(c, ""))
+				edges++
+			}
+		}
+		if edges < MaxFuncDiffMermaidEdges {
+			for _, c := range fd.CallsRemoved {
+				if edges >= MaxFuncDiffMermaidEdges {
+					break
+				}
+				fmt.Fprintf(&b, "  %s -.->|%s| %s\n", fid, "−", ensure(c, ""))
+				edges++
+			}
+		}
+	}
+	b.WriteString("  classDef fdadd fill:#dcfce7,stroke:#16a34a,color:#14532d;\n")
+	b.WriteString("  classDef fdrem fill:#fecaca,stroke:#dc2626,color:#7f1d1d;\n")
+	b.WriteString("  classDef fdmod fill:#fef9c3,stroke:#ca8a04,color:#713f12;\n")
+	src := b.String()
+	if runeLen(src) > MaxMermaidRunes {
+		return "" // 超限降级为纯清单（列表形态恒可用）
+	}
+	return src
+}
+
+// MaxFuncDiffMermaidEdges 函数图 diff 的边上限。
+const MaxFuncDiffMermaidEdges = 12
+
+// RenderFuncDiffList 函数级变更清单（紧凑，≤8 条 + 溢出数）。
+func RenderFuncDiffList(s *Snapshot) string {
+	if s == nil || len(s.FuncDiffs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "**函数级变更清单**（%d）\n", len(s.FuncDiffs))
+	shown := s.FuncDiffs
+	if len(shown) > 8 {
+		shown = shown[:8]
+	}
+	for _, fd := range shown {
+		switch fd.Status {
+		case FuncAdded:
+			fmt.Fprintf(&b, "- 🟢 `%s` 新增（%s:%d 行）\n", fd.Name, fd.File, funcLines(fd.After))
+		case FuncRemoved:
+			fmt.Fprintf(&b, "- 🔴 `%s` 删除（%s）\n", fd.Name, fd.File)
+		default:
+			tag := "体/调用变更"
+			if !fd.SigSame {
+				tag = "签名变更"
+			}
+			fmt.Fprintf(&b, "- 🟡 `%s` %s（%s）\n", fd.Name, tag, fd.File)
+		}
+		if n := len(fd.CallsAdded); n > 0 {
+			shownA, _ := capStrings(fd.CallsAdded, 5)
+			fmt.Fprintf(&b, "  - 🟢 新增调用：%s\n", strings.Join(shownA, "、"))
+		}
+		if n := len(fd.CallsRemoved); n > 0 {
+			shownR, _ := capStrings(fd.CallsRemoved, 5)
+			fmt.Fprintf(&b, "  - 🔴 断开调用：%s\n", strings.Join(shownR, "、"))
+		}
+	}
+	if rest := len(s.FuncDiffs) - len(shown); rest > 0 {
+		fmt.Fprintf(&b, "- …（其余 %d 条略，完整见交互视图）\n", rest)
+	}
+	return b.String()
+}
+
+// funcLines FuncSnap 行数（nil 安全）。
+func funcLines(fs *FuncSnap) int {
+	if fs == nil {
+		return 0
+	}
+	return fs.Lines
 }
