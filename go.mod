@@ -24,7 +24,7 @@ require (
 	github.com/oagentkit/toolgate v0.12.5
 	github.com/oagentkit/tools v0.10.4
 	github.com/oekit/bootstrap v0.6.5
-	github.com/oekit/concurrency v0.21.0
+	github.com/oekit/concurrency v0.22.0
 	github.com/oekit/core v0.12.0
 	github.com/oekit/data v0.19.0
 	github.com/oekit/hertz v0.8.5
