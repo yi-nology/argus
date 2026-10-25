@@ -19,4 +19,6 @@ func customizedRegister(r *server.Hertz) {
 	r.GET("/events", append(routerapi.Auth(), api.Events)...)
 	// v3.88.0 审查概览聚合（🔒 read 档；数据面供仪表盘/报告消费）
 	r.GET("/stats/overview", append(routerapi.Auth(), api.StatsOverview)...)
+	// v3.183.0 影响面视图（🔒 复用 Bearer 鉴权；自包含交互 HTML，零外链）
+	r.GET("/tasks/:taskId/impact", append(routerapi.Auth(), api.TaskImpact)...)
 }
