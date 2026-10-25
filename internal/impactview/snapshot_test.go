@@ -479,3 +479,62 @@ func TestSnapshotCapacityGuard(t *testing.T) {
 		t.Fatalf("缺截断注明: %+v", s.Notes)
 	}
 }
+
+// TestMermaidDropsIsolatedSymbols 可读性纪律（v3.185.1，用户实拍「看不懂」反馈）：
+// 孤立改动符号（类型/常量被触达但无调用边）不进 mermaid 图；有调用边的改动
+// 符号着黄色 chgsym；边标签动词化。
+func TestMermaidDropsIsolatedSymbols(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
+	s.Nodes = append(s.Nodes,
+		Node{ID: "file:a/a.go", Kind: KindFile, Label: "a.go", Changed: true},
+		Node{ID: "sym:a/a.go:Func", Kind: KindSymbol, Label: "Func", Changed: true},
+		// 类型/常量触达形态：无任何调用边 → 应摘除
+		Node{ID: "sym:a/a.go:SomeType", Kind: KindSymbol, Label: "SomeType", Changed: true},
+		Node{ID: "sym:a/a.go:MaxConst", Kind: KindSymbol, Label: "MaxConst", Changed: true},
+		Node{ID: "file:b/b.go", Kind: KindFile, Label: "b.go", Detail: "调用方：Use"},
+	)
+	s.Edges = append(s.Edges,
+		Edge{From: "file:a/a.go", To: "sym:a/a.go:Func", Rel: RelCaller},
+		Edge{From: "sym:a/a.go:Func", To: "file:b/b.go", Rel: RelCaller},
+	)
+	src := RenderMermaid(s)
+	if strings.Contains(src, "SomeType") || strings.Contains(src, "MaxConst") {
+		t.Fatalf("孤立符号未摘除:\n%s", src)
+	}
+	if !strings.Contains(src, "chgsym") {
+		t.Fatal("有调用边的改动符号应着 chgsym 黄类")
+	}
+	if !strings.Contains(src, "波及调用方") {
+		t.Fatal("边标签应动词化")
+	}
+	// 全孤立退化：只剩无边的符号 → 空图（报告段自动省略/降级列表）
+	empty := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"},
+		Nodes: []Node{{ID: "sym:a.go:X", Kind: KindSymbol, Label: "X", Changed: true}}}
+	if RenderMermaid(empty) != "" {
+		t.Fatal("全孤立应返回空图")
+	}
+}
+
+// TestRenderMermaidPure 渲染纯函数性（v3.185.1 回归锚）：renderMermaid 曾用
+// edges[:0] 原地过滤污染 s.Edges,二次渲染（超长聚合路径）产生重复边——
+// 同快照连渲两次必须逐字节一致。
+func TestRenderMermaidPure(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
+	s.Nodes = append(s.Nodes, Node{ID: "file:a/a.go", Kind: KindFile, Label: "a.go", Changed: true})
+	for i := 0; i < 10; i++ {
+		id := "pkg:p" + strconv.Itoa(i)
+		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindPackage, Label: id})
+		s.Edges = append(s.Edges, Edge{From: "file:a/a.go", To: id, Rel: RelImport})
+	}
+	first := RenderMermaid(s)
+	second := RenderMermaid(s)
+	if first != second {
+		t.Fatal("渲染非纯：二次调用输出漂移")
+	}
+	if got := strings.Count(s.Edges[0].From, ""); got == 0 {
+		t.Fatal("哨兵")
+	}
+	if len(s.Edges) != 10 {
+		t.Fatalf("s.Edges 被渲染污染（len=%d）", len(s.Edges))
+	}
+}

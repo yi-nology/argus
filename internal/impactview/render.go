@@ -29,6 +29,9 @@ func RenderMermaid(s *Snapshot) string {
 }
 
 // renderMermaid 具体渲染（节点已选定）。无可渲染节点返回空串。
+// 可读性纪律（v3.185.1，用户实拍反馈「看不懂」）：孤立符号节点（类型/常量
+// 被触达但无调用边）一律摘除——它们在图上是无人连接的噪声列，函数级故事由
+// funcdiff 卡片承载；改动符号仅在有调用边时入图并着黄色，与改动文件（红）区分。
 func renderMermaid(s *Snapshot, nodes []Node, edges []Edge) string {
 	if len(nodes) == 0 {
 		return ""
@@ -38,11 +41,41 @@ func renderMermaid(s *Snapshot, nodes []Node, edges []Edge) string {
 		// 改动节点优先保留，其余按 (Kind 权重, ID) 截断
 		keep = prioritizeNodes(nodes, MaxMermaidNodes)
 	}
+	keepIDs := map[string]bool{}
+	for _, n := range keep {
+		keepIDs[n.ID] = true
+	}
+	// 仅统计 keep 子图内的度；孤立改动符号摘除（类型/常量触达形态）。
+	// liveEdges 必须独立分配——若 edges[:0] 原地过滤会污染调用方 s.Edges
+	// （len 不变、尾部残留旧边），二次渲染（超长聚合路径）即产生重复边
+	// （实弹复现：n9 边 2→4），函数必须保持纯。
+	deg := map[string]int{}
+	liveEdges := make([]Edge, 0, len(edges))
+	for _, e := range edges {
+		if keepIDs[e.From] && keepIDs[e.To] {
+			liveEdges = append(liveEdges, e)
+			deg[e.From]++
+			deg[e.To]++
+		}
+	}
+	pruned := keep[:0]
+	for _, n := range keep {
+		if n.Kind == KindSymbol && deg[n.ID] == 0 {
+			continue
+		}
+		pruned = append(pruned, n)
+	}
+	keep = pruned
+	if len(keep) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("flowchart LR\n")
 	for i, n := range keep {
 		label := mermaidEscape(n.Label)
 		switch {
+		case n.Changed && n.Kind == KindSymbol:
+			fmt.Fprintf(&b, "  n%d[\"%s\"]:::chgsym\n", i, label)
 		case n.Changed:
 			fmt.Fprintf(&b, "  n%d[\"%s\"]:::changed\n", i, label)
 		case n.Kind == KindTest:
@@ -51,7 +84,7 @@ func renderMermaid(s *Snapshot, nodes []Node, edges []Edge) string {
 			fmt.Fprintf(&b, "  n%d[\"%s\"]\n", i, label)
 		}
 	}
-	for _, e := range edges {
+	for _, e := range liveEdges {
 		fi, ok := indexOfNode(keep, e.From)
 		if !ok {
 			continue
@@ -63,6 +96,7 @@ func renderMermaid(s *Snapshot, nodes []Node, edges []Edge) string {
 		fmt.Fprintf(&b, "  n%d -->|%s| n%d\n", fi, mermaidRel(e.Rel), ti)
 	}
 	b.WriteString("  classDef changed fill:#fecaca,stroke:#dc2626,color:#7f1d1d;\n")
+	b.WriteString("  classDef chgsym fill:#fef9c3,stroke:#ca8a04,color:#713f12;\n")
 	b.WriteString("  classDef testn fill:#dcfce7,stroke:#16a34a,color:#14532d;\n")
 	src := b.String()
 	if runeLen(src) > MaxMermaidRunes {
@@ -182,15 +216,15 @@ func mermaidEscape(s string) string {
 	return r.Replace(s)
 }
 
-// mermaidRel 边关系标签（词表 → 人读短词）。
+// mermaidRel 边关系标签（词表 → 动词短语：读图方向恒为 左=改动 → 右=受影响）。
 func mermaidRel(rel string) string {
 	switch rel {
 	case RelImport:
-		return "依赖方"
+		return "波及依赖包"
 	case RelCaller:
-		return "调用方"
+		return "波及调用方"
 	case RelTestOf:
-		return "测试覆盖"
+		return "需跑测试"
 	case RelCouple:
 		return "历史共变"
 	default:
@@ -265,6 +299,7 @@ func RenderReportSection(s *Snapshot) string {
 		b.WriteString("\n")
 	}
 	if mermaid != "" {
+		b.WriteString("> 图例：左→右 = 影响方向（左=本次改动，右=受影响）；红=改动文件，黄=改动符号（有调用方者），蓝=受影响包，绿=测试。\n\n")
 		b.WriteString("```mermaid\n" + mermaid + "```\n")
 		// 截断注明（渲染端点在 keep 集外的边会静默消失——与悬挂边同形态，
 		// 必须让读者知道这是视图截断而非完整面）
