@@ -388,7 +388,8 @@ func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
 // MergeTaskStageArtifacts 合并写入任务阶段产物 checkpoint（v3.12.0 G2 断点续审）。
 // patch 键覆盖同名字段；同任务由单一 runner 认领执行，read-modify-write 在
 // writeMu 下无并发竞争。坏 JSON 当空处理——checkpoint 可丢（重试退化为全量
-// 重跑），不可阻塞主流程。
+// 重跑），不可阻塞主流程。v3.185.3：同 MergeTaskArtifacts 补 "null" 钳制
+// （Unmarshal("null") 成功且置 nil map,后续赋值 panic 的同型隐患）。
 func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch map[string]string) error {
 	s.writeLock()
 	defer s.writeUnlock()
@@ -398,9 +399,10 @@ func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch ma
 	}
 	cur := map[string]string{}
 	if row.StageArtifacts != "" {
-		if err := json.Unmarshal([]byte(row.StageArtifacts), &cur); err != nil {
-			cur = map[string]string{}
-		}
+		_ = json.Unmarshal([]byte(row.StageArtifacts), &cur)
+	}
+	if cur == nil {
+		cur = map[string]string{}
 	}
 	for k, v := range patch {
 		cur[k] = v
@@ -417,6 +419,9 @@ func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch ma
 // 评审早期即产出的机器可读产物（impact_view），不等 finalize 即落库——
 // MCP get_impact / 影响视图 API 在任务 running 期就能消费，任务失败也不丢。
 // patch 键覆盖同名字段；并发纪律同 MergeTaskStageArtifacts。
+// v3.185.3 修复：TaskAPI 建的任务 artifacts_json 为字符串 "null"（nil map
+// 序列化产物），Unmarshal("null") 成功且把 cur 置 nil——原实现直接 cur[k]=v
+// panic（live 实弹炸出，任务卡死 running）；同型隐患顺修 stage 版。
 func (s *Store) MergeTaskArtifacts(ctx context.Context, id string, patch map[string]string) error {
 	s.writeLock()
 	defer s.writeUnlock()
@@ -426,9 +431,11 @@ func (s *Store) MergeTaskArtifacts(ctx context.Context, id string, patch map[str
 	}
 	cur := map[string]string{}
 	if row.ArtifactsJSON != "" {
-		if err := json.Unmarshal([]byte(row.ArtifactsJSON), &cur); err != nil {
-			cur = map[string]string{}
-		}
+		// "null"/坏 JSON 均可能把 cur 反序列化成 nil——统一在下文钳回空表
+		_ = json.Unmarshal([]byte(row.ArtifactsJSON), &cur)
+	}
+	if cur == nil {
+		cur = map[string]string{}
 	}
 	for k, v := range patch {
 		cur[k] = v

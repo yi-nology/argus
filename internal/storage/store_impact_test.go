@@ -49,4 +49,20 @@ func TestMergeTaskArtifacts(t *testing.T) {
 	if err := s.MergeTaskArtifacts(ctx, "no-such-id", map[string]string{"k": "v"}); err == nil {
 		t.Fatal("不存在任务应报错")
 	}
+	// v3.185.3 回归锚：TaskAPI 路径 artifacts_json 为字符串 "null"（nil map
+	// 序列化产物）——Unmarshal 成功且置 nil map,原实现 cur[k]=v panic
+	//（live 实弹炸出,任务卡死 running）。stage 版同型。
+	if err := s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", task.ID).
+		Update("artifacts_json", "null").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MergeTaskArtifacts(ctx, task.ID, map[string]string{
+		plugin.ArtifactImpactView: `{"version":1}`,
+	}); err != nil {
+		t.Fatalf("null 列合并应成功: %v", err)
+	}
+	row2, _ := s.GetTask(ctx, task.ID)
+	if DecodeJSONMap(row2.ArtifactsJSON)[plugin.ArtifactImpactView] != `{"version":1}` {
+		t.Fatalf("null 列合并结果失真: %s", row2.ArtifactsJSON)
+	}
 }

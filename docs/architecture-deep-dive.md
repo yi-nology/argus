@@ -101,6 +101,7 @@ argus/
     worker/                    # Worker pool（DB 即队列 + 心跳 + 两阶段停机）
     poster/                    # 回帖服务（staleness 门控 + 三级降级）
     reportview/                # 报告模板渲染
+    impactview/                # 改动影响面视图（分层管线：文件/import 闭包/符号调用方/测试面/共变/函数级 diff + mermaid·HTML·MCP·prompt 四出口）
     progress/                  # 进度事件总线（SSE）
     notify/                    # octopus IM 推送
     poller/                    # 轮询兜底任务源
