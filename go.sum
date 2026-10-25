@@ -390,8 +390,8 @@ github.com/oagentkit/agent v0.11.0 h1:LIT4NW0SCpv446LZMHxe283+bdCRP0ZVDoAe/LqXhM
 github.com/oagentkit/agent v0.11.0/go.mod h1:Vnw1sz1id7mIyTDxf/o1ObVWahe6J100r8iMdS7jfHU=
 github.com/oagentkit/guardx v0.15.0 h1:IkyPq2yehC/wBuviRF2loU14xxrY78pyHGzJuAjGgjc=
 github.com/oagentkit/guardx v0.15.0/go.mod h1:+GcaTjNHL0mqClzpTSvQ242DN6ouEqk/5IeWy1PTL/I=
-github.com/oagentkit/llm v0.17.1 h1:CglwBpZxGN0gMi0wJPcpUtUk1Y3dhsrPAfDbp0wFkRc=
-github.com/oagentkit/llm v0.17.1/go.mod h1:RYNrl1oMNKDkrng8ZEUTKjVYEuEp5r/pdRIb9XdRxXE=
+github.com/oagentkit/llm v0.18.1 h1:ym6QVqfVAXg5s0gmbCZCclGxDNZGJ6WWCjDhGzbpWGc=
+github.com/oagentkit/llm v0.18.1/go.mod h1:+C+K+/tygbqaqM9RYsQ0scf33GvnIRyAVKjZyxfSXck=
 github.com/oagentkit/mcpkit v0.8.6 h1:vQQcEHU+beIj/Xlf1OZ65OkPW485NEMdxRowSEfFjT8=
 github.com/oagentkit/mcpkit v0.8.6/go.mod h1:wVFpzJW+f7/DXzFATPkD7Ij7JMb4MmAjll0F5wF0xcA=
 github.com/oagentkit/obs v0.9.7 h1:4app/SqW0aMfERfzTyCxkqcUkX/6JVfM7oCl6GHyvA8=
@@ -553,8 +553,8 @@ github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:
 github.com/yalp/jsonpath v0.0.0-20180802001716-5cc68e5049a0/go.mod h1:/LWChgwKmvncFJFHJ7Gvn9wZArjbV5/FppcK2fKk/tI=
 github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
-github.com/yi-nology/agent-harness v0.9.0 h1:LhR6YrCwfq7JU3xnhzmz8JBxlKD2Bmq5zDQ8m0UHF2U=
-github.com/yi-nology/agent-harness v0.9.0/go.mod h1:A3ZxrdfOIBKus/TAH8eaiUqQGqqq3MSMVn29boB0RP8=
+github.com/yi-nology/agent-harness v0.13.0 h1:NBI6zXiMYcrV9dEmhh9GD8qQdrzdeCUVc/5yGWKPIrI=
+github.com/yi-nology/agent-harness v0.13.0/go.mod h1:0KKifw1A57f8oMRatPt1OXuvDw2L22ea3oueL6pFElI=
 github.com/yi-nology/agent-memory v0.8.0 h1:M+L08VXu8nyz3GNyc15XYfPUUh+5UPcTzkzJPwDVlSs=
 github.com/yi-nology/agent-memory v0.8.0/go.mod h1:cv8n4oNXWIFuxh8tnshxHmIHgV4tgyv9PxmxNkuWkaw=
 github.com/yi-nology/go-git-platform v0.96.0 h1:wLcju2mRoIxpWycaitzJjzQtKGcdGTAsKW7fDWOpRLw=

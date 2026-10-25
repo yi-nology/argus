@@ -13,7 +13,7 @@ require (
 	github.com/mark3labs/mcp-go v1.1.1
 	github.com/oagentkit/agent v0.11.0
 	github.com/oagentkit/guardx v0.15.0
-	github.com/oagentkit/llm v0.17.1
+	github.com/oagentkit/llm v0.18.1
 	github.com/oagentkit/mcpkit v0.8.6
 	github.com/oagentkit/obs v0.9.7
 	github.com/oagentkit/queue v0.6.3
@@ -35,7 +35,7 @@ require (
 	github.com/oekit/pkg v0.28.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/yi-nology/agent-harness v0.9.0
+	github.com/yi-nology/agent-harness v0.13.0
 	github.com/yi-nology/agent-memory v0.8.0
 	github.com/yi-nology/go-git-platform v0.96.0
 	go.opentelemetry.io/otel v1.47.0

@@ -52,6 +52,30 @@ func TestRestoreR4Outcomes_EmptyArtifacts(t *testing.T) {
 	}
 }
 
+// TestRestoreR4Outcomes_FanOutOfOrderTrusted 收编核心语义：R4 插件彼此独立
+// （Isolated），乱序完成各自独立可信——「第 1 个没完成、第 3 个完成」的合法完成集
+// 不再被旧「连续前缀」规则作废。此处 sec 未落键（未完成）、qa 已落键（乱序完成）：
+// qa 应被复用（可信），不因 sec 空洞而重跑。
+func TestRestoreR4Outcomes_FanOutOfOrderTrusted(t *testing.T) {
+	good := plugin.Result{Notes: "restored"}
+	goodJSON, _ := json.Marshal(good)
+	arts := map[string]string{
+		plugin.ArtifactCkptR4Prefix + "qa": string(goodJSON),
+		// sec 故意不落键（未完成）——fan-out 下不应作废 qa 的完成
+	}
+	exec, restoredSel, restored := restoreR4Outcomes(arts, r4sel("sec", "perf", "qa"))
+	if len(restored) != 1 || restored[0].Name != "qa" {
+		t.Fatalf("乱序完成的 qa 应被复用，got %+v", restored)
+	}
+	if len(exec) != 2 {
+		t.Fatalf("未完成的 sec/perf 应待执行，got %d", len(exec))
+	}
+	// 关键：不因 sec 空洞报「失序」而整批重跑——qa 仍在复用集
+	if len(restoredSel) != 1 || restoredSel[0].Reg.Manifest.Name != "qa" {
+		t.Fatalf("restoredSel 应只含 qa，got %+v", restoredSel)
+	}
+}
+
 func TestR4CkptHook_WritesEncodedResult(t *testing.T) {
 	var got map[string]string
 	w := &Workflow{CheckpointSink: func(a map[string]string) { got = a }}
