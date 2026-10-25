@@ -27,6 +27,7 @@ func TaskImpact(ctx context.Context, c *app.RequestContext) {
 		mw.ErrorResp(c, consts.StatusNotFound, "任务不存在或尚无影响面快照")
 		return
 	}
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(consts.StatusOK, page)
+	// c.Data 直写字节体——c.String 会覆盖先前 set 的 Content-Type 为
+	// text/plain（hertz 行为，实浏览器调试抓出），HTML 必须显式以 text/html 下发。
+	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
