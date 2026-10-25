@@ -32,7 +32,7 @@ require (
 	github.com/oekit/logx v0.7.1
 	github.com/oekit/metrics v0.1.9
 	github.com/oekit/middleware v0.13.2
-	github.com/oekit/pkg v0.26.0
+	github.com/oekit/pkg v0.28.0
 	github.com/oekit/tracing v0.3.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.9.0
