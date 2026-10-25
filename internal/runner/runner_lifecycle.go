@@ -207,6 +207,9 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 	r.injectSAST(ctx, pr, diff, wf)
 	// Go 符号索引（v3.15.0 P0-1）：get_symbol/get_references 工具 + 触达符号注入。
 	r.injectCodeGraph(ctx, pr, diff, &ptask, wf)
+	// 影响面快照（v3.183.0）：分层管线产出快照（复用 codegraph 索引），JSON 即时
+	// 落库 + prompt 段注入 R4；报告影响段在 buildReport 时从快照渲染。
+	r.injectImpactView(ctx, task.ID, pr, diff, &ptask, wf)
 	// 全文检索（v3.84.0）：search_code 受控 grep 工具的工作副本路径注入。
 	r.injectCodeSearch(ctx, pr, diff, wf)
 	// 跨仓契约快照（v3.90.0）：related 段声明的关联仓契约文件注入 R4。

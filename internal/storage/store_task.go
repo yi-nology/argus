@@ -413,6 +413,34 @@ func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch ma
 		Update("stage_artifacts", string(b)).Error
 }
 
+// MergeTaskArtifacts 合并写入任务 artifacts_json（v3.183.0）：影响面快照在
+// 评审早期即产出的机器可读产物（impact_view），不等 finalize 即落库——
+// MCP get_impact / 影响视图 API 在任务 running 期就能消费，任务失败也不丢。
+// patch 键覆盖同名字段；并发纪律同 MergeTaskStageArtifacts。
+func (s *Store) MergeTaskArtifacts(ctx context.Context, id string, patch map[string]string) error {
+	s.writeLock()
+	defer s.writeUnlock()
+	var row Task
+	if err := s.db.WithContext(ctx).Select("artifacts_json").Where("id = ?", id).First(&row).Error; err != nil {
+		return err
+	}
+	cur := map[string]string{}
+	if row.ArtifactsJSON != "" {
+		if err := json.Unmarshal([]byte(row.ArtifactsJSON), &cur); err != nil {
+			cur = map[string]string{}
+		}
+	}
+	for k, v := range patch {
+		cur[k] = v
+	}
+	b, err := json.Marshal(cur)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+		Update("artifacts_json", string(b)).Error
+}
+
 // HasNewerNonFailedTask staleness 单条件判定（§10.2 五轮评审修正）：
 // 存在同 PR 更晚创建的非 failed 且带 head 的任务 ⇒ 本任务 stale。
 // 只统计 head_sha <> ” 的任务（webhook/poller 来源）：手动任务 head 为空（执行期才回填），

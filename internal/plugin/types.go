@@ -317,6 +317,18 @@ const ArtifactCodegraphTouched = "codegraph_touched"
 // 未开 / 仓库未声明 / 全部拉取失败时无此键。
 const ArtifactRelatedContracts = "related_contracts"
 
+// ArtifactImpactView Task.Artifacts 键：改动影响面快照 JSON（v3.183.0）。
+// runner 影响面管线（internal/impactview 分层推导，零 LLM）产出，即时持久化
+// 到 artifacts_json——MCP get_impact / GET /tasks/:id/impact（交互 HTML）/
+// 报告影响段的共同数据面。关闭 ARGUS_IMPACTVIEW / 无纳入文件 / 无工作副本时无此键。
+const ArtifactImpactView = "impact_view"
+
+// ArtifactImpactSummary Task.Artifacts 键：影响面 prompt 段（v3.183.0）。
+// impactview.RenderPromptSection 渲染（含使用纪律声明），runner 已包数据区
+// 围栏，经 guidelinesPrompt 注入 R4——评审 agent 的跨文件影响举证线索。
+// 影响面为空（无变更/全降级）时无此键。
+const ArtifactImpactSummary = "impact_summary"
+
 // 任务级阶段产物 checkpoint 键（v3.12.0 G2 断点续审）：workflow 成功完成 R1/R2
 // 后经 CheckpointSink 持久化到 tasks.stage_artifacts，同任务重试时复用——省掉
 // 已成功阶段的重复 LLM 调用。只在任务内有效，新任务永远全量重跑。

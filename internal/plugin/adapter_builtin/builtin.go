@@ -373,8 +373,9 @@ func (r *Reviewer) buildReviewUser(task plugin.Task) string {
 // Task.Artifacts[ArtifactReviewGuidelines]）。指引是仓库维护者写的审查偏好
 // （关注点、禁报面、团队规范），与 .reviewagents.yaml 同属 §3.4 仓库配置信任
 // 边界；为空时返回空串，不改变原有 prompt。
-// 同时拼接学习环历史误报提示（ArtifactReviewHints，可空）与 OCR delegate 前置
-// 产物（ArtifactOCRTriage/ArtifactOCRRules，section 已含数据区纪律声明，可空）。
+// 同时拼接学习环历史误报提示（ArtifactReviewHints，可空）、OCR delegate 前置
+// 产物（ArtifactOCRTriage/ArtifactOCRRules，section 已含数据区纪律声明，可空）
+// 与影响面 prompt 段（ArtifactImpactSummary，v3.183.0，runner 侧已包数据区围栏）。
 func guidelinesPrompt(task plugin.Task) string {
 	var b strings.Builder
 	if g := strings.TrimSpace(task.Artifacts[plugin.ArtifactReviewGuidelines]); g != "" {
@@ -395,7 +396,7 @@ func guidelinesPrompt(task plugin.Task) string {
 			"若你判断某条已不成立或不再适用，直接不输出；除此之外不要因这份清单新增泛化意见。" +
 			"文件路径仍须遵守【路径纪律】。\n")
 	}
-	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched, plugin.ArtifactRelatedContracts} {
+	for _, key := range []string{plugin.ArtifactOCRTriage, plugin.ArtifactOCRRules, plugin.ArtifactCodegraphTouched, plugin.ArtifactRelatedContracts, plugin.ArtifactImpactSummary} {
 		if s := strings.TrimSpace(task.Artifacts[key]); s != "" {
 			b.WriteString("\n\n")
 			b.WriteString(s)

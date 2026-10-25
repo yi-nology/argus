@@ -61,6 +61,8 @@ var layering = map[string][]string{
 	"argus/internal/memory":     {},
 	"argus/internal/progress":   {},
 	"argus/internal/gitdeepen":  {},
+	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
+	"argus/internal/impactview": {},
 
 	// ---- 域类型层：只依赖更纯的域类型 ----
 	"argus/internal/domain": {"argus/internal/learning"},
@@ -106,7 +108,7 @@ var layering = map[string][]string{
 	"argus/internal/runner": {
 		"argus/internal/config", "argus/internal/context",
 		"argus/internal/dispatch",
-		"argus/internal/fixverifier", "argus/internal/learning", "argus/internal/memory",
+		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning", "argus/internal/memory",
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
 		"argus/internal/poster", "argus/internal/progress", "argus/internal/reportview",
@@ -116,6 +118,7 @@ var layering = map[string][]string{
 	"argus/internal/service": {
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/dispatch",
+		"argus/internal/impactview",
 		"argus/internal/memory", "argus/internal/memorykernel", "argus/internal/obs",
 		"argus/internal/plugin", "argus/internal/progress", "argus/internal/qa",
 		"argus/internal/semsearch", "argus/internal/storage",

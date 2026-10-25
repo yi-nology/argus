@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/dispatch"
+	"argus/internal/impactview"
 	"argus/internal/learning"
 	"argus/internal/memory"
 	"argus/internal/memorykernel"
@@ -260,6 +262,14 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
+	// 影响面段（v3.183.0）：injectImpactView 产出的快照渲染为评论折叠段
+	//（快照已在 ptask.Artifacts，零额外计算；坏 JSON 静默省段——不阻断回帖）。
+	if raw := ptask.Artifacts[plugin.ArtifactImpactView]; raw != "" {
+		var snap impactview.Snapshot
+		if err := json.Unmarshal([]byte(raw), &snap); err == nil {
+			rep.ImpactSection = impactview.RenderReportSection(&snap)
+		}
+	}
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
 	rep.MaxInlineComments = rc.Review.MaxComments
 

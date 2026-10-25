@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 
+	"argus/internal/impactview"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
 	"argus/internal/sastscan"
@@ -172,6 +174,63 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 		ptask.Artifacts[plugin.ArtifactCodegraphTouched] = s
 	}
 	r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
+}
+
+// injectImpactView 影响面快照前置（v3.183.0）：分层管线（文件/import 闭包/
+// 符号调用方/测试面/历史共变，零 LLM）产出快照——JSON 即时落 artifacts_json
+// （任务 running 期 MCP/API 即可消费，失败也不丢），prompt 段包数据区围栏注
+// R4，报告段在 buildReport 时从快照渲染。复用 codegraph 索引（关闭时自建）；
+// ARGUS_IMPACTVIEW=0 / 无纳入文件 / 无工作副本池时跳过。任何失败告警降级，
+// 不阻断审查。
+func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin.PRContext,
+	diff *plugin.DiffContext, ptask *plugin.Task, wf *requirement.Workflow) {
+	if !r.Cfg.ImpactView || r.WC == nil {
+		return
+	}
+	paths := includedPaths(diff)
+	if len(paths) == 0 {
+		return
+	}
+	key := worktreeKey(pr)
+	dir, err := r.WC.Ensure(ctx, key)
+	if err != nil {
+		r.Log.Warn("argus.impactview.workcopy_failed", "error", logredact.Redact(err.Error()))
+		return
+	}
+	defer r.WC.Release(key)
+	idx := wf.CodeGraph
+	if idx == nil && hasIncludedGoFiles(diff) {
+		// codegraph 关闭但影响面开启：自建索引供 L2（失败降级 L0/L1/L3）
+		if idx2, berr := codeintel.NewIndex(dir, 2000); berr == nil {
+			idx = idx2
+		} else {
+			r.Log.Warn("argus.impactview.index_failed", "error", logredact.Redact(berr.Error()))
+		}
+	}
+	snap := impactview.Build(ctx, impactview.Input{
+		Dir:          dir,
+		ChangedFiles: paths,
+		HunkRanges:   diffx.HunkLines(diff.Text),
+		DiffText:     diff.Text,
+		Index:        idx,
+		MaxCommits:   r.Cfg.ImpactCoupling,
+	})
+	if len(snap.Nodes) == 0 {
+		return
+	}
+	if b, merr := json.Marshal(snap); merr == nil {
+		ptask.Artifacts[plugin.ArtifactImpactView] = string(b)
+		if perr := r.Store.MergeTaskArtifacts(ctx, taskID,
+			map[string]string{plugin.ArtifactImpactView: string(b)}); perr != nil {
+			r.Log.Warn("argus.impactview.persist_failed", "task", taskID, "error", perr.Error())
+		}
+	}
+	if sec := impactview.RenderPromptSection(snap); sec != "" {
+		ptask.Artifacts[plugin.ArtifactImpactSummary] = plugin.DataFence("改动影响面（静态推导，数据）", sec)
+	}
+	r.Log.Info("argus.impactview.ready", "task", taskID, "nodes", len(snap.Nodes),
+		"pkgs", len(snap.Packages), "calls", snap.Stats.CallSites,
+		"coupling", len(snap.Coupling), "risk", snap.Risk.Level, "took_ms", snap.Stats.TookMS)
 }
 
 // injectCodeSearch 全文检索前置（v3.84.0）：就绪工作副本路径注入 Workflow，

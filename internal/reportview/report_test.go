@@ -192,3 +192,23 @@ func TestRenderSuggestedFixFenceSafe(t *testing.T) {
 		t.Fatalf("开闭围栏应各一条四反引线:\n%s", out2)
 	}
 }
+
+// TestRenderImpactSection 影响面段（v3.183.0）：空段整段省略；非空插在
+// findings 之后、降级说明之前，details 折叠原样透传（渲染已由 impactview
+// 单测覆盖，这里钉接线契约）。
+func TestRenderImpactSection(t *testing.T) {
+	// 空 = 省略
+	out := Render(Report{VerdictText: "✅ 通过"})
+	if strings.Contains(out, "影响范围") {
+		t.Fatal("空 ImpactSection 不应产段")
+	}
+	// 非空 = 原样插入
+	sec := "\n<details>\n<summary>📊 影响范围（风险 🟡 medium · 38 分）</summary>\n\n</details>\n"
+	out = Render(Report{VerdictText: "✅ 通过", Findings: []plugin.Finding{{File: "a.go", Line: 1, Severity: "low", Comment: "x"}}, ImpactSection: sec})
+	if !strings.Contains(out, sec) {
+		t.Fatalf("影响段未原样插入:\n%s", out)
+	}
+	if strings.Index(out, "代码审查意见") > strings.Index(out, "影响范围") {
+		t.Fatal("影响段应在 findings 之后")
+	}
+}

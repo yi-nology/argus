@@ -65,6 +65,11 @@ type Report struct {
 
 	Findings []plugin.Finding
 
+	// ImpactSection 影响面段（v3.183.0）：runner 从影响面快照预渲染
+	//（impactview.RenderReportSection——details 折叠 + mermaid/列表），空 = 整段
+	// 省略。预渲染字符串而非结构体，reportview 保持纯模板零新依赖。
+	ImpactSection string
+
 	// Completeness 完备性失败项（G4 v3.11.0；nil = 全部通过或未启用）。
 	// 独立段而非 Degraded：完备性是覆盖事实（审得全不全），与插件降级说明分开展示。
 	Completeness []string
@@ -102,6 +107,10 @@ func Render(r Report) string {
 
 	if len(r.Findings) > 0 {
 		renderFindings(&b, r)
+	}
+
+	if r.ImpactSection != "" {
+		b.WriteString(r.ImpactSection)
 	}
 
 	if len(r.Degraded) > 0 {

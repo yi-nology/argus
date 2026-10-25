@@ -308,6 +308,17 @@ type Config struct {
 	// ARGUS_CODESEARCH=0 关闭。
 	CodeSearch bool
 
+	// ImpactView 改动影响面视图（v3.183.0）：分层管线（文件层/import 反向闭包/
+	// 符号调用方/测试面/历史共变，零 LLM）产出快照——prompt 段注入 R4、PR 评论
+	// 影响段、MCP get_impact、GET /tasks/:id/impact（交互 HTML）四出口共用。
+	// 复用 codegraph 索引（codegraph 关闭时自建）。无纳入文件/无工作副本池时
+	// 自动跳过。ARGUS_IMPACTVIEW=0 关闭。
+	ImpactView bool
+	// ImpactCoupling 历史共变扫描深度（v3.183.0，git log commit 数；0 = 默认
+	// 100，负数 = 关闭）。工作副本浅历史扫到哪算哪，不主动加深（与 gitdeepen
+	// 预算解耦）。ARGUS_IMPACT_COUPLING。
+	ImpactCoupling int
+
 	// AuditWebhookURL 审计事件外送端点（v3.137.0，SIEM 对接）：非空时
 	// audit.event 日志在本地留痕之外再 POST JSON 一份（旁路，失败只告警）。
 	// 字段值经 logredact 打码，外送载荷无明文密钥。
@@ -413,6 +424,8 @@ func Load() *Config {
 		SASTTimeout:              envDuration("ARGUS_SAST_TIMEOUT", 0),
 		Codegraph:                envBool("ARGUS_CODEGRAPH", true),
 		CodeSearch:               envBool("ARGUS_CODESEARCH", true),
+		ImpactView:               envBool("ARGUS_IMPACTVIEW", true),
+		ImpactCoupling:           envInt("ARGUS_IMPACT_COUPLING", 100),
 		SemSearch:                envBool("ARGUS_SEMSEARCH", false),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
