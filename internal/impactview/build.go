@@ -5,6 +5,7 @@ package impactview
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -323,7 +324,16 @@ func appendCouplingNodes(s *Snapshot, couples []Couple) {
 	}
 }
 
-// finalize 确定化排序 + 重复边去重（跨层可能产生同 (From,To,Rel)）。
+// 容量守卫常量：artifacts_json 是 TEXT 列（MySQL 64KB 上界），超限在严格
+// 模式下直接写失败——MCP/API 面会静默失去快照。节点封顶 + JSON 体积守卫
+// 双保险（体积守卫兜住 Changed 清单/Notes 等 node 之外的增长）。
+const (
+	MaxSnapshotNodes = 150
+	MaxSnapshotJSON  = 48 << 10 // 与 ArtifactDiffInput 的 48KB 落库纪律对齐
+)
+
+// finalize 确定化排序 + 重复边去重 + 容量守卫（节点按影响权重封顶 →
+// 边随端点裁剪 → JSON 体积守卫）。任何截断记 Notes + Truncated。
 func finalize(s *Snapshot) {
 	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })
 	sort.SliceStable(s.Edges, func(i, j int) bool {
@@ -343,7 +353,70 @@ func finalize(s *Snapshot) {
 		dedup = append(dedup, e)
 	}
 	s.Edges = dedup
+
+	// 节点封顶（影响权重序：改动 > 包 > 测试 > 其他），边随端点裁剪——
+	// 悬挂边违反快照不变量（TestNoDanglingEdges）
+	if len(s.Nodes) > MaxSnapshotNodes {
+		total := len(s.Nodes)
+		s.Nodes = prioritizeNodes(s.Nodes, MaxSnapshotNodes)
+		keep := map[string]bool{}
+		for _, n := range s.Nodes {
+			keep[n.ID] = true
+		}
+		edges := s.Edges[:0]
+		for _, e := range s.Edges {
+			if keep[e.From] && keep[e.To] {
+				edges = append(edges, e)
+			}
+		}
+		s.Edges = edges
+		s.Stats.Truncated = true
+		s.Notes = append(s.Notes,
+			"影响面节点超上限，按影响权重截断 "+strconv.Itoa(total)+"→"+strconv.Itoa(MaxSnapshotNodes)+"（边随端点裁剪；完整面见交互视图/get_impact）")
+	}
+
+	// JSON 体积守卫：超 48KB 逐批降节点重排（Changed 清单是语义源不裁，
+	// 由节点封顶先行兜底大 PR 场景）
+	for {
+		b, err := json.Marshal(s)
+		if err == nil && len(b) <= MaxSnapshotJSON {
+			break
+		}
+		if err != nil {
+			break // 序列化失败（不该发生）交给上层可见的原样数据
+		}
+		drop := len(s.Nodes) / 5
+		if drop == 0 {
+			break // 只剩不可再裁的节点（ Changed 单节点），交由告警面暴露
+		}
+		kept := prioritizeNodes(s.Nodes, len(s.Nodes)-drop)
+		keep := map[string]bool{}
+		for _, n := range kept {
+			keep[n.ID] = true
+		}
+		edges := s.Edges[:0]
+		for _, e := range s.Edges {
+			if keep[e.From] && keep[e.To] {
+				edges = append(edges, e)
+			}
+		}
+		s.Nodes, s.Edges = kept, edges
+		s.Stats.Truncated = true
+		if !containsNote(s.Notes, "体积守卫") {
+			s.Notes = append(s.Notes, "快照 JSON 超 48KB 体积守卫，逐批裁节点至达标（完整面见交互视图/get_impact）")
+		}
+	}
 	sort.Strings(s.Notes)
+}
+
+// containsNote Notes 精确子串判重（体积守卫循环内只记一次）。
+func containsNote(notes []string, sub string) bool {
+	for _, n := range notes {
+		if strings.Contains(n, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasNode 节点存在性（小集合线性扫，够用）。

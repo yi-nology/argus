@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -428,5 +429,53 @@ func TestNoDanglingEdges(t *testing.T) {
 	// module 根标签可读性
 	if s := pkgLabel("."); s != "(module 根)" {
 		t.Fatalf("pkgLabel(.) = %s", s)
+	}
+}
+
+// TestSnapshotCapacityGuard 容量守卫（v3.184.1）：大 PR（200 改动文件+大闭包）
+// 节点封顶 150、边随端点裁剪无悬挂、JSON ≤48KB、截断注明齐备。
+func TestSnapshotCapacityGuard(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
+	// 200 个改动文件节点（L0 场景）+ 每文件一条 caller 边
+	for i := 0; i < 200; i++ {
+		id := "file:pkg" + strconv.Itoa(i) + "/f.go"
+		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindFile, Label: id, Changed: true})
+		symID := "sym:pkg" + strconv.Itoa(i) + "/f.go:F"
+		s.Nodes = append(s.Nodes, Node{ID: symID, Kind: KindSymbol, Label: "F", Changed: true})
+		s.Edges = append(s.Edges, Edge{From: id, To: symID, Rel: RelCaller})
+	}
+	s.Nodes = append(s.Nodes, Node{ID: "file:a/a.go", Kind: KindFile, Label: "a.go", Changed: true})
+	finalize(s)
+
+	if len(s.Nodes) > MaxSnapshotNodes {
+		t.Fatalf("节点未封顶: %d", len(s.Nodes))
+	}
+	ids := map[string]bool{}
+	for _, n := range s.Nodes {
+		ids[n.ID] = true
+	}
+	for _, e := range s.Edges {
+		if !ids[e.From] || !ids[e.To] {
+			t.Fatalf("裁剪后残留悬挂边: %+v", e)
+		}
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > MaxSnapshotJSON {
+		t.Fatalf("JSON 超体积守卫: %d", len(b))
+	}
+	if !s.Stats.Truncated {
+		t.Fatal("应置 Truncated")
+	}
+	found := false
+	for _, n := range s.Notes {
+		if strings.Contains(n, "按影响权重截断") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("缺截断注明: %+v", s.Notes)
 	}
 }

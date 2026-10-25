@@ -273,7 +273,7 @@ func RenderReportSection(s *Snapshot) string {
 		}
 	} else if l := RenderList(s); l != "" {
 		b.WriteString(l + "\n")
-		if len(s.Nodes) > 24 {
+		if len(s.Nodes) > MaxMermaidNodes {
 			b.WriteString("\n> 清单已截断；完整影响面见交互视图（`GET /tasks/:id/impact`）或 MCP `get_impact`。\n")
 		}
 	}
