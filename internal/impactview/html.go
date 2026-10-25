@@ -29,23 +29,53 @@ func RenderHTML(s *Snapshot, taskID string) string {
 	}
 	data, _ := json.Marshal(s)
 	dataStr := strings.ReplaceAll(string(data), "</", `<\/`) // script 内闭合防线
-	pos, w, h := layoutSVG(s)
+	vn, vi, ve := viewGraph(s)
+	pos, w, h := layoutSVG(vn, ve)
 	return htmlTemplate(html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
-		string(dataStr), svgBody(s, pos), w, h)
+		string(dataStr), svgBody(pos, vn, vi, ve), w, h)
+}
+
+// viewGraph 交互视图的剪枝集（与 mermaid 同纪律，v3.185.2）：孤立改动符号
+// （度=0——类型/常量被触达但无人调用）不进图，改动列从 16 盒收敛到 6 盒。
+// 返回视图节点集与 (原始边序, 边) 对——data-i 须指向完整 s.Edges,JS 搜索
+// 联动按它回查内嵌全量数据。
+func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
+	deg := map[string]int{}
+	for _, e := range s.Edges {
+		deg[e.From]++
+		deg[e.To]++
+	}
+	nodes := make([]Node, 0, len(s.Nodes))
+	for _, n := range s.Nodes {
+		if n.Kind == KindSymbol && deg[n.ID] == 0 {
+			continue
+		}
+		nodes = append(nodes, n)
+	}
+	idxs := make([]int, 0, len(s.Edges))
+	edges := make([]Edge, 0, len(s.Edges))
+	for i, e := range s.Edges {
+		if deg[e.From] == 0 || deg[e.To] == 0 {
+			continue // 端点被剪（防御：孤立符号本应无边）
+		}
+		idxs = append(idxs, i)
+		edges = append(edges, e)
+	}
+	return nodes, idxs, edges
 }
 
 // layoutSVG 分层布局：BFS 深度定列（改动=列 0），列内按 (Kind 权重, ID) 栈叠。
 // 返回 节点坐标表 + 画布宽高。
-func layoutSVG(s *Snapshot) (map[string][2]int, int, int) {
+func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 	depth := map[string]int{}
 	// 改动节点为 0 列；其余由边 BFS 外推（环/多点入边取最小深度）
-	for _, n := range s.Nodes {
+	for _, n := range nodes {
 		if n.Changed {
 			depth[n.ID] = 0
 		}
 	}
 	adj := map[string][]string{}
-	for _, e := range s.Edges {
+	for _, e := range edges {
 		adj[e.From] = append(adj[e.From], e.To)
 	}
 	queue := make([]string, 0, len(depth))
@@ -76,7 +106,7 @@ func layoutSVG(s *Snapshot) (map[string][2]int, int, int) {
 		weight int
 	}
 	cols := map[int][]colItem{}
-	for _, n := range s.Nodes {
+	for _, n := range nodes {
 		d, ok := depth[n.ID]
 		if !ok {
 			d = maxDepth + 1
@@ -132,11 +162,15 @@ func nodeFill(n Node) (fill, stroke string) {
 }
 
 // svgBody 产出 SVG 主体（框 + 标签 + 贝塞尔边）。
-func svgBody(s *Snapshot, pos map[string][2]int) string {
+// viewNodes/viewEdges 是布局与绘制共用的剪枝后视图集（见 viewGraph）。
+func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge) string {
 	var b strings.Builder
 	// 边先画（垫底）；data-i 携带快照边序——JS 搜索联动按它回查 data.edges,
-	// 不依赖「DOM 序=数据序」的隐式对齐
-	for i, e := range s.Edges {
+	// 不依赖「DOM 序=数据序」的隐式对齐。边标签包 .edgeg 组默认隐藏、悬停
+	// 显示（v3.185.2：20 条边的中点小字互相糊叠是实测遮挡源，关系详情走
+	// tooltip 与点选面板）
+	for k, e := range viewEdges {
+		i := idxs[k]
 		p1, ok1 := pos[e.From]
 		p2, ok2 := pos[e.To]
 		if !ok1 || !ok2 {
@@ -147,10 +181,10 @@ func svgBody(s *Snapshot, pos map[string][2]int) string {
 		x2 := p2[0]
 		y2 := p2[1] + nodeH/2
 		mid := (x1 + x2) / 2
-		fmt.Fprintf(&b, `<path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s"/><text class="elabel" x="%d" y="%d">%s</text>`+"\n",
+		fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
 			i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
 	}
-	for _, n := range s.Nodes {
+	for _, n := range viewNodes {
 		p, ok := pos[n.ID]
 		if !ok {
 			continue
@@ -210,7 +244,10 @@ svg{min-width:100%}
 .node.dim{opacity:.15}
 .edge{fill:none;stroke:#94a3b8;stroke-width:1.2;marker-end:url(#arrow)}
 .edge.dim{opacity:.12}
-.elabel{font-size:10px;fill:#94a3b8;pointer-events:none}
+.edgeg text.elabel{opacity:0;transition:opacity .15s;pointer-events:none}
+.edgeg:hover text.elabel{opacity:1}
+.edgeg:hover path.edge{stroke:#475569;stroke-width:2}
+.elabel{font-size:10px;fill:#94a3b8}
 aside{position:fixed;right:0;top:0;bottom:0;width:320px;background:#fff;border-left:1px solid #e2e8f0;padding:16px;display:none;overflow:auto}
 aside h3{margin:0 0 8px;font-size:14px}
 aside .kv{margin:2px 0;font-size:12px;color:#334155;word-break:break-all}

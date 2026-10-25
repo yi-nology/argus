@@ -538,3 +538,40 @@ func TestRenderMermaidPure(t *testing.T) {
 		t.Fatalf("s.Edges 被渲染污染（len=%d）", len(s.Edges))
 	}
 }
+
+// TestRenderHTMLViewPrune 交互视图剪枝（v3.185.2,与 mermaid 同纪律）：孤立
+// 改动符号不进 SVG（用户实测噪声列），SVG 无常驻边标签（悬停才显示）。
+func TestRenderHTMLViewPrune(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
+	s.Nodes = append(s.Nodes,
+		Node{ID: "file:a/a.go", Kind: KindFile, Label: "a.go", Changed: true},
+		Node{ID: "sym:a/a.go:Func", Kind: KindSymbol, Label: "Func", Changed: true},
+		Node{ID: "sym:a/a.go:SomeConst", Kind: KindSymbol, Label: "SomeConst", Changed: true}, // 孤立
+		Node{ID: "file:b/b.go", Kind: KindFile, Label: "b.go"},
+	)
+	s.Edges = append(s.Edges,
+		Edge{From: "file:a/a.go", To: "sym:a/a.go:Func", Rel: RelCaller},
+		Edge{From: "sym:a/a.go:Func", To: "file:b/b.go", Rel: RelCaller},
+	)
+	page := RenderHTML(s, "t")
+	// 只断 SVG 部分——内嵌 JSON 是全量快照（MCP/面板数据面），含孤立节点属预期
+	svgStart := strings.Index(page, "<svg")
+	svgEnd := strings.Index(page, "</svg>")
+	if svgStart < 0 || svgEnd < 0 {
+		t.Fatal("SVG 缺失")
+	}
+	if strings.Contains(page[svgStart:svgEnd], "SomeConst") {
+		t.Fatal("孤立常量符号未从 SVG 剪除")
+	}
+	if strings.Contains(page, `class="elabel"`) && !strings.Contains(page, "edgeg text.elabel{opacity:0") {
+		t.Fatal("边标签应默认隐藏")
+	}
+	if !strings.Contains(page, "edgeg") {
+		t.Fatal("边应包 edgeg 组（悬停显示标签）")
+	}
+	// 剪枝后仍无悬挂边（data-i 回查全量序）
+	vn, vi, ve := viewGraph(s)
+	if len(vn) != 3 || len(ve) != 2 || len(vi) != 2 {
+		t.Fatalf("view 集口径错: n=%d e=%d i=%d", len(vn), len(ve), len(vi))
+	}
+}
