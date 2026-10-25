@@ -219,12 +219,13 @@ func buildAffectedPackages(s *Snapshot, ws *goMods, changed []string) []PkgImpac
 		}
 		id := "pkg:" + r.pi.Path
 		s.Nodes = append(s.Nodes, Node{
-			ID: id, Kind: KindPackage, Label: r.pi.Path,
+			ID: id, Kind: KindPackage, Label: pkgLabel(r.pi.Path),
 			Detail: "依赖跳数 " + strconv.Itoa(r.pi.Depth),
 		})
 		from := "pkg:" + r.parent
 		if r.parentChanged {
-			from = firstChangedFileIn(r.parent, changed)
+			// 改动包无 pkg: 节点，边改挂其首个改动文件（ID 带 file: 前缀）
+			from = "file:" + firstChangedFileIn(r.parent, changed)
 		}
 		if from != "" {
 			s.Edges = append(s.Edges, Edge{From: from, To: id, Rel: RelImport})
@@ -237,18 +238,26 @@ func buildAffectedPackages(s *Snapshot, ws *goMods, changed []string) []PkgImpac
 		}
 		id := "test:" + p.Path
 		s.Nodes = append(s.Nodes, Node{
-			ID: id, Kind: KindTest, Label: "tests " + p.Path,
+			ID: id, Kind: KindTest, Label: "tests " + pkgLabel(p.Path),
 			Detail: strconv.Itoa(p.Tests) + " 个测试文件",
 		})
 		src := "pkg:" + p.Path
 		if p.Direct {
-			src = firstChangedFileIn(p.Path, changed)
+			src = "file:" + firstChangedFileIn(p.Path, changed)
 		}
 		if src != "" {
 			s.Edges = append(s.Edges, Edge{From: src, To: id, Rel: RelTestOf})
 		}
 	}
 	return s.Packages
+}
+
+// pkgLabel 包节点展示标签（module 根目录 "." 不可读，收敛为显式标记）。
+func pkgLabel(path string) string {
+	if path == "." {
+		return "(module 根)"
+	}
+	return path
 }
 
 // firstChangedFileIn 目录内首个改动文件（边端点兜底；无命中返回空）。

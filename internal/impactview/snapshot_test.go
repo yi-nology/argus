@@ -406,3 +406,27 @@ func TestRenderHTML(t *testing.T) {
 		t.Fatal("空快照应返回空串")
 	}
 }
+
+// TestNoDanglingEdges 不变量：所有边的端点必须落在节点集内。回归锚——
+// v3.183.0 曾因改动包挂边漏 file: 前缀产 3 条悬挂边，SVG/mermaid 双面静默丢边。
+func TestNoDanglingEdges(t *testing.T) {
+	dir := writeFixture(t)
+	idx, _ := codeintel.NewIndex(dir, 2000)
+	s := Build(context.Background(), Input{
+		Dir: dir, ChangedFiles: []string{"pkga/a.go"},
+		HunkRanges: changedOf("pkga/a.go"), Index: idx, MaxCommits: -1,
+	})
+	ids := map[string]bool{}
+	for _, n := range s.Nodes {
+		ids[n.ID] = true
+	}
+	for _, e := range s.Edges {
+		if !ids[e.From] || !ids[e.To] {
+			t.Fatalf("悬挂边: %+v（节点集 %v）", e, nodeIDs(s))
+		}
+	}
+	// module 根标签可读性
+	if s := pkgLabel("."); s != "(module 根)" {
+		t.Fatalf("pkgLabel(.) = %s", s)
+	}
+}
