@@ -78,7 +78,7 @@ func Build(ctx context.Context, in Input) *Snapshot {
 	affected := buildAffectedPackages(s, ws, s.Changed)
 
 	// ---- L2 符号层：触达符号 → 精化调用位 ----
-	syms := collectSymbols(in.Index, in.HunkRanges, in.Dir)
+	syms := collectSymbols(in.Index, in.HunkRanges)
 	s.Stats.Symbols = len(syms)
 	callTotal := appendSymbolNodes(s, syms)
 

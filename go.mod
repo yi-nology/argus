@@ -16,11 +16,11 @@ require (
 	github.com/oagentkit/llm v0.18.1
 	github.com/oagentkit/mcpkit v0.8.6
 	github.com/oagentkit/obs v0.9.7
-	github.com/oagentkit/queue v0.6.3
+	github.com/oagentkit/queue v0.6.4
 	github.com/oagentkit/rag v0.8.5
 	github.com/oagentkit/runtime v0.7.2
 	github.com/oagentkit/skillkit v0.8.5
-	github.com/oagentkit/textx v0.6.2
+	github.com/oagentkit/textx v0.7.0
 	github.com/oagentkit/toolgate v0.12.5
 	github.com/oagentkit/tools v0.10.4
 	github.com/oekit/bootstrap v0.6.5

@@ -1,21 +1,15 @@
-// symbols.go —— L2 符号层：变更触达符号 → 调用方。两级精度：
-//  1. codeintel token 级调用位（x.calls：IDENT 后跟 LPAREN——字符串/注释天然
-//     排除），全仓覆盖，定位调用方文件与行；
-//  2. AST 精化（refineCallSites）：只对命中文件重解析，抓封闭函数名与限定名
-//     （pkg.F / T.M）——给出「谁在调用」而非只有「哪里出现」。
+// symbols.go —— L2 符号层：变更触达符号 → 调用方。v3.186.0 收编 textx
+// v0.7.0 的 codeintel.PreciseCallers（token 候选 + AST 精化，本包曾自实现等价
+// 精化层，上游合并 #15 后下沉删除）：调用位补封闭函数名（Recv.Name / Name，
+// 包级初始化记 "(package init)"）与限定名（pkg.F / T.M / F）。
 //
-// 边界（刻意声明）：不做 SSA 类型推断，接口分派/动态派发不可见，方法调用按
-// 裸名匹配可能混入同名异接收者的调用——全程序精确调用图留 textx 上游演进；
-// 包级初始值/匿名函数里的调用封闭函数名记 "(package init)"。
+// 边界（上游同款声明）：不做 SSA 类型推断，接口分派/动态派发不可见，方法调用
+// 按裸名匹配可能混入同名异接收者的调用——全程序精确调用图留 textx 后续演进。
 package impactview
 
 import (
 	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
 	"sort"
-	"strconv"
 
 	"github.com/oagentkit/textx/codeintel"
 )
@@ -27,21 +21,13 @@ type symHits struct {
 	File     string
 	Line     int
 	Exported bool
-	Callers  []callSite // token 级命中经 AST 精化后的调用位
-}
-
-// callSite 精化后的调用位。
-type callSite struct {
-	File   string
-	Line   int
-	Caller string // 封闭函数（Recv.Name / Name；包级初始值/匿名函数为 init 语义）
-	Callee string // 限定名（pkg.F / T.M / F）
+	Callers  []codeintel.CallerRef // 上游 PreciseCallers 精化后的调用位
 }
 
 // collectSymbols 从 codeintel 索引取变更触达符号（hunk 行区间 ∩ 符号定义），
-// 再经 GoCallers（token 级调用位）取候选调用方，最后对候选文件做 AST 精化。
-// 任何一级失败/超限降级，不阻断。
-func collectSymbols(idx *codeintel.Index, ranges map[string][][2]int, dir string) []symHits {
+// 再经 PreciseCallers 取精化调用位（token 候选 + AST 精化，v0.7.0 上游单点）。
+// 失败/超限降级，不阻断。
+func collectSymbols(idx *codeintel.Index, ranges map[string][][2]int) []symHits {
 	if idx == nil || len(ranges) == 0 {
 		return nil
 	}
@@ -83,88 +69,8 @@ func collectSymbols(idx *codeintel.Index, ranges map[string][][2]int, dir string
 			Line:     t.line,
 			Exported: ast.IsExported(t.name),
 		}
-		// 候选调用方：token 级调用位（方法按裸名命中所有形态——词法层已知边界）
-		raw := idx.GoCallers(t.name, MaxCallersPerSym*4) // 多取候选，精化后截回
-		h.Callers = refineCallSites(dir, raw, MaxCallersPerSym)
+		h.Callers = idx.PreciseCallers(t.name, MaxCallersPerSym)
 		out = append(out, h)
-	}
-	return out
-}
-
-// refineCallSites 对候选文件重解析，确认 AST 层「调用位」事实并抓封闭函数名
-// 与限定名；返回按 (File,Line) 有序的至多 maxN 个调用位。文件解析失败该文件
-// 的候选整体丢弃（token 级结果不再回填——宁缺毋假）。
-func refineCallSites(dir string, refs []codeintel.Ref, maxN int) []callSite {
-	if len(refs) == 0 {
-		return nil
-	}
-	// 按文件聚合行号，同文件只解析一次
-	byFile := map[string][]int{}
-	for _, r := range refs {
-		if r.Line > 0 {
-			byFile[r.File] = append(byFile[r.File], r.Line)
-		}
-	}
-	files := make([]string, 0, len(byFile))
-	for f := range byFile {
-		files = append(files, f)
-	}
-	sort.Strings(files)
-
-	fset := token.NewFileSet()
-	var out []callSite
-	for _, f := range files {
-		abs := filepath.Join(dir, filepath.FromSlash(f))
-		af, err := parser.ParseFile(fset, abs, nil, parser.SkipObjectResolution)
-		if err != nil {
-			continue
-		}
-		lines := map[int]bool{}
-		for _, l := range byFile[f] {
-			lines[l] = true
-		}
-		out = append(out, walkDeclCalls(fset, af, f, lines)...)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].File != out[j].File {
-			return out[i].File < out[j].File
-		}
-		return out[i].Line < out[j].Line
-	})
-	if len(out) > maxN {
-		out = out[:maxN]
-	}
-	return out
-}
-
-// walkDeclCalls 遍历文件顶层声明，收集候选行上的调用位。FuncDecl 的封闭函数
-// 为 Recv.Name / Name；其余声明（包级 var/const/init 表达式）记 "(package init)"。
-func walkDeclCalls(fset *token.FileSet, af *ast.File, rel string, lines map[int]bool) []callSite {
-	var out []callSite
-	collect := func(caller string, body ast.Node) {
-		ast.Inspect(body, func(n ast.Node) bool {
-			ce, ok := n.(*ast.CallExpr)
-			if !ok || ce.Lparen == token.NoPos {
-				return true
-			}
-			line := fset.Position(ce.Lparen).Line
-			if !lines[line] {
-				return true
-			}
-			callee := calleeName(ce.Fun)
-			if callee == "" {
-				return true
-			}
-			out = append(out, callSite{File: rel, Line: line, Caller: caller, Callee: callee})
-			return true
-		})
-	}
-	for _, decl := range af.Decls {
-		if fd, ok := decl.(*ast.FuncDecl); ok {
-			collect(funcDeclName(fd), fd)
-			continue
-		}
-		collect("(package init)", decl)
 	}
 	return out
 }
@@ -209,13 +115,4 @@ func calleeName(fun ast.Expr) string {
 	default:
 		return ""
 	}
-}
-
-// callerLabel 调用方节点标签（"Caller @ file:line" 收敛为短形态）。
-func callerLabel(cs callSite) string {
-	at := cs.File
-	if cs.Caller != "" && cs.Caller != "(package init)" {
-		at += " · " + cs.Caller
-	}
-	return at + ":" + strconv.Itoa(cs.Line)
 }
