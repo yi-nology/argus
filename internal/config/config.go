@@ -226,7 +226,7 @@ type Config struct {
 	MCPIdleReapInterval time.Duration // ARGUS_MCP_IDLE_REAP_INTERVAL，检查周期（启用时缺省 5m；⚠️ 仅 MAX_IDLE>0 时生效，单配本项静默无效）
 	MCPIdleReapMaxIdle  time.Duration // ARGUS_MCP_IDLE_REAP_MAX_IDLE，闲置阈值（0 = 关闭）
 
-	// MemoryDir repo 评审记忆目录（ARGUS_MEMORY_DIR，默认 "memory"）：dream
+	// MemoryDir 记忆内核库目录（ARGUS_MEMORY_DIR，默认 "memory"）：kernel.db 落此。
 	// 周期把低置信模式导出为事实文件，R3 注入索引（感知面）。dream 未启用时
 	// 目录保持为空 = 无注入，零开销。
 	MemoryDir string

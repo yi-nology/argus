@@ -4,6 +4,8 @@ package requirement
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -263,18 +265,21 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 	return st
 }
 
-// r3DetailTool get_detail（v3.39.0 大输出两级化）：被截断工具的全文取回通道。
+// r3DetailTool get_detail（大输出两级化；v5.0.0 存档面切磁盘——ref 白名单挡注入，
+// 全文落盘自 stashDetail）：被截断工具的全文取回通道。
 func (w *Workflow) r3DetailTool() (tool.BaseTool, error) {
 	return utils.InferTool("get_detail",
 		"读取此前被截断的完整工具输出。ref 来自截断提示中的 ref 编号（如 \"d1\"）。",
 		func(ctx context.Context, in *getDetailIn) (*symOut, error) {
-			w.detailMu.Lock()
-			content, ok := w.detailStore[in.Ref]
-			w.detailMu.Unlock()
-			if !ok {
+			ref := strings.TrimSpace(in.Ref)
+			if !spillRefRe.MatchString(ref) || w.SpillDir == "" {
 				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
 			}
-			return &symOut{Result: DataFence("get_detail 完整输出（数据）", content)}, nil
+			raw, err := os.ReadFile(filepath.Join(w.SpillDir, ref))
+			if err != nil {
+				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
+			}
+			return &symOut{Result: DataFence("get_detail 完整输出（数据）", string(raw))}, nil
 		})
 }
 

@@ -3,6 +3,9 @@ package requirement
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -77,43 +80,54 @@ func (w *Workflow) onStage(stage string) {
 }
 
 const (
-	// detailMaxBytes 单条详情硬上限（防异常工具输出打爆内存）。
+	// detailMaxBytes 单条详情硬上限（防异常工具输出打爆磁盘与取回面）。
 	detailMaxBytes = 200_000
-	// detailMaxRefs 详情库条数上限（超出整体换——最新详情优先保）。
-	detailMaxRefs = 8
 	// detailOverflowMax codegraph 类工具进上下文的截断正文上限。
 	detailOverflowMax = 4_000
 )
 
-// stashDetail 暂存超限全文，返回引用编号（get_detail 凭 ref 取回）。
+// spillRefRe 详情 ref 白名单：本包生成的存档名形态（d<十进制序号>）。get_detail 的
+// ref 由模型提供（不可信），取回面以此挡路径注入——不满足形态直接按「无此 ref」处理。
+var spillRefRe = regexp.MustCompile(`^d[1-9][0-9]*$`)
+
+// stashDetail 超限全文落盘存档（v5.0.0 收编 agent-harness/spill 语义：磁盘面取代
+// v3.39.0 进程内 map——checkpoint 复活/进程重启后 get_detail 不再落空；会话隔离 =
+// 任务 ID 目录，职责分工与 spill 一致：存档/取回判定单源，文案与工具壳归宿主）。
+// 写失败返回空串（stashOverflowAt 退纯截断，不阻塞工具输出主链路）。
 func (w *Workflow) stashDetail(content string) string {
-	w.detailMu.Lock()
-	defer w.detailMu.Unlock()
-	if w.detailStore == nil {
-		w.detailStore = map[string]string{}
+	if w.SpillDir == "" {
+		return ""
 	}
 	if len(content) > detailMaxBytes {
 		content = content[:detailMaxBytes] + "\n…（详情超 200KB 硬上限，尾部丢弃）"
 	}
-	if len(w.detailStore) >= detailMaxRefs {
-		w.detailStore = map[string]string{}
-		w.detailSeq = 0
+	w.spillMu.Lock()
+	defer w.spillMu.Unlock()
+	if err := os.MkdirAll(w.SpillDir, 0o755); err != nil {
+		w.Log.Warn("argus.r3.spill_mkdir_failed", "error", err.Error())
+		return ""
 	}
-	w.detailSeq++
-	ref := fmt.Sprintf("d%d", w.detailSeq)
-	w.detailStore[ref] = content
+	w.spillSeq++
+	ref := fmt.Sprintf("d%d", w.spillSeq)
+	if err := os.WriteFile(filepath.Join(w.SpillDir, ref), []byte(content), 0o600); err != nil {
+		w.Log.Warn("argus.r3.spill_write_failed", "error", err.Error())
+		return ""
+	}
 	return ref
 }
 
-// stashOverflowAt 超限两级化：全文入任务级详情库，进上下文的只留 max 内正文 +
-// 取回指引。未超限原样返回（零开销直通）。
+// stashOverflowAt 超限两级化：全文入任务级详情存档，进上下文的只留 max 内正文 +
+// 取回指引。未超限原样返回（零开销直通）；存档写失败退纯截断（如实告知全文丢弃，
+// 不留取得到不了的指引）。
 func (w *Workflow) stashOverflowAt(full string, max int) string {
 	if max <= 0 || len(full) <= max {
 		return full
 	}
-	ref := w.stashDetail(full)
 	head, _ := textutil.TruncRunes(full, max)
-	return head + fmt.Sprintf("\n…（截断；完整结果 %d 字节已存为详情，用 get_detail 工具 ref=%q 获取全文）", len(full), ref)
+	if ref := w.stashDetail(full); ref != "" {
+		return head + fmt.Sprintf("\n…（截断；完整结果 %d 字节已存为详情，用 get_detail 工具 ref=%q 获取全文）", len(full), ref)
+	}
+	return head + fmt.Sprintf("\n…（截断；完整结果 %d 字节超存档上限，已丢弃）", len(full))
 }
 
 // ---------- 小工具 ----------

@@ -26,7 +26,6 @@ import (
 	"github.com/oekit/logx"
 
 	"argus/internal/learning"
-	"argus/internal/memory"
 	"argus/internal/memorykernel"
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -53,12 +52,9 @@ type Dream struct {
 	Knowledge rag.KnowledgeService // nil/Noop = 只写本地 markdown
 	// KnowledgeDir 本地知识目录（Milvus 不可用时落盘，下次启动索引）。
 	KnowledgeDir string
-	// MemoryDir repo 评审记忆目录（v3.35.0；空 = 不写记忆面）。低置信模式
-	// 同源双写事实文件（一文件一事实），R3 提示词注入索引。
-	MemoryDir string
-	// Kernel agent-memory 内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：
-	// 非 nil 时事实双写内核（capture 落库前打码 + 事实卡证据链闭合）；
-	// 内核写入失败只告警——灰度期 markdown 面仍是权威。
+	// Kernel agent-memory 内核（v5.0.0 起是记忆唯一路径，旧 markdown 文件面已
+	// 退役）：nil = 记忆面整体哑掉（知识检索面照常）。写入失败只告警，不阻断
+	// 去重与知识导出主流程。
 	Kernel *memorykernel.Kernel
 	// Learning 学习环阈值（复用 config 派生）。
 	Learning learning.Config
@@ -96,9 +92,9 @@ func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err
 			allLow = append(allLow, repoPatterns{ref: r, low: low})
 		}
 	}
-	// 组织桶聚合（v3.74.1）：pattern 跨仓共现 ≥2 → 组织级模式，写入 _org 两级
-	// 记忆的上级段（R3 注入所有仓）。失败只告警，不阻断仓桶导出语义。
-	if d.MemoryDir != "" && len(allLow) > 0 {
+	// 组织桶聚合（v3.74.1）：pattern 跨仓共现 ≥2 → 组织级模式，写内核 _org 桶
+	//（R3 注入所有仓）。失败只告警，不阻断仓桶导出语义。
+	if d.Kernel != nil && len(allLow) > 0 {
 		if n := d.exportOrgMemory(ctx, allLow, at); n > 0 {
 			d.info("argus.dream.org_memory", "patterns", n)
 		}
@@ -116,7 +112,7 @@ type repoPatterns struct {
 }
 
 // exportOrgMemory 跨仓共现聚合：归一 pattern 文本（trim）在 ≥2 个仓出现即组织级
-// 模式。幂等=先清 _org 后写；无共现时清空（陈旧组织模式不留场）。
+// 模式，写内核 _org 桶。幂等=先清桶后写；无共现时清空（陈旧组织模式不留场）。
 func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time.Time) int {
 	type agg struct {
 		repos map[string]bool
@@ -139,14 +135,9 @@ func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time
 			a.repos[rp.ref.Owner+"/"+rp.ref.Repo] = true
 		}
 	}
-	if err := memory.ClearRepo(d.MemoryDir, memory.OrgRef); err != nil {
-		d.warn("argus.dream.org_clear_failed", "error", err.Error())
+	if err := d.Kernel.ClearRepo(ctx, memorykernel.OrgNamespace); err != nil {
+		d.warn("argus.dream.org_kernel_clear_failed", "error", err.Error())
 		return 0
-	}
-	if d.Kernel != nil {
-		if err := d.Kernel.ClearRepo(ctx, memorykernel.OrgNamespace); err != nil {
-			d.warn("argus.dream.org_kernel_clear_failed", "error", err.Error())
-		}
 	}
 	n := 0
 	for key, a := range byPattern {
@@ -159,19 +150,14 @@ func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time
 		}
 		sort.Strings(repos)
 		sampleHead, _ := textutil.TruncRunes(key, 80)
-		desc := fmt.Sprintf("跨仓模式（%d 仓共现）：%s", len(a.repos), memory.SingleLine(sampleHead))
+		desc := fmt.Sprintf("跨仓模式（%d 仓共现）：%s", len(a.repos), memorykernel.SingleLine(sampleHead))
 		body := fmt.Sprintf("该审查模式在以下仓库均呈低置信（样本各自独立，跨仓共现提示组织级噪声源）：\n%s\n\n"+
 			"命中类似表述请提高举证标准。来源仓库：%s\n",
 			strings.Join(repos, "\n"), strings.Join(repos, ", "))
 		slug := fmt.Sprintf("cross-%s", shortHash(key))
-		if err := memory.Save(d.MemoryDir, memory.OrgRef, slug, "pattern", desc, body, at); err != nil {
-			d.warn("argus.dream.org_save_failed", "error", err.Error())
+		if err := d.Kernel.SaveFact(ctx, memorykernel.OrgNamespace, slug, "pattern", desc, body, at); err != nil {
+			d.warn("argus.dream.org_kernel_save_failed", "slug", slug, "error", err.Error())
 			continue
-		}
-		if d.Kernel != nil {
-			if err := d.Kernel.SaveFact(ctx, memorykernel.OrgNamespace, slug, "pattern", desc, body, at); err != nil {
-				d.warn("argus.dream.org_kernel_save_failed", "slug", slug, "error", err.Error())
-			}
 		}
 		n++
 	}
@@ -265,13 +251,8 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 			}
 		}
 		// 记忆面同步退场（v3.8.0 只增不删教训的记忆侧同款修复）
-		if d.MemoryDir != "" {
-			if err := memory.ClearRepo(d.MemoryDir, memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}); err != nil {
-				d.warn("argus.dream.memory_clear_failed", "error", err.Error())
-			}
-		}
+		ref := memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
 		if d.Kernel != nil {
-			ref := memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
 			if err := d.Kernel.ClearRepo(ctx, memorykernel.NamespaceOf(ref)); err != nil {
 				d.warn("argus.dream.kernel_clear_failed", "error", err.Error())
 			}
@@ -289,15 +270,9 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 			d.warn("argus.dream.milvus_failed", "error", err.Error())
 		}
 	}
-	// 记忆面双写（v3.35.0）：逐事实落 repo 记忆目录（索引注入 R3，感知面）；
-	// 与知识聚合文档（search_knowledge，检索面）互补。独立于知识导出面——
-	// v3.74.1 修复：KnowledgeDir 为空时此前整体跳过，记忆桶也断写。
-	if d.MemoryDir != "" {
-		if err := writeMemory(d.MemoryDir, r, low, at); err != nil {
-			d.warn("argus.dream.memory_failed", "error", err.Error())
-		}
-	}
-	// 内核面双写（v3.151.0 opt-in）：markdown 逐文件 → 内核事实卡（先清后写同款幂等）。
+	// 记忆面（v5.0.0 起内核唯一路径）：低置信模式逐条写内核事实卡（感知面），
+	// 与知识聚合文档（search_knowledge，检索面）互补。Kernel nil = 记忆面哑掉
+	//（bootstrap 只在 MemKernel 装配后才传），不影响知识导出。
 	if d.Kernel != nil {
 		d.writeKernelMemory(ctx, r, low, at)
 	}
@@ -310,11 +285,10 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 	return true, low, nil
 }
 
-// writeKernelMemory 内核面镜像写入（v3.151.0）：与 writeMemory 同一份事实集，
-// 先清桶后逐条写（幂等）。失败只告警——灰度期 markdown 面是权威，内核面不得
-// 反过来阻断文件写入。
+// writeKernelMemory 内核面写入（v5.0.0 起记忆唯一路径）：先清桶后逐条写（幂等）。
+// 失败只告警——记忆是增强面，不得反过来阻断去重与知识导出。
 func (d *Dream) writeKernelMemory(ctx context.Context, r learning.RepoRef, low []learning.PatternState, at time.Time) {
-	ns := memorykernel.NamespaceOf(memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})
+	ns := memorykernel.NamespaceOf(memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})
 	if err := d.Kernel.ClearRepo(ctx, ns); err != nil {
 		d.warn("argus.dream.kernel_clear_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
 	}
@@ -322,7 +296,7 @@ func (d *Dream) writeKernelMemory(ctx context.Context, r learning.RepoRef, low [
 		sample := p.SampleText()
 		sampleHead, _ := textutil.TruncRunes(sample, 80)
 		desc := fmt.Sprintf("[%s] %s（置信度 %.2f，samples=%d）",
-			p.Plugin, memory.SingleLine(sampleHead), p.Confidence, p.Samples)
+			p.Plugin, memorykernel.SingleLine(sampleHead), p.Confidence, p.Samples)
 		body := fmt.Sprintf("命中类似表述请提高举证标准，无具体行与影响则不要输出。\n\n"+
 			"样本：%s\n\n来源：plugin=%s regret=%d suppress=%d\n",
 			sample, p.Plugin, p.Regret, p.Suppress)
@@ -333,27 +307,6 @@ func (d *Dream) writeKernelMemory(ctx context.Context, r learning.RepoRef, low [
 			d.warn("argus.dream.kernel_save_failed", "slug", slug, "error", err.Error())
 		}
 	}
-}
-
-// writeMemory 逐事实写记忆文件（幂等：先清后写——模式集变化后旧文件不留场）。
-func writeMemory(dir string, r learning.RepoRef, low []learning.PatternState, at time.Time) error {
-	ref := memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
-	if err := memory.ClearRepo(dir, ref); err != nil {
-		return err
-	}
-	for i, p := range low {
-		sample := p.SampleText()
-		sampleHead, _ := textutil.TruncRunes(sample, 80)
-		desc := fmt.Sprintf("[%s] %s（置信度 %.2f，samples=%d）",
-			p.Plugin, memory.SingleLine(sampleHead), p.Confidence, p.Samples)
-		body := fmt.Sprintf("命中类似表述请提高举证标准，无具体行与影响则不要输出。\n\n"+
-			"样本（已消毒）：%s\n\n来源：plugin=%s regret=%d suppress=%d\n",
-			fence.EscapeUntrusted(sample), p.Plugin, p.Regret, p.Suppress)
-		if err := memory.Save(dir, ref, fmt.Sprintf("pattern-%02d", i+1), "pattern", desc, body, at); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // renderKnowledge 渲染知识 markdown（safejson 转义：pattern_text 半可信）。

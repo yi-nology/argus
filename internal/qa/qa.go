@@ -40,7 +40,7 @@ type Engine struct {
 	QAModel   model.BaseChatModel  // P6 阶段覆盖（ARGUS_QA_MODEL）；nil = Model
 	Log       Logger
 	// MemoryIndexFor 本仓评审记忆索引装载器（v3.39.0，bootstrap 接线
-	// memory.LoadIndex；nil = 未启用）。注入系统提示词作答参考。
+	// memorykernel.RecallIndex；nil = 未启用）。注入系统提示词作答参考。
 	MemoryIndexFor func(platform, owner, repo string) string
 
 	// WC 工作副本池 + CodeSearch 开关（v3.91.0）：QA 挂与审查面同款的

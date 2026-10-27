@@ -9,8 +9,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/memory"
-
+	"github.com/yi-nology/agent-memory/ports"
 	"github.com/yi-nology/agent-memory/storage/sqlite"
 	"github.com/yi-nology/agent-memory/store"
 	"github.com/yi-nology/agent-memory/types"
@@ -23,7 +22,7 @@ func testKernel(t *testing.T, name string) *Kernel {
 		t.Fatalf("OpenMemory: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	k, err := openWithStore(st, logx.NewSlogLogger("memorykernel-test"))
+	k, err := openWithStore(st, nil, logx.NewSlogLogger("memorykernel-test"))
 	if err != nil {
 		t.Fatalf("openWithStore: %v", err)
 	}
@@ -31,10 +30,10 @@ func testKernel(t *testing.T, name string) *Kernel {
 }
 
 func TestNamespaceOf(t *testing.T) {
-	if got := NamespaceOf(memory.OrgRef); got != OrgNamespace {
+	if got := NamespaceOf(OrgRef); got != OrgNamespace {
 		t.Fatalf("org ref → %q, want %q", got, OrgNamespace)
 	}
-	repo := NamespaceOf(memory.Ref{Platform: "gitlab", Owner: "g", Repo: "r"})
+	repo := NamespaceOf(Ref{Platform: "gitlab", Owner: "g", Repo: "r"})
 	if repo != "gitlab-g-r" {
 		t.Fatalf("repo ns = %q", repo)
 	}
@@ -159,7 +158,7 @@ func TestGCNilSafe(t *testing.T) {
 func TestOpenCreatesParentDir(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/nested/deeper/kernel.db" // 父目录不存在——Open 必须自建
-	k, err := Open(path, logx.NewSlogLogger("memorykernel-test"))
+	k, err := Open(path, nil, logx.NewSlogLogger("memorykernel-test"))
 	if err != nil {
 		t.Fatalf("Open 新目录库失败（父目录应自建）: %v", err)
 	}
@@ -196,5 +195,30 @@ func TestRecallCfgAnalyzerWired(t *testing.T) {
 	}
 	if cfg.Analyzer != sharedAnalyzer {
 		t.Fatal("Analyzer 应为包级单例（纯只读复用）")
+	}
+}
+
+// TestSemanticTrackWired 语义轨接线钉（v5.0.0）：注入 Embedder 后 recall 走
+// VectorSemanticReader（sqlite 内置向量索引），主链路照常工作且向量行落库。
+// HashEmbedder 是词面哈希（语义强度弱），足够验证「接通且不炸」的接线事实；
+// 真语义强度由部署侧注入 rag.OpenAIEmbedder（ARGUS_EMBEDDING_*）承载。
+func TestSemanticTrackWired(t *testing.T) {
+	st, err := sqlite.OpenMemory("semtrack")
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	k, err := openWithStore(st, ports.HashEmbedder{}, logx.NewSlogLogger("memorykernel-test"))
+	if err != nil {
+		t.Fatalf("openWithStore: %v", err)
+	}
+	ctx := context.Background()
+	ns := store.Namespace("gitlab-g-r")
+	if err := k.SaveFact(ctx, ns, "pattern-01", "pattern", "SQL 拼接低置信", "命中类似表述请提高举证标准。", time.Now()); err != nil {
+		t.Fatalf("SaveFact: %v", err)
+	}
+	out := k.RecallIndex(ctx, ns, "", "task-x", "举证", 2000)
+	if !strings.Contains(out, "举证") {
+		t.Fatalf("语义轨开启后召回失效：%q", out)
 	}
 }

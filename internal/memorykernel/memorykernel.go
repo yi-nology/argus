@@ -1,14 +1,11 @@
-// Package memorykernel agent-memory 内核适配层（v3.151.0，ARGUS_MEMORY_KERNEL=1 opt-in）。
+// Package memorykernel agent-memory 内核适配层（v3.151.0，ARGUS_MEMORY_KERNEL=1 opt-in；
+// v5.0.0 转正：旧文件面 internal/memory 已退役，本层是记忆唯一路径）。
 //
-// 替换面与旧面（internal/memory 文件存储 + LoadIndex 索引注入）并存灰度：
-// 开关开 = 内核召回；开关关 = 文件索引，行为与此前完全一致。dream 写侧在开关开时
-// 双写（markdown 照写 + 内核事实卡），保证随时可回退、两面可对账。
-//
-// 内核收益（agent-memory v0.4.2）：
+// 内核收益（agent-memory v0.4.2+）：
 //   - 落库前强制脱敏：capture 管道 Redactor 为必需依赖，凭据形态兵底 +
 //     guardx/logredact 规则表并集，掩码定长不泄露原值长度；
 //   - 注入防伪：召回结果经 MemoryBand 转义全部「<」——跨会话留存内容是
-//     不可信面，旧面把索引原文拼进 R3 prompt，伪造闭合标签可穿透；
+//     不可信面，旧文件面把索引原文拼进 R3 prompt，伪造闭合标签可穿透；
 //   - 证据链闭合：AtomCard.QuoteEventID 必填（不变量：事实必须有逐字引用出处），
 //     dream 事实先落 capture 事件再落事实卡，审计链可从事实回溯到事件；
 //   - 生命周期：原始事件按龄回收（DeleteRawBefore），清桶走软退役
@@ -17,8 +14,6 @@
 // 确定性哲学保留：dream 的确定性信号（regret/suppress 计数）走「显式手工写入」
 // 路径（Explicit=true + EventManual/OriginOperator），不引入 LLM 提炼；
 // 无模型时内核照常工作（提炼面才报 ErrNoLLM，本适配层不触提炼面）。
-//
-// 层级：L1（依赖 internal/memory 仅取 Ref 形态与命名消毒同形，不反向依赖）。
 package memorykernel
 
 import (
@@ -40,23 +35,48 @@ import (
 	"github.com/yi-nology/agent-memory/storage/sqlite"
 	"github.com/yi-nology/agent-memory/store"
 	"github.com/yi-nology/agent-memory/types"
-
-	"argus/internal/memory"
 )
 
-// Kernel agent-memory 内核持有面（存储 + 捕获 + 召回）。
+// IndexBudgetRunes 记忆索引注入的 rune 预算缺省（超限确定性降级：截断+尾注）。
+const IndexBudgetRunes = 2000
+
+// Ref 记忆归属仓库（Platform/Owner/Repo 三段）。
+type Ref struct {
+	Platform, Owner, Repo string
+}
+
+// orgDirName 组织级记忆桶标识：跨仓共享的模式/教训（dream 周期聚合）。
+const orgDirName = "_org"
+
+// OrgRef 组织桶归属（Owner=orgDirName 由本常量统一，Repo 恒空）。
+var OrgRef = Ref{Owner: orgDirName}
+
+// SingleLine 压平换行（描述进单行的消毒件；dream 侧共用单源）。
+func SingleLine(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
+}
+
+// Kernel agent-memory 内核持有面（存储 + 捕获 + 召回 + 可选语义轨）。
 type Kernel struct {
 	store *sqlite.Store
 	cap   *capture.Capturer
-	log   logx.Logger
+	// emb 语义轨向量化器（nil = 只走词面召回）。sqlite.Store 自带持久向量索引
+	//（atom_vectors 表，ports.VectorIndex 断言在库内核实），注入 Embedder 即接通
+	// recall 语义路（RRF 与词面融合）。rag 批量口的适配在 bootstrap 装配侧做，
+	// 本层保持 L1 纯净不引 rag。
+	emb ports.Embedder
+	log logx.Logger
 }
 
 // Open 打开（必要时创建）内核库并装配捕获/召回面。path 为 sqlite 文件路径；
 // 父目录自动创建（sqlite.OpenFile 要求父目录已存在——215 实弹暴露 kernel.db
 // 建在新目录下时 "unable to open database file"，目录创建归本层，调用方不背）。
+// emb 非 nil 时接通语义召回轨（embedding 端点未配置传 nil = 词面照旧，零行为变化）。
 // capture.New 缺 Redactor 直接失败（内核纪律：记忆是留存资产，脱敏必需）；
 // recall 注入面 MemoryBand 必需（防伪包裹不缺省）。
-func Open(path string, log logx.Logger) (*Kernel, error) {
+func Open(path string, emb ports.Embedder, log logx.Logger) (*Kernel, error) {
 	if path == "" {
 		return nil, fmt.Errorf("memorykernel: 库路径不可空")
 	}
@@ -67,7 +87,7 @@ func Open(path string, log logx.Logger) (*Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 打开库: %w", err)
 	}
-	k, err := openWithStore(st, log)
+	k, err := openWithStore(st, emb, log)
 	if err != nil {
 		_ = st.Close()
 		return nil, err
@@ -76,7 +96,7 @@ func Open(path string, log logx.Logger) (*Kernel, error) {
 }
 
 // openWithStore 从既有存储装配捕获/召回面（Open 与测试共用装配单源）。
-func openWithStore(st *sqlite.Store, log logx.Logger) (*Kernel, error) {
+func openWithStore(st *sqlite.Store, emb ports.Embedder, log logx.Logger) (*Kernel, error) {
 	cap, err := capture.New(st, ports.PatternRedactor{})
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 装配捕获面: %w", err)
@@ -84,7 +104,7 @@ func openWithStore(st *sqlite.Store, log logx.Logger) (*Kernel, error) {
 	// 召回面不在此预建（v3.178.0 死代码清理）：recallOne 按预算逐次建 pipeline，
 	// 预建实例只存不读；recall.New 的配置校验（分桶归一）对常量配置不可能失败，
 	// 首次召回的失败也已在 recallOne 走 Warn 降级。
-	return &Kernel{store: st, cap: cap, log: log}, nil
+	return &Kernel{store: st, cap: cap, emb: emb, log: log}, nil
 }
 
 // Close 关闭底层库。
@@ -95,13 +115,12 @@ func (k *Kernel) Close() error {
 	return k.store.Close()
 }
 
-// NamespaceOf 仓库归属 → 记忆库命名空间（与 memory 包目录命名同形：
-// platform-owner-repo 三段消毒相连；组织桶固定 _org）。消毒规则不同源的风险
-// 接受在案：两侧分隔符集合一致（[A-Za-z0-9._-] 保留），平台/owner/repo 段
-// 在平台侧已不含路径分隔符（config 装载期校验）。
-func NamespaceOf(r memory.Ref) store.Namespace {
-	if r.Owner == memory.OrgRef.Owner && r.Repo == "" {
-		return store.Namespace("_org")
+// NamespaceOf 仓库归属 → 记忆库命名空间（platform-owner-repo 三段相连；
+// 组织桶固定 _org）。平台/owner/repo 段在平台侧已不含路径分隔符
+//（config 装载期校验），消毒规则与旧文件面目录命名同形。
+func NamespaceOf(r Ref) store.Namespace {
+	if r.Owner == OrgRef.Owner && r.Repo == "" {
+		return store.Namespace(orgDirName)
 	}
 	return store.Namespace(fmt.Sprintf("%s-%s-%s", r.Platform, r.Owner, r.Repo))
 }
@@ -158,6 +177,14 @@ func (k *Kernel) SaveFact(ctx context.Context, ns store.Namespace, slug, factTyp
 		return fmt.Errorf("memorykernel: 落事实卡: %w", err)
 	}
 	return nil
+}
+
+// ListAtoms 命名空间事实卡清单（运维/测试取上面，不进召回热路径）。nil 安全。
+func (k *Kernel) ListAtoms(ctx context.Context, ns store.Namespace) ([]*types.AtomCard, error) {
+	if k == nil {
+		return nil, nil
+	}
+	return k.store.ListAtoms(ctx, ns, store.AtomFilter{})
 }
 
 // ClearRepo 清桶：软退役全部事实卡 + 清原始事件。两段都要做——召回面同时吃
@@ -222,7 +249,7 @@ func (k *Kernel) RecallIndex(ctx context.Context, repoNS, orgNS store.Namespace,
 		return ""
 	}
 	if budgetRunes <= 0 {
-		budgetRunes = memory.IndexBudgetRunes
+		budgetRunes = IndexBudgetRunes
 	}
 	// rune 预算 → token 预算（StaticEstimator 口径约 2 rune/token，按半折算取整）。
 	budgetTokens := budgetRunes / 2
@@ -256,11 +283,17 @@ func recallCfg(budgetTokens int) recall.Config {
 }
 
 // recallOne 单命名空间召回（失败降级空串：记忆是增强面，不许拖垮主流程）。
+// emb 非 nil 时追加语义路（VectorSemanticReader 组合 sqlite 内置向量索引，
+// RRF 与词面融合；embedding 调用失败按内核纪律降级词面）。
 func (k *Kernel) recallOne(ctx context.Context, ns store.Namespace, sessionID, q string, budgetTokens int) string {
 	if budgetTokens <= 0 {
 		return ""
 	}
-	rec, err := recall.New(recallCfg(budgetTokens), k.store, ports.StaticEstimator{}, ports.MemoryBand{})
+	cfg := recallCfg(budgetTokens)
+	if k.emb != nil {
+		cfg.Semantic = ports.VectorSemanticReader{Embedder: k.emb, Index: k.store}
+	}
+	rec, err := recall.New(cfg, k.store, ports.StaticEstimator{}, ports.MemoryBand{})
 	if err != nil {
 		k.log.Warn("argus.memorykernel.recall_build_failed", "ns", string(ns), "error", err.Error())
 		return ""

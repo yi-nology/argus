@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -27,7 +29,6 @@ import (
 	"argus/internal/dispatch"
 	"argus/internal/impactview"
 	"argus/internal/learning"
-	"argus/internal/memory"
 	"argus/internal/memorykernel"
 	"argus/internal/notify"
 	"argus/internal/plugin"
@@ -156,15 +157,14 @@ func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, ta
 // 外部工具调用上限/仓库级评审规范（.argus/REVIEW.md）/阶段进度事件。
 func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget) *requirement.Workflow {
 	wf := r.buildWorkflow(budget)
-	// 本仓评审记忆索引（v3.35.0）：dream 周期导出事实文件，此处装载注入 R3；
-	// 目录缺失/为空 = 空串（R3 提示词无该段），功能未启用零开销。
-	// v3.151.0：内核开启时切八段召回 + MemoryBand 防伪（sessionID=任务 ID 防回声）。
-	ref := memory.Ref{Platform: task.Platform, Owner: task.Owner, Repo: task.Repo}
+	// 本仓评审记忆索引（v3.35.0）：dream 周期导出，此处装载注入 R3。
+	// v5.0.0 文件面退役：内核是唯一路径；未装配（ARGUS_MEMORY_KERNEL 关）=
+	// 空串（R3 提示词无该段），功能未启用零开销。
+	// 内核召回走八段 + MemoryBand 防伪（sessionID=任务 ID 防回声）。
 	if r.MemKernel != nil {
+		ref := memorykernel.Ref{Platform: task.Platform, Owner: task.Owner, Repo: task.Repo}
 		wf.MemoryIndex = r.MemKernel.RecallIndex(ctx, memorykernel.NamespaceOf(ref),
 			memorykernel.OrgNamespace, task.ID, "", r.Cfg.MemoryIndexBudget)
-	} else {
-		wf.MemoryIndex = memory.LoadIndexWithOrg(r.Cfg.MemoryDir, ref, r.Cfg.MemoryIndexBudget)
 	}
 	// 外部工具调用上限可配（v3.41.0）
 	wf.ExternalToolCallLimit = r.Cfg.ExternalToolCallLimit
@@ -172,7 +172,32 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
 	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示
 	wf.OnStage = func(stage string) { r.publishStage(task, stage) }
+	// 详情存档目录（v5.0.0 spill 收编）：超限工具全文落盘任务目录，get_detail 跨
+	// checkpoint 复活/重启取回不失效；顺带 best-effort 清理 7 天前过期任务目录。
+	wf.SpillDir = filepath.Join(r.Cfg.WorkRoot, "spill", task.ID)
+	pruneSpillRoot(r.Cfg.WorkRoot)
 	return wf
+}
+
+// pruneSpillRoot spill 存档过期清理（best-effort，v5.0.0）：7 天前的任务目录整删。
+// 每任务接线时顺带扫一次（任务频率低，扫描成本可忽略）；并发双删无害（后者报错忽略）。
+func pruneSpillRoot(root string) {
+	dir := filepath.Join(root, "spill")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -7)
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
 }
 
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；

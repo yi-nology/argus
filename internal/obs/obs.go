@@ -183,16 +183,6 @@ var (
 		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
 	}, []string{"plugin", "result"})
 
-	// httpRequests/httpDuration 请求级指标（v3.9.2：此前 5xx 率与时延只能靠日志
-	// 聚合；path 用路由模板避免高基数）。
-	httpRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "argus_http_requests_total", Help: "HTTP 请求计数（method/path 模板/status）",
-	}, []string{"method", "path", "status"})
-	httpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "argus_http_request_duration_seconds",
-		Help:    "HTTP 请求时延分布",
-		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-	}, []string{"method", "path", "status"})
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
@@ -207,7 +197,7 @@ func Init() {
 		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
-		pollerFailures, commentBusy, commentPostFailures, httpRequests, httpDuration, bestOfN,
+		pollerFailures, commentBusy, commentPostFailures, bestOfN,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {

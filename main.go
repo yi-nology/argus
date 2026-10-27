@@ -197,7 +197,14 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// mw 响应壳与 logx.Ctx* 日志的 trace_id 皆源于此
 	h.Use(hmw.Middleware()...)
 	// 请求级指标（v3.9.2）：状态码/路由模板计数 + 时延分布（5xx 率可告警）
-	h.Use(obs.HTTPMiddleware())
+	// 请求级指标（v5.0.0 收编 oekit/middleware.PrometheusMetrics，取代 v3.9.2 手写
+	// httpmw）：argus_http_requests_total{method,path,status_code} + 时延直方图，
+	// Registry 缺省即 oekit metrics.Registry（obs.Init 同源）。指标标签 status →
+	// status_code 为唯一迁移差异（CHANGELOG 声明）；增量能力=InFlight gauge 与
+	// 请求/响应体大小直方图。
+	h.Use(mw.NewPrometheusMetrics(mw.PrometheusConfig{
+		Namespace: "argus_http",
+	}).Middleware())
 	// panic 恢复（v3.146.0，oekit mw）：hertz 引擎兜底仅在 PanicHandler 非空时挂
 	//（默认 nil）、netpoll 事件循环显式不 recover——此前任一 handler panic 直接
 	// 打死进程。挂在 obs 内层：恢复出的 500 仍进指标；堆栈走 logx 结构化日志，

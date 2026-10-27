@@ -36,6 +36,7 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/yi-nology/agent-memory/ports"
 )
 
 // System 装配产物：全部子系统就绪后的共享引用集合。
@@ -278,14 +279,23 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	}
 	// 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：agent-memory 底座——
 	// 落库前强制脱敏 + 召回注入防伪（MemoryBand）+ 事实证据链闭合。打开失败降级
-	// 文件面（记忆是增强面，不许拖垮启动）；库文件固定 <MemoryDir>/kernel.db。
+	// 无记忆面（记忆是增强面，不许拖垮启动）；库文件固定 <MemoryDir>/kernel.db。
+	// v5.0.0 文件面退役：内核是记忆唯一路径。
+	// 语义召回轨（v5.0.0）：embedding 端点已配即接通（与 semsearch 同一套
+	// ARGUS_EMBEDDING_* 配置；sqlite 内置持久向量索引 + RRF 词面融合），
+	// 失败运行期降级词面。批量口→单文本口适配在此做，memorykernel 层保持纯净。
 	if cfg.MemoryKernel && cfg.MemoryDir != "" {
 		kpath := filepath.Join(cfg.MemoryDir, "kernel.db")
-		if k, err := memorykernel.Open(kpath, log); err != nil {
+		var kemb ports.Embedder
+		if cfg.EmbeddingBaseURL != "" {
+			kemb = singleTextEmbedder{rag.NewOpenAIEmbedder(
+				cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)}
+		}
+		if k, err := memorykernel.Open(kpath, kemb, log); err != nil {
 			log.Warn("argus.boot.memorykernel_failed", "path", kpath, "error", err.Error())
 		} else {
 			sys.MemKernel = k
-			log.Info("argus.boot.memorykernel_enabled", "path", kpath)
+			log.Info("argus.boot.memorykernel_enabled", "path", kpath, "semantic", kemb != nil)
 		}
 	}
 	sys.Service = &service.Service{
@@ -384,4 +394,19 @@ func indexKnowledgeDir(ctx context.Context, store *rag.MilvusStore, dir string, 
 		indexed++
 	}
 	log.Info("argus.boot.knowledge_indexed", "dir", dir, "files", indexed)
+}
+
+// singleTextEmbedder rag 批量 Embedder → agent-memory 单文本口的装配侧适配件
+//（v5.0.0 记忆语义轨；memorykernel 层不引 rag 保持 L1 纯净）。
+type singleTextEmbedder struct{ inner *rag.OpenAIEmbedder }
+
+func (s singleTextEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	vecs, err := s.inner.Embed(ctx, []string{text})
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 || len(vecs[0]) == 0 {
+		return nil, fmt.Errorf("bootstrap: embedding 空返回")
+	}
+	return vecs[0], nil
 }

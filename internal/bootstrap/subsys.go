@@ -11,7 +11,6 @@ import (
 	"argus/internal/config"
 	"argus/internal/dream"
 	"argus/internal/health"
-	"argus/internal/memory"
 	"argus/internal/memorykernel"
 	"argus/internal/obs"
 	"argus/internal/poller"
@@ -157,8 +156,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			Store:        store,
 			Knowledge:    sys.Knowledge,
 			KnowledgeDir: cfg.KnowledgeDir,
-			MemoryDir:    cfg.MemoryDir,
-			Kernel:       sys.MemKernel,        // v3.151.0 opt-in 双写（nil = 只写文件面）
+			Kernel:       sys.MemKernel,        // v5.0.0 记忆唯一路径（nil = 记忆面哑掉）
 			Learning:     cfg.LearningConfig(), // 前置门已保证 RegretLearning=true
 			ExportTopN:   cfg.RegretInjectTopN,
 			Log:          log,
@@ -183,7 +181,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			if repos, err := store.ListPatternRepos(ctx); err == nil {
 				for _, r := range repos {
 					nss = append(nss, string(memorykernel.NamespaceOf(
-						memory.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
+						memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
 				}
 			}
 			total := 0

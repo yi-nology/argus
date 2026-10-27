@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oekit/logx"
+
 	"argus/internal/learning"
-	"argus/internal/memory"
+	"argus/internal/memorykernel"
 	"argus/internal/storage"
 )
 
@@ -133,11 +135,15 @@ func TestBetterKeepStable(t *testing.T) {
 	}
 }
 
-// 记忆面双写（v3.35.0）：低置信模式逐事实落 MemoryDir（一文件一事实），
+// 记忆面内核写（v5.0.0 文件面退役，内核唯一路径）：低置信模式逐事实落内核事实卡，
 // 澄清路径同步退场——与知识导出同源同生命周期。
 func TestExportRepoWritesMemoryFacts(t *testing.T) {
 	kdir := t.TempDir()
-	mdir := t.TempDir()
+	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.NewSlogLogger("dream-test"))
+	if err != nil {
+		t.Fatalf("kernel open: %v", err)
+	}
+	defer k.Close()
 	st := &fakeStore{
 		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
 		low: map[string][]learning.PatternState{
@@ -149,26 +155,24 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 			},
 		},
 	}
-	d := &Dream{Store: st, KnowledgeDir: kdir, MemoryDir: mdir, Learning: learning.Config{
+	d := &Dream{Store: st, KnowledgeDir: kdir, Kernel: k, Learning: learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35,
 	}}
 	if _, exported, err := d.RunOnce(context.Background()); err != nil || exported != 1 {
 		t.Fatalf("exported=%d err=%v", exported, err)
 	}
-	ref := memory.Ref{Platform: "gitea", Owner: "acme", Repo: "app"}
-	idx := memory.LoadIndex(mdir, ref, 0)
-	if !strings.Contains(idx, "魔法数字") || !strings.Contains(idx, "错误未上抛") {
-		t.Fatalf("记忆索引应含两条事实，got %q", idx)
+	ref := memorykernel.Ref{Platform: "gitea", Owner: "acme", Repo: "app"}
+	ns := memorykernel.NamespaceOf(ref)
+	idx := k.RecallIndex(context.Background(), ns, "", "dream-test", "魔法数字", 2000)
+	if !strings.Contains(idx, "魔法数字") {
+		t.Fatalf("记忆召回应含事实，got %q", idx)
 	}
-	if strings.Contains(idx, "魔法数字\n第二行") {
-		t.Fatal("description 内换行应压平（单行 frontmatter）")
-	}
-	// 澄清路径：记忆同步清空（不留场）
+	// 澄清路径：记忆同步退场（不留场）
 	st.low = map[string][]learning.PatternState{}
 	if _, _, err := d.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := memory.LoadIndex(mdir, ref, 0); got != "" {
+	if got := k.RecallIndex(context.Background(), ns, "", "dream-test", "魔法数字", 2000); strings.Contains(got, "魔法数字") {
 		t.Fatalf("无低置信后记忆应退场，got %q", got)
 	}
 }
@@ -186,26 +190,30 @@ func TestExportOrgMemoryCrossRepoAggregation(t *testing.T) {
 			"acme/web": {{Pattern: shared, Plugin: "security", Confidence: 0.3, Samples: 3}},
 		},
 	}
-	dir := t.TempDir()
-	d := &Dream{Store: st, Learning: learning.DefaultConfig(), MemoryDir: dir}
-	_, _, err := d.RunOnce(context.Background())
+	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.NewSlogLogger("dream-test"))
 	if err != nil {
+		t.Fatalf("kernel open: %v", err)
+	}
+	defer k.Close()
+	d := &Dream{Store: st, Kernel: k, Learning: learning.DefaultConfig()}
+	if _, _, err := d.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	orgDir := filepath.Join(dir, "_org")
-	entries, rerr := os.ReadDir(orgDir)
-	if rerr != nil || len(entries) == 0 {
-		t.Fatalf("组织桶应有聚合文件: %v", rerr)
+	atoms, gerr := k.ListAtoms(context.Background(), memorykernel.OrgNamespace)
+	if gerr != nil || len(atoms) == 0 {
+		t.Fatalf("组织桶应有聚合事实卡: %v", gerr)
 	}
-	raw, _ := os.ReadFile(filepath.Join(orgDir, entries[0].Name()))
-	if !strings.Contains(string(raw), "2 仓共现") || !strings.Contains(string(raw), "acme/app") {
-		t.Fatalf("聚合内容不符: %s", raw)
+	joined := ""
+	for _, a := range atoms {
+		joined += a.Assertion
+	}
+	if !strings.Contains(joined, "2 仓共现") || !strings.Contains(joined, "acme/app") {
+		t.Fatalf("聚合内容不符: %s", joined)
 	}
 	// 单仓独有模式不应入组织桶
-	for _, e := range entries {
-		b, _ := os.ReadFile(filepath.Join(orgDir, e.Name()))
-		if strings.Contains(string(b), "1 仓共现") {
-			t.Fatalf("单仓模式不应入组织桶: %s", b)
+	for _, a := range atoms {
+		if strings.Contains(a.Assertion, "1 仓共现") {
+			t.Fatalf("单仓模式不应入组织桶: %s", a.Assertion)
 		}
 	}
 }

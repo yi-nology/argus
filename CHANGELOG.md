@@ -3,6 +3,17 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v5.0.0（2026-10-27，大版本：四库深度收敛）
+
+三路系统重叠盘点（agent-harness 27 包 / agent-memory 全链 / oekit+oagentkit 25 模块逐一对照 argus internal 36 包）后按「机制面收编、领域面保留」纪律实施。净删 262 行。
+
+- **依赖升级**：agent-memory v0.8.0 → v0.9.0（向量轨/查询理解/评测面；AtomLooseSearcher 拆可选能力，argus 用法零改动）；其余 oekit/oagentkit/harness 均已在最新。
+- **spill 收编**（harness）：R3 工具大输出两级化从进程内 map（v3.39.0）切磁盘存档 `<WorkRoot>/spill/<taskID>/`——checkpoint 复活/进程重启后 get_detail 不再落空（旧实现重启即失）；get_detail 的 ref 走 `^d\d+$` 白名单挡路径注入；7 天过期任务目录 best-effort 清理。截断提示文案与 get_detail 工具壳保留（模型可见契约零变化，6 个调用点零改动）。
+- **memory 文件面退役**（agent-memory）：internal/memory 包（markdown 事实文件+索引注入）整体删除，Ref/OrgRef/SingleLine/IndexBudgetRunes 收进 memorykernel；dream 双写、runner/service 读侧双路收编为内核单路径。⚠️ 行为变化：ARGUS_MEMORY_KERNEL=0 时记忆注入面消失（此前走文件面兜底）——内核是唯一路径，kernel.db 路径仍由 ARGUS_MEMORY_DIR 决定。盘点中发现 promotion 取代链补丁不适用于同 slug upsert（覆写后新卡自带新事件引用，证据链本身闭合），未采纳。
+- **语义召回轨接入**（agent-memory v0.9）：ARGUS_EMBEDDING_BASE_URL 已配即接通 recall 语义路（sqlite 内置持久向量索引 atom_vectors + RRF 词面融合）——R3/QA 记忆召回从纯词面升级语义融合；embedding 调用失败运行期降级词面。批量口→单文本口适配在 bootstrap 装配侧（memorykernel 保持 L1 不引 rag）。未配 embedding = 词面照旧，零行为变化。
+- **指标中间件收编**（oekit/middleware.PrometheusMetrics 取代手写 httpmw，v3.9.2）：⚠️ 指标标签 `status` → `status_code`（argus_http_requests_total/argus_http_request_duration_seconds），Grafana/告警引用需同步；增量能力 InFlight gauge + 请求/响应体直方图。
+- **评估后不采纳**（留档勿重探）：semsearch 抽取层切 textx/codeintel——embedding 语料会变而 search_sem 无独立评测护栏，语料变化不可验证；dispatch/pattern 账本/printalias/QA 滚动摘要/poster 锚点幂等等 12 项均为领域语义层，库内无对应物（详见盘点结论：argus 对四库的消费已是深度适配形态）。
+
 ## v3.70.0 ~ v3.103.0（浓缩）
 
 - **v3.70.0** [fix/plugin] remote/mcp 对接 review-service mcp-server 编排契约

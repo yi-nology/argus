@@ -70,11 +70,15 @@ type Workflow struct {
 	// 转义预处理，stages 注入侧带对冲句。
 	RepoGuide string
 
-	// 详情库（v3.39.0 大输出两级化）：超限工具全文暂存，模型经 get_detail 取回。
-	// workflow 每任务构造 → 任务级生命周期；条数/单条上限防 OOM。
-	detailMu    sync.Mutex
-	detailStore map[string]string
-	detailSeq   int
+	// 详情存档目录（v5.0.0 收编 agent-harness/spill 语义，取代 v3.39.0 进程内 map）：
+	// 超限工具全文落盘 <WorkRoot>/spill/<taskID>/，get_detail 取回——checkpoint 复活/
+	// 进程重启后 ref 不再失效（旧 map 版重启即失）。runner wireWorkflow 每任务注入；
+	// 空 = 两级化退纯截断（无取回指引）。
+	SpillDir string
+
+	// spillSeq 存档序号分配（spillMu 护并发工具调用的 ref 唯一性）。
+	spillMu  sync.Mutex
+	spillSeq int
 
 	// OnStage 阶段进度回调（v3.40.0，runner 接线 SSE 发布；nil 安全）。
 	OnStage func(stage string)

@@ -557,6 +557,8 @@ github.com/yi-nology/agent-harness v0.13.0 h1:NBI6zXiMYcrV9dEmhh9GD8qQdrzdeCUVc/
 github.com/yi-nology/agent-harness v0.13.0/go.mod h1:0KKifw1A57f8oMRatPt1OXuvDw2L22ea3oueL6pFElI=
 github.com/yi-nology/agent-memory v0.8.0 h1:M+L08VXu8nyz3GNyc15XYfPUUh+5UPcTzkzJPwDVlSs=
 github.com/yi-nology/agent-memory v0.8.0/go.mod h1:cv8n4oNXWIFuxh8tnshxHmIHgV4tgyv9PxmxNkuWkaw=
+github.com/yi-nology/agent-memory v0.9.0 h1:Ufkuxe8NpL2JDd0m0PGLDnO3u+hRMlBcJd+uwyEQKes=
+github.com/yi-nology/agent-memory v0.9.0/go.mod h1:hCCt3W3X/u3zFSIAalH8PDbuchMV5FfhA4aMukroEMs=
 github.com/yi-nology/go-git-platform v0.96.0 h1:wLcju2mRoIxpWycaitzJjzQtKGcdGTAsKW7fDWOpRLw=
 github.com/yi-nology/go-git-platform v0.96.0/go.mod h1:EXzoS86mxEiQzXru7VCS5m4IG0Mi2Yv/NI2n4xXchDk=
 github.com/yi-nology/go-gitcode v0.7.2 h1:ULEoYgRzhLXBlvZAfj7/9yP9F9pTqHL5vpNebiZcSr8=

@@ -58,7 +58,6 @@ var layering = map[string][]string{
 	"argus/internal/codesearch": {},
 	"argus/internal/semsearch":  {},
 	"argus/internal/learning":   {},
-	"argus/internal/memory":     {},
 	"argus/internal/progress":   {},
 	"argus/internal/gitdeepen":  {},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
@@ -92,10 +91,7 @@ var layering = map[string][]string{
 	"argus/internal/health":     {"argus/internal/learning"},
 	"argus/internal/context":    {"argus/internal/config", "argus/internal/obs", "argus/internal/plugin"},
 	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
-	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memory", "argus/internal/memorykernel", "argus/internal/plugin", "argus/internal/storage"},
-	// v3.151.0：agent-memory 内核适配层（ARGUS_MEMORY_KERNEL opt-in）；
-	// 依赖 memory 仅取 Ref 形态同形，不反向。
-	"argus/internal/memorykernel": {"argus/internal/memory"},
+	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memorykernel", "argus/internal/plugin", "argus/internal/storage"},
 	"argus/internal/poster":       {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
 	"argus/internal/poller":       {"argus/internal/context", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
 	"argus/internal/ocrdeleg":     {"argus/internal/gitdeepen", "argus/internal/plugin"},
@@ -110,7 +106,7 @@ var layering = map[string][]string{
 	"argus/internal/runner": {
 		"argus/internal/config", "argus/internal/context",
 		"argus/internal/dispatch",
-		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning", "argus/internal/memory",
+		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning",
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
 		"argus/internal/poster", "argus/internal/progress", "argus/internal/reposettings", "argus/internal/reportview",
@@ -121,7 +117,7 @@ var layering = map[string][]string{
 		"argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/dispatch",
 		"argus/internal/impactview",
-		"argus/internal/memory", "argus/internal/memorykernel", "argus/internal/obs",
+		"argus/internal/memorykernel", "argus/internal/obs",
 		"argus/internal/plugin", "argus/internal/progress", "argus/internal/qa",
 		"argus/internal/reposettings", "argus/internal/semsearch", "argus/internal/storage",
 		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
