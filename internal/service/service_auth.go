@@ -43,14 +43,21 @@ func (s *Service) authTokens() []authToken {
 	return out
 }
 
-// requiredScope 方法+路径 → 所需权限档：POST /findings/*（误报抑制写库）=
-// admin；其余 POST/DELETE（建任务、MCP 会话）= ci；读面 = read。
+// requiredScope 方法+路径 → 所需权限档：POST /findings/*（误报抑制写库）与
+// PUT|DELETE /repo-settings*（按仓配置是信任面写入）= admin；其余 POST/DELETE
+//（建任务、MCP 会话）= ci；PUT 兜底 admin——写语义缺省最严档，新增写路由漏配
+// scope 时 fail-closed 而非裸放 read；读面 = read。
 func requiredScope(method, path string) string {
 	switch {
 	case method == http.MethodPost && strings.HasPrefix(path, "/findings/"):
 		return "admin"
+	case strings.HasPrefix(path, "/repo-settings") &&
+		(method == http.MethodPut || method == http.MethodDelete):
+		return "admin"
 	case method == http.MethodPost || method == http.MethodDelete:
 		return "ci"
+	case method == http.MethodPut:
+		return "admin"
 	default:
 		return "read"
 	}

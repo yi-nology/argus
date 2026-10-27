@@ -80,7 +80,8 @@ func (s *Service) prDiffText(ctx context.Context, platform, owner, repo, number 
 	if err != nil || md == nil {
 		return "", false
 	}
-	dc := argusctx.Prepare(md, s.Cfg.MaxDiffCharsResolved())
+	// diff 上限按仓生效（v3.187.0 repo_settings 覆盖 → 全局派生兜底）
+	dc := argusctx.Prepare(md, s.repoMaxDiffCharsFor(ctx, platform, owner, repo))
 	if dc == nil || strings.TrimSpace(dc.Text) == "" {
 		return "", false
 	}

@@ -26,10 +26,11 @@ import (
 )
 
 // repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed
-// 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。预算路径不重试
-// （刻意）→ 直接终态告知（v3.30.1）。
-func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task) bool {
-	if r.Cfg.RepoMonthlyTokenBudget <= 0 {
+// 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。monthlyBudget
+// 为按仓旋钮合并后的生效值（v3.187.0 taskKnobs；0 = 关）。预算路径不重试
+//（刻意）→ 直接终态告知（v3.30.1）。
+func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task, monthlyBudget int) bool {
+	if monthlyBudget <= 0 {
 		return false
 	}
 	now := time.Now()
@@ -39,12 +40,12 @@ func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task) bool {
 		r.Log.Warn("argus.runner.budget_check_failed", "task", task.ID, "error", err.Error())
 		return false
 	}
-	if used < int64(r.Cfg.RepoMonthlyTokenBudget) {
+	if used < int64(monthlyBudget) {
 		return false
 	}
 	r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
-		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", r.Cfg.RepoMonthlyTokenBudget)
-	reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, r.Cfg.RepoMonthlyTokenBudget)
+		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", monthlyBudget)
+	reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, monthlyBudget)
 	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 	} else if fenced {
@@ -101,7 +102,7 @@ func (r *Runner) handleRunFailure(ctx context.Context, task *storage.Task, budge
 
 // 增量 diff → stale 判定。stale=true 表示 diff 与上次完全一致、stale 终态已
 // 落地，调用方直接返回；err 非 nil 为真实失败。
-func (r *Runner) prepareContext(ctx context.Context, task *storage.Task) (
+func (r *Runner) prepareContext(ctx context.Context, task *storage.Task, knobs taskKnobs) (
 	pr *plugin.PRContext, rc *plugin.RepoConfig, diff *plugin.DiffContext, stale bool, err error) {
 
 	pr, err = r.buildPRContext(ctx, task)
@@ -115,7 +116,7 @@ func (r *Runner) prepareContext(ctx context.Context, task *storage.Task) (
 		Exclude: rc.Review.ExcludePaths,
 		Include: rc.Review.IncludePaths,
 	}
-	diff, err = r.buildDiffIncremental(ctx, pr, task, diffOpts)
+	diff, err = r.buildDiffIncremental(ctx, pr, task, knobs.maxDiffChars, diffOpts)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}

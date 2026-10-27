@@ -377,6 +377,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /events` | 🔒 Bearer | SSE 任务进度流（阶段事件实时推送）|
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
+| `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖，PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
 ### 5. 常用环境变量

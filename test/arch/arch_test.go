@@ -63,6 +63,8 @@ var layering = map[string][]string{
 	"argus/internal/gitdeepen":  {},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
 	"argus/internal/impactview": {},
+	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
+	"argus/internal/reposettings": {},
 
 	// ---- 域类型层：只依赖更纯的域类型 ----
 	"argus/internal/domain": {"argus/internal/learning"},
@@ -111,7 +113,7 @@ var layering = map[string][]string{
 		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning", "argus/internal/memory",
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
-		"argus/internal/poster", "argus/internal/progress", "argus/internal/reportview",
+		"argus/internal/poster", "argus/internal/progress", "argus/internal/reposettings", "argus/internal/reportview",
 		"argus/internal/sastscan", "argus/internal/sink", "argus/internal/storage",
 		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
 	},
@@ -121,7 +123,7 @@ var layering = map[string][]string{
 		"argus/internal/impactview",
 		"argus/internal/memory", "argus/internal/memorykernel", "argus/internal/obs",
 		"argus/internal/plugin", "argus/internal/progress", "argus/internal/qa",
-		"argus/internal/semsearch", "argus/internal/storage",
+		"argus/internal/reposettings", "argus/internal/semsearch", "argus/internal/storage",
 		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
 		// 委派（与 runner→writing 同向；同 qa 消费先例）。
 		"argus/internal/writing",

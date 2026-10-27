@@ -257,6 +257,47 @@ func TestNew_ToolRegistrationWithCopilot(t *testing.T) {
 	}
 }
 
+// fakeRepoCfgCore 在 fakeCore 之上实现按仓配置视图面（get_repo_config 数据面）。
+type fakeRepoCfgCore struct {
+	fakeCore
+	view map[string]any
+}
+
+func (f *fakeRepoCfgCore) RepoSettingsView(_ context.Context, _, _, _ string) (map[string]any, int) {
+	return f.view, http.StatusOK
+}
+
+// core 实现 RepoConfigViewer 时注册 get_repo_config 并可调用（v3.187.0）；
+// 未实现时 tools/list 不出现死工具（TestNew_ToolRegistrationCoreOnly 已覆盖反向）。
+func TestNew_RepoConfigTool(t *testing.T) {
+	srv := New(&fakeRepoCfgCore{view: map[string]any{
+		"found": true, "source": "repo_override",
+		"settings":  map[string]any{"max_diff_chars": 200000},
+		"effective": map[string]any{"monthly_token_budget": 5000000, "task_token_budget": 400000, "max_diff_chars": 200000},
+	}}, "v-test")
+	found := false
+	for _, n := range listToolNames(t, srv) {
+		if n == "get_repo_config" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("实现 RepoConfigViewer 后应注册 get_repo_config")
+	}
+	text, isErr := callTool(t, srv, "get_repo_config",
+		map[string]any{"platform": "gitea", "owner": "acme", "repo": "web"})
+	if isErr {
+		t.Fatalf("应成功: %s", text)
+	}
+	if !strings.Contains(text, "repo_override") || !strings.Contains(text, "max_diff_chars") {
+		t.Fatalf("视图内容缺失: %s", text)
+	}
+	// 缺必填 → 工具级错误回执（非 panic）。
+	if _, isErr := callTool(t, srv, "get_repo_config", map[string]any{"platform": "gitea"}); !isErr {
+		t.Fatal("缺 owner/repo 应 isError")
+	}
+}
+
 // ---------- list_agents / get_report ----------
 
 func TestListAgents_JSON(t *testing.T) {

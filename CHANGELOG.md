@@ -69,6 +69,7 @@
 - **v3.123.1** [docs+skill] agent skill 实弹校准（215 部署后本机安装 ~/.claude/skills 实测 13 工具全通）——fix_finding 未启用报错文案纠为短版（FixFinding 入口命中 fix.go:99 守卫，非 fix.go:62 长文案）；copilot -timeout 30s 会超 LLM 调用的提醒从 fix 扩到 review/ask（实测同步快审超时实锤）；token 来源补单 token ARGUS_APITOKEN（admin 等价）部署形态
 - **v3.123.2** [docs+skill] skill 密钥卫生加固（泄漏自查轮）——argus-mcp 安全边界补 token 落地纪律（MCP 配置/env 明文、勿入库勿外传、外部 AI 用 ci 档最小权限）；argus-precommit hook 示例去掉 -token 硬编码形态改走 ARGUS_APITOKEN env
 - **v3.183.0 ~ v3.185.3** [feat/impact] 改动影响面视图——internal/impactview 分层管线（文件/import 反向闭包/符号调用方/测试面/历史共变/函数级图 diff）+ 确定性风险分 + 四出口（PR 评论 mermaid·MCP get_impact·GET /tasks/:id/impact 交互 HTML·prompt 注入 R4）；连修四 bug：挂边端点缺 file: 前缀、hertz c.String 覆盖 Content-Type、renderMermaid edges[:0] 别名污染、MergeTaskArtifacts 对 artifacts_json="null" panic（TaskAPI 路径任务卡死 running）；arch 白名单新增 impactview（L0 纯底座）与 runner/service→impactview
+- **v3.187.0** [feat/config] 服务侧按仓配置——internal/reposettings（L0 纯底座：Settings 三旋钮 + Parse 严格校验：DisallowUnknownFields/非正整数拒绝/尾随内容拒绝）+ repo_settings 表（platform/owner/repo 主键，AutoMigrate）+ admin API（GET|PUT|DELETE /repo-settings/:platform/:owner/:repo + GET /repo-settings，写档 requiredScope 收口 admin、PUT 兜底 admin 防裸放 read）+ MCP get_repo_config（只读合并视图，工具面 20→21）+ runner taskKnobs 单次加载（repoBudgetGate/Execute 预算/prepareContext diff 上限三消费点）+ describe 按仓 diff 上限；语义：repo_settings 是 admin token 写入的可信面（可上调下调），与 .reviewagents.yaml 半可信文件面（只能收窄）分层；SAST/OCR/LLM endpoint 仍只来自部署 env（供应链红线不破）；arch 白名单新增 reposettings（L0）与 runner/service→reposettings
 
 ---
 

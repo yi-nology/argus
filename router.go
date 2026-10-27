@@ -21,4 +21,9 @@ func customizedRegister(r *server.Hertz) {
 	r.GET("/stats/overview", append(routerapi.Auth(), api.StatsOverview)...)
 	// v3.183.0 影响面视图（🔒 复用 Bearer 鉴权；自包含交互 HTML，零外链）
 	r.GET("/tasks/:taskId/impact", append(routerapi.Auth(), api.TaskImpact)...)
+	// v3.187.0 服务侧按仓配置（🔒 读 read / 写 admin；写档由 requiredScope 收口）
+	r.GET("/repo-settings", append(routerapi.Auth(), api.RepoSettingsList)...)
+	r.GET("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsGet)...)
+	r.PUT("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsPut)...)
+	r.DELETE("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsDelete)...)
 }

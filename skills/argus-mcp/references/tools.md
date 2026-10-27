@@ -186,6 +186,16 @@ PR 工作副本**语义检索**（v3.126.0）：按意图/自然语言找代码�
 
 返回 `{matched}`（false=无匹配或短码歧义，不猜测）。**需 admin 档 token**（与 suppress 同门）。
 
+### get_repo_config
+
+某仓库的按仓配置与生效参数只读视图（v3.187.0）：`repo_settings` 表覆盖 + 全局默认合并后的 effective 参数——核查某仓实际按什么预算/上限在跑、诊断预算拦截（任务 failed 且 FailReason 含「预算已耗尽」）前先查这里。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `platform`/`owner`/`repo` | string | ✓ | 定位仓库（platform 须为部署装配过的平台） |
+
+返回 JSON：`found`（是否有按仓覆盖）、`settings`（覆盖集，monthly_token_budget/task_token_budget/max_diff_chars 可选键）、`effective`（三旋钮生效值：覆盖优先，无覆盖即全局默认）、`source`（repo_override|global_default）、`updated_by`/`updated_at`（写入者 token 指纹与时间）。**只读**——写入走 HTTP admin API：`PUT /repo-settings/{platform}/{owner}/{repo}`（body 为覆盖集 JSON，未知字段/非正整数拒绝；空覆盖拒收，移除用 DELETE；PUT|DELETE 需 admin 档 token）。`repo_settings` 与仓库内 `.reviewagents.yaml` 分层：前者是 admin token 写入的可信面（预算/上限可上调下调），后者是半可信文件面（插件选禁/评审规范，只能收窄）；SAST/OCR/LLM endpoint 永远只来自部署 env，任何仓库配置碰不到。
+
 ### get_impact
 
 任务改动影响面快照（v3.183.0，blast radius）：分层管线（文件层/import 反向闭包/符号调用方/测试面/历史共变）+ 确定性风险分，零 LLM、可复现。

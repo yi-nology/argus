@@ -178,13 +178,16 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
-	budget := dispatch.NewTokenBudget(r.Cfg.EffectiveTaskTokenBudget())
-	taskCost := llm.NewCostTracker()
-	ctx = r.execContext(ctx, budget, taskCost)
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
 	}
+	// 按仓旋钮单次加载（v3.187.0）：repo_settings 覆盖 → 全局默认，预算闸/
+	// 任务预算/diff 上限三处消费全程共用（runner_knobs.go）。
+	knobs := r.loadTaskKnobs(ctx, task)
+	budget := dispatch.NewTokenBudget(knobs.taskTokenBudget)
+	taskCost := llm.NewCostTracker()
+	ctx = r.execContext(ctx, budget, taskCost)
 	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
 	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
 	ctx = toolpool.WithCallMeta(ctx, map[string]any{
@@ -204,11 +207,11 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
 		r.postStartMarker(ctx, task)
 
-		if r.repoBudgetGate(ctx, task) {
+		if r.repoBudgetGate(ctx, task, knobs.monthlyBudget) {
 			return nil
 		}
 
-		if rerr := r.run(ctx, task, wf, budget, start, taskCost); rerr != nil {
+		if rerr := r.run(ctx, task, wf, budget, start, taskCost, knobs); rerr != nil {
 			r.handleRunFailure(ctx, task, budget, rerr)
 		}
 		return nil
@@ -250,7 +253,7 @@ func guardPanic(log logx.Logger, taskID string, body func() error) (err error) {
 // finalizeAndAnnounce（终态落库/sink/marker/播报）。此前 202 行单体是
 // 勘察在案的可读性债（finish/r3Tools 同款清偿）。
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
-	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker) error {
+	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker, knobs taskKnobs) error {
 
 	// CI 失败归因（v3.71.0）：不依赖 MR 语义（push 的 commit 无 CR 可拉），
 	// 在 prepareContext 之前分派——输入是失败 job 日志而非 diff。
@@ -264,7 +267,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		return r.runDiffPreview(ctx, task, start)
 	}
 
-	pr, rc, diff, stale, err := r.prepareContext(ctx, task)
+	pr, rc, diff, stale, err := r.prepareContext(ctx, task, knobs)
 	if err != nil {
 		return err
 	}

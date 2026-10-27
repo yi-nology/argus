@@ -49,15 +49,15 @@ func (r *Runner) buildPRContext(ctx context.Context, task *storage.Task) (*plugi
 // buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。
 // 仅在 synchronize 事件（PR 更新）且存在前置审查记录时激活增量路径；
 // 其余场景退化为全量 Prepare。opts 为仓库级路径过滤（v3.15.0 review 段）。
+// totalLimit 由调用方传按仓旋钮生效值（v3.187.0 taskKnobs.maxDiffChars）。
 func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext, task *storage.Task,
-	opts ...argusctx.PrepareOptions) (*plugin.DiffContext, error) {
+	totalLimit int, opts ...argusctx.PrepareOptions) (*plugin.DiffContext, error) {
 	md, err := r.SDK.GetCRDiff(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
 		return nil, fmt.Errorf("获取 diff 失败: %w", err)
 	}
 	// 任一路径只要 Prepare 成功即视为 diffprep 执行（活检）
 	defer plugin.ReportLayerExec(plugin.LayerDiffprep)
-	totalLimit := r.Cfg.MaxDiffCharsResolved()
 
 	// 非 synchronize 事件 → 全量审查（首次审查 / reopen 等）
 	if task.EventType != "cr.synchronize" {

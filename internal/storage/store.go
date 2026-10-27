@@ -239,7 +239,7 @@ func Open(dsn string) (*Store, error) {
 			return nil, fmt.Errorf("storage: 挂载 gorm 插件失败: %w", uerr)
 		}
 	}
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if !s.sqlite {

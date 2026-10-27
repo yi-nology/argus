@@ -30,7 +30,7 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
-## 工具面速查（20 个，常驻注册）
+## 工具面速查（21 个，常驻注册）
 
 | 工具 | 用途 | 必填 | 关键约束 |
 |---|---|---|---|
@@ -54,6 +54,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `get_capabilities` | 能力面快照（部署开了什么） | 无 | 纯读零副作用；调受限工具前先看这里 |
 | `search_findings` | 本仓历史意见账本检索 | platform/owner/repo/query | limit 可选（缺省 10 上界 50）；带 status/复现次数/fp 短码 |
 | `get_impact` | 改动影响面快照（blast radius） | task_id | 分层管线+确定性风险分，含 nodes/edges/mermaid 可直渲染；running 早期/未开 ARGUS_IMPACTVIEW 时无快照 |
+| `get_repo_config` | 按仓配置与生效参数只读视图 | platform/owner/repo | effective 预算/上限三旋钮；写走 HTTP admin API（PUT/DELETE /repo-settings/...，admin 档）；诊断预算拦截先查它 |
 
 ## 标准工作流
 
@@ -105,4 +106,4 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ## 参考文件
 
-- **[references/tools.md](references/tools.md)** — 全部 20 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。
+- **[references/tools.md](references/tools.md)** — 全部 21 工具的参数表、返回结构、错误语义、argus-copilot 子命令映射（含 review/poll 退出码契约）。入参拿不准时先查它。
