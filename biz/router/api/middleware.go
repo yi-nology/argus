@@ -68,3 +68,50 @@ func _findingsMw() []app.HandlerFunc {
 func _suppressfindingMw() []app.HandlerFunc {
 	return authMw() // 🔒
 }
+
+func _taskidMw() []app.HandlerFunc {
+	// /tasks/:taskId 组（TaskImpact 嵌套树父组）；🔒 挂在叶子 _taskimpactMw
+	return nil
+}
+
+func _taskimpactMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.183.0 影响面视图
+}
+
+func _tasks0Mw() []app.HandlerFunc {
+	// /tasks/:taskId 组（GetTask 嵌套树父组）；🔒 挂在叶子 _gettaskMw
+	return nil
+}
+
+func _restorefindingMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.131.0 恢复抑制（admin 档由 requiredScope 收口）
+}
+
+func _reportsMw() []app.HandlerFunc {
+	// /reports 组：组内 /health 与 /:ref 各自挂 auth（与 /tasks 组同风格）
+	return nil
+}
+
+func _healthreportMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.13.0 健康报告
+}
+
+func _reportbyrefMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.1 按 ref 查报告
+}
+
+func _statsMw() []app.HandlerFunc {
+	return nil
+}
+
+func _statsoverviewMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.88.0 概览聚合
+}
+
+func _usageMw() []app.HandlerFunc {
+	return nil
+}
+
+func _usagemonthlyMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.1 月度用量
+}

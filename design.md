@@ -530,6 +530,13 @@ OPENAI_BASE_URL|API_KEY|MODEL`。
 - §5.1 轮询兜底（新增任务来源）：平台入站 webhook 不可达环境（试点实测）出站轮询 PR，
   同 SHA 双查去重与 webhook 完全同语义；轮询任务无事件类型，Triggers.Events 视为通过。
 - §5 路由表：新增 `GET /tasks`（列表）与 `POST /findings/suppress`；两者均 🔒。
+- §5 路由表（v3.188.0 收敛）：六条散落手工注册的业务路由收编进 IDL 生成面
+  （/reports/:ref、/usage/monthly、/stats/overview、/tasks/:taskId/impact、
+  /reports/health、/findings/restore），"IDL 是接口唯一事实来源"恢复成立；
+  刻意留在 IDL 外的只剩 infra 探针（/healthz /readyz /version /metrics）、
+  协议面（/mcp、/.well-known/agent.json）、SSE（/events）与 /ping 遗留，分工
+  在 idl/argus.thrift 头注释声明；同时修掉 TaskKind 枚举/duplicated 字段的
+  生成物手改（源头补齐，hz update 可再生成）。
 - §9.2 方向 B 实装：`/mcp` 由占位转正式（mark3labs/mcp-go streamable http + Bearer），
   四工具 review_pr/requirement_compliance/list_agents/get_report；方向 A（toolpool）
   仍为独立扩展点，不合流。

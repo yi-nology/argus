@@ -19,12 +19,31 @@ func Register(r *server.Hertz) {
 	root := r.Group("/", rootMw()...)
 	root.GET("/agents", append(_listagentsMw(), api.ListAgents)...)
 	root.GET("/tasks", append(_listtasksMw(), api.ListTasks)...)
-	root.POST("/tasks", append(_createtaskMw(), api.CreateTask)...)
 	_tasks := root.Group("/tasks", _tasksMw()...)
-	_tasks.GET("/:taskId", append(_gettaskMw(), api.GetTask)...)
+	{
+		_taskid := _tasks.Group("/:taskId", _taskidMw()...)
+		_taskid.GET("/impact", append(_taskimpactMw(), api.TaskImpact)...)
+	}
+	root.POST("/tasks", append(_createtaskMw(), api.CreateTask)...)
+	_tasks0 := root.Group("/tasks", _tasks0Mw()...)
+	_tasks0.GET("/:taskId", append(_gettaskMw(), api.GetTask)...)
 	{
 		_findings := root.Group("/findings", _findingsMw()...)
+		_findings.POST("/restore", append(_restorefindingMw(), api.RestoreFinding)...)
 		_findings.POST("/suppress", append(_suppressfindingMw(), api.SuppressFinding)...)
+	}
+	{
+		_reports := root.Group("/reports", _reportsMw()...)
+		_reports.GET("/health", append(_healthreportMw(), api.HealthReport)...)
+		_reports.GET("/:ref", append(_reportbyrefMw(), api.ReportByRef)...)
+	}
+	{
+		_stats := root.Group("/stats", _statsMw()...)
+		_stats.GET("/overview", append(_statsoverviewMw(), api.StatsOverview)...)
+	}
+	{
+		_usage := root.Group("/usage", _usageMw()...)
+		_usage.GET("/monthly", append(_usagemonthlyMw(), api.UsageMonthly)...)
 	}
 	{
 		_webhook := root.Group("/webhook", _webhookMw()...)

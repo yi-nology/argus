@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"strconv"
 
 	api "argus/biz/model/api"
 	"argus/internal/service"
@@ -105,6 +106,99 @@ func ListTasks(ctx context.Context, c *app.RequestContext) {
 	resp, statusCode := Svc.ListTasks(ctx, status, limit)
 	if statusCode != consts.StatusOK {
 		mw.ErrorResp(c, statusCode, "查询失败")
+		return
+	}
+	mw.SuccessRespMsg(c, resp, "ok")
+}
+
+// —— 2026-10-27 IDL 收编：以下 handler 原散落 report_service.go / impact_view.go /
+// health_handler.go（router.go / main.go 手工注册），路由入 idl/argus.thrift 后
+// 按 hz 约定归位本文件（TaskService）。
+
+// ReportByRef 按 head SHA 查最近一次成功审查报告（v3.1）。
+// @router /reports/:ref [GET]
+func ReportByRef(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	ref := c.Param("ref")
+	if ref == "" {
+		mw.ErrorResp(c, consts.StatusBadRequest, "缺少 ref")
+		return
+	}
+	resp, status := Svc.GetReportByRef(ctx, ref)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "未找到该 commit 的报告")
+		return
+	}
+	mw.SuccessRespMsg(c, resp, "ok")
+}
+
+// UsageMonthly 本月各仓库 token 用量与预算水位（v3.1）。
+// @router /usage/monthly [GET]
+func UsageMonthly(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	data, status := Svc.UsageMonthly(ctx)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "用量查询失败")
+		return
+	}
+	mw.SuccessRespMsg(c, data, "ok")
+}
+
+// StatsOverview 审查概览聚合（按仓任务量/verdict 分布/抑制计数，仪表盘数据面）。
+// @router /stats/overview [GET]
+func StatsOverview(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	days := 0
+	if raw := c.Query("days"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			days = n
+		}
+	}
+	data, status := Svc.StatsOverview(ctx, c.Query("platform"), c.Query("owner"), c.Query("repo"), days)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "概览查询失败")
+		return
+	}
+	mw.SuccessRespMsg(c, data, "ok")
+}
+
+// TaskImpact 任务影响面视图（text/html 自包含单文件，零外链，v3.183.0）。
+// @router /tasks/:taskId/impact [GET]
+func TaskImpact(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	taskID := c.Param("taskId")
+	if taskID == "" {
+		mw.ErrorResp(c, consts.StatusBadRequest, "缺少 taskId")
+		return
+	}
+	page, ok := Svc.ImpactViewHTML(ctx, taskID)
+	if !ok {
+		mw.ErrorResp(c, consts.StatusNotFound, "任务不存在或尚无影响面快照")
+		return
+	}
+	// c.Data 直写字节体——c.String 会覆盖先前 set 的 Content-Type 为
+	// text/plain（hertz 行为，实浏览器调试抓出），HTML 必须显式以 text/html 下发。
+	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
+}
+
+// HealthReport 学习环飞轮状态查询（噪声处置建议 / guidelines 增量建议 / 计数，
+// v3.13.0 G5 数据面，与周期 IM 推送同数据源）。
+// @router /reports/health [GET]
+func HealthReport(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	resp, status := Svc.HealthReport(ctx)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "健康报告构建失败")
 		return
 	}
 	mw.SuccessRespMsg(c, resp, "ok")

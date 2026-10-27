@@ -10,17 +10,15 @@ import (
 )
 
 // customizeRegister registers customize routers.
+//
+// 2026-10-27 IDL 收敛：业务面路由（/reports/:ref、/usage/monthly、/stats/overview、
+// /tasks/:taskId/impact、/reports/health、/findings/restore）已收编进
+// idl/argus.thrift 由生成路由承载，此处不再手挂。仅保留无 IDL 语义的存量：
+// /ping（hz 脚手架遗留）与 /events（SSE 流式响应体无法用 IDL 声明）。
 func customizedRegister(r *server.Hertz) {
 	r.GET("/ping", handler.Ping)
-
-	// v3.1 新增（🔒 复用 Bearer 鉴权；handler 在 biz/handler/api/report_service.go）
-	r.GET("/reports/:ref", append(routerapi.Auth(), api.ReportByRef)...)
-	r.GET("/usage/monthly", append(routerapi.Auth(), api.UsageMonthly)...)
+	// v3.1 SSE 任务进度流（🔒 复用 Bearer 鉴权；流式写入走 hertzsse.Writer）
 	r.GET("/events", append(routerapi.Auth(), api.Events)...)
-	// v3.88.0 审查概览聚合（🔒 read 档；数据面供仪表盘/报告消费）
-	r.GET("/stats/overview", append(routerapi.Auth(), api.StatsOverview)...)
-	// v3.183.0 影响面视图（🔒 复用 Bearer 鉴权；自包含交互 HTML，零外链）
-	r.GET("/tasks/:taskId/impact", append(routerapi.Auth(), api.TaskImpact)...)
 	// v3.187.0 服务侧按仓配置（🔒 读 read / 写 admin；写档由 requiredScope 收口）
 	r.GET("/repo-settings", append(routerapi.Auth(), api.RepoSettingsList)...)
 	r.GET("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsGet)...)

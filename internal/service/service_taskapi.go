@@ -13,6 +13,8 @@ import (
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
+
+	"github.com/oekit/pkg/ptrx"
 )
 
 // CreateTask CLI/其他系统手动提交审查任务（🔒）。与 webhook 任务同语义（§5.1 规则 5）。
@@ -103,7 +105,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 		// 同 PR 已有在飞任务：幂等返回既有任务，不再叠加一份重复审查（token 白烧）。
 		s.log().Info("argus.api.task_create_deduped", "existing", existing.ID,
 			"status", existing.Status, "pr", owner+"/"+repo+"#"+number)
-		return &api.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status, Duplicated: true}, http.StatusOK
+		return &api.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status, Duplicated: ptrx.Of(true)}, http.StatusOK
 	}
 	s.publishCreated(task)
 

@@ -267,14 +267,8 @@ func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, s
 	h.GET("/mcp", mcpHandlers...)
 	h.POST("/mcp", mcpHandlers...)
 	h.DELETE("/mcp", mcpHandlers...)
-	// G5 健康报告查询面（v3.13.0）：GET /reports/health + Bearer——与周期 IM
-	// 推送同数据源，供报告页/副驾类消费方按需拉取飞轮状态。手工注册路由
-	//（IDL 不承载聚合端点），handler 与 /tasks 同薄壳约定。
-	h.GET("/reports/health", svc.BearerMiddleware(), hapi.HealthReport)
-	// 恢复被抑制意见（v3.131.0，suppress 反向）：/findings/* 前缀走 admin 档
-	//（requiredScope），与误报抑制同一信任边界。此前只能走评论命令，而 bot 自
-	// 评论会被 self-skip——等于没有恢复通道。
-	h.POST("/findings/restore", svc.BearerMiddleware(), hapi.RestoreFinding)
+	// /reports/health（v3.13.0 健康报告）与 /findings/restore（v3.131.0 恢复抑制）
+	// 已收编进 idl/argus.thrift 生成路由（2026-10-27 收敛），不再在此手挂。
 	h.GET("/.well-known/agent.json", func(ctx context.Context, c *app.RequestContext) {
 		// A2A 协议端点：豁免声明在栈级 WithSkipPrefixes("/.well-known/")
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
