@@ -115,3 +115,32 @@ func _usageMw() []app.HandlerFunc {
 func _usagemonthlyMw() []app.HandlerFunc {
 	return authMw() // 🔒 v3.1 月度用量
 }
+
+func _repo_settingsMw() []app.HandlerFunc {
+	// /repo-settings 组（platform/owner 中间层同）：🔒 挂在四个叶子
+	return nil
+}
+
+func _reposettingslistMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.187.0 按仓配置观测面
+}
+
+func _platformMw() []app.HandlerFunc {
+	return nil
+}
+
+func _ownerMw() []app.HandlerFunc {
+	return nil
+}
+
+func _reposettingsdeleteMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.187.0 移除覆盖（admin 档由 requiredScope 收口）
+}
+
+func _reposettingsgetMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.187.0 单仓配置视图
+}
+
+func _reposettingsputMw() []app.HandlerFunc {
+	return authMw() // 🔒 v3.187.0 写入覆盖（admin 档由 requiredScope 收口）
+}

@@ -18,6 +18,17 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/agents", append(_listagentsMw(), api.ListAgents)...)
+	root.GET("/repo-settings", append(_reposettingslistMw(), api.RepoSettingsList)...)
+	_repo_settings := root.Group("/repo-settings", _repo_settingsMw()...)
+	{
+		_platform := _repo_settings.Group("/:platform", _platformMw()...)
+		{
+			_owner := _platform.Group("/:owner", _ownerMw()...)
+			_owner.DELETE("/:repo", append(_reposettingsdeleteMw(), api.RepoSettingsDelete)...)
+			_owner.GET("/:repo", append(_reposettingsgetMw(), api.RepoSettingsGet)...)
+			_owner.PUT("/:repo", append(_reposettingsputMw(), api.RepoSettingsPut)...)
+		}
+	}
 	root.GET("/tasks", append(_listtasksMw(), api.ListTasks)...)
 	_tasks := root.Group("/tasks", _tasksMw()...)
 	{

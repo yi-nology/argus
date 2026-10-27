@@ -1,6 +1,7 @@
 // repo_settings_service.go —— 服务侧按仓配置路由 handler（v3.187.0）。
-// 路由在 router.go customizedRegister 注册（非 IDL 生成面）；鉴权复用 routerapi.Auth，
-// 写档（PUT/DELETE）由 service.requiredScope 收口为 admin、读档 read。
+// 路由自 v3.189.0 起由 idl/argus.thrift 的 RepoSettingsService 生成承载；
+// 鉴权 authMw（routerapi.SetAuth），写档（PUT/DELETE）由 service.requiredScope
+// 收口为 admin、读档 read。
 package api
 
 import (

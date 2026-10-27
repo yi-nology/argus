@@ -3,7 +3,6 @@
 package main
 
 import (
-	handler "argus/biz/handler"
 	api "argus/biz/handler/api"
 	routerapi "argus/biz/router/api"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -11,17 +10,11 @@ import (
 
 // customizeRegister registers customize routers.
 //
-// 2026-10-27 IDL 收敛：业务面路由（/reports/:ref、/usage/monthly、/stats/overview、
-// /tasks/:taskId/impact、/reports/health、/findings/restore）已收编进
-// idl/argus.thrift 由生成路由承载，此处不再手挂。仅保留无 IDL 语义的存量：
-// /ping（hz 脚手架遗留）与 /events（SSE 流式响应体无法用 IDL 声明）。
+// 2026-10-27 IDL 收敛（v3.188.0/v3.189.0）：业务面路由全部收编进
+// idl/argus.thrift 由生成路由承载，此处不再手挂任何业务端点。仅保留无 IDL
+// 语义的存量：/events（SSE 流式响应体无法用 IDL 声明）。/ping（hz 脚手架
+// 遗留，与 /healthz 重复）已删。
 func customizedRegister(r *server.Hertz) {
-	r.GET("/ping", handler.Ping)
 	// v3.1 SSE 任务进度流（🔒 复用 Bearer 鉴权；流式写入走 hertzsse.Writer）
 	r.GET("/events", append(routerapi.Auth(), api.Events)...)
-	// v3.187.0 服务侧按仓配置（🔒 读 read / 写 admin；写档由 requiredScope 收口）
-	r.GET("/repo-settings", append(routerapi.Auth(), api.RepoSettingsList)...)
-	r.GET("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsGet)...)
-	r.PUT("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsPut)...)
-	r.DELETE("/repo-settings/:platform/:owner/:repo", append(routerapi.Auth(), api.RepoSettingsDelete)...)
 }

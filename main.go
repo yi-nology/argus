@@ -203,7 +203,7 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// 打死进程。挂在 obs 内层：恢复出的 500 仍进指标；堆栈走 logx 结构化日志，
 	// 响应走 mw.ErrorResp 信封（与业务错误同形状）。
 	h.Use(mw.RecoveryMiddleware())
-	// 统一响应壳（v3.147.0，oekit mw）：裸 JSON（/ping 等）自动包
+	// 统一响应壳（v3.147.0，oekit mw）：裸 JSON 自动包
 	// {code,data,message,trace_id} 信封；已带 code 的响应（mw.SuccessResp/ErrorResp、
 	// health/version 端点自写信封）不重复包裹。协议端点豁免清单收在栈装配处
 	//（v3.148.0 升 middleware v0.5.0 的声明式 WithSkipPaths/Prefixes）：
@@ -225,7 +225,7 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 
 // register 自定义路由：健康检查 / 指标 / MCP+A2A 占位（§5 路由表 v3.0 部分 + §9.2 方向 B 占位）。
 func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, svc *service.Service) {
-	register(h) // hz 生成路由（IDL 声明的 /webhook /tasks /agents + /ping）
+	register(h) // hz 生成路由（idl/argus.thrift 声明的全部业务面，v3.188.0 起含收编路由）
 
 	// 存活（v3.147.0：oekit hertz/health PingHandler，统一信封；进程级存活，零依赖检查）
 	h.GET("/healthz", health.PingHandler)
@@ -273,7 +273,7 @@ func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, s
 		// A2A 协议端点：豁免声明在栈级 WithSkipPrefixes("/.well-known/")
 		c.JSON(http.StatusOK, mcpserver.AgentCardPlaceholder("argus", version))
 	})
-	// register(h) 开头已包含 customizedRegister 的 /ping，勿重复注册
+	// register(h)（IDL 生成路由）与 customizedRegister（/events）勿在此重复注册
 	//（http_ready 日志在 runApp 的 RunServer 之后统一打）
 }
 

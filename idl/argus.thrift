@@ -8,7 +8,7 @@
 //   /healthz /readyz /version /metrics —— 基础设施探针/可观测（main.go registerCustom）
 //   /mcp、/.well-known/agent.json      —— MCP streamable http 与 A2A 卡片，规范要求裸协议体
 //   /events                            —— SSE 流式响应体无法用 IDL 声明（design.md §5 v3.2 注）
-//   /ping                              —— hz 脚手架遗留，与 /healthz 重复
+// /ping（hz 脚手架遗留）已于 v3.189.0 删除，与 /healthz 重复。
 namespace go api
 
 enum TaskKind {
@@ -184,6 +184,11 @@ struct StatsOverviewRequest {
     4: optional i32 days (api.query="days"),  // 统计窗口天数
 }
 
+// RepoSettingsResponse repo-settings 四端点共用响应壳（data 为动态 map：
+// Get/Put 返回覆盖集+全局生效值视图、List 返回全部配置集合、Delete 返回幂等
+// 确认——字段以 service_reposettings.go 实现为准，不落死字段防漂移）。
+struct RepoSettingsResponse {}
+
 // UsageMonthlyResponse data 为动态聚合（month/total/budget/repos[]，snake_case
 // JSON key 以 service.UsageMonthly 实现为准）——不落死字段防漂移，IDL 只承载
 // 路由与存在性契约。下同（Stats/Health/Impact）。
@@ -222,4 +227,25 @@ service FindingFeedbackService {
 
 service WebhookService {
     WebhookResponse Receive(1: string platform (api.path="platform")) (api.post="/webhook/:platform")
+}
+
+// —— v3.189.0 收编：v3.187.0 散落 router.go 手挂的按仓配置路由（原
+// customizedRegister 四行）——
+service RepoSettingsService {
+    // 全部按仓配置（观测面，read 档）。
+    RepoSettingsResponse RepoSettingsList() (api.get="/repo-settings")
+    // 单仓配置视图（覆盖集 + 全局生效值，read 档）。
+    RepoSettingsResponse RepoSettingsGet(1: string platform (api.path="platform"),
+        2: string owner (api.path="owner"),
+        3: string repo (api.path="repo")) (api.get="/repo-settings/:platform/:owner/:repo")
+    // 写入单仓覆盖（admin 档由 requiredScope 收口）：body 为 reposettings.Settings
+    // JSON 原始字节透传（DisallowUnknownFields 严格校验在 service 层 Parse，
+    // 不经 IDL struct 绑定），上限 4KB。
+    RepoSettingsResponse RepoSettingsPut(1: string platform (api.path="platform"),
+        2: string owner (api.path="owner"),
+        3: string repo (api.path="repo")) (api.put="/repo-settings/:platform/:owner/:repo")
+    // 移除单仓覆盖（admin 档；幂等）。
+    RepoSettingsResponse RepoSettingsDelete(1: string platform (api.path="platform"),
+        2: string owner (api.path="owner"),
+        3: string repo (api.path="repo")) (api.delete="/repo-settings/:platform/:owner/:repo")
 }
