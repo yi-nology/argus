@@ -10,7 +10,7 @@ import (
 	"github.com/oekit/logx"
 
 	"argus/internal/config"
-	"argus/internal/plugin"
+	"argus/internal/domain"
 	"argus/internal/storage"
 	"argus/internal/worker"
 )
@@ -43,7 +43,7 @@ func seedRepoSetting(t *testing.T, store *storage.Store, platform, owner, repo, 
 
 func TestLoadTaskKnobsOverride(t *testing.T) {
 	r, store, ctx := knobsTestRunner(t)
-	task := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "acme", "web", "1")
+	task := storage.NewTask(domain.TaskKindCodeReview, "gitea", "acme", "web", "1")
 	seedRepoSetting(t, store, "gitea", "acme", "web",
 		`{"monthly_token_budget": 5000000, "task_token_budget": 800000, "max_diff_chars": 200000}`)
 
@@ -56,7 +56,7 @@ func TestLoadTaskKnobsOverride(t *testing.T) {
 func TestLoadTaskKnobsDefaultsAndPartial(t *testing.T) {
 	r, store, ctx := knobsTestRunner(t)
 	// 无覆盖行 → 全局默认。
-	plain := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "acme", "api", "1")
+	plain := storage.NewTask(domain.TaskKindCodeReview, "gitea", "acme", "api", "1")
 	k := r.loadTaskKnobs(ctx, plain)
 	if k.monthlyBudget != 0 || k.taskTokenBudget != 400_000 || k.maxDiffChars != 120_000 {
 		t.Fatalf("默认态不符: %+v", k)
@@ -69,7 +69,7 @@ func TestLoadTaskKnobsDefaultsAndPartial(t *testing.T) {
 	}
 	// 落库值损坏（绕过 service 校验直写）→ 降级默认，不阻断任务。
 	seedRepoSetting(t, store, "gitea", "acme", "broken", `not-json`)
-	broken := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "acme", "broken", "1")
+	broken := storage.NewTask(domain.TaskKindCodeReview, "gitea", "acme", "broken", "1")
 	k = r.loadTaskKnobs(ctx, broken)
 	if k.taskTokenBudget != 400_000 || k.maxDiffChars != 120_000 {
 		t.Fatalf("损坏配置未降级默认: %+v", k)
@@ -77,13 +77,13 @@ func TestLoadTaskKnobsDefaultsAndPartial(t *testing.T) {
 }
 
 // TestRepoBudgetGateUsesRepoKnob 月度预算闸吃按仓覆盖值：全局预算关闭
-//（RepoMonthlyTokenBudget=0）时，仓库覆盖 monthly_token_budget=1 仍开启闸——
+// （RepoMonthlyTokenBudget=0）时，仓库覆盖 monthly_token_budget=1 仍开启闸——
 // 同仓已消耗 1 token（done 口径）的新任务被拦截落 failed。
 func TestRepoBudgetGateUsesRepoKnob(t *testing.T) {
 	r, store, ctx := knobsTestRunner(t)
 
 	// 前置：同仓记 1 token 的 done 任务（claim→fenced 终态，归属凭据成立）。
-	done := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "acme", "web", "1")
+	done := storage.NewTask(domain.TaskKindCodeReview, "gitea", "acme", "web", "1")
 	if err := store.CreateTask(ctx, done); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestRepoBudgetGateUsesRepoKnob(t *testing.T) {
 	}
 
 	// 无覆盖（全局预算关）→ 不拦截。
-	target := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "acme", "web", "2")
+	target := storage.NewTask(domain.TaskKindCodeReview, "gitea", "acme", "web", "2")
 	if err := store.CreateTask(ctx, target); err != nil {
 		t.Fatal(err)
 	}

@@ -15,8 +15,8 @@ import (
 	"github.com/oekit/logx"
 
 	argusctx "argus/internal/context"
+	"argus/internal/domain"
 	"argus/internal/obs"
-	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
 )
@@ -143,7 +143,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			if cr.HeadSHA == "" {
 				continue
 			}
-			task := storage.NewTask(plugin.TaskKindRequirementCompliance, t.Platform, t.Owner, t.Repo, cr.Number)
+			task := storage.NewTask(domain.TaskKindRequirementCompliance, t.Platform, t.Owner, t.Repo, cr.Number)
 			task.HeadSHA = cr.HeadSHA
 			// 轮询来源无事件类型（零值即通过触发器 Events 条件）。
 			dupReason, _, err := p.Store.CreateTaskForWebhook(ctx, task)

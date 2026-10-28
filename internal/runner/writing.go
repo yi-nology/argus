@@ -18,6 +18,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/runtime/procx"
 
+	"argus/internal/domain"
 	"argus/internal/fixverifier"
 	"argus/internal/plugin"
 	"argus/internal/reportview"
@@ -57,12 +58,12 @@ func (r *Runner) runWriting(ctx context.Context, task *storage.Task, pr *plugin.
 	var out *requirement.Output
 	var commentID int64
 	switch task.Kind {
-	case plugin.TaskKindDescribe:
+	case domain.TaskKindDescribe:
 		out, err = r.writeDescribe(ctx, task, pr, svc, in, prov)
 		if err != nil {
 			return err
 		}
-	case plugin.TaskKindChangelog:
+	case domain.TaskKindChangelog:
 		out, commentID, err = r.writeChangelog(ctx, task, pr, svc, in, prov)
 		if err != nil {
 			return err
@@ -154,7 +155,7 @@ func writingTargetLabel(kind string, commentID int64) string {
 	if commentID > 0 {
 		return "评论 #" + fmt.Sprintf("%d", commentID)
 	}
-	if kind == plugin.TaskKindDescribe {
+	if kind == domain.TaskKindDescribe {
 		return "PR 描述"
 	}
 	return "任务报告"

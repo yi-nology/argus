@@ -248,10 +248,11 @@ type Config struct {
 	// 缺省 2000，超限截断注明。≤0 用包内缺省）。
 	MemoryIndexBudget int
 
-	// MemoryKernel agent-memory 内核底座（v3.151.0，ARGUS_MEMORY_KERNEL=1 opt-in）：
-	// R3 记忆注入从「文件索引原文」切到「八段召回 + MemoryBand 注入防伪」，
-	// dream 写侧双写内核事实卡（落库前强制脱敏 + 证据链闭合）。缺省关——
-	// 灰度期与文件面并存，可对账可回退。库文件固定在 <MemoryDir>/kernel.db。
+	// MemoryKernel agent-memory 内核底座（v3.151.0 引入，ARGUS_MEMORY_KERNEL=1）：
+	// R3 记忆注入走「八段召回 + MemoryBand 注入防伪」，dream 写侧写内核事实卡
+	//（落库前强制脱敏 + 证据链闭合）。v5.0.0 起内核是记忆唯一路径（文件面已
+	// 退役），本开关保留为记忆面的总闸——关 = 无记忆注入。库文件固定在
+	// <MemoryDir>/kernel.db。
 	MemoryKernel bool
 
 	// QAHistoryBudget QA 会话历史注入 token 预算（ARGUS_QA_HISTORY_BUDGET；

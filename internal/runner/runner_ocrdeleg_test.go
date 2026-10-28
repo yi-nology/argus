@@ -12,6 +12,7 @@ import (
 	"github.com/oekit/pkg/shellx"
 
 	"argus/internal/config"
+	"argus/internal/domain"
 	"argus/internal/plugin"
 )
 
@@ -52,7 +53,7 @@ func ocrdelegFakeBin(t *testing.T) (binPath, argvProbe string) {
 // ocrdelegTask 组装 code_review 任务（a.go 进审查，vendor/b.go 被 diffprep 剔除）。
 func ocrdelegTask() *plugin.Task {
 	return &plugin.Task{
-		Kind: plugin.TaskKindCodeReview,
+		Kind: domain.TaskKindCodeReview,
 		PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "7",
 			HeadSHA: "abc123", BaseBranch: "main", DefaultBranch: "main"},
 		Diff: &plugin.DiffContext{Files: []plugin.DiffFile{
@@ -138,7 +139,7 @@ func TestInjectOCRDelegateGates(t *testing.T) {
 	// 非 code_review
 	r = newRunner(&config.Config{OcrBin: bin}, nil)
 	comp := ocrdelegTask()
-	comp.Kind = plugin.TaskKindRequirementCompliance
+	comp.Kind = domain.TaskKindRequirementCompliance
 	r.injectOCRDelegate(context.Background(), &comp.PR, comp.Diff, comp)
 	// WC 为 nil
 	r = newRunner(&config.Config{OcrBin: bin}, nil)

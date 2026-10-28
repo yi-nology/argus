@@ -10,6 +10,7 @@ import (
 	"time"
 
 	api "argus/biz/model/api"
+	"argus/internal/domain"
 	"argus/internal/plugin"
 	"argus/internal/progress"
 	"argus/internal/storage"
@@ -44,7 +45,7 @@ func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*api.CreateT
 		return nil, http.StatusBadRequest
 	}
 	artifacts, _ := json.Marshal(map[string]string{plugin.ArtifactDiffInput: diff})
-	task := storage.NewTask(plugin.TaskKindDiffPreview, "local", "", "", "")
+	task := storage.NewTask(domain.TaskKindDiffPreview, "local", "", "", "")
 	task.ArtifactsJSON = string(artifacts)
 	task.Priority = 10 // 人类在等（提交方拿着 task_id 轮询）
 	if err := s.Store.CreateTask(ctx, task); err != nil {
@@ -63,7 +64,7 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, http.StatusForbidden // ARGUS_REPO_ALLOWLIST 白名单（v3.134.0）
 	}
-	if !plugin.IsKnownKind(kind) {
+	if !domain.IsKnownKind(kind) {
 		return nil, http.StatusBadRequest
 	}
 	if _, _, ok := s.requirePlatform(platform); !ok {

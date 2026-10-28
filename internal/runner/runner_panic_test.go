@@ -13,7 +13,7 @@ import (
 	"github.com/oekit/logx"
 
 	"argus/internal/config"
-	"argus/internal/plugin"
+	"argus/internal/domain"
 	"argus/internal/storage"
 	"argus/internal/worker"
 )
@@ -31,7 +31,7 @@ func TestExecutePanicToFailedTerminal(t *testing.T) {
 	ctx := context.Background()
 	r := &Runner{Cfg: &config.Config{}, Log: logx.NewSlogLogger("test"), Store: store}
 
-	task := storage.NewTask(plugin.TaskKindCodeReview, "gitea", "o", "r", "7")
+	task := storage.NewTask(domain.TaskKindCodeReview, "gitea", "o", "r", "7")
 	if err := store.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}

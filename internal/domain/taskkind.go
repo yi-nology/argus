@@ -1,9 +1,9 @@
-// taskkind.go —— 任务 kind 词表（canonical 定义，v3.106.0 自 plugin 下沉）。
+// taskkind.go —— 任务 kind 词表（canonical 定义，v3.106.0 自 plugin 下沉；
+// v5.1.0 删除 plugin 侧 re-export 别名，全仓直连本包——间接层完成使命）。
 // storage 等数据层被分层规则禁止依赖 plugin（ARCHITECTURE 规则表"数据层不
 // 反向依赖域"），此前 isReviewKind 被迫裸字符串克隆词表并已实际漂移。本包是
-// storage 与 plugin 的公共下游，词表落此即单源；plugin.TaskKind* 保留为
-// re-export 别名，L4 契约门面不变。与 IDL TaskKind 对齐
-// （service.kindFromIDL/kindToIDL 负责映射）。
+// storage 与 service/runner 的公共下游，词表落此即单源；
+// service.kindFromIDL/kindToIDL 负责与 IDL 枚举映射。
 
 package domain
 

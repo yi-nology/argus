@@ -4,12 +4,20 @@
 > 设计模式/收口轮（2026-10-04）续账。下一轮优化从这里起步；
 > 每完成一项请同步更新本文件。量法：非测试、非生成（`biz/model/api/` thriftgo 除外）Go 代码。
 
-## 基线（2026-10-04 复测）
+## 基线（2026-10-04 复测；2026-10-28 v5.1.0 复测）
 
-- 手工代码 **24,145 行**（v3.101 基点 24,059；增量来自词表注册表/工厂/模板的文档注释与新单测伴生代码——重复面在净降）。
+- 手工代码 **24,145 行**（v3.101 基点 24,059）；**v5.1.0 复测：非生成 32,457 行**——v3.113→v5.0 两个月新增 impactview/qa/sastscan/reposettings/memorykernel 等约 8,300 行，机械扫描（deadcode -test 归零 / >100 行函数 4 个全有归属 / 跨包零重复函数体）确认新包纪律在线，无精简欠账。
 - **单元覆盖率 34.3%**（全仓 statements 口径；不含 test/e2e 打桩链路——golden 69 条走真实编排但按包不计数，编排面实际覆盖远大于此数，基线仅作纵向对比）。薄弱面清理：**poller 15.5%→93.0%**（v3.112.0 补 pollOnce 行为套件——poller 是试点常开的生产任务源且 golden 只覆盖 webhook 源）；runner 13.9% 为 golden 编排按包不计数的口径假象，不补包内单测。
 - 最大手工文件 **554 行**（runner.go），全部文件 <560 行。
-- 100+ 行函数从 **10 个降到 5 个**（mcpserver.New 被 v3.108.0 底座抽取降到 97，见下表）。
+- 100+ 行函数从 **10 个降到 5 个**（mcpserver.New 被 v3.108.0 底座抽取降到 97，见下表）。**v5.1.0 复测：4 个**——bootstrap.Assemble 204→244、StartSubsystems 206（新增长点，组合根铺开型同裁定）、config.Load 137、JudgeCompleteness 108。
+
+## v5.1.0 深度重构批（2026-10-28）
+
+- **TaskKind 间接层清偿**：v3.106.0 词表下沉 domain 时留的 plugin re-export 别名（19 消费点）全仓直连 domain，plugin/taskkind.go 删除——间接层完成使命归零（IsKnownKind 仅 1 消费点）。arch 白名单同步（poller/service/runner/workflow → domain 直连合法化）。
+- **deadcode 清偿**：plugin/testlog_test.go（testNopLogger 21 方法，测试已迁 logx 后全死）删除，`deadcode -test ./...` 归零。
+- **render.go 超规范拆分**：impactview 575 行 → render.go 306（文本面）+ mermaid.go 333（图渲染面）——图面被 e2e 快照与模型提示词双重消费，文本面只服务评论/报告，生命周期不同步。
+- **pruneSpillRoot 周期化**：每任务 wireWorkflow 全目录扫描（任务风暴下 O(N²)）挪 bootstrap `spill-prune` ticker（与 workcopy-scavenger 同周期）。
+- **评估后不做**（复判）：loadRepoConfig 双份（runner 侧缓存进 PRContext、workflow 侧带 override，语义不同构）；recvTypeName 双份 8 行（tail 先例）；Service 字段分组（有意的门面形态）；>100 行 4 函数（同 v3.112 裁定，bootstrap 长出属新增子系统装配）。
 - 批记录：v3.95~v3.101 见 git log；v3.106.0 词表注册表 / v3.107.0 空对象+解码单源 / v3.108.0 mcpserver 底座 / v3.109.0 建任务工厂+词表常量 / v3.110.0 写作模板方法 / v3.111.0 工具信封单源 / v3.112.0 poller 覆盖+死代码清偿。
 
 ## 剩余 >100 行函数（5 个，均有留痕裁定）

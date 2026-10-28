@@ -15,11 +15,13 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 
+	"argus/internal/domain"
 	"argus/internal/impactview"
 	"argus/internal/ocrdeleg"
 	"argus/internal/plugin"
 	"argus/internal/sastscan"
 	"argus/internal/workflow/requirement"
+
 	"github.com/oagentkit/textx/codeintel"
 )
 
@@ -50,7 +52,7 @@ func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext
 // ARGUS_OCR_BIN、无工作副本池或任何执行失败 → 告警降级，审查照常。
 func (r *Runner) injectOCRDelegate(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, ptask *plugin.Task) {
-	if r.Cfg == nil || r.Cfg.OcrBin == "" || r.WC == nil || ptask.Kind != plugin.TaskKindCodeReview {
+	if r.Cfg == nil || r.Cfg.OcrBin == "" || r.WC == nil || ptask.Kind != domain.TaskKindCodeReview {
 		return
 	}
 	paths := includedPaths(diff)

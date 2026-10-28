@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	api "argus/biz/model/api"
+	"argus/internal/domain"
 	"argus/internal/plugin"
 
 	"github.com/oekit/pkg/ptrx"
@@ -28,12 +29,12 @@ func strPtrOrEmpty(s string) *string {
 // kindIDLTable IDL 枚举 → 内部 kind 词表的映射注册表（canonical 词表见
 // domain/taskkind.go，经 plugin re-export）。新增任务类型时在此补一行映射。
 var kindIDLTable = map[api.TaskKind]string{
-	api.TaskKind_REQUIREMENT_COMPLIANCE: plugin.TaskKindRequirementCompliance,
-	api.TaskKind_CODE_REVIEW:            plugin.TaskKindCodeReview,
-	api.TaskKind_VISUAL_CHECK:           plugin.TaskKindVisualCheck,
-	api.TaskKind_DESCRIBE:               plugin.TaskKindDescribe,
-	api.TaskKind_CHANGELOG:              plugin.TaskKindChangelog,
-	api.TaskKind_CI_ANALYSIS:            plugin.TaskKindCIAnalysis,
+	api.TaskKind_REQUIREMENT_COMPLIANCE: domain.TaskKindRequirementCompliance,
+	api.TaskKind_CODE_REVIEW:            domain.TaskKindCodeReview,
+	api.TaskKind_VISUAL_CHECK:           domain.TaskKindVisualCheck,
+	api.TaskKind_DESCRIBE:               domain.TaskKindDescribe,
+	api.TaskKind_CHANGELOG:              domain.TaskKindChangelog,
+	api.TaskKind_CI_ANALYSIS:            domain.TaskKindCIAnalysis,
 }
 
 func kindFromIDL(k api.TaskKind) (string, error) {

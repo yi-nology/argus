@@ -28,6 +28,7 @@ import (
 
 	"github.com/oagentkit/agent/router"
 
+	"argus/internal/domain"
 	"argus/internal/plugin"
 )
 
@@ -179,7 +180,7 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (string, 
 // 跨轮指纹/抑制照常生效）。失败返回 error，由调用方走错误回帖路径。
 func (s *Service) rerunReviewReply(ctx context.Context, platform, owner, repo, prNum, prRef,
 	question, delivery string) (string, error) {
-	resp, status := s.CreateTaskDirect(ctx, plugin.TaskKindRequirementCompliance,
+	resp, status := s.CreateTaskDirect(ctx, domain.TaskKindRequirementCompliance,
 		platform, owner, repo, prNum, map[string]string{plugin.ArtifactTrigger: "comment"})
 	if status != http.StatusOK || resp == nil {
 		return "", fmt.Errorf("建审查任务失败（HTTP %d）", status)

@@ -17,8 +17,10 @@ import (
 
 	argusctx "argus/internal/context"
 	"argus/internal/dispatch"
+	"argus/internal/domain"
 	"argus/internal/plugin"
 	"argus/internal/toolpool"
+
 	"github.com/oagentkit/textx/codeintel"
 
 	"github.com/oagentkit/llm"
@@ -26,7 +28,7 @@ import (
 )
 
 // TaskKind 词表（与 IDL TaskKind 对齐）：canonical 定义自 v3.5.6 上提
-// plugin.TaskKind*（service/poller 不必为拿常量依赖编排层），本包直接引用。
+// domain.TaskKind*（service/poller 不必为拿常量依赖编排层），本包直接引用。
 
 // Verdict 词表。
 const (
@@ -144,7 +146,7 @@ type Workflow struct {
 // skillsForKind 任务类型 → R4 分派的技能词表。
 func skillsForKind(kind string) []string {
 	switch kind {
-	case plugin.TaskKindVisualCheck:
+	case domain.TaskKindVisualCheck:
 		return []string{plugin.SkillVisualCheck}
 	default:
 		return []string{plugin.SkillCodeReview}

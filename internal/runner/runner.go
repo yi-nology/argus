@@ -27,6 +27,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/dispatch"
+	"argus/internal/domain"
 	"argus/internal/impactview"
 	"argus/internal/learning"
 	"argus/internal/memorykernel"
@@ -103,9 +104,8 @@ type Runner struct {
 	// Learning 模式级后悔学习环（ARGUS_REGRET_LEARNING，默认关闭）。
 	Learning learning.Config
 
-	// MemKernel 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：
-	// 非 nil 时 R3 记忆注入走内核八段召回 + MemoryBand 防伪包裹，
-	// 替代文件面 LoadIndexWithOrg 原文索引。
+	// MemKernel 评审记忆内核（v3.151.0 引入；v5.0.0 起记忆唯一路径）：
+	// 非 nil 时 R3 记忆注入走内核八段召回 + MemoryBand 防伪包裹。
 	MemKernel *memorykernel.Kernel
 
 	// R3 方法论注入（requirement-compliance 插件的 skillRefs，装配期传入）
@@ -175,13 +175,13 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 	// 详情存档目录（v5.0.0 spill 收编）：超限工具全文落盘任务目录，get_detail 跨
 	// checkpoint 复活/重启取回不失效；顺带 best-effort 清理 7 天前过期任务目录。
 	wf.SpillDir = filepath.Join(r.Cfg.WorkRoot, "spill", task.ID)
-	pruneSpillRoot(r.Cfg.WorkRoot)
 	return wf
 }
 
-// pruneSpillRoot spill 存档过期清理（best-effort，v5.0.0）：7 天前的任务目录整删。
-// 每任务接线时顺带扫一次（任务频率低，扫描成本可忽略）；并发双删无害（后者报错忽略）。
-func pruneSpillRoot(root string) {
+// PruneSpillRoot spill 存档过期清理（best-effort，v5.1.0 自每任务 wireWorkflow
+// 挪 bootstrap 周期 ticker——每任务全目录扫描在任务风暴下是 O(N²) 面；周期化后
+// 扫描频率与任务量解耦）。并发双删无害（后者报错忽略）。
+func PruneSpillRoot(root string) {
 	dir := filepath.Join(root, "spill")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -282,13 +282,13 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	// CI 失败归因（v3.71.0）：不依赖 MR 语义（push 的 commit 无 CR 可拉），
 	// 在 prepareContext 之前分派——输入是失败 job 日志而非 diff。
-	if task.Kind == plugin.TaskKindCIAnalysis {
+	if task.Kind == domain.TaskKindCIAnalysis {
 		return r.runCIAnalysis(ctx, task, start)
 	}
 
 	// 本地 diff 预审（v3.123.0）：同 ci_analysis 不依赖 MR 语义，prepareContext
 	// 之前分派——输入是提交方送来的 diff 文本（artifacts），无平台拉取。
-	if task.Kind == plugin.TaskKindDiffPreview {
+	if task.Kind == domain.TaskKindDiffPreview {
 		return r.runDiffPreview(ctx, task, start)
 	}
 
@@ -302,7 +302,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	// 写作面分支（v3.71.0）：describe/changelog 不进 R 系列审查管线与插件派发，
 	// 单步 LLM 写作 → 平台写回，独立收口。
-	if task.Kind == plugin.TaskKindDescribe || task.Kind == plugin.TaskKindChangelog {
+	if task.Kind == domain.TaskKindDescribe || task.Kind == domain.TaskKindChangelog {
 		return r.runWriting(ctx, task, pr, diff, start)
 	}
 
@@ -310,7 +310,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	var out *requirement.Output
 	switch task.Kind {
-	case plugin.TaskKindRequirementCompliance:
+	case domain.TaskKindRequirementCompliance:
 		out, err = wf.Run(ctx, ptask, budget)
 	default: // code_review / visual_check：R4+R5 only
 		out, err = wf.RunReviewOnly(ctx, ptask, budget)

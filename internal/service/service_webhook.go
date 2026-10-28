@@ -13,6 +13,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	api "argus/biz/model/api"
+	"argus/internal/domain"
 	"argus/internal/obs"
 	"argus/internal/plugin"
 	"argus/internal/storage"
@@ -233,7 +234,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 		s.log().Warn("argus.webhook.delivery_header_missing",
 			"platform", platform, "event", "幂等键缺失，本次投递不做幂等（event_id=NULL）")
 	}
-	task := storage.NewTask(plugin.TaskKindRequirementCompliance, platform, ev.Repo.Owner, ev.Repo.Name, ev.CR.Number)
+	task := storage.NewTask(domain.TaskKindRequirementCompliance, platform, ev.Repo.Owner, ev.Repo.Name, ev.CR.Number)
 	task.HeadSHA = ev.CR.HeadSHA
 	task.EventType = ev.Type
 	task.Priority = 5 // webhook push：作者刚推代码在等，先于 poller 批量（v3.40.0）
@@ -279,7 +280,7 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	if ev.CR != nil {
 		number = ev.CR.Number
 	}
-	task := storage.NewTask(plugin.TaskKindCIAnalysis, platform, ev.Repo.Owner, ev.Repo.Name, number)
+	task := storage.NewTask(domain.TaskKindCIAnalysis, platform, ev.Repo.Owner, ev.Repo.Name, number)
 	task.HeadSHA = ev.CommitSHA
 	task.EventType = ev.Type
 	task.Priority = 4 // CI 红了作者正盯着，略高于 poller 批量

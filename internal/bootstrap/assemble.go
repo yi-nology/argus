@@ -59,8 +59,8 @@ type System struct {
 	Poster              *poster.Poster
 	Runner              *runner.Runner
 	Service             *service.Service
-	// MemKernel agent-memory 内核底座（v3.151.0，ARGUS_MEMORY_KERNEL opt-in；
-	// nil = 文件面）。进程退出即关库（sqlite WAL 逐提交落盘，无需显式 Close）。
+	// MemKernel agent-memory 内核底座（v3.151.0 引入；v5.0.0 起记忆唯一路径）。
+	// 进程退出即关库（sqlite WAL 逐提交落盘，无需显式 Close）。
 	MemKernel *memorykernel.Kernel
 }
 
@@ -250,7 +250,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		CompletenessRetry:  cfg.CompletenessRetry,
 		// 模式级后悔学习环（v3.5）：默认关闭；阈值单源自 cfg.LearningConfig()
 		Learning: cfg.LearningConfig(),
-		// 评审记忆内核（v3.151.0 opt-in；nil = 文件面 LoadIndex 注入）
+		// 评审记忆内核（v3.151.0 引入；v5.0.0 起记忆唯一路径）
 		MemKernel: sys.MemKernel,
 	}
 	// 延迟绑定不变量自检：WorkflowFactory/ReviewTools 闭包捕获 runnerRef 指针，
@@ -306,7 +306,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		RouterModel: models.Router,
 		WC:          sys.WC,        // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）
 		SemSearch:   semMgr,        // search_sem 底座（ARGUS_SEMSEARCH 启用；nil 安全）
-		MemKernel:   sys.MemKernel, // 评审记忆内核（v3.151.0 opt-in；nil = 文件面）
+		MemKernel:   sys.MemKernel, // 评审记忆内核（v5.0.0 起记忆唯一路径）
 		Audit:       auditLog, Version: version,
 	}
 	return sys, nil

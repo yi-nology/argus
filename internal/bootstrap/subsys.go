@@ -14,6 +14,7 @@ import (
 	"argus/internal/memorykernel"
 	"argus/internal/obs"
 	"argus/internal/poller"
+	"argus/internal/runner"
 	"argus/internal/storage"
 	argusworker "argus/internal/worker"
 )
@@ -64,6 +65,9 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	// ctx 取消时所有 ticker 自动退出（cancel 先于 close），无需显式 Close
 	wm := oekitbootstrap.NewWorkerManager(ctx)
 	wm.AddTicker("workcopy-scavenger", time.Hour, func(context.Context) { sys.WC.Sweep(time.Hour) })
+	// spill 存档过期清理（v5.1.0，runner.PruneSpillRoot）：7 天前任务目录整删，
+	// 与工作副本清扫同周期——此前挂每任务 wireWorkflow，任务风暴下是重复全扫。
+	wm.AddTicker("spill-prune", time.Hour, func(context.Context) { runner.PruneSpillRoot(cfg.WorkRoot) })
 	if cfg.TaskRetentionDays > 0 {
 		retention := time.Duration(cfg.TaskRetentionDays) * 24 * time.Hour
 		pruneOnce := func(ctx context.Context) {

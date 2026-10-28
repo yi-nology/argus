@@ -93,18 +93,18 @@ var layering = map[string][]string{
 	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
 	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memorykernel", "argus/internal/plugin", "argus/internal/storage"},
 	"argus/internal/poster":       {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
-	"argus/internal/poller":       {"argus/internal/context", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
+	"argus/internal/poller":       {"argus/internal/context", "argus/internal/domain", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
 	"argus/internal/ocrdeleg":     {"argus/internal/gitdeepen", "argus/internal/plugin"},
 	"argus/internal/ocrshim":      {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/plugin/adapter_cli"},
 
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
 	"argus/internal/workflow/requirement": {
-		"argus/internal/codesearch", "argus/internal/context",
+		"argus/internal/codesearch", "argus/internal/context", "argus/internal/domain",
 		"argus/internal/dispatch",
 		"argus/internal/obs", "argus/internal/plugin", "argus/internal/toolpool",
 	},
 	"argus/internal/runner": {
-		"argus/internal/config", "argus/internal/context",
+		"argus/internal/domain", "argus/internal/config", "argus/internal/context",
 		"argus/internal/dispatch",
 		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning",
 		"argus/internal/memorykernel",
@@ -114,7 +114,7 @@ var layering = map[string][]string{
 		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
 	},
 	"argus/internal/service": {
-		"argus/internal/config", "argus/internal/context", "argus/internal/health",
+		"argus/internal/domain", "argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/dispatch",
 		"argus/internal/impactview",
 		"argus/internal/memorykernel", "argus/internal/obs",
