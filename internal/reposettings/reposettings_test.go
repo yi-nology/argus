@@ -40,13 +40,13 @@ func TestParsePartialAndEmpty(t *testing.T) {
 
 func TestParseRejects(t *testing.T) {
 	cases := map[string]string{
-		"负数":       `{"max_diff_chars": -1}`,
-		"零":         `{"monthly_token_budget": 0}`,
-		"超上限":       `{"task_token_budget": 2000000000}`,
-		"未知字段":      `{"maxDiffChars": 100}`,
-		"类型错误":      `{"max_diff_chars": "100k"}`,
-		"非对象":       `[]`,
-		"尾部垃圾":      `{"max_diff_chars": 100} extra`,
+		"负数":   `{"max_diff_chars": -1}`,
+		"零":    `{"monthly_token_budget": 0}`,
+		"超上限":  `{"task_token_budget": 2000000000}`,
+		"未知字段": `{"maxDiffChars": 100}`,
+		"类型错误": `{"max_diff_chars": "100k"}`,
+		"非对象":  `[]`,
+		"尾部垃圾": `{"max_diff_chars": 100} extra`,
 	}
 	for name, in := range cases {
 		if _, err := Parse([]byte(in)); err == nil {

@@ -28,7 +28,7 @@ import (
 // repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed
 // 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。monthlyBudget
 // 为按仓旋钮合并后的生效值（v3.187.0 taskKnobs；0 = 关）。预算路径不重试
-//（刻意）→ 直接终态告知（v3.30.1）。
+// （刻意）→ 直接终态告知（v3.30.1）。
 func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task, monthlyBudget int) bool {
 	if monthlyBudget <= 0 {
 		return false

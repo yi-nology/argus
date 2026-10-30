@@ -397,7 +397,7 @@ func indexKnowledgeDir(ctx context.Context, store *rag.MilvusStore, dir string, 
 }
 
 // singleTextEmbedder rag 批量 Embedder → agent-memory 单文本口的装配侧适配件
-//（v5.0.0 记忆语义轨；memorykernel 层不引 rag 保持 L1 纯净）。
+// （v5.0.0 记忆语义轨；memorykernel 层不引 rag 保持 L1 纯净）。
 type singleTextEmbedder struct{ inner *rag.OpenAIEmbedder }
 
 func (s singleTextEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {

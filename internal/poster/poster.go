@@ -85,8 +85,8 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 		commentID, pr.HeadSHA); err != nil {
 		p.Log.Error("argus.poster.target_update_failed", "error", err.Error())
 	}
-	// 历史评论 ID 缓存追加（收尾批修复）：供"评论被顶出 SDK 分页第一页"后的
-	// 直连更新兜底，防每轮新建报告评论
+	// 历史评论 ID 缓存追加（收尾批修复）：定位缓存丢失（review_targets 记录损坏）
+	// 或评论列表 API 故障时的直连更新兜底，防每轮新建报告评论
 	if err := p.Store.AppendReviewTargetComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, commentID); err != nil {
 		p.Log.Warn("argus.poster.known_comment_append_failed", "error", err.Error())
 	}
@@ -282,10 +282,9 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 
 	// ② 扫描既有评论的完整报告头（review_targets 记录损坏时的审计兜底，§10.1）。
 	// 严格匹配 + 作者校验：宽匹配会被含该前缀的第三方评论劫持更新目标。
-	// SDK 只返回第一页（最旧一页，≤50 条），报告评论如已被顶出第一页则扫描不中，
-	// 走 ③ 新建——SDK 分页能力补齐前的已知边界。
-	// 扫描步限时：SDK 分页缺陷曾在此无限循环卡死 worker（Forgejo 忽略 page 参数），
-	// 超时/失败一律降级 ③ 新建并 WARN 留痕——宁可重复评论也不能卡死队列。
+	// ListIssueComments 全分页收齐（go-git-platform CollectBounded，页数有界），
+	// 被顶出首页的报告评论也能扫描命中；列表升序取最后一个匹配（最新）。
+	// 扫描步保留限时：评论列表 API 卡死时宁可降级 ③/④ 也不能挂起 worker 队列。
 	scanCtx, scanCancel := context.WithTimeout(ctx, summaryScanTimeout)
 	comments, scanErr := p.SDK.ListIssueComments(scanCtx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
 	scanCancel()
@@ -312,9 +311,9 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 		}
 	}
 
-	// ③ 历史缓存兜底（收尾批修复）：报告评论被顶出 SDK 分页第一页后 ② 恒不中，
-	// 每轮新建→顶得更远→恶性循环。缓存 ID 全部是本 bot 发出的报告评论（Append
-	// 于回帖成功后记录，封顶 10 条），逐个尝试直连更新，首个成功即返回。
+	// ③ 历史缓存兜底：② 走不到（列表 API 失败/超时）或未命中时防每轮新建堆积。
+	// 缓存 ID 全部是本 bot 发出的报告评论（Append 于回帖成功后记录，封顶 10 条），
+	// 逐个尝试直连更新，首个成功即返回。
 	if cached, cerr := p.Store.KnownReviewTargetComments(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); cerr == nil {
 		var lastTried int64
 		if t, gerr := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); gerr == nil && t != nil {

@@ -76,11 +76,11 @@ func TestRepoSettingsUpsertRejects(t *testing.T) {
 	cases := map[string]struct {
 		platform, body string
 	}{
-		"未装配平台": {"github", `{"max_diff_chars": 1000}`},
+		"未装配平台":  {"github", `{"max_diff_chars": 1000}`},
 		"非法JSON": {"gitea", `not-json`},
 		"未知字段":   {"gitea", `{"maxDiffChars": 1000}`},
-		"零值":      {"gitea", `{"task_token_budget": 0}`},
-		"空覆盖":     {"gitea", `{}`},
+		"零值":     {"gitea", `{"task_token_budget": 0}`},
+		"空覆盖":    {"gitea", `{}`},
 	}
 	for name, tc := range cases {
 		_, code := svc.UpsertRepoSettings(ctx, tc.platform, "acme", "web", []byte(tc.body))
@@ -154,7 +154,7 @@ func TestRepoMaxDiffCharsFor(t *testing.T) {
 }
 
 // requiredScope 新规则：PUT|DELETE /repo-settings* = admin；PUT 兜底 admin
-//（写语义 fail-closed）；GET /repo-settings* = read 兜底。
+// （写语义 fail-closed）；GET /repo-settings* = read 兜底。
 func TestRequiredScopeRepoSettings(t *testing.T) {
 	cases := []struct {
 		method, path string

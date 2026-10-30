@@ -117,7 +117,7 @@ func (k *Kernel) Close() error {
 
 // NamespaceOf 仓库归属 → 记忆库命名空间（platform-owner-repo 三段相连；
 // 组织桶固定 _org）。平台/owner/repo 段在平台侧已不含路径分隔符
-//（config 装载期校验），消毒规则与旧文件面目录命名同形。
+// （config 装载期校验），消毒规则与旧文件面目录命名同形。
 func NamespaceOf(r Ref) store.Namespace {
 	if r.Owner == OrgRef.Owner && r.Repo == "" {
 		return store.Namespace(orgDirName)

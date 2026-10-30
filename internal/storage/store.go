@@ -138,8 +138,7 @@ type ReviewTarget struct {
 
 	LastSummaryCommentID int64 `gorm:"column:last_summary_comment_id"`
 	// KnownCommentIDs 本 bot 历史报告评论 ID 缓存（JSON [id...]，新追加旧淘汰，
-	// 封顶 10）：报告评论被顶出 ListIssueComments 第一页后扫描兜底不中，缓存可
-	// 直连更新（收尾批修复，绕开 SDK 分页限制）。
+	// 封顶 10）：定位缓存丢失或评论列表 API 故障时可直连更新（收尾批修复）。
 	KnownCommentIDs string `gorm:"column:known_comment_ids;size:256"`
 	LastHeadSHA     string `gorm:"column:last_head_sha;size:64"`
 

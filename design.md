@@ -374,8 +374,8 @@ type KnowledgeService interface {
 |---|---|---|---|
 | Skill 方法论 | SkillProvider | L5 知识 | v3.0 接口+file 实现 |
 | MCP client 工具 | ToolPool | L5 工具 | v3.0 接口+mock，v3.1 接 review-service |
-| MCP server 门面 | /mcp 路由 | L1/L2 | v3.0 路由占位，v3.1 实装 |
-| RAG 检索 | KnowledgeService | L5 知识 | v3.0 Noop，实装期定存储 |
+| MCP server 门面 | /mcp 路由 | L1/L2 | v3.0 路由占位，v3.1 实装（工具面已扩至 21，v3.187.0） |
+| RAG 检索 | KnowledgeService | L5 知识 | v3.0 Noop → v3.120.0 实装 Hybrid 双路（Milvus+本地 TF-IDF RRF 融合，单路故障降级另一路） |
 | 新 git 平台 | git-platform-sdk 后端 | L5 | SDK 已有 7 平台，零成本 |
 | 通知渠道 | octopus 模板 | L1 | v3.1 IM 推送 |
 | 新 workflow | Workflow 接口（L3） | L3 | R1-R5 是第一个实现，接口随 v3.0 抽出 |

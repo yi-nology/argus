@@ -182,7 +182,6 @@ var (
 	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
 	}, []string{"plugin", "result"})
-
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。

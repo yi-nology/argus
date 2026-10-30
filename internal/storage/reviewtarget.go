@@ -25,8 +25,8 @@ func (s *Store) ClearReviewTargetComment(ctx context.Context, platform, owner, r
 	})
 }
 
-// knownCommentIDsCap 历史报告评论 ID 缓存上限（postSummary 三级降级之外的第二代
-// 兜底：报告评论被顶出 SDK ListIssueComments 第一页后扫描不中，缓存 ID 可直连更新）。
+// knownCommentIDsCap 历史报告评论 ID 缓存上限（postSummary 四级降级的兜底环：
+// 定位缓存丢失或评论列表 API 故障时，缓存 ID 可直连更新）。
 const knownCommentIDsCap = 10
 
 // AppendReviewTargetComment 记录一条本 bot 发出的总结评论 ID（去重、保序、封顶，

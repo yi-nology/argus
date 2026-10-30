@@ -1,7 +1,7 @@
 // reposetting.go —— 服务侧按仓配置存储（v3.187.0）：repo_settings 表，键
 // platform/owner/repo，值 JSON（internal/reposettings.Settings 规范形态）。
 // 行数=仓库数（量级小），List 全量返回即可；写走「先查后写」事务式 upsert
-//（与 prints 同纪律，SQLite/MySQL 双方言稳）。
+// （与 prints 同纪律，SQLite/MySQL 双方言稳）。
 package storage
 
 import (

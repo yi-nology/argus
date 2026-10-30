@@ -538,6 +538,37 @@ func TestPostSummary_ScanBotAuthorFilter(t *testing.T) {
 	}
 }
 
+// 长讨论串尾部的报告评论（旧「第一页」边界之外）仍应被扫描命中并原地更新——
+// SDK 全分页收齐后扫描步无位置盲区，勿在调用侧加早停/截断。
+func TestPostSummary_ScanFindsLateComment(t *testing.T) {
+	fp := newFakePlatform()
+	for i := 0; i < 60; i++ {
+		fp.comments = append(fp.comments, &provider.IssueComment{
+			ID: int64(100 + i), Body: fmt.Sprintf("讨论 %d", i),
+			Author: &provider.CRUser{Username: "dev"},
+		})
+	}
+	// 报告评论位于讨论串末尾（ID 最大=最新），旧实现只扫首页时不可见
+	fp.comments = append(fp.comments, &provider.IssueComment{
+		ID: 199, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n晚到报告",
+		Author: &provider.CRUser{Username: "argus-bot"},
+	})
+	p, _ := newTestPoster(t, fp)
+	id, err := p.postSummary(context.Background(), mkPR(), "## 全量扫描更新")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 199 {
+		t.Fatalf("应命中串尾报告评论并原地更新: id=%d", id)
+	}
+	if fp.updated[199] != "## 全量扫描更新" {
+		t.Fatalf("应更新 199: %v", fp.updated)
+	}
+	if fp.createNoteN != 0 {
+		t.Fatalf("命中即不新建: %d", fp.createNoteN)
+	}
+}
+
 // 历史缓存兜底：KnownCommentIDs 直连更新（①②不中时），新→旧遍历、失败跳过。
 func TestPostSummary_KnownCommentsFallback(t *testing.T) {
 	fp := newFakePlatform()

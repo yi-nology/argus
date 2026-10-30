@@ -1,7 +1,7 @@
 // repocfg.go —— MCP get_repo_config（v3.187.0）：服务侧按仓配置只读工具。
 // 返回某仓当前生效的预算/上限参数（repo_settings 覆盖 + 全局默认合并视图），
 // 外部 AI/运维核查「这个仓按什么参数在跑」用。写入走 HTTP admin API
-//（PUT /repo-settings/...），MCP 面刻意只读——配置变更是信任面操作。
+// （PUT /repo-settings/...），MCP 面刻意只读——配置变更是信任面操作。
 package mcpserver
 
 import (

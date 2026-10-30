@@ -15,7 +15,7 @@ IDE 与 agent 客户端都能直接挂载——**argus 不维护原生 IDE 插�
 
 ## AI agent 直接驱动（agent skill）
 
-本仓库提供面向 AI agent 的技能文件 [skills/argus-mcp/SKILL.md](../skills/argus-mcp/SKILL.md)：连接方式、十五工具工作流、失败降级判定与安全边界的单源。Claude Code 拷贝到 `~/.claude/skills/argus-mcp/`，其他支持 Agent Skills 的客户端（ZCode 等）按各自装载约定放置；MCP 客户端按上文挂载后，skill 负责「何时调哪个工具、失败了怎么办」。
+本仓库提供面向 AI agent 的技能文件 [skills/argus-mcp/SKILL.md](../skills/argus-mcp/SKILL.md)：连接方式、二十一工具工作流、失败降级判定与安全边界的单源。Claude Code 拷贝到 `~/.claude/skills/argus-mcp/`，其他支持 Agent Skills 的客户端（ZCode 等）按各自装载约定放置；MCP 客户端按上文挂载后，skill 负责「何时调哪个工具、失败了怎么办」。
 
 ## VS Code / Cursor
 

@@ -69,3 +69,9 @@ eval/results/
 
 # 根目录本地构建产物
 /argus-copilot
+
+# 本地工具缓存与验证截图（工作树卫生，v5.1.1）
+.playwright-mcp/
+.video_agent/
+video/
+/argus-*.png

@@ -182,7 +182,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等十九工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十一工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -347,12 +347,12 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `review_diff_async` | diff 异步预审任务：秒回 task_id，报告落库供 `get_report` 轮询（≤48KB；提交方 hook 闭环，copilot `review -async` + `poll`，v3.123.0）|
 | `list_agents` | 插件清单；三参全传附带仓库配置视图 |
 | `get_report` | 按 taskId 取状态/verdict/完整报告 |
-| `list_tasks` | 任务清单枚举（status/limit 可选，倒序摘要面）——巡检/找 task_id 入口（v3.121.0）|
+| `list_tasks` | 任务清单枚举（status/limit 可选，倒序摘要面）——巡检/找 task_id 入口（v3.122.0）|
 | `ask_argus` | Q&A：无 question 返回某 PR 最新审查结论（verdict/findings/摘录）；带 question 则基于报告+仓库上下文追问（ReAct，v3.3）|
 | `get_task_stages` | 任务阶段时间线（R1→R5 完成状态，v3.15.0）——「审得全不全」可观测 |
 | `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
-| `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.121.0）|
+| `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.122.0）|
 | `search_knowledge` | 知识库语义检索：规范/历史审查结论/误报判例，与 R3/R4 的 search_knowledge 同源（未配知识源时报错，v3.125.0）|
 | `search_sem` | PR 工作副本语义检索：按意图/自然语言找代码，补词法正则答不了的「哪里处理认证」（ARGUS_SEMSEARCH+ARGUS_EMBEDDING_* 双门，缺省关，v3.126.0）|
 | `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；工具常驻注册，服务未配 ARGUS_FIX_AGENT 时调用报错，v3.89.0）|
@@ -360,6 +360,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `restore_finding` | 恢复误抑制意见（suppress 反向，与评论 restore fp: 同源；需 admin 档 token，v3.131.0）|
 | `get_capabilities` | 部署能力面快照（fix/检索/知识库等启用态+版本，纯读零副作用，v3.129.0）|
 | `search_findings` | 本仓历史意见账本检索（跨轮次/跨任务，status+复现次数+fp 短码，「以前怎么裁的」事实源，v3.138.0）|
+| `get_impact` | 改动影响面快照（分层管线+确定性风险分：影响图 nodes/edges、受影响 packages、risk 加分依据、历史共变、函数级图 diff；结构化数据面，`GET /tasks/:taskId/impact` 另有交互 HTML，v3.183.0）|
+| `get_repo_config` | 按仓配置与生效参数只读视图（repo_settings 与 .reviewagents.yaml 合并后的预算/上限三旋钮；写入走 admin HTTP API，v3.187.0）|
 
 > AI agent 直接驱动的完整工作流（何时调哪个工具/失败降级/安全边界）见 agent skill [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md)，参数级参考见其 `references/tools.md`。
 
@@ -586,7 +588,7 @@ internal/
   poster/                      行内评论 + 总结评论三级降级 + staleness 门控
   poller/                      轮询兜底任务源（租约选主门控, v3.3）
   reportview/                  报告渲染（上文示例的出处）
-  channel/mcpserver/           Argus as MCP Server（/mcp 十九工具）
+  channel/mcpserver/           Argus as MCP Server（/mcp 二十一工具）
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
@@ -620,7 +622,7 @@ L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/
 ## 十、当前边界
 
 **已落地**（v3.1–v3.4，细节见 [CHANGELOG.md](CHANGELOG.md)）：remote 插件协议子集（a2a/mcp）、
-cli delegate 模式、MCP Server 五工具（含 ask_argus）、SSE 进度流、IM 推送（octopus）、
+cli delegate 模式、MCP Server 工具面（含 ask_argus，当前 21 工具见 §3）、SSE 进度流、IM 推送（octopus）、
 1M 上下文窗口单一基准、GitHub App 认证、acpx 编码 agent 插件、成本记账（任务级+月度仓库用量）、
 多副本横向扩展（租约选主+实例隔离）、Q&A ReAct + 多轮会话、分阶段模型路由（StageRouter）、
 Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共识。
@@ -631,10 +633,8 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 - 路由/裁决/合并走 LLM：确定性优先的原则不变。
 
 **剩余待办/已知边界**：
-- 生产升级部署验证（生产现运行 v3.0.x，仓库 HEAD 已 v3.9.x）；
-- 总结评论扫描兜底受 SDK 分页限制（评论被顶出第一页后走新建路径）；
-- 编队共识上限 2 轮（比 oagentkit 缺省 3 收紧）；反思阶段调用不计任务 token 预算
-  （成本经 obsx/费率记账可见）；
+- 生产升级部署验证（生产现运行 v3.0.x，仓库 HEAD 已 v5.1.x）；
+- 编队共识上限 2 轮（比 oagentkit 缺省 3 收紧）；
 - remote 插件仅实装协议子集（a2a/mcp 的审查调用面），完整 agent 间互操作待需求驱动。
 
 

@@ -92,10 +92,10 @@ var layering = map[string][]string{
 	"argus/internal/context":    {"argus/internal/config", "argus/internal/obs", "argus/internal/plugin"},
 	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
 	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memorykernel", "argus/internal/plugin", "argus/internal/storage"},
-	"argus/internal/poster":       {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
-	"argus/internal/poller":       {"argus/internal/context", "argus/internal/domain", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
-	"argus/internal/ocrdeleg":     {"argus/internal/gitdeepen", "argus/internal/plugin"},
-	"argus/internal/ocrshim":      {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/plugin/adapter_cli"},
+	"argus/internal/poster":     {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
+	"argus/internal/poller":     {"argus/internal/context", "argus/internal/domain", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
+	"argus/internal/ocrdeleg":   {"argus/internal/gitdeepen", "argus/internal/plugin"},
+	"argus/internal/ocrshim":    {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/plugin/adapter_cli"},
 
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
 	"argus/internal/workflow/requirement": {

@@ -5,6 +5,7 @@
 package runner
 
 import (
+	"context"
 	"testing"
 
 	"github.com/oekit/logx"
@@ -26,7 +27,7 @@ func TestInjectImpactViewGates(t *testing.T) {
 
 	// 1. ARGUS_IMPACTVIEW=0 → 整段跳过
 	cfgOff := &config.Config{ImpactView: false}
-	newRunner(cfgOff).injectImpactView(nil, task.ID,
+	newRunner(cfgOff).injectImpactView(context.TODO(), task.ID,
 		&plugin.PRContext{BaseBranch: "main"}, nil, &ptask, nil)
 	if len(ptask.Artifacts) != 0 {
 		t.Fatal("关闭开关不应有产物")
@@ -35,7 +36,7 @@ func TestInjectImpactViewGates(t *testing.T) {
 	// 2. 开关开、无工作副本池 → 早退
 	cfgOn := &config.Config{ImpactView: true, ImpactCoupling: 0}
 	diff := &plugin.DiffContext{Files: []plugin.DiffFile{{Path: "a.go", Included: true}}}
-	newRunner(cfgOn).injectImpactView(nil, task.ID,
+	newRunner(cfgOn).injectImpactView(context.TODO(), task.ID,
 		&plugin.PRContext{BaseBranch: "main"}, diff, &ptask, nil)
 	if _, ok := ptask.Artifacts[plugin.ArtifactImpactView]; ok {
 		t.Fatal("无池不应有产物")
@@ -43,7 +44,7 @@ func TestInjectImpactViewGates(t *testing.T) {
 
 	// 3. 开关开、有池形态（WC 为 nil 同上，改测空纳入文件）
 	emptyDiff := &plugin.DiffContext{}
-	newRunner(cfgOn).injectImpactView(nil, task.ID,
+	newRunner(cfgOn).injectImpactView(context.TODO(), task.ID,
 		&plugin.PRContext{BaseBranch: "main"}, emptyDiff, &ptask, nil)
 	if _, ok := ptask.Artifacts[plugin.ArtifactImpactSummary]; ok {
 		t.Fatal("空纳入文件不应有 prompt 段")

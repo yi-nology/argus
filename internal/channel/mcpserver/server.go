@@ -5,9 +5,9 @@
 //	review_diff                          本地 staged diff 预审（v3.74.1）
 //	ask_argus                            最新审查结论问答（v3.3 P5）
 //	get_report                           按 taskId 取报告
-//	list_tasks                           任务清单枚举（v3.121.0）
+//	list_tasks                           任务清单枚举（v3.122.0）
 //	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
-//	search_code                          PR 工作副本受控检索（v3.121.0）
+//	search_code                          PR 工作副本受控检索（v3.122.0）
 //	search_knowledge                     知识库语义检索（v3.125.0，R3/R4 同源）
 //	search_sem                           工作副本语义检索（v3.126.0，embedding opt-in）
 //	review_diff_async                    本地 diff 异步预审任务（v3.123.0，提交方轮询闭环）
@@ -59,7 +59,7 @@ type ReviewQA interface {
 	AnswerAboutReview(ctx context.Context, platform, owner, repo, number, question string) (string, bool)
 }
 
-// CodeSearcher 可选扩展（v3.121.0）：search_code 的数据面。*service.Service 实现。
+// CodeSearcher 可选扩展（v3.122.0）：search_code 的数据面。*service.Service 实现。
 type CodeSearcher interface {
 	// SearchCode PR 工作副本受控全文检索，返回围栏文本（错误回执内嵌）。
 	SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error)
