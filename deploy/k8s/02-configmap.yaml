@@ -12,7 +12,7 @@ data:
   ARGUS_WORK_ROOT: "/data/work"
   # OCR delegate 原始产物留档（人工回溯；/data 为 PVC，容器重启不丢）
   ARGUS_OCR_HISTORY_DIR: "/data/ocr-history"
-  ARGUS_BOT_USERNAME: "friday"            # 独立 bot 账号（blocking 评审 official 的前提）
+  ARGUS_BOT_USERNAME: "demo-user"           # 试点 bot=token 账号同体（demo-user）；独立 bot 账号（如 friday）时同步换 secret 里的 token
   ARGUS_SKIP_DRAFT: "true"
   ARGUS_MAX_CONCURRENT_TASKS: "2"
   ARGUS_TASK_TOKEN_BUDGET: "0" # 0 = 按模型窗口派生（60%）
@@ -40,4 +40,12 @@ data:
 
   # 轮询兜底（平台→集群 webhook 不可达时启用；走 Ingress/NodePort 后可关闭）
   ARGUS_POLL_INTERVAL: "20s"
-  ARGUS_POLL_REPOS: "gitea:demo-user/argus-pilot"
+  ARGUS_POLL_REPOS: "gitea:demo-user/argus-e2e-test"
+
+  # 评论命令面（v5.2.0）：@bot 自由文本意图路由 + 单条复核/重审显式命令
+  ARGUS_COMMENT_ROUTER: "1"
+  ARGUS_REPO_ALLOWLIST: "gitea:demo-user/argus-pilot,gitea:demo-user/argus-e2e-test"
+  # 审查质量环（与试点同参）
+  ARGUS_REFLECTION_ROUNDS: "2"
+  ARGUS_REGRET_LEARNING: "1"
+  ARGUS_IMPACTVIEW: "1"

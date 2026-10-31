@@ -76,9 +76,11 @@ func TestRepoMonthlyTokens_OldMonth(t *testing.T) {
 	tk := mkTask("t1", &e, "sha1")
 	tk.Status = StatusDone
 	tk.TokensUsed = 500
-	tk.CreatedAt = time.Now().AddDate(0, -1, 0) // 上个月
-	_ = s.CreateTask(ctx, tk)
 	since := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
+	// 上月取「上月 1 日」而非 AddDate(0,-1,0) 直减：31 日减一月会归一化回本月
+	// （10-31 → 9-31 → 10-01），每月末日跑测试必假红。
+	tk.CreatedAt = since.AddDate(0, -1, 0)
+	_ = s.CreateTask(ctx, tk)
 	used, _ := s.RepoMonthlyTokens(ctx, "gitea", "acme", "app", since)
 	if used != 0 {
 		t.Fatalf("上月任务不应计入本月: %d", used)

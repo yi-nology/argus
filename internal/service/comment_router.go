@@ -45,6 +45,54 @@ const reviewKeywordMaxRunes = 30
 // reviewKeywords 重审意图的显式关键词（小写包含匹配）。
 var reviewKeywords = []string{
 	"重新审查", "重新评审", "再审", "重审", "重跑评审", "rerun", "re-review", "recheck",
+	"评审一下", "帮我评审", "请评审", "复核一下", "帮我复核", "请复核",
+}
+
+// reviewCmdWords 显式重审命令词（v5.2.0）：question 以词开头即确定性触发全量
+// 复审，零分类调用——「review」「评审」「复核」这类短指令此前不在关键词表里
+// （怕误伤），router 关闭时会滑进 Q&A 答非所问。词间无前缀关系（「重审」不是
+// 「重新审查」的前缀，recheck/review 亦然），词边界匹配由 cutCommand 保障。
+// 「recheck fp:/复核 fp:」形态归单条复核命令（parseRecheck 先行消费）。
+var reviewCmdWords = []string{
+	"re-review", "recheck", "review", "rerun",
+	"重新审查", "重新评审", "重跑评审", "评审", "复核", "重审", "再审",
+}
+
+// extractReviewCmd 解析显式重审命令：命中返回命令后的补充说明（可空）。
+// 余下带 fp: 的形态不吞进重审（单条复核语义，交 parseRecheck/后续路由）。
+func extractReviewCmd(question string) (string, bool) {
+	for _, w := range reviewCmdWords {
+		rest, ok := cutCommand(question, w)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(rest), "fp:") {
+			return "", false
+		}
+		return rest, true
+	}
+	return "", false
+}
+
+// dispatchReview 显式重审命令（review/评审/复核…）：确定性触发全量复审任务，
+// 免关键词快路径与 LLM 意图分类。返回 true 表示已消费该评论。
+func (s *Service) dispatchReview(ctx context.Context, question, platform, owner, repo,
+	prNum, prRef, delivery string) bool {
+	note, ok := extractReviewCmd(question)
+	if !ok {
+		return false
+	}
+	if note == "" {
+		note = question
+	}
+	reply, err := s.rerunReviewReply(ctx, platform, owner, repo, prNum, prRef, note, delivery)
+	if err != nil {
+		s.log().Error("argus.comment.review_cmd_failed", "pr", prRef, "error", err.Error())
+		s.postQAError(ctx, platform, owner, repo, prNum, "处理失败: "+err.Error())
+		return true
+	}
+	s.postCommentReply(ctx, platform, owner, repo, prNum, prRef, reply, note, len(reply))
+	return true
 }
 
 // questionMarkers 疑问标记（小写包含匹配）：出现即不走关键词快路径。

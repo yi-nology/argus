@@ -6,11 +6,11 @@ metadata:
   labels:
     app.kubernetes.io/name: argus
 spec:
-  type: ClusterIP            # webhook 接入改为 NodePort：nodePort: 30883（对齐工作区 wechat 习惯）
+  type: NodePort            # webhook 接入：git.example.com（10.0.0.10）→ 节点 IP:30883
   selector:
     app.kubernetes.io/name: argus
   ports:
     - name: http
       port: 8899
       targetPort: http
-      # nodePort: 30883
+      nodePort: 30883

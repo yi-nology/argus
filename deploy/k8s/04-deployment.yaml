@@ -41,7 +41,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: argus
-          image: argus:v3.9.1          # 推 Harbor 后改为 harbor.example.com/enjoydream/argus:v3.9.1
+          image: argus:v5.2.0-rpi        # 内网构建（make docker + ctr import 到各节点）
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -356,6 +356,9 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(text, "【Argus TESTGEN】"):
 		// v3.15.0 testgen 命令：固定测试骨架回复
 		m.reply(w, "### internal/api/user_test.go\n\n```go\nfunc TestHandle(t *testing.T) { }\n```")
+	case strings.Contains(text, "【Argus RECHECK】"):
+		// v5.2.0 复核命令：固定裁决回复（成立 → fix 入口建议）
+		m.reply(w, "## 🔍 意见复核（fp:ab12cd34）\n\n**结论**：成立\n\n**理由**：diff 中确实存在该问题。\n\n**证据**：main.go:12\n\n**建议**：可用 fix 命令修复（fix fp:ab12cd34）")
 	default:
 		if m.personaReply(w, text) {
 			return
@@ -430,6 +433,7 @@ type stackOpts struct {
 	r35Drafts       []string
 	r35CritiqueFail bool
 	commentRouter   bool                // @argus 评论意图路由（含 GitLab note 场景的 gitlab 平台装配）
+	extraPlatforms  []string            // 追加装配的平台（gitlab/github…）：webhook 路由需要 cfg.Platforms 条目
 	squads          []plugin.SquadDecl  // 编队声明（共识/互盲场景）
 	routerReply     string              // 评论意图分类桩响应（路由 LLM 分支场景；空=回落 ask）
 	routerMark      string              // 分类请求标记句（= 测试评论原文，命中即回 routerReply）
@@ -616,11 +620,19 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	}
 	provs := map[string]provider.Provider{"gitea": fake}
 	cfg.CommentRouter = opt.commentRouter
+	// 多平台装配：commentRouter 蕴含 gitlab（既有 GitLab note 场景），extraPlatforms
+	// 追加任意平台（github 等）——webhook 路由要求 cfg.Platforms 有 secret 的条目。
+	platSet := map[string]bool{}
 	if opt.commentRouter {
-		// GitLab note 评论场景：webhook 路由需要 cfg.Platforms 有 secret 的 gitlab 条目
-		provs["gitlab"] = fake
-		cfg.Platforms["gitlab"] = config.PlatformConfig{
-			BaseURL: "http://gitlab.test", Token: "tok", Secret: "e2e-sign-secret"}
+		platSet["gitlab"] = true
+	}
+	for _, p := range opt.extraPlatforms {
+		platSet[p] = true
+	}
+	for p := range platSet {
+		provs[p] = fake
+		cfg.Platforms[p] = config.PlatformConfig{
+			BaseURL: "http://" + p + ".test", Token: "tok", Secret: "e2e-sign-secret"}
 	}
 	sdkCtx := argusctx.NewSDKCtxStubbed(log, provs)
 

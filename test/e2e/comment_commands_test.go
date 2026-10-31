@@ -2,12 +2,33 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yi-nology/go-git-platform/provider"
+
+	"argus/internal/domain"
 	"argus/internal/storage"
 )
+
+// setGitHubIssueCommentEvent 预置 GitHub issue_comment 事件（生产 GitHub 形态：
+// SDK 只置 Type 不填 Actor/Repo，normalizeCommentEvent 从 RawPayload 兜底）。
+func (s *stack) setGitHubIssueCommentEvent(body, actor string) {
+	payload := fmt.Sprintf(`{"action":"created",
+		"issue":{"number":7,"pull_request":{"url":"https://api.github.com/x/pr/7"}},
+		"comment":{"body":%q},
+		"sender":{"login":%q},
+		"repository":{"full_name":"acme/app","name":"app","owner":{"login":"acme"}}}`, body, actor)
+	s.fake.mu.Lock()
+	defer s.fake.mu.Unlock()
+	s.fake.ev = &provider.NormalizedEvent{
+		ID: "gh-note", Type: "issue_comment", Source: "github",
+		RawPayload: json.RawMessage(payload),
+	}
+}
 
 // v3.15.0 P1-4/P1-5 评论命令链路：@argus describe / @argus testgen——
 // 显式命令免意图路由（router 开启时也不走分类），走 Q&A 同款轻量路径
@@ -70,4 +91,66 @@ func assertNoTasks(t *testing.T, s *stack) {
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("评论命令不应建任务: n=%d err=%v", len(tasks), err)
 	}
+}
+
+// v5.2.0 显式重审命令：@bot review 不经意图路由确定性建复审任务——
+// ARGUS_COMMENT_ROUTER 关闭也生效（短指令零分类开销）。
+func TestScenarioReviewCommand(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, extraPlatforms: []string{"gitlab"}})
+
+	s.setGitLabNoteEvent("@argus-bot review", "alice", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-rv-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("review 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	if !strings.Contains(bodies[0], "重新审查请求") {
+		t.Fatalf("review 应回执重审受理: %q", bodies[0])
+	}
+	tasks, err := s.store.ListTasks(context.Background(), storage.StatusPending, 50)
+	if err != nil || len(tasks) != 1 || tasks[0].Platform != "gitlab" || tasks[0].Number != "7" {
+		t.Fatalf("review 应建 1 个复审任务: n=%d err=%v", len(tasks), err)
+	}
+}
+
+// v5.2.0 mention 任意位置（GitHub issue_comment 形态，生产 GitHub 不填 Actor/Repo，
+// 走 normalizeCommentEvent 负载兜底）：句中 mention 同样触发显式重审命令。
+func TestScenarioReviewCommandMentionAnywhere(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, extraPlatforms: []string{"github"}})
+
+	s.setGitHubIssueCommentEvent("请 @argus-bot review 重点看登录模块", "carol")
+	if code, resp := s.postWebhookOn(t, "github", "gh-rv-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("GitHub 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	if !strings.Contains(bodies[0], "重新审查请求") || !strings.Contains(bodies[0], "重点看登录模块") {
+		t.Fatalf("句中 mention 应触发重审并带补充说明: %q", bodies[0])
+	}
+	tasks, err := s.store.ListTasks(context.Background(), storage.StatusPending, 50)
+	if err != nil || len(tasks) != 1 || tasks[0].Platform != "github" {
+		t.Fatalf("应建 1 个 github 复审任务: n=%d err=%v", len(tasks), err)
+	}
+}
+
+// v5.2.0 单条复核命令：fp 短码定位入库意见 → LLM 裁决 → 回帖结论（不建任务）。
+func TestScenarioRecheckCommand(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, commentRouter: true})
+
+	// 预置一条入库意见（prints 表），fp 短码 ab12cd34。
+	if _, err := s.store.UpsertPrint(context.Background(), "gitlab", "acme", "app", "7",
+		"ab12cd34ef567890",
+		domain.Finding{File: "main.go", Line: 12, Severity: "high", Comment: "空指针风险", By: "builtin"},
+		"seed-task", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	s.setGitLabNoteEvent("@argus-bot recheck fp:ab12cd34 这条是不是误报", "alice", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-rc-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("recheck 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	body := bodies[0]
+	if !strings.Contains(body, "意见复核") || !strings.Contains(body, "结论") {
+		t.Fatalf("recheck 回帖缺复核结论: %q", body)
+	}
+	assertNoTasks(t, s)
 }

@@ -186,9 +186,17 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 
 ### 7. PR 评论交互
 
-在 PR 评论中 `@argus ask <问题>`（评论需以 `@机器人用户名` 开头），Argus 会根据 PR 上下文用 LLM 回答。例如：
-- `@argus ask 这个改动会影响性能吗？`
-- `@argus ask 为什么用 sync.Mutex 而不是 channel？`
+在 PR 评论中 `@机器人用户名` 即可触发（v5.2.0 起不要求句首——句中/句尾 mention 均可；
+引用行（`> …`）里的 mention 是转述不触发）。指令形态与自由文本两类：
+
+**显式指令**（确定性解析，零 LLM 分类，不受 `ARGUS_COMMENT_ROUTER` 开关影响）：
+- `@argus ask <问题>` —— Q&A 问答（`ask` 可省略）。例如：
+  - `@argus ask 这个改动会影响性能吗？`
+  - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
+- `@argus review [补充说明]` —— 触发全量重审任务并回执任务号（v5.2.0；同义词：`评审`、`复核`、
+  `重审`、`重新审查`、`rerun`、`re-review` 等，也支持「请 @argus 评审一下」这类句中形态）
+- `@argus recheck fp:ab12cd34` —— 单条意见复核（v5.2.0；同义词 `复核 fp:`）：按指纹短码定位
+  入库意见，对照 diff 裁决 成立/误报/存疑 并回帖证据与处置建议（不建任务、不自动 suppress/fix）
 - `@argus suppress fp:ab12cd34` —— 误报反馈（抑制 + 知识回流）
 - `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
 - `@argus fix fp:ab12cd34` —— 一键修复（v3.85.0，`ARGUS_FIX_AGENT` 启用）：编码 agent 在隔离沙箱出 patch，沙箱验证后回帖 diff（不自动 push）
@@ -199,7 +207,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 （仓库 webhook 需勾选 Note events）、Gitea/Forgejo 评论兜底；`setup-webhook.sh` 已含
 `issue_comment` 事件。GitLab 系统注释（改指派等自动生成）与非 MR 评论自动忽略。
 
-**评论意图路由（v3.4，`ARGUS_COMMENT_ROUTER=1` 开启）**：`@argus` 后的自由文本先分类再分派——
+**评论意图路由（v3.4，`ARGUS_COMMENT_ROUTER=1` 开启）**：非指令的 `@argus` 自由文本先分类再分派——
 - 要求重新审查（"请重新审查"、"再审一遍"）→ 自动建全量复审任务并回执任务号，作者推完修复
   不用再等 webhook；
 - 其余一切（含低置信/分类失败）→ Q&A 问答。短命令关键词零分类调用直达，歧义文本才走一次
