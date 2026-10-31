@@ -82,7 +82,8 @@ func TestScenario20_GitLabNoteComment(t *testing.T) {
 		t.Fatalf("应回执任务号评论: bodies=%v", replyBodies())
 	}
 
-	// ② 反复触发防护一：30s per-PR 节流——同 PR 第二条重审评论静默忽略（不建任务不回帖）
+	// ② 反复触发防护一：30s per-PR 节流——同 PR 第二条重审评论不建任务；
+	// v5.3.0 起指令撞冷却有感知（回帖冷却提示），不再静默丢弃。
 	s.setGitLabNoteEvent("@argus-bot 再审一遍", "bob", false)
 	if code, resp := s.postWebhookOn(t, "gitlab", "gl-d2"); code != 200 || resp.Status != "accepted" {
 		t.Fatalf("节流评论 webhook 仍应 200 accepted: %d %+v", code, resp)
@@ -91,8 +92,12 @@ func TestScenario20_GitLabNoteComment(t *testing.T) {
 	if n := countPending(); n != 1 {
 		t.Fatalf("30s 内第二条评论应被节流，任务数应仍为 1，got %d", n)
 	}
-	if n := len(replyBodies()); n != 1 {
-		t.Fatalf("节流不应产生回帖，got %d", n)
+	bodies := replyBodies()
+	if len(bodies) != 2 {
+		t.Fatalf("节流指令应回冷却提示（v5.3.0），got %d 条回帖", len(bodies))
+	}
+	if !strings.Contains(bodies[1], "冷却") {
+		t.Fatalf("第二条回帖应为冷却提示: %q", bodies[1])
 	}
 
 	// ③ 反复触发防护二：bot 自评防循环——bot 账号自己的评论（含引用的 @argus 原文）被忽略
@@ -110,8 +115,8 @@ func TestScenario20_GitLabNoteComment(t *testing.T) {
 	if n := countPending(); n != 1 {
 		t.Fatalf("系统注释不应建任务，got %d", n)
 	}
-	if n := len(replyBodies()); n != 1 {
-		t.Fatalf("被忽略的评论不应产生回帖，got %d", n)
+	if n := len(replyBodies()); n != 2 {
+		t.Fatalf("被忽略的评论不应产生回帖（含冷却提示共 2 条），got %d", n)
 	}
 }
 

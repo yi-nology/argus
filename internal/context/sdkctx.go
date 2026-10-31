@@ -416,6 +416,27 @@ func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, 
 	})
 }
 
+// AddIssueCommentReaction 给评论加表情回应（v5.3.0 即时回执 👀）。
+// 能力可选（ReactionManager）：不支持的平台返回 unsupported，调用方 best-effort 吞掉。
+func (s *SDKCtx) AddIssueCommentReaction(ctx context.Context, platform, owner, repo string,
+	commentID int64, emoji string) error {
+	_, err := callIface(s, ctx, platform, "ReactionManager",
+		func(ctx context.Context, rm provider.ReactionManager) (*provider.Reaction, error) {
+			return rm.AddIssueCommentReaction(ctx, owner, repo, commentID, emoji)
+		})
+	return err
+}
+
+// ListCollaborators 列出仓库协作者（v5.3.0 评论指令权限门控）。
+// 能力可选（CollaboratorManager）：不支持的平台返回 unsupported，门控侧 fail-open
+// 并留痕（平台差异不能把评论链路整个堵死）。
+func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo string) ([]*provider.Collaborator, error) {
+	return callIface(s, ctx, platform, "CollaboratorManager",
+		func(ctx context.Context, cm provider.CollaboratorManager) ([]*provider.Collaborator, error) {
+			return cm.ListCollaborators(ctx, owner, repo)
+		})
+}
+
 // UpdateIssueComment 更新总结评论。v3.92.0 路由序：NoteManager（MR Notes
 // API，GitLab 真·原地更新）→ IssueManager（GitHub/Gitea 等 issue 即 PR 的
 // 平台）→ v3.91.2 的 DiffManager 原子换新兜底（先 CreateNote 后 DeleteNote，

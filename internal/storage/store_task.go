@@ -498,6 +498,26 @@ func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task
 	return out, err
 }
 
+// ListTasksByPR 按 PR 查任务（新→旧，摘要列）。@bot status 指令取最近一轮
+// 状态与结论用；limit 缺省 5（status 只看最近几轮）。
+func (s *Store) ListTasksByPR(ctx context.Context, platform, owner, repo, number string, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	var out []Task
+	err := s.quietDB().WithContext(ctx).
+		Select("id", "kind", "platform", "owner", "repo", "number", "head_sha", "event_type",
+			"status", "verdict", "runner_id", "summary_comment_id", "tokens_used", "artifacts_json",
+			"created_at", "started_at", "finished_at", "heartbeat_at", "updated_at").
+		Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number).
+		Order("created_at DESC, id DESC").Limit(limit).
+		Find(&out).Error
+	return out, err
+}
+
 // FindReportByHead 按 head SHA 查最近一次成功的报告（GET /reports/:ref）。
 // 无报告返回 ErrNotFound 哨兵。
 func (s *Store) FindReportByHead(ctx context.Context, headSHA string) (*Task, error) {

@@ -23,6 +23,7 @@ import (
 type qaCommentPayload struct {
 	Comment struct {
 		Body string `json:"body"`
+		ID   int64  `json:"id"`
 	} `json:"comment"`
 	Issue struct {
 		Number int `json:"number"`
@@ -39,6 +40,7 @@ type gitlabNotePayload struct {
 	ObjectAttributes struct {
 		Note   string `json:"note"`
 		System bool   `json:"system"`
+		ID     int64  `json:"id"`
 	} `json:"object_attributes"`
 	MergeRequest struct {
 		IID int `json:"iid"`
@@ -49,6 +51,8 @@ type gitlabNotePayload struct {
 type commentMeta struct {
 	Body     string
 	PRNumber int
+	// CommentID 评论 ID（v5.3.0 即时回执 👀 的落点）；0 = 负载未携带（跳过回执）。
+	CommentID int64
 }
 
 // commentEventTypes 可路由为评论命令的事件词表。canonical 为
@@ -77,7 +81,7 @@ func parseCommentMeta(ev *provider.NormalizedEvent) (commentMeta, bool) {
 		if err != nil || n <= 0 {
 			return commentMeta{}, false
 		}
-		return commentMeta{Body: ev.Comment.Body, PRNumber: n}, true
+		return commentMeta{Body: ev.Comment.Body, PRNumber: n, CommentID: ev.Comment.ID}, true
 	}
 	if ev.Type == "cr.note" {
 		var gl gitlabNotePayload
@@ -87,7 +91,8 @@ func parseCommentMeta(ev *provider.NormalizedEvent) (commentMeta, bool) {
 		if gl.ObjectAttributes.System || gl.MergeRequest.IID == 0 {
 			return commentMeta{}, false
 		}
-		return commentMeta{Body: gl.ObjectAttributes.Note, PRNumber: gl.MergeRequest.IID}, true
+		return commentMeta{Body: gl.ObjectAttributes.Note, PRNumber: gl.MergeRequest.IID,
+			CommentID: gl.ObjectAttributes.ID}, true
 	}
 	var pl qaCommentPayload
 	if err := json.Unmarshal(ev.RawPayload, &pl); err != nil {
@@ -98,7 +103,7 @@ func parseCommentMeta(ev *provider.NormalizedEvent) (commentMeta, bool) {
 	if len(pl.Issue.PullRequest) == 0 || string(pl.Issue.PullRequest) == "null" {
 		return commentMeta{}, false
 	}
-	return commentMeta{Body: pl.Comment.Body, PRNumber: pl.Issue.Number}, true
+	return commentMeta{Body: pl.Comment.Body, PRNumber: pl.Issue.Number, CommentID: pl.Comment.ID}, true
 }
 
 // isCommentEvent 判定 NormalizedEvent 是否为可处理的评论事件。
@@ -247,6 +252,10 @@ func (s *Service) dispatchWriting(ctx context.Context, ev *provider.NormalizedEv
 		s.handleDescribe(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
 		return true
 	}
+	if hint, ok := extractChangelog(question); ok {
+		s.handleChangelog(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
+		return true
+	}
 	if target, ok := extractTestGen(question); ok {
 		s.handleTestGen(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, target, delivery)
 		return true
@@ -306,14 +315,25 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 
 	prNum := fmt.Sprintf("%d", meta.PRNumber)
 	prRef := ev.Repo.Owner + "/" + ev.Repo.Name + "#" + prNum
+	platform := string(ev.Source)
+
+	// 信息类指令（help/status）免节流：查询永远畅通，商业产品的"手册随时可查"。
+	if s.dispatchInfo(ctx, question, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, delivery) {
+		return
+	}
 
 	// per-PR 节流（30 秒冷却）。v3.82.0 引入 oekit/data/cache：TTL 过期 + 容量
 	// 上限由库接管，取代手写 map+mutex+「超 100 清 1h 前旧条目」驱逐循环。
 	// v3.84.0 起实例回归 per-Service（进程级单例曾令 e2e 同进程多 Service
 	// 互相污染节流窗口；生产行为不变）。
+	// v5.3.0：指令撞冷却不再静默丢弃——回帖告知（有感知），自由文本保持静默防刷屏。
 	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
 	if v, _ := s.qaThrottle().Get(ctx, throttleKey); v != nil {
-		s.log().Warn("argus.qa.throttled", "pr", prRef, "question", question)
+		if matchAnyCommand(question) {
+			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, throttleNoticeText)
+		} else {
+			s.log().Warn("argus.qa.throttled", "pr", prRef, "question", question)
+		}
 		return
 	}
 	_ = s.qaThrottle().Set(ctx, throttleKey, &qaThrottled)
@@ -321,18 +341,35 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	s.log().Info("argus.qa.received", "pr", prRef, "question", question,
 		"actor", ev.Actor.Username, "event_id", delivery)
 
+	// 即时回执 👀（v5.3.0）：评论上先给"已看到"，长任务（重审/复核）不再干等。
+	s.ackComment(ctx, platform, ev.Repo.Owner, ev.Repo.Name, meta.CommentID)
+
+	// 烧预算指令门控（v5.3.0）：review/recheck/fix/testgen 需写权限，防路人白烧。
+	if isDriveCommand(question) && !s.actorCanDrive(ctx, platform, ev.Repo.Owner, ev.Repo.Name, actorName(ev)) {
+		s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, gateDeniedText)
+		return
+	}
+
 	// 显式命令优先于自由文本路由：复核（单条 fp）→ 重审（全量）→ 写作/修复 →
 	// Q&A/意图分类。确定性命令零 LLM 分类开销，也不受 ARGUS_COMMENT_ROUTER 开关影响。
-	if s.dispatchRecheck(ctx, question, string(ev.Source), ev.Repo.Owner, ev.Repo.Name, prNum, prRef, delivery) {
+	if s.dispatchRecheck(ctx, question, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, delivery) {
 		return
 	}
-	if s.dispatchReview(ctx, question, string(ev.Source), ev.Repo.Owner, ev.Repo.Name, prNum, prRef, delivery) {
+	if s.dispatchReview(ctx, question, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, delivery) {
 		return
 	}
-	if s.dispatchWriting(ctx, ev, question, string(ev.Source), prNum, prRef, delivery) {
+	if s.dispatchWriting(ctx, ev, question, platform, prNum, prRef, delivery) {
 		return
 	}
-	s.answerComment(ctx, ev, question, string(ev.Source), prNum, prRef, delivery)
+	s.answerComment(ctx, ev, question, platform, prNum, prRef, delivery)
+}
+
+// actorName 事件触发者用户名（nil 安全）。
+func actorName(ev *provider.NormalizedEvent) string {
+	if ev.Actor == nil {
+		return ""
+	}
+	return ev.Actor.Username
 }
 
 // postCommentReply 回帖 + 留痕（Q&A 与意图路由分派的共用出口）。

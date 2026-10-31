@@ -110,6 +110,10 @@ func TestScenarioReviewCommand(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].Platform != "gitlab" || tasks[0].Number != "7" {
 		t.Fatalf("review 应建 1 个复审任务: n=%d err=%v", len(tasks), err)
 	}
+	// v5.3.0 即时回执：触发指令的评论应被加 👀（commentID:100 来自 note 载荷）。
+	if len(s.fake.reactions) == 0 || s.fake.reactions[0] != "100:eyes" {
+		t.Fatalf("应给指令评论加 👀 回执: %v", s.fake.reactions)
+	}
 }
 
 // v5.2.0 mention 任意位置（GitHub issue_comment 形态，生产 GitHub 不填 Actor/Repo，
@@ -151,6 +155,84 @@ func TestScenarioRecheckCommand(t *testing.T) {
 	body := bodies[0]
 	if !strings.Contains(body, "意见复核") || !strings.Contains(body, "结论") {
 		t.Fatalf("recheck 回帖缺复核结论: %q", body)
+	}
+	assertNoTasks(t, s)
+}
+
+// v5.3.0 help 指令：指令手册（目录单源渲染），免节流免门控。
+func TestScenarioHelpCommand(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, extraPlatforms: []string{"gitlab"}})
+
+	s.setGitLabNoteEvent("@argus-bot help", "alice", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-help-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("help 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	body := bodies[0]
+	for _, want := range []string{"指令速查", "review", "recheck", "status", "describe", "suppress"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("help 回帖缺 %q: %q", want, body)
+		}
+	}
+	assertNoTasks(t, s)
+}
+
+// v5.3.0 status 指令：最近任务状态与结论（免节流）。
+func TestScenarioStatusCommand(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, extraPlatforms: []string{"gitlab"}})
+
+	// 预置一个已完成任务（status 数据源：ListTasksByPR）。
+	tk := storage.NewTask("requirement_compliance", "gitlab", "acme", "app", "7")
+	tk.Status = storage.StatusDone
+	tk.Verdict = "request_changes"
+	tk.HeadSHA = "sha-1"
+	if err := s.store.CreateTask(context.Background(), tk); err != nil {
+		t.Fatal(err)
+	}
+
+	s.setGitLabNoteEvent("@argus-bot status", "alice", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-st-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("status 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	body := bodies[0]
+	for _, want := range []string{"审查状态", "request_changes", "recheck"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("status 回帖缺 %q: %q", want, body)
+		}
+	}
+	assertNoTasks(t, s)
+}
+
+// v5.3.0 烧预算指令门控：非协作者触发 review 被拒（🔒 提示），不建任务。
+func TestScenarioDriveGateDenied(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, extraPlatforms: []string{"gitlab"}})
+	s.fake.mu.Lock()
+	s.fake.collabs = []string{"alice"} // mallory 不在协作者名单
+	s.fake.mu.Unlock()
+
+	s.setGitLabNoteEvent("@argus-bot review", "mallory", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-gate-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	if !strings.Contains(bodies[0], "写权限") {
+		t.Fatalf("应回权限提示: %q", bodies[0])
+	}
+	assertNoTasks(t, s)
+}
+
+// v5.3.0 changelog 指令：CHANGELOG 条目草稿（轻量路径不建任务）。
+func TestScenarioChangelogCommand(t *testing.T) {
+	s := newStack(t, stackOpts{workers: 0, commentRouter: true})
+
+	s.setGitLabNoteEvent("@argus-bot changelog", "alice", false)
+	if code, resp := s.postWebhookOn(t, "gitlab", "gl-cl-1"); code != 200 || resp.Status != "accepted" {
+		t.Fatalf("changelog 评论应被接受: %d %+v", code, resp)
+	}
+	bodies := waitForReplies(t, s, 1)
+	if !strings.Contains(bodies[0], "CHANGELOG 条目") {
+		t.Fatalf("changelog 回帖缺条目草稿: %q", bodies[0])
 	}
 	assertNoTasks(t, s)
 }

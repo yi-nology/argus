@@ -44,6 +44,8 @@ data:
 
   # 评论命令面（v5.2.0）：@bot 自由文本意图路由 + 单条复核/重审显式命令
   ARGUS_COMMENT_ROUTER: "1"
+  # v5.3.0 烧预算指令门控：仅协作者可触发 review/recheck/fix/testgen（open 放开）
+  ARGUS_COMMENT_GATE: "collaborator"
   ARGUS_REPO_ALLOWLIST: "gitea:demo-user/argus-pilot,gitea:demo-user/argus-e2e-test"
   # 审查质量环（与试点同参）
   ARGUS_REFLECTION_ROUNDS: "2"

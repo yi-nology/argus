@@ -190,6 +190,8 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 引用行（`> …`）里的 mention 是转述不触发）。指令形态与自由文本两类：
 
 **显式指令**（确定性解析，零 LLM 分类，不受 `ARGUS_COMMENT_ROUTER` 开关影响）：
+- `@argus help` —— 指令手册（v5.3.0；同义 `帮助`/`命令`/`指令`，免节流）
+- `@argus status` —— 最近一轮审查的状态、结论与意见数（v5.3.0；同义 `状态`/`进度`，免节流）
 - `@argus ask <问题>` —— Q&A 问答（`ask` 可省略）。例如：
   - `@argus ask 这个改动会影响性能吗？`
   - `@argus ask 为什么用 sync.Mutex 而不是 channel？`
@@ -201,7 +203,14 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 - `@argus restore fp:ab12cd34` —— 误抑制恢复（suppress 反向：误杀的意见重新可见，不回流知识）
 - `@argus fix fp:ab12cd34` —— 一键修复（v3.85.0，`ARGUS_FIX_AGENT` 启用）：编码 agent 在隔离沙箱出 patch，沙箱验证后回帖 diff（不自动 push）
 - `@argus describe [补充要求]` —— 生成 PR 变更说明 + 建议标签（v3.15.0，回帖评论不写回 PR body）
+- `@argus changelog [补充要求]` —— CHANGELOG 条目草稿（v5.3.0，回帖草稿不写 CHANGELOG.md）
 - `@argus testgen [目标路径]` —— 按 diff 生成单元测试骨架（v3.15.0；未经编译验证，需人工核对）
+
+**商业化交互**（v5.3.0）：
+- 即时回执：指令评论被受理时先回 👀，长任务（重审/修复）不再干等；
+- 权限门控（`ARGUS_COMMENT_GATE`，默认 `collaborator`）：烧预算指令（review/recheck/fix/testgen）
+  仅仓库协作者可触发，防公开仓路人评论白烧审查预算；设 `open` 放开。问答/查询/误报反馈类不受限；
+- 冷却有感知：每 PR 30 秒指令冷却期内再发指令会收到 ⏱️ 提示（不再静默丢弃），自由文本保持静默防刷屏。
 
 三平台评论事件均接入（v3.5.4 补齐 GitLab）：GitHub `issue_comment`、GitLab `note`
 （仓库 webhook 需勾选 Note events）、Gitea/Forgejo 评论兜底；`setup-webhook.sh` 已含

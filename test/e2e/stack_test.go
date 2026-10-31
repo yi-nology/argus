@@ -49,28 +49,53 @@ type fakeProvider struct {
 	provider.Provider     // 未显式实现的方法（不该被调用）走 nil panic
 	provider.IssueManager // 能力接口断言需要完整方法集（嵌入补齐）
 	provider.ReviewManager
+	provider.ReactionManager     // v5.3.0 即时回执 👀
+	provider.CollaboratorManager // v5.3.0 烧预算指令门控
 
-	mu       sync.Mutex
-	cr       *provider.ChangeRequest
-	repo     *provider.PlatformRepo
-	diff     *provider.MergeDiff
-	issues   map[string]*provider.Issue
-	files    map[string]string
-	comments []*provider.IssueComment
-	nextID   int64
-	markerN  int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
-	secret   string
-	ev       *provider.NormalizedEvent
-	createdN int
-	updatedN int
-	reviews  []provider.CreateReviewOptions
+	mu        sync.Mutex
+	cr        *provider.ChangeRequest
+	repo      *provider.PlatformRepo
+	diff      *provider.MergeDiff
+	issues    map[string]*provider.Issue
+	files     map[string]string
+	comments  []*provider.IssueComment
+	nextID    int64
+	markerN   int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
+	secret    string
+	ev        *provider.NormalizedEvent
+	createdN  int
+	updatedN  int
+	reviews   []provider.CreateReviewOptions
+	reactions []string // AddIssueCommentReaction 记账："commentID:emoji"
+	collabs   []string // 协作者名单（门控判定数据源）
+}
+
+// AddIssueCommentReaction v5.3.0 即时回执打桩：记账 commentID:emoji。
+func (f *fakeProvider) AddIssueCommentReaction(_ context.Context, _, _ string,
+	commentID int64, emoji string) (*provider.Reaction, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reactions = append(f.reactions, fmt.Sprintf("%d:%s", commentID, emoji))
+	return &provider.Reaction{ID: int64(len(f.reactions)), Emoji: emoji}, nil
+}
+
+// ListCollaborators v5.3.0 门控打桩：返回可配置协作者名单。
+func (f *fakeProvider) ListCollaborators(_ context.Context, _, _ string) ([]*provider.Collaborator, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*provider.Collaborator, 0, len(f.collabs))
+	for _, u := range f.collabs {
+		out = append(out, &provider.Collaborator{Username: u, Permission: "write"})
+	}
+	return out, nil
 }
 
 func newFakeProvider() *fakeProvider {
 	return &fakeProvider{
-		nextID: 100,
-		issues: map[string]*provider.Issue{},
-		files:  map[string]string{},
+		nextID:  100,
+		issues:  map[string]*provider.Issue{},
+		files:   map[string]string{},
+		collabs: []string{"alice", "bob", "carol", "demo-user"},
 		cr: &provider.ChangeRequest{
 			Number: "7", Title: "添加登录功能",
 			Description:  "实现账号密码登录，见 issue #12",
@@ -359,6 +384,9 @@ func (m *mockLLM) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(text, "【Argus RECHECK】"):
 		// v5.2.0 复核命令：固定裁决回复（成立 → fix 入口建议）
 		m.reply(w, "## 🔍 意见复核（fp:ab12cd34）\n\n**结论**：成立\n\n**理由**：diff 中确实存在该问题。\n\n**证据**：main.go:12\n\n**建议**：可用 fix 命令修复（fix fp:ab12cd34）")
+	case strings.Contains(text, "【Argus CHANGELOG】"):
+		// v5.3.0 changelog 命令：固定条目草稿
+		m.reply(w, "## 📜 CHANGELOG 条目（草稿）\n\n- **added**: 新增用户登录校验与问候函数")
 	default:
 		if m.personaReply(w, text) {
 			return

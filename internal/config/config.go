@@ -161,6 +161,10 @@ type Config struct {
 	// RouterMinConfidence LLM 意图分类的置信度下限（0~1，默认 0.6）；
 	// 低于阈值一律回落 ask（Q&A），宁可多答不误触发重审。
 	RouterMinConfidence float64
+	// CommentGate 烧预算指令（review/recheck/fix/testgen）的触发者门控
+	// （v5.3.0，ARGUS_COMMENT_GATE）："collaborator"（默认）= 仅仓库协作者可触发，
+	// 防公开仓路人评论白烧审查预算；"open" = 不限。问答/查询/误报反馈类不受门控。
+	CommentGate string
 	// LLMRateLimit 全局 LLM 请求速率限制（requests/sec）；0 = 不限速。
 	// 配合 LLMRateBurst 使用，token bucket 限速器在 LLM 调用前阻塞等待。
 	LLMRateLimit float64
@@ -477,6 +481,7 @@ func Load() *Config {
 		MetricsAuth:              envBool("ARGUS_METRICS_AUTH", false),
 		EvalResultsPath:          envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json"),
 		RouterMinConfidence:      envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
+		CommentGate:              envStr("ARGUS_COMMENT_GATE", "collaborator"),
 		LLMRateLimit:             envFloat("ARGUS_LLM_RATE_LIMIT", 0),
 		LLMRateBurst:             envInt("ARGUS_LLM_RATE_BURST", 0),
 		WebhookMaxBody:           envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),

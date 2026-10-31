@@ -101,6 +101,8 @@ type Service struct {
 	// 懒建（qaThrottleMu 护栏），生产行为不变——进程内恒一个 Service。
 	qaThrottleMu  sync.Mutex
 	qaThrottleCch *datacache.LocalCache[bool]
+	// collabCch 仓库协作者名单缓存（v5.3.0 评论指令门控，TTL 5 分钟，qaThrottleMu 护栏）。
+	collabCch *datacache.LocalCache[string]
 
 	// rateLimiter 每 token 速率限制器（v3.135.0 引入；v3.147.0 换 oekit
 	// ratelimit.KeyedLimiter：按 key 隔离令牌桶 + TTL 驱逐闲置 key；tokenRateOK
