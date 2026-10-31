@@ -327,13 +327,17 @@ func defaultPluginsFile() *plugin.PluginsFile {
 			Name: "correctness", Kind: "builtin",
 			Skills: []string{plugin.SkillCodeReview},
 			Needs:  []string{"diff", "repo-file-read"},
-			Cost:   plugin.CostStandard, Timeout: "300s", Enabled: &yes,
+			// 600s（v5.2.1）：300s 在推理型模型（mimo-v2.6-pro 实测）下频繁
+			// context deadline exceeded——单次审查链含工具核实，推理耗时不可控。
+			Cost: plugin.CostStandard, Timeout: "600s", Enabled: &yes,
 		},
 		{
 			Name: "security", Kind: "builtin",
 			Skills: []string{plugin.SkillCodeReview},
 			Needs:  []string{"diff", "repo-file-read"},
-			Cost:   plugin.CostHeavy, Timeout: "120s", LockRepoConfig: true, Enabled: &yes,
+			// 600s（v5.2.1）：原 120s 对推理模型过紧（同上实测），锁定插件
+			// 超时失败还会打完备性告警。
+			Cost: plugin.CostHeavy, Timeout: "600s", LockRepoConfig: true, Enabled: &yes,
 		},
 		{
 			Name: "ocr", Kind: "cli",

@@ -278,7 +278,12 @@ func (r *Runner) reviewHints(ctx context.Context, pr *plugin.PRContext) string {
 		}
 		fmt.Fprintf(&b, "- [%s] %s（置信度 %.2f，samples=%d）\n", p.Plugin, sample, p.Confidence, p.Samples)
 	}
-	return b.String()
+	out := b.String()
+	// 注入留痕（可观测性补齐）：提示词面注入此前零日志——线上排查「为什么这轮
+	// 意见变少」时无法区分提示词收敛与模型随机性。
+	r.Log.Info("argus.regret.hints_injected", "pr", fmt.Sprintf("%s/%s/%s#%s",
+		pr.Platform, pr.Owner, pr.Repo, pr.Number), "patterns", len(list), "bytes", len(out))
+	return out
 }
 
 // prevFindingsSection 渲染同 PR 此前轮次的 open 意见清单（跨轮一致性参照，

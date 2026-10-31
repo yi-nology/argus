@@ -334,6 +334,18 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 		p.Log.Warn("argus.poster.known_comment_list_failed", "error", cerr.Error())
 	}
 
+	// ④ 新建前双查（并发收口）：①②③ 落空到本步之间，同 PR 的并发审查可能
+	// 刚回写定位缓存——再读一次，命中即转原地更新，避免同 PR 双总结评论
+	// （实测双 worker 并发审查同 PR 时的碎片化路径）。
+	if target, _ := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); target != nil &&
+		target.LastSummaryCommentID > 0 {
+		if c, uerr := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+			target.LastSummaryCommentID, body); uerr == nil {
+			p.Log.Info("argus.poster.summary_race_recheck", "comment_id", target.LastSummaryCommentID)
+			return p.repointIfSwapped(ctx, pr, target.LastSummaryCommentID, c), nil
+		}
+	}
+
 	// ④ 新建
 	c, err := p.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body)
 	if err != nil {

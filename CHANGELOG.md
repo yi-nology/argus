@@ -14,6 +14,14 @@
 - **指标中间件收编**（oekit/middleware.PrometheusMetrics 取代手写 httpmw，v3.9.2）：⚠️ 指标标签 `status` → `status_code`（argus_http_requests_total/argus_http_request_duration_seconds），Grafana/告警引用需同步；增量能力 InFlight gauge + 请求/响应体直方图。
 - **评估后不采纳**（留档勿重探）：semsearch 抽取层切 textx/codeintel——embedding 语料会变而 search_sem 无独立评测护栏，语料变化不可验证；dispatch/pattern 账本/printalias/QA 滚动摘要/poster 锚点幂等等 12 项均为领域语义层，库内无对应物（详见盘点结论：argus 对四库的消费已是深度适配形态）。
 
+## v5.2.1（2026-10-31，分页韧性+并发收口——rpi5 集群实弹炸出）
+
+- **伪翻页根修**（go-git-platform v0.99.10 待发）：真实 Forgejo 15.0.1 评论列表忽略 `page` 参数、每页返回同一批全量数据——SDK 迭代器翻满 50 页报 `ErrPageBudgetExceeded` 并**整体丢弃数据**，poster 扫描被迫降级「新建」，实测 PR#8 碎片化出 4 条总结评论。SDK `EachBounded`（全 SDK 单一迭代器）加**无进展检测**：同页重复=列表已到尾，软收手返回已收集数据（首页即全量）；真超长列表仍走预算哨兵。真机验收（全新 DB 逼出扫描路径）：扫描零报错、报告评论数不增、id=826 原地更新。依赖升级待 SDK tag 推送后走正式版本。
+- **poster 新建前双查**（并发收口）：①②③ 落空到 ④ 新建之间同 PR 并发审查可能刚回写定位缓存——再读一次命中即转原地更新（`summary_race_recheck` 留痕），封住双 worker 并发审查同 PR 的碎片化残余路径。
+- **reviewHints 注入留痕**（`argus.regret.hints_injected`，patterns/bytes）：学习环提示词面注入此前零日志，排查「这轮意见变少」无法区分提示词收敛与模型随机性。
+- **内置插件超时适配推理模型**：correctness 300s→600s、security 120s→600s——mimo-v2.6-pro 实测频繁 `context deadline exceeded`（单次审查链含工具核实，推理耗时不可控）；锁定插件超时失败还会打完备性告警。
+- **CreateTask 403 报错透明化**：白名单/token 仓库约束拒绝与参数错误共用泛化文案时，调错仓只看到「校验参数」——403 现明示「仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内，或 token 仓库约束不匹配」（实测踩坑留痕）。
+
 ## v3.70.0 ~ v3.103.0（浓缩）
 
 - **v3.70.0** [fix/plugin] remote/mcp 对接 review-service mcp-server 编排契约

@@ -42,6 +42,13 @@ func CreateTask(ctx context.Context, c *app.RequestContext) {
 	}
 	resp, status := Svc.CreateTask(ctx, &req)
 	if status != consts.StatusOK {
+		// 403 = 仓库白名单/token 仓库约束拒绝（service 层唯一 403 出口）——
+		// 与参数错误（400）共用泛化文案时，接入方调错仓只看到「校验参数」，
+		// 无从发现是 allowlist 配置问题（实测踩坑留痕）。
+		if status == consts.StatusForbidden {
+			mw.ErrorResp(c, status, "创建任务失败（仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内，或 token 仓库约束不匹配）")
+			return
+		}
 		mw.ErrorResp(c, status, "创建任务失败（校验平台/参数或查看服务日志）")
 		return
 	}
