@@ -195,7 +195,7 @@ func TestToolTraceLogger(t *testing.T) {
 	if ToolTraceLogger(nil, "x") != nil {
 		t.Fatal("nil 日志应返回 nil 回调")
 	}
-	fn := ToolTraceLogger(logx.NewSlogLogger("test"), "argus.test", "plugin", "p")
+	fn := ToolTraceLogger(logx.Nop(), "argus.test", "plugin", "p")
 	if fn == nil {
 		t.Fatal("装配后应返回回调")
 	}

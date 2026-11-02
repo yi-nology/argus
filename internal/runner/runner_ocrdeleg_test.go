@@ -69,7 +69,7 @@ func ocrdelegTask() *plugin.Task {
 func TestInjectOCRDelegateInDir(t *testing.T) {
 	bin, argvProbe := ocrdelegFakeBin(t)
 	hdir := t.TempDir()
-	r := &Runner{Cfg: &config.Config{OcrBin: bin, OcrHistoryDir: hdir}, Log: logx.NewSlogLogger("runner-ocrdeleg-test")}
+	r := &Runner{Cfg: &config.Config{OcrBin: bin, OcrHistoryDir: hdir}, Log: logx.Nop()}
 	ptask := ocrdelegTask()
 
 	r.injectOCRDelegateInDir(context.Background(), t.TempDir(), &ptask.PR,
@@ -115,7 +115,7 @@ func TestInjectOCRDelegateDegradesOnFailure(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &Runner{Cfg: &config.Config{OcrBin: bin}, Log: logx.NewSlogLogger("runner-ocrdeleg-test")}
+	r := &Runner{Cfg: &config.Config{OcrBin: bin}, Log: logx.Nop()}
 	ptask := ocrdelegTask()
 	r.injectOCRDelegateInDir(context.Background(), t.TempDir(), &ptask.PR,
 		includedPaths(ptask.Diff), ptask)
@@ -129,7 +129,7 @@ func TestInjectOCRDelegateGates(t *testing.T) {
 	bin, argvProbe := ocrdelegFakeBin(t)
 
 	newRunner := func(cfg *config.Config, wc *workcopy.Pool) *Runner {
-		return &Runner{Cfg: cfg, WC: wc, Log: logx.NewSlogLogger("runner-ocrdeleg-test")}
+		return &Runner{Cfg: cfg, WC: wc, Log: logx.Nop()}
 	}
 	ptask := ocrdelegTask()
 

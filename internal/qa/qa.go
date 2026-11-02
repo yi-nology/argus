@@ -23,6 +23,7 @@ import (
 	"github.com/oagentkit/textx/conversation"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/oekit/logx"
 	"github.com/yi-nology/agent-harness/budget"
 
 	argusctx "argus/internal/context"
@@ -74,18 +75,11 @@ type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
 
-// noopLogger 未注入日志时的安全兜底。
-type noopLogger struct{}
-
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Warn(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
-
 func (e *Engine) log() Logger {
 	if e.Log != nil {
 		return e.Log
 	}
-	return noopLogger{}
+	return logx.Nop() // v5.3.2：上游 logx v0.8.0 提供 Nop，删本地 noopLogger 同构
 }
 
 // sessionTTL 会话时效：超过视为新话题（历史清零）。

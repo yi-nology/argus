@@ -58,7 +58,7 @@ func newPoller(t *testing.T, plat *listFakePR, store *storage.Store, bus *progre
 		Targets:   []Target{{Platform: "gitea", Owner: "o", Repo: "r"}},
 		Interval:  time.Hour, // 不真正起 loop；测试直调 pollOnce
 		SkipDraft: skipDraft,
-		Log:       logx.NewSlogLogger("test"),
+		Log:       logx.Nop(),
 		Bus:       bus,
 	}
 }

@@ -1,9 +1,11 @@
 // GitHub App installation token support。
 // 用 App ID + Private Key 签发 JWT（RS256，纯标准库），再调 GitHub API 换取 installation access token（1h 有效期）。
-// SDK provider 不支持动态 token，故 token 过期时重建 provider 替换到 map。
+// token 供给走 go-git-platform v0.100+ 的 provider.TokenSource：transport 每请求取值，
+// 临期懒续期，不再需要后台 ticker + provider 重建（旧方案的过期 token 在飞窗口归零）。
 package context
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -120,92 +122,57 @@ func signJWT(appID int64, now time.Time, key *rsa.PrivateKey) (string, error) {
 	return payload + "." + enc(sig), nil
 }
 
-// githubAppRefresher 管理 GitHub App installation token 的周期刷新。
-// token 有效期 1h，每 50 分钟刷新一次；刷新失败时保留旧 token（下次重试）。
-type githubAppRefresher struct {
-	mu          sync.Mutex
-	cfg         config.PlatformConfig
-	log         logx.Logger
-	refreshFunc func(newToken string) // 刷新成功后回调（替换 provider）
-	current     string
-	expiresAt   time.Time
-	stopCh      chan struct{}
+// tokenRefreshAhead installation token 剩余寿命低于该阈值时在取值路径上同步续期
+// （token 有效期 1h，即每小时至多一次取值路径上的额外 API 往返）。
+const tokenRefreshAhead = 5 * time.Minute
+
+// installationTokenSource provider.TokenSource 实现（go-git-platform v0.100+）：
+// transport 每请求经此取 token，临期懒续期 ⇒ 轮换即刻生效，无需重建 provider。
+// 并发取值合并到同一把锁（每小时至多一次 ≤15s 的同步刷新，其余请求排队等新值）；
+// 续期失败且旧 token 仍在寿命内时退回旧值（可用性优先，下次请求再试）。
+type installationTokenSource struct {
+	appID          int64
+	privateKeyPEM  string
+	installationID int64
+	log            logx.Logger
+
+	mu        sync.Mutex
+	token     string
+	expiresAt time.Time
 }
 
-func newGitHubAppRefresher(pc config.PlatformConfig, log logx.Logger, refreshFunc func(string)) *githubAppRefresher {
-	return &githubAppRefresher{
-		cfg:         pc,
-		log:         log,
-		refreshFunc: refreshFunc,
-		stopCh:      make(chan struct{}),
+// newInstallationTokenSource 以启动期已获取的 token 初始化（启动失败即该平台判死，
+// fail-fast 语义与旧方案一致；此后的续期全部走 Token() 懒路径）。
+func newInstallationTokenSource(pc config.PlatformConfig, token string, expires time.Time,
+	log logx.Logger) *installationTokenSource {
+	return &installationTokenSource{
+		appID:          pc.GitHubAppID,
+		privateKeyPEM:  pc.GitHubAppPrivateKey,
+		installationID: pc.GitHubAppInstallationID,
+		log:            log,
+		token:          token,
+		expiresAt:      expires,
 	}
 }
 
-// initWithToken 使用已获取的 token 初始化（避免重复 API 调用）。
-func (r *githubAppRefresher) initWithToken(token string, expires time.Time) {
-	r.mu.Lock()
-	r.current = token
-	r.expiresAt = expires
-	r.mu.Unlock()
-}
-
-// Start 启动后台刷新循环。如果 initWithToken 已设置 token 则跳过首次获取。
-func (r *githubAppRefresher) Start() error {
-	r.mu.Lock()
-	hasToken := r.current != ""
-	r.mu.Unlock()
-
-	if !hasToken {
-		token, expires, err := generateInstallationToken(
-			r.cfg.GitHubAppID, r.cfg.GitHubAppPrivateKey, r.cfg.GitHubAppInstallationID)
-		if err != nil {
-			return fmt.Errorf("github app: 初始 token 获取失败: %w", err)
-		}
-		r.mu.Lock()
-		r.current = token
-		r.expiresAt = expires
-		r.mu.Unlock()
-		r.refreshFunc(token)
+// Token 每请求取值（provider.TokenSource 契约，并发安全）。
+func (ts *installationTokenSource) Token(_ context.Context) (string, error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.token != "" && time.Until(ts.expiresAt) > tokenRefreshAhead {
+		return ts.token, nil
 	}
-
-	r.log.Info("argus.githubapp.token_ready",
-		"app_id", r.cfg.GitHubAppID,
-		"installation_id", r.cfg.GitHubAppInstallationID,
-		"expires_at", r.expiresAt.Format(time.RFC3339))
-
-	go r.loop()
-	return nil
-}
-
-func (r *githubAppRefresher) loop() {
-	ticker := time.NewTicker(50 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			r.refresh()
-		case <-r.stopCh:
-			return
-		}
-	}
-}
-
-func (r *githubAppRefresher) refresh() {
 	token, expires, err := generateInstallationToken(
-		r.cfg.GitHubAppID, r.cfg.GitHubAppPrivateKey, r.cfg.GitHubAppInstallationID)
+		ts.appID, ts.privateKeyPEM, ts.installationID)
 	if err != nil {
-		r.log.Error("argus.githubapp.token_refresh_failed", "error", err.Error(),
-			"hint", "将在下次 tick 重试，旧 token 仍有效")
-		return
+		if ts.token != "" && time.Until(ts.expiresAt) > 0 {
+			ts.log.Error("argus.githubapp.token_refresh_failed", "error", err.Error(),
+				"hint", "旧 token 仍在寿命内，本次请求沿用旧值，下次请求再试")
+			return ts.token, nil
+		}
+		return "", fmt.Errorf("github app: installation token 获取失败: %w", err)
 	}
-	r.mu.Lock()
-	r.current = token
-	r.expiresAt = expires
-	r.mu.Unlock()
-	r.refreshFunc(token)
-	r.log.Info("argus.githubapp.token_refreshed", "expires_at", expires.Format(time.RFC3339))
-}
-
-func (r *githubAppRefresher) Stop() {
-	close(r.stopCh)
+	ts.token, ts.expiresAt = token, expires
+	ts.log.Info("argus.githubapp.token_refreshed", "expires_at", expires.Format(time.RFC3339))
+	return ts.token, nil
 }

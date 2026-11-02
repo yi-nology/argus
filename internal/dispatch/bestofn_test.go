@@ -147,7 +147,7 @@ func sampleReg(name string, n int, p AgentPlugin) *Registration {
 }
 
 func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, outputs: []Result{
 		{Findings: []Finding{finding}},
@@ -172,7 +172,7 @@ func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 }
 
 func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, failOn: map[int]bool{1: true},
 		outputs: []Result{{Findings: []Finding{finding}}, {Findings: []Finding{finding}}, {Findings: []Finding{finding}}}}
@@ -193,7 +193,7 @@ func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
 }
 
 func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 2},
 		failOn: map[int]bool{0: true, 1: true}}
 	_ = d.reg.Register(sampleReg("expert", 2, p))
@@ -210,7 +210,7 @@ func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
 
 func TestDispatcher_RunBestOfN_OffByDefault(t *testing.T) {
 	// ReviewN=0/1：单次执行语义不变（只 invoke 一次）
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	p := &seqPlugin{manifest: AgentManifest{Name: "expert"}, outputs: []Result{{Findings: []Finding{
 		{File: "a.go", Line: 3, Severity: SeverityLow, Comment: "x"},
 	}}}}

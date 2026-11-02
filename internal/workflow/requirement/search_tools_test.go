@@ -38,7 +38,7 @@ func TestR3ToolsCodeSearch(t *testing.T) {
 
 	with := names(&Workflow{
 		CodeSearchDir:    dir,
-		Log:              logx.NewSlogLogger("argus-test"),
+		Log:              logx.Nop(),
 		GetFileMaxChars:  1000,
 		GetIssueMaxChars: 1000,
 		GetDiffMaxChars:  1000,
@@ -54,7 +54,7 @@ func TestR3ToolsCodeSearch(t *testing.T) {
 	}
 
 	for _, n := range names(&Workflow{
-		Log:              logx.NewSlogLogger("argus-test"),
+		Log:              logx.Nop(),
 		GetFileMaxChars:  1000,
 		GetIssueMaxChars: 1000,
 		GetDiffMaxChars:  1000,

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 	// 各平台 backend 在 init() 里注册到 provider 工厂
 	_ "github.com/yi-nology/go-git-platform/backends/all"
@@ -25,8 +24,8 @@ type SDKCtx struct {
 	provsMu        sync.RWMutex
 	provs          map[string]provider.Provider
 	log            logx.Logger
-	appTokens      *appTokenManager // GitHub App token 管理（nil = 未启用）
-	sdkCallTimeout time.Duration    // 单次 SDK 调用兜底超时（<=0 = 默认 120s；<0 = 关闭）
+	appTokens      *installationTokenSource // GitHub App token 源（nil = 未启用）
+	sdkCallTimeout time.Duration            // 单次 SDK 调用兜底超时（<=0 = 默认 120s；<0 = 关闭）
 }
 
 // defaultSDKCallTimeout ARGUS_SDK_TIMEOUT 未配置时的兜底值。
@@ -55,41 +54,14 @@ func (s *SDKCtx) WithSDKCallTimeout(d time.Duration) *SDKCtx {
 	return s
 }
 
-// Stop 停止后台组件（GitHub App token refresher，v3.9.2 收编进停机序列）：
-// 此前 refresher 以裸 goroutine 启动且 Stop 全仓无调用方——90s 优雅排水期间
-// 仍可能触发 provider 重建。重复调用安全（仅停机序列单点调用）。
-func (s *SDKCtx) Stop() {
-	s.provsMu.RLock()
-	defer s.provsMu.RUnlock()
-	if s.appTokens != nil && s.appTokens.refresh != nil {
-		s.appTokens.refresh.Stop()
-	}
-}
-
-// appTokenManager 管理 GitHub App installation token 的生命周期。
-// token 由 githubAppRefresher 周期刷新，Current() 返回最新值供 workcopy 使用。
-type appTokenManager struct {
-	mu      sync.RWMutex
-	token   string
-	refresh *githubAppRefresher
-}
-
-func (m *appTokenManager) Current() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.token
-}
-
-func (m *appTokenManager) set(token string) {
-	m.mu.Lock()
-	m.token = token
-	m.mu.Unlock()
-}
+// appTokenManager/Stop 已随 v5.3.2 TokenSource 迁移删除：installation token 走
+// installationTokenSource 每请求取值 + 临期懒续期，无后台 goroutine、无停机面。
 
 // NewSDKCtx 按配置为每个已配 token 的平台构造 provider。
 // GitHub 平台支持两种认证方式：
 //   - PAT（ARGUS_GITHUB_TOKEN）：静态 token，无需刷新
-//   - GitHub App（ARGUS_GITHUB_APP_ID + PRIVATE_KEY + INSTALLATION_ID）：installation token，50min 自动刷新
+//   - GitHub App（ARGUS_GITHUB_APP_ID + PRIVATE_KEY + INSTALLATION_ID）：installation
+//     token，TokenSource 每请求取值 + 临期懒续期（v5.3.2 起，无后台刷新循环）
 func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 	s := &SDKCtx{provs: map[string]provider.Provider{}, log: log, sdkCallTimeout: cfg.SDKCallTimeout}
 	retry := &provider.RetryConfig{
@@ -114,7 +86,7 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 			log.Warn("argus.sdkctx.skip_tls", "platform", name,
 				"hint", "已跳过 TLS 证书校验（内网自建实例），请勿在公网环境开启")
 		}
-		p, err := newProviderFor(name, pc, pc.Token, retry, log)
+		p, err := newProviderFor(name, pc, pc.Token, retry, log, nil)
 		if err != nil {
 			// 平台不可达不阻塞启动（学习期/内网常态）；readyz 与请求期报错可见
 			log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
@@ -126,67 +98,47 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 	return s, nil
 }
 
-// newProviderFor 平台 provider 构造单一出处（PAT / GitHub App / App 刷新重建三路共用）。
+// newProviderFor 平台 provider 构造单一出处（PAT / GitHub App 两路共用）；
+// ts 非 nil 时交给上游 TokenSource（每请求取值，优先于静态 token）。
 func newProviderFor(name string, pc config.PlatformConfig, token string,
-	retry *provider.RetryConfig, log logx.Logger) (provider.Provider, error) {
+	retry *provider.RetryConfig, log logx.Logger, ts provider.TokenSource) (provider.Provider, error) {
 	platform := provider.Platform(name)
 	if name == "github" && pc.GitHubAppEnabled() {
 		platform = provider.PlatformGitHub
 	}
 	return provider.NewProvider(provider.Config{
-		Platform:    platform,
-		BaseURL:     pc.BaseURL,
-		Token:       token,
-		SkipTLS:     pc.SkipTLS,
-		TokenStyle:  pc.TokenStyle,
-		RetryConfig: retry,
-		Logger:      log,
+		Platform:            platform,
+		BaseURL:             pc.BaseURL,
+		Token:               token,
+		SkipTLS:             pc.SkipTLS,
+		TokenSource:         ts,
+		TokenStyle:          pc.TokenStyle,
+		RetryConfig:         retry,
+		Logger:              log,
+		ConditionalRequests: pc.ConditionalRequests,
 	})
 }
 
-// initGitHubApp GitHub App 认证初始化：installation token 获取 → provider 构造 →
-// 后台 50min 刷新循环（过期时重建 provider 原子替换）。初始化失败仅告警跳过（该
-// 平台不可用，不阻塞其他平台）。
+// initGitHubApp GitHub App 认证初始化：installation token 启动期首取（fail-fast：
+// 凭据坏 ⇒ 该平台启动即判死，不拖到首请求）→ provider 构造挂 TokenSource（v5.3.2：
+// 每请求取值 + 临期懒续期，替代旧的 50min ticker + provider 重建——过期 token 在飞
+// 请求的 401 窗口归零）。初始化失败仅告警跳过（该平台不可用，不阻塞其他平台）。
 func (s *SDKCtx) initGitHubApp(name string, pc config.PlatformConfig,
 	retry *provider.RetryConfig, log logx.Logger) {
-	tokenMgr := &appTokenManager{}
-	// 首次获取 token 并构造 provider
 	token, expires, err := generateInstallationToken(
 		pc.GitHubAppID, pc.GitHubAppPrivateKey, pc.GitHubAppInstallationID)
 	if err != nil {
 		log.Error("argus.githubapp.init_failed", "error", err.Error())
 		return
 	}
-	tokenMgr.set(token)
-	p, err := newProviderFor(name, pc, token, retry, log)
+	ts := newInstallationTokenSource(pc, token, expires, log)
+	p, err := newProviderFor(name, pc, "", retry, log, ts)
 	if err != nil {
 		log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
 		return
 	}
 	s.provs[name] = p
-
-	// 启动后台刷新：token 过期时重建 provider 替换到 map
-	refresher := newGitHubAppRefresher(pc, log, func(newToken string) {
-		if newP, err := newProviderFor(name, pc, newToken, retry, log); err == nil {
-			s.provsMu.Lock()
-			s.provs[name] = newP
-			s.provsMu.Unlock()
-			tokenMgr.set(newToken)
-		} else {
-			log.Error("argus.githubapp.rebuild_provider_failed", "error", err.Error())
-		}
-	})
-	refresher.initWithToken(token, expires)
-	tokenMgr.refresh = refresher
-	s.appTokens = tokenMgr
-
-	// 启动后台刷新循环（非阻塞；GoSafe 防 Start 期 panic 拖垮进程——
-	// v3.9.2 收编，Stop 经 main 的 AddResource 停机序列调用）
-	async.GoSafe(func() {
-		if err := refresher.Start(); err != nil {
-			log.Error("argus.githubapp.refresher_start_failed", "error", err.Error())
-		}
-	})
+	s.appTokens = ts
 
 	log.Info("argus.sdkctx.platform_ready", "platform", name,
 		"auth", "github_app", "app_id", pc.GitHubAppID,
@@ -233,13 +185,25 @@ func (s *SDKCtx) Ready() []string {
 	return out
 }
 
+// HasGitHubApp 是否启用 GitHub App 认证（installationTokenSource 已就绪）。
+func (s *SDKCtx) HasGitHubApp() bool {
+	return s.appTokens != nil
+}
+
 // GitHubAppToken 返回当前 GitHub App installation token（workcopy clone 用）。
-// 未启用 GitHub App 时返回空串。
-func (s *SDKCtx) GitHubAppToken() string {
+// 临期时经 TokenSource 同步续期（clone 路径无上游 ctx ⇒ Background，客户端自身
+// 15s 兜底超时）；未启用或获取失败返回空串，调用方回落 PAT。
+func (s *SDKCtx) GitHubAppToken(ctx context.Context) string {
 	if s.appTokens == nil {
 		return ""
 	}
-	return s.appTokens.Current()
+	tok, err := s.appTokens.Token(ctx)
+	if err != nil {
+		s.log.Warn("argus.githubapp.token_for_clone_failed", "error", err.Error(),
+			"hint", "回落 PAT 凭证")
+		return ""
+	}
+	return tok
 }
 
 // ---------- webhook ----------

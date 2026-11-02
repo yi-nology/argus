@@ -19,6 +19,11 @@ type PlatformConfig struct {
 	// TokenStyle 覆盖默认认证头风格: "bearer" (Authorization: Bearer) / "private" (PRIVATE-TOKEN)。
 	// 空值使用平台默认值（GitLab=private, GitHub=bearer）。
 	TokenStyle string
+	// ConditionalRequests 开启 GET 条件请求（ETag/If-None-Match，304 重放缓存体，
+	// v5.3.2）：GitHub 的 304 不计入限流预算，poller 每 tick 全量翻页的场景下
+	// 可持续轮询速率实质抬升；平台不支持 ETag 时上游透明回退 200，无正确性影响。
+	// ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS。
+	ConditionalRequests bool
 
 	// GitHub App 认证（仅 github 平台）：配置后自动用 installation token 替代 PAT。
 	// 三者全配才启用；AppID + PrivateKey 用于签发 JWT，InstallationID 用于换取 token。
@@ -535,11 +540,12 @@ func Load() *Config {
 	for _, p := range []string{"gitea", "github", "gitlab", "gitee"} {
 		prefix := "ARGUS_" + strings.ToUpper(p) + "_"
 		cfg.Platforms[p] = PlatformConfig{
-			BaseURL:    os.Getenv(prefix + "URL"),
-			Token:      os.Getenv(prefix + "TOKEN"),
-			Secret:     os.Getenv(prefix + "SECRET"),
-			SkipTLS:    envBool(prefix+"SKIP_TLS", false),
-			TokenStyle: os.Getenv(prefix + "TOKEN_STYLE"),
+			BaseURL:             os.Getenv(prefix + "URL"),
+			Token:               os.Getenv(prefix + "TOKEN"),
+			Secret:              os.Getenv(prefix + "SECRET"),
+			SkipTLS:             envBool(prefix+"SKIP_TLS", false),
+			TokenStyle:          os.Getenv(prefix + "TOKEN_STYLE"),
+			ConditionalRequests: envBool(prefix+"CONDITIONAL_REQUESTS", false),
 		}
 	}
 	// GitHub App 认证：三者全配时启用（覆盖 Token）

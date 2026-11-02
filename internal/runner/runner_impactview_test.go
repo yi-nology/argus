@@ -18,7 +18,7 @@ import (
 
 // TestInjectImpactViewGates 门控矩阵：关/无池/空纳入均无产物且不 panic。
 func TestInjectImpactViewGates(t *testing.T) {
-	log := logx.NewSlogLogger("test")
+	log := logx.Nop()
 	newRunner := func(cfg *config.Config) *Runner {
 		return &Runner{Cfg: cfg, Log: log}
 	}

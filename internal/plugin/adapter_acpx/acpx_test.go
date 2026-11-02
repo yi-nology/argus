@@ -34,7 +34,7 @@ func newTestPlugin(agent acpx.Agent) *Plugin {
 	return &Plugin{
 		manifest: plugin.AgentManifest{Name: "test-acpx"},
 		agent:    agent,
-		log:      logx.NewSlogLogger("test"),
+		log:      logx.Nop(),
 	}
 }
 
@@ -113,7 +113,7 @@ func TestInvokeMalformedJSON(t *testing.T) {
 
 func TestNewUnknownAgent(t *testing.T) {
 	if _, err := New(plugin.AgentManifest{Name: "x"}, "no-such-agent", nil,
-		logx.NewSlogLogger("test")); err == nil {
+		logx.Nop()); err == nil {
 		t.Fatal("未注册 agent 应报错")
 	}
 }
@@ -121,7 +121,7 @@ func TestNewUnknownAgent(t *testing.T) {
 func TestNewBinaryMissing(t *testing.T) {
 	// 隔离 PATH 为空目录：保证任何 agent 的 CLI 都不存在（不依赖本机安装状态）
 	t.Setenv("PATH", t.TempDir())
-	_, err := New(plugin.AgentManifest{Name: "x"}, "mimo", nil, logx.NewSlogLogger("test"))
+	_, err := New(plugin.AgentManifest{Name: "x"}, "mimo", nil, logx.Nop())
 	if !errors.Is(err, ErrBinaryMissing) {
 		t.Fatalf("应返回 ErrBinaryMissing，得到 %v", err)
 	}

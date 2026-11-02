@@ -87,7 +87,7 @@ func TestMerger(t *testing.T) {
 	fs := &fakeStore{prints: map[string]string{
 		Fingerprint("dup.go", "同一问题", 3): "suppressed", // 预置：历史误报
 	}}
-	m := NewMerger(fs, logx.NewSlogLogger("dispatch-test"))
+	m := NewMerger(fs, logx.Nop())
 	outcomes := []Outcome{
 		{
 			Name: "correctness",

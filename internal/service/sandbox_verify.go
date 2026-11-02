@@ -163,7 +163,7 @@ func VerifyGenerated(ctx context.Context, cfg VerifyConfig, dir string,
 // 不同：模板本身就是部署方声明的一段 shell，argus 只注入工作副本路径）。
 // v0.10.14 深度结合：进程纪律单源 procx（进程组托管/超时宽限/输出上限）。
 func runVerifyCmd(ctx context.Context, cfg VerifyConfig, dir string) (bool, string) {
-	cmdline := strings.ReplaceAll(cfg.Cmd, "{dir}", dir)
+	cmdline := plugin.ResolveShellTemplate(cfg.Cmd, dir)
 	stdout, stderr, code, err := procx.Run(ctx, procx.RunRequest{
 		Argv:    []string{"sh", "-c", cmdline},
 		Dir:     dir,

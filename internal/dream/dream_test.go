@@ -139,7 +139,7 @@ func TestBetterKeepStable(t *testing.T) {
 // 澄清路径同步退场——与知识导出同源同生命周期。
 func TestExportRepoWritesMemoryFacts(t *testing.T) {
 	kdir := t.TempDir()
-	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.NewSlogLogger("dream-test"))
+	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.Nop())
 	if err != nil {
 		t.Fatalf("kernel open: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestExportOrgMemoryCrossRepoAggregation(t *testing.T) {
 			"acme/web": {{Pattern: shared, Plugin: "security", Confidence: 0.3, Samples: 3}},
 		},
 	}
-	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.NewSlogLogger("dream-test"))
+	k, err := memorykernel.Open(filepath.Join(t.TempDir(), "kernel.db"), nil, logx.Nop())
 	if err != nil {
 		t.Fatalf("kernel open: %v", err)
 	}

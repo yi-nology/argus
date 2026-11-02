@@ -35,7 +35,7 @@ func TestBuildWorkflowClientWiring(t *testing.T) {
 		Model:      stubChatModel{},
 		ModelName:  "stub",
 		LLMLimiter: rate.NewLimiter(5, 5),
-		Log:        logx.NewSlogLogger("runner-test"),
+		Log:        logx.Nop(),
 	}
 	wf := r.buildWorkflow(nil)
 	c, ok := wf.LLM.(*llm.Client)
@@ -60,7 +60,7 @@ func TestBuildWorkflowStageRouter(t *testing.T) {
 		Cfg:       &config.Config{LLM: config.LLMConfig{ContextToken: 32000}},
 		LLM:       gen,
 		StageLLMs: map[string]llm.Generator{"R1": gen},
-		Log:       logx.NewSlogLogger("runner-test"),
+		Log:       logx.Nop(),
 	}
 	wf := r.buildWorkflow(nil)
 	if _, ok := wf.LLM.(*llm.StageRouter); !ok {
@@ -82,7 +82,7 @@ func TestSkillTextCache(t *testing.T) {
 		SkillProvider: sp,
 		SkillRefs:     []string{"methodology@v1"},
 		Cfg:           &config.Config{},
-		Log:           logx.NewSlogLogger("runner-test"),
+		Log:           logx.Nop(),
 	}
 	_ = r.skillText(context.Background())
 	_ = r.skillText(context.Background())

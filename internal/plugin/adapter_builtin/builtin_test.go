@@ -252,7 +252,7 @@ func (errModel) Stream(context.Context, []*schema.Message, ...model.Option) (*sc
 
 func TestReviewerOptionsAndReactModelResolution(t *testing.T) {
 	r, err := NewReviewer(plugin.AgentManifest{Name: "req"}, "sec", &fakeGen{}, nil, nil,
-		WithLogger(logx.NewSlogLogger("test")),
+		WithLogger(logx.Nop()),
 		WithReactMaxIterations(3),
 		WithReactModel(errModel{}),
 		WithToolsHook(func(context.Context, plugin.Task, *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
@@ -296,7 +296,7 @@ func TestInvoke_ReActFailuresDegradeToSingle(t *testing.T) {
 			g := &fakeGen{jsonOut: `{"findings":[{"file":"a.go","comment":"c"}],"notes":""}`}
 			r, err := NewReviewer(plugin.AgentManifest{Name: "req"}, "sec", g, nil, nil,
 				WithToolsHook(tc.hook), WithReactModel(errModel{}),
-				WithLogger(logx.NewSlogLogger("test")))
+				WithLogger(logx.Nop()))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -14,7 +14,7 @@ func TestStartLeaderGateSkipsNonLeader(t *testing.T) {
 	p := &Poller{
 		IsLeader: func() bool { return false },
 		Interval: 10 * time.Millisecond,
-		Log:      logx.NewSlogLogger("test"),
+		Log:      logx.Nop(),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.Start(ctx)
@@ -27,7 +27,7 @@ func TestStartLeaderGateLeaderPolls(t *testing.T) {
 	p := &Poller{
 		IsLeader: func() bool { return true },
 		Interval: 10 * time.Millisecond,
-		Log:      logx.NewSlogLogger("test"),
+		Log:      logx.Nop(),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.Start(ctx)

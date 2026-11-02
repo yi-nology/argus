@@ -89,9 +89,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	wc := workcopy.NewPool(wcRoot, log)
 	wc.CredentialOf = func(platform string) (string, string, bool) {
 		pc, ok := cfg.Platforms[platform]
-		// GitHub App 认证时，优先用 installation token（自动刷新）
-		if platform == "github" && sdk.GitHubAppToken() != "" {
-			return pc.BaseURL, sdk.GitHubAppToken(), ok
+		// GitHub App 认证时，优先用 installation token（TokenSource 临期懒续期，
+		// v5.3.2；取值失败回落 PAT 与未启用路径同形）
+		if platform == "github" && sdk.HasGitHubApp() {
+			return pc.BaseURL, sdk.GitHubAppToken(context.Background()), ok
 		}
 		return pc.BaseURL, pc.Token, ok
 	}

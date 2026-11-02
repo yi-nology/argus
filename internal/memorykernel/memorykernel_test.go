@@ -22,7 +22,7 @@ func testKernel(t *testing.T, name string) *Kernel {
 		t.Fatalf("OpenMemory: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	k, err := openWithStore(st, nil, logx.NewSlogLogger("memorykernel-test"))
+	k, err := openWithStore(st, nil, logx.Nop())
 	if err != nil {
 		t.Fatalf("openWithStore: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestGCNilSafe(t *testing.T) {
 func TestOpenCreatesParentDir(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/nested/deeper/kernel.db" // 父目录不存在——Open 必须自建
-	k, err := Open(path, nil, logx.NewSlogLogger("memorykernel-test"))
+	k, err := Open(path, nil, logx.Nop())
 	if err != nil {
 		t.Fatalf("Open 新目录库失败（父目录应自建）: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestSemanticTrackWired(t *testing.T) {
 		t.Fatalf("OpenMemory: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	k, err := openWithStore(st, ports.HashEmbedder{}, logx.NewSlogLogger("memorykernel-test"))
+	k, err := openWithStore(st, ports.HashEmbedder{}, logx.Nop())
 	if err != nil {
 		t.Fatalf("openWithStore: %v", err)
 	}

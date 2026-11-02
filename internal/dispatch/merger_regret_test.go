@@ -56,7 +56,7 @@ func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
 	store := &fakePrintStore{prior: map[string]*PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}
-	m := NewMerger(store, logx.NewSlogLogger("dispatch-test"))
+	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
 			{File: "a.go", Line: 1, Severity: "high", Comment: "空指针风险"},
@@ -92,7 +92,7 @@ func TestMergeSuppressedPriorStillDropped(t *testing.T) {
 		prior:      map[string]*PrintState{fp: {Status: "suppressed", TimesSeen: 5}},
 		suppressed: map[string]bool{fp: true},
 	}
-	m := NewMerger(store, logx.NewSlogLogger("dispatch-test"))
+	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t2",
 		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
 			{File: "c.go", Line: 9, Severity: "medium", Comment: "误报历史"},
@@ -108,7 +108,7 @@ func TestMergeSuppressedPriorStillDropped(t *testing.T) {
 // 异常：GetPrintState 失败只降级为告警，合并照常产出。
 func TestMergeGetStateErrorKeepsMerge(t *testing.T) {
 	store := &fakePrintStore{getErr: errors.New("db down")}
-	m := NewMerger(store, logx.NewSlogLogger("dispatch-test"))
+	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t3",
 		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
 			{File: "d.go", Line: 3, Severity: "high", Comment: "越界访问"},
@@ -128,7 +128,7 @@ func TestMergeFindingCarriesStoredFingerprint(t *testing.T) {
 	store := &fakePrintStore{prior: map[string]*PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}
-	m := NewMerger(store, logx.NewSlogLogger("dispatch-test"))
+	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-fp",
 		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
 			{File: "a.go", Line: 1, Severity: "high", Comment: "空指针风险"},

@@ -27,7 +27,7 @@ func knobsTestRunner(t *testing.T) (*Runner, *storage.Store, context.Context) {
 		TaskTokenBudget:        400_000,
 		MaxDiffChars:           120_000,
 	}
-	r := &Runner{Cfg: cfg, Log: logx.NewSlogLogger("runner-knobs-test"), Store: store}
+	r := &Runner{Cfg: cfg, Log: logx.Nop(), Store: store}
 	return r, store, context.Background()
 }
 

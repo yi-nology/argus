@@ -26,7 +26,7 @@ func TestSpecsFromDecls(t *testing.T) {
 }
 
 func TestNewRealPoolEmpty(t *testing.T) {
-	if p := NewRealPool(nil, logx.NewSlogLogger("test")); p != nil {
+	if p := NewRealPool(nil, logx.Nop()); p != nil {
 		t.Fatal("空声明应返回 nil")
 	}
 }
@@ -35,7 +35,7 @@ func TestNewRealPoolInvalidDeclSkipped(t *testing.T) {
 	p := NewRealPool([]plugin.MCPServerDecl{
 		{Name: "bad"},                        // command/url 均空 → 跳过
 		{Name: "ok", URL: "http://mcp.test"}, // 有效
-	}, logx.NewSlogLogger("test"))
+	}, logx.Nop())
 	if p == nil {
 		t.Fatal("含有效声明应返回非 nil")
 	}
@@ -63,7 +63,7 @@ func TestNewRealPoolInvalidProbeTimeout(t *testing.T) {
 	// probeTimeout 解析失败不致命——落回 agentkit 缺省 5s
 	p := NewRealPool([]plugin.MCPServerDecl{
 		{Name: "ok", URL: "http://mcp.test", ProbeTimeout: "not-a-duration"},
-	}, logx.NewSlogLogger("test"))
+	}, logx.Nop())
 	if p == nil {
 		t.Fatal("应返回非 nil")
 	}

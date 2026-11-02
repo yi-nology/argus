@@ -120,7 +120,7 @@ func verifyOne(ctx context.Context, cfg Config, dir string, f plugin.Finding) Re
 		_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 	}()
 
-	cmd := strings.ReplaceAll(cfg.Cmd, "{dir}", dir)
+	cmd := plugin.ResolveShellTemplate(cfg.Cmd, dir)
 	runCtx, cancel := context.WithTimeout(ctx, cfg.timeoutResolved())
 	defer cancel()
 	stdout, stderr, code, rerr := procx.Run(runCtx, procx.RunRequest{

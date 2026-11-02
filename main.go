@@ -245,7 +245,7 @@ func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, s
 		health.WithCheckers(
 			health.NamedChecker("db", func(ctx context.Context) error { return store.Ping(ctx) }),
 			health.NamedChecker("llm", func(ctx context.Context) error {
-				if cfg.LLM.BaseURL == "" || llmReachableCached(cfg.LLM.BaseURL) {
+				if cfg.LLM.BaseURL == "" || llmReachableCached(ctx, cfg.LLM.BaseURL) {
 					return nil
 				}
 				return errors.New("llm unreachable")
@@ -294,20 +294,26 @@ var llmReachableClient = &http.Client{Timeout: 3 * time.Second}
 var llmProbeCache = ekcache.NewLocalCache(ekcache.LocalConfig[bool]{
 	TTL: 30 * time.Second,
 	Source: func(ctx context.Context, key string) (*bool, error) {
-		ok := llmReachable(key)
+		ok := llmReachable(ctx, key)
 		return &ok, nil
 	},
 })
 
 // llmReachableCached LLM 端点连通性（30s TTL，任意 HTTP 响应均视为可达）。
-func llmReachableCached(baseURL string) bool {
-	v, _ := llmProbeCache.GetOrLoad(context.Background(), baseURL)
+// v5.3.2 起 ctx 贯穿：checker 的取消/超时（外层 5s 上界）传导到探针请求，
+// 此前丢成 Background ⇒ 停机取消传不到、trace 断链。
+func llmReachableCached(ctx context.Context, baseURL string) bool {
+	v, _ := llmProbeCache.GetOrLoad(ctx, baseURL)
 	return v != nil && *v
 }
 
 // llmReachable LLM 端点连通性（任意 HTTP 响应均视为可达）。
-func llmReachable(baseURL string) bool {
-	resp, err := llmReachableClient.Get(baseURL)
+func llmReachable(ctx context.Context, baseURL string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := llmReachableClient.Do(req)
 	if err != nil {
 		return false
 	}

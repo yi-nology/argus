@@ -47,7 +47,7 @@ func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 			Confidence: learning.Confidence(0, 2, 1, 0), Samples: learning.PatternSamples(0, 2, 1),
 		},
 	}}
-	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.Config{
+	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 		InjectFloor: 0.35, InjectTopN: 10,
 	})
@@ -85,7 +85,7 @@ func TestMergeLearningDisabledIsNoop(t *testing.T) {
 		Plugin: "style", Pattern: learning.PatternKey("style", comment),
 		Confidence: 0.1, Samples: 5,
 	}}}
-	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.DefaultConfig())
+	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.DefaultConfig())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t2",
 		[]Outcome{{Name: "style", Result: &Result{Findings: []Finding{
 			{File: "a.go", Line: 1, Severity: SeverityLow, Comment: comment, By: "style"},
@@ -111,7 +111,7 @@ func TestMergeLearningMinSamplesGuards(t *testing.T) {
 		Plugin: "style", Pattern: learning.PatternKey("style", comment),
 		Confidence: 0.05, Samples: 1, // < MinSamples=3
 	}}}
-	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.Config{
+	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t3",
@@ -129,7 +129,7 @@ func TestMergeLearningMinSamplesGuards(t *testing.T) {
 // 开启学习时：非 suppressed 条目应 PatternPosted。
 func TestMergeLearningRecordsPosted(t *testing.T) {
 	ps := &fakePatternStore{}
-	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.Config{
+	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	_, err := m.Merge(context.Background(), regretTestPR(), "t4",
@@ -154,7 +154,7 @@ func TestMergeSoftFloorPostsPreAnnotationKey(t *testing.T) {
 		PatternText: learning.PatternSample(comment),
 		Confidence:  0.2, Samples: 5,
 	}}}
-	m := NewMerger(nil, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.Config{
+	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-softfloor",
@@ -185,7 +185,7 @@ func TestMergeMergedEntryPostsAuthoritativeComment(t *testing.T) {
 		fp: {Status: "open", TimesSeen: 1, Comment: base},
 	}}
 	ps := &fakePatternStore{}
-	m := NewMerger(prints, logx.NewSlogLogger("dispatch-test")).WithLearning(ps, learning.Config{
+	m := NewMerger(prints, logx.Nop()).WithLearning(ps, learning.Config{
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-merged",

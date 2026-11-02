@@ -31,7 +31,7 @@ func fullCfg() *config.Config {
 
 // v3.5.8 回归：模型栈一次解析——全角色出口非 nil，阶段覆盖与降级链就位。
 func TestBuildModelsFullStack(t *testing.T) {
-	log := logx.NewSlogLogger("argus-test")
+	log := logx.Nop()
 	m, err := BuildModels(context.Background(), fullCfg(), log)
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
@@ -64,7 +64,7 @@ func TestBuildModelsFullStack(t *testing.T) {
 
 // 未配置 OPENAI_* 不是错误：空栈 + Ready=false（仅 cli 插件形态）。
 func TestBuildModelsNoLLM(t *testing.T) {
-	m, err := BuildModels(context.Background(), &config.Config{}, logx.NewSlogLogger("argus-test"))
+	m, err := BuildModels(context.Background(), &config.Config{}, logx.Nop())
 	if err != nil {
 		t.Fatalf("未配置 LLM 不应报错: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildModelsMinimal(t *testing.T) {
 		BaseURL: "http://llm.test", APIKey: "k", Model: "main-model",
 		Timeout: time.Second, ContextToken: 32000,
 	}}
-	m, err := BuildModels(context.Background(), cfg, logx.NewSlogLogger("argus-test"))
+	m, err := BuildModels(context.Background(), cfg, logx.Nop())
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestBuildModelsRateLimiter(t *testing.T) {
 	cfg := fullCfg()
 	cfg.LLMRateLimit = 5
 	cfg.LLMRateBurst = 2
-	m, err := BuildModels(context.Background(), cfg, logx.NewSlogLogger("argus-test"))
+	m, err := BuildModels(context.Background(), cfg, logx.Nop())
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestBuildModelsRateLimiter(t *testing.T) {
 // v3.5.9 回归：全局限速器必须覆盖主链（历史缺口：只到达非降级路径的阶段覆盖
 // Client，主 Client/Resilient 链没挂）。
 func TestBuildModelsLimiterWiring(t *testing.T) {
-	log := logx.NewSlogLogger("argus-test")
+	log := logx.Nop()
 	// 降级配置：主链与阶段覆盖链都是 Resilient
 	cfg := fullCfg()
 	cfg.LLMRateLimit = 5

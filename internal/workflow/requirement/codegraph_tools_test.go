@@ -43,7 +43,7 @@ func TestR3ToolsCodegraph(t *testing.T) {
 
 	w := &Workflow{
 		CodeGraph:        idx,
-		Log:              logx.NewSlogLogger("argus-test"),
+		Log:              logx.Nop(),
 		GetFileMaxChars:  1000,
 		GetIssueMaxChars: 1000,
 		GetDiffMaxChars:  1000,
@@ -64,7 +64,7 @@ func TestR3ToolsCodegraph(t *testing.T) {
 
 	// nil CodeGraph：不挂（既有行为）
 	without := names(&Workflow{
-		Log:              logx.NewSlogLogger("argus-test"),
+		Log:              logx.Nop(),
 		GetFileMaxChars:  1000,
 		GetIssueMaxChars: 1000,
 		GetDiffMaxChars:  1000,

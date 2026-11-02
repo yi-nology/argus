@@ -20,6 +20,44 @@
 - **评估后不做**（复判）：loadRepoConfig 双份（runner 侧缓存进 PRContext、workflow 侧带 override，语义不同构）；recvTypeName 双份 8 行（tail 先例）；Service 字段分组（有意的门面形态）；>100 行 4 函数（同 v3.112 裁定，bootstrap 长出属新增子系统装配）。
 - 批记录：v3.95~v3.101 见 git log；v3.106.0 词表注册表 / v3.107.0 空对象+解码单源 / v3.108.0 mcpserver 底座 / v3.109.0 建任务工厂+词表常量 / v3.110.0 写作模板方法 / v3.111.0 工具信封单源 / v3.112.0 poller 覆盖+死代码清偿。
 
+## v5.3.2 上游能力回收批（2026-11-02，随依赖升级 v5.3.1 之后）
+
+- **GitHub App 刷新器 → 上游 TokenSource**（净删 ~120 行）：`githubAppRefresher`
+  （50min ticker + provider 重建原子替换）+ `appTokenManager` + `SDKCtx.Stop` +
+  subsys.go 停机收编，全量替换为 `installationTokenSource`（go-git-platform
+  v0.100 `Config.TokenSource`，transport 每请求取值 + 临期 5min 懒续期）。顺修
+  正确性窗口：旧方案 token 过期到 provider 重建完成之间，在飞请求持过期 token
+  401；现在每请求现取，窗口归零。启动期 eager 首取保留（fail-fast：凭据坏 ⇒
+  平台启动即判死，不拖到首请求）。新增 3 用例（快路径/临期退旧值/过期无凭据报错）。
+- **{dir} 注入 shell 模板转义**：fixverifier + sandbox_verify 两处
+  `strings.ReplaceAll(cfg.Cmd, "{dir}", dir)` 直拼 `sh -c`，路径含空格/引号/$
+  元字符时验证命令静默跑错。收口 `plugin.ResolveShellTemplate`（shellx.Quote，
+  v0.31.0 上游原语）+ 7 组表驱动用例。
+- **readyz LLM 探针 ctx 贯穿**：checker 拿到 ctx 一路丢成 Background，停机取消
+  传不到、trace 断链；改 `http.NewRequestWithContext` 贯穿。
+- **qa_session CAS 重读吞错补 Warn**：unmarshal 失败静默把会话历史截断为本轮，
+  补 `argus.qa.session_reload_malformed`。
+- **ConditionalRequests 平台开关**（v0.100 `Config.ConditionalRequests`）：
+  `ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS`（默认关，env 已接四平台）；GitHub 的
+  304 不计限流预算，poller 每 tick 全量翻页场景可持续轮询速率实质抬升。
+- **测试日志净化**：97 处 `logx.NewSlogLogger("…")` → `logx.Nop()`（v0.8.0 新
+  原语；断言失败信息不再被 JSON 日志淹没；e2e 1 处保留真 logger 供排障）；
+  service/qa 双包 noopLogger 同构随之删除（销账上方不做项）。
+- 手写数字解析 → `strconv.Atoi`（argus-copilot parseFindings，正则已限字符集）。
+
+### v5.3.2 遗留 issue（下一轮起步候选，按收益排序）
+
+1. **argus-copilot 分发/usage → pkg cli.App**（v0.31.0）：main.go 手写 switch
+   分发 + 33 行 usage，退出码契约靠注释人肉同步（review.go:27「改此须同步」）；
+   cli.App 内建 --help/version/默认子命令/退出码 0-1-2 单源，估删 ~70 行。风险：
+   usage 文案格式会变。
+2. **GetRepo→LoadRepoConfig 两步模式 4 处重复**（runner_prctx / requirement/verdict
+   / describe / service_agents）：收口 `SDKCtx.LoadRepoConfigAuto` + describe/agents
+   路径加 5min 默认分支缓存（与 collabCch 同款），估省每请求 1 次平台 API + ~30 行。
+3. **WebhookConfigManager 新功能机会**（非优化）：v0.100 提供单 webhook 查询/更新
+   幂等管理（7 平台），argus 可做「启动时按配置 secret 幂等确保 webhook 存在」，
+   省掉手工到平台配置——属功能决策，待试点环境拍板。
+
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 
 | 函数 | 行数 | 裁定 |
@@ -59,7 +97,7 @@
 ## 已裁决不做项（勿重探）
 
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
-- `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。
+- `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。**〔v5.3.2 已销账〕**logx v0.8.0 上游提供 `Nop()`，双包同构已删（见下节）。
 - search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
   get_detail / QA 定长截断），只单源 wire 契约不强行合执行。
 - `BearerMiddleware`/obs Prometheus 中间件/`toolpool.Pool` 接口等历史裁定见各提交信息。

@@ -14,7 +14,7 @@ import (
 // bound() 必须给无 deadline 的调用兜底限时，超时错误向上传播。
 func TestSDKCtxBoundTimeout(t *testing.T) {
 	hang := &hangingProvider{block: make(chan struct{})}
-	s := NewSDKCtxStubbed(logx.NewSlogLogger("sdkctx-test"),
+	s := NewSDKCtxStubbed(logx.Nop(),
 		map[string]provider.Provider{"gitea": hang}).WithSDKCallTimeout(50 * time.Millisecond)
 
 	start := time.Now()

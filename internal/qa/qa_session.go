@@ -65,7 +65,12 @@ func (e *Engine) persistTurn(ctx context.Context, sessionKey, prRef string, prev
 		} else if !written && check {
 			if fresh, ferr := e.Store.GetQASession(ctx, sessionKey, sessionTTL); ferr == nil && fresh != nil {
 				var fh []storage.QATurn
-				_ = json.Unmarshal([]byte(fresh.HistoryJSON), &fh)
+				if uerr := json.Unmarshal([]byte(fresh.HistoryJSON), &fh); uerr != nil {
+					// CAS 重读路径的静默点（v5.3.2 补 Warn）：unmarshal 失败 fh=nil，
+					// 落库会把整个会话历史截断为本轮——留痕让损坏可见可排查。
+					e.log().Warn("argus.qa.session_reload_malformed", "pr", prRef, "error", uerr.Error(),
+						"action", "以本轮为起点覆盖落库（历史已损坏）")
+				}
 				save(appendTurn(fh, question, answer), s, time.Time{}, false)
 				return
 			}

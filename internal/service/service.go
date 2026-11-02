@@ -19,6 +19,7 @@ import (
 	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/concurrency/syncx"
 	datacache "github.com/oekit/data/cache"
+	"github.com/oekit/logx"
 	"github.com/oekit/pkg/container"
 
 	api "argus/biz/model/api"
@@ -124,19 +125,13 @@ type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
 
-// noopLogger 未配置日志时的安全兜底（避免 nil 接口方法调用 panic）。
-type noopLogger struct{}
-
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Warn(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
-
-// log 返回安全 Logger（nil → noopLogger）。
+// log 返回安全 Logger（nil → logx.Nop；v5.3.2：上游 logx v0.8.0 提供 Nop，
+// 删本地 noopLogger 同构）。
 func (s *Service) log() Logger {
 	if s.Log != nil {
 		return s.Log
 	}
-	return noopLogger{}
+	return logx.Nop()
 }
 
 // initCommentGate 惰性初始化评论并发闸（容量来自 Cfg.CommentConcurrency）。

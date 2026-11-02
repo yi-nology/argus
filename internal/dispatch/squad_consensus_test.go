@@ -91,7 +91,7 @@ func TestRunConsensus_ConvergeAndDedup(t *testing.T) {
 		[]Finding{}, // 第 2 轮无补充 → 共识信号
 	)
 
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(pb))
 	d = d.WithSquads([]SquadDecl{{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
@@ -135,7 +135,7 @@ func TestRunConsensus_ConvergeAndDedup(t *testing.T) {
 	}
 
 	// Merger 集成：共识 outcomes 进既有合并管线，By 归属成员名
-	merger := NewMerger(nil, logx.NewSlogLogger("dispatch-test"))
+	merger := NewMerger(nil, logx.Nop())
 	merged, err := merger.Merge(context.Background(), task.PR, "t1", outcomes, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestRunConsensus_MemberFailureDegrades(t *testing.T) {
 	pb := newScriptedMember("expert-b",
 		[]Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)})
 
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(&failPlugin{manifest: AgentManifest{Name: "expert-a", Skills: []string{"code-review"}}}))
 	_ = d.reg.Register(regWith(pb))
 
@@ -183,7 +183,7 @@ func TestRunConsensus_MemberFailureDegrades(t *testing.T) {
 func TestRunConsensus_BudgetExhaustedSkips(t *testing.T) {
 	pa := newScriptedMember("expert-a",
 		[]Finding{findingOf("a.go", "空指针解引用", "high", 10)})
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(newScriptedMember("expert-b")))
 
@@ -203,7 +203,7 @@ func TestRunConsensus_BudgetExhaustedSkips(t *testing.T) {
 
 // 未注册/未启用成员 → 降级注明；全部无效时返回空 outcomes 不 panic。
 func TestRunConsensus_UnregisteredMember(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	sq := SquadDecl{Name: "ghost", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"nobody"}}
 	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 	outcomes := d.RunConsensus(context.Background(), task, sq, nil)
@@ -214,7 +214,7 @@ func TestRunConsensus_UnregisteredMember(t *testing.T) {
 
 // 独立模式编队不受影响：成员照常进 fan-out（经 squad 追加）且参与分歧标注。
 func TestSelect_IndependentSquadUnchanged(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(newScriptedMember("expert-a")))
 	_ = d.reg.Register(regWith(newScriptedMember("expert-b")))
 	d = d.WithSquads([]SquadDecl{{Name: "duo", Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
@@ -254,7 +254,7 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	}
 	pa := newScriptedMember("expert-a", scriptA...)
 	pb := newScriptedMember("expert-b", scriptB...)
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(pb))
 	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
@@ -287,7 +287,7 @@ func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
 		[]Finding{},
 	)
 
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(lateFail))
 	_ = d.reg.Register(regWith(pb))
 
@@ -310,7 +310,7 @@ func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
 // Dispatcher.Run 的 teardown 守卫同语义；否则连续 3 次滚动发布即可把
 // security 类成员误熔断 5 分钟。
 func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"))
+	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(&cancelInvokePlugin{manifest: AgentManifest{
 		Name: "blocker", Skills: []string{"code-review"},
 		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))
@@ -336,7 +336,7 @@ func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
 // 探测位，下一轮成员不得因探测滞留被"熔断中"误跳过。
 func TestRunConsensus_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	now := time.Now()
-	d := newDispatcher(NewRegistry(), logx.NewSlogLogger("dispatch-test"), func() time.Time { return now })
+	d := newDispatcher(NewRegistry(), logx.Nop(), func() time.Time { return now })
 	_ = d.reg.Register(regWith(&canceledPlugin{manifest: AgentManifest{
 		Name: "blocker", Skills: []string{"code-review"},
 		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))

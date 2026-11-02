@@ -16,7 +16,7 @@ import (
 // （Hybrid 的词料路），目录缺失 → Noop；Hybrid 分支需活 Milvus 不入单测，
 // 由日志 argus.boot.knowledge_hybrid 在部署面观测。
 func TestBuildKnowledge_LocalAndNoop(t *testing.T) {
-	log := logx.NewSlogLogger("test")
+	log := logx.Nop()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "k.md"), []byte("# 知识\n内容"), 0o644); err != nil {
 		t.Fatal(err)

@@ -29,7 +29,7 @@ func TestExecutePanicToFailedTerminal(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
-	r := &Runner{Cfg: &config.Config{}, Log: logx.NewSlogLogger("test"), Store: store}
+	r := &Runner{Cfg: &config.Config{}, Log: logx.Nop(), Store: store}
 
 	task := storage.NewTask(domain.TaskKindCodeReview, "gitea", "o", "r", "7")
 	if err := store.CreateTask(ctx, task); err != nil {
@@ -61,7 +61,7 @@ func TestExecutePanicToFailedTerminal(t *testing.T) {
 // TestGuardPanicPassthrough guardPanic 契约：无 panic 原样透传返回值，panic
 // 转 error 且日志含栈。
 func TestGuardPanicPassthrough(t *testing.T) {
-	log := logx.NewSlogLogger("test")
+	log := logx.Nop()
 	ok := guardPanic(log, "t1", func() error { return nil })
 	if ok != nil {
 		t.Fatalf("无 panic 应透传 nil: %v", ok)

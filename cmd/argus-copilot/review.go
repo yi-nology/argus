@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
@@ -84,14 +85,9 @@ func parseFindings(report string) []cliFinding {
 	matches := findingLineRe.FindAllStringSubmatch(report, -1)
 	out := make([]cliFinding, 0, len(matches))
 	for _, m := range matches {
-		line := 0
-		for _, c := range m[2] {
-			if c < '0' || c > '9' {
-				line = 0
-				break
-			}
-			line = line*10 + int(c-'0')
-		}
+		// 行号非数字在正则 (\d+) 处已被排除；Atoi 失败归 0 与原手写循环同语义
+		//（下游容忍 line=0：不进行行内标注）。
+		line, _ := strconv.Atoi(m[2])
 		out = append(out, cliFinding{
 			File:     strings.TrimSpace(m[1]),
 			Line:     line,

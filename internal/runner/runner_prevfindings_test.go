@@ -42,7 +42,7 @@ func TestPrevFindingsSection(t *testing.T) {
 	if _, err := store.SuppressPrint(ctx, "gitlab", "o", "r", "1", "fp0009zzzz", sup, at); err != nil {
 		t.Fatal(err)
 	}
-	r := &Runner{Store: store, Log: logx.NewSlogLogger("runner-prev-test")}
+	r := &Runner{Store: store, Log: logx.Nop()}
 	out := r.prevFindingsSection(ctx, pr)
 	if !strings.Contains(out, "src/a.go:10 [MEDIUM] 意见一") || !strings.Contains(out, "意见二") {
 		t.Fatalf("应含两条 open 意见: %q", out)

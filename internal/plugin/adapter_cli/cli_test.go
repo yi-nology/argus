@@ -93,7 +93,7 @@ func makeFixtureRepo(t *testing.T) string {
 
 func newTestPool(t *testing.T, fixture string) *workcopy.Pool {
 	t.Helper()
-	p := workcopy.NewPool(t.TempDir(), logx.NewSlogLogger("test"))
+	p := workcopy.NewPool(t.TempDir(), logx.Nop())
 	p.CredentialOf = func(string) (string, string, bool) { return "file://" + fixture, "x", true }
 	return p
 }
@@ -148,7 +148,7 @@ func TestInvokeWithoutPool(t *testing.T) {
 func TestInvoke_EndToEnd(t *testing.T) {
 	script := writeScript(t, `echo '[{"path":"pkg/a.go","line":"12","level":"high","comment":"空指针解引用","suggested_fix":"if x == nil { return }"}]'`)
 	p := New(plugin.AgentManifest{Name: "ocr", Timeout: 30 * time.Second},
-		[]string{script}, "full", nil, newTestPool(t, makeFixtureRepo(t)), logx.NewSlogLogger("test"))
+		[]string{script}, "full", nil, newTestPool(t, makeFixtureRepo(t)), logx.Nop())
 
 	res, err := p.Invoke(context.Background(), cliTask())
 	if err != nil {
@@ -173,7 +173,7 @@ func TestInvoke_EndToEnd(t *testing.T) {
 func TestInvoke_TruncatesLongComment(t *testing.T) {
 	script := writeScript(t, `python3 -c "import json;print(json.dumps([{'path':'a.go','line':1,'level':'low','comment':'x'*5000}]))"`)
 	p := New(plugin.AgentManifest{Name: "ocr", Timeout: 30 * time.Second},
-		[]string{script}, "full", nil, newTestPool(t, makeFixtureRepo(t)), logx.NewSlogLogger("test"))
+		[]string{script}, "full", nil, newTestPool(t, makeFixtureRepo(t)), logx.Nop())
 
 	res, err := p.Invoke(context.Background(), cliTask())
 	if err != nil {
@@ -193,21 +193,21 @@ func TestInvoke_FailureSurfaces(t *testing.T) {
 	fixture := makeFixtureRepo(t)
 
 	fail := New(plugin.AgentManifest{Name: "ocr", Timeout: 10 * time.Second},
-		[]string{writeScript(t, `echo boom >&2; exit 3`)}, "full", nil, newTestPool(t, fixture), logx.NewSlogLogger("test"))
+		[]string{writeScript(t, `echo boom >&2; exit 3`)}, "full", nil, newTestPool(t, fixture), logx.Nop())
 	if _, err := fail.Invoke(context.Background(), cliTask()); err == nil ||
 		!strings.Contains(err.Error(), "cli 执行失败") {
 		t.Fatalf("非零退出应报执行失败: %v", err)
 	}
 
 	slow := New(plugin.AgentManifest{Name: "ocr", Timeout: 200 * time.Millisecond},
-		[]string{writeScript(t, `sleep 5`)}, "full", nil, newTestPool(t, fixture), logx.NewSlogLogger("test"))
+		[]string{writeScript(t, `sleep 5`)}, "full", nil, newTestPool(t, fixture), logx.Nop())
 	if _, err := slow.Invoke(context.Background(), cliTask()); err == nil ||
 		!strings.Contains(err.Error(), "超时") {
 		t.Fatalf("超时应报执行超时: %v", err)
 	}
 
 	bad := New(plugin.AgentManifest{Name: "ocr", Timeout: 10 * time.Second},
-		[]string{writeScript(t, `echo 'not json'`)}, "full", nil, newTestPool(t, fixture), logx.NewSlogLogger("test"))
+		[]string{writeScript(t, `echo 'not json'`)}, "full", nil, newTestPool(t, fixture), logx.Nop())
 	if _, err := bad.Invoke(context.Background(), cliTask()); err == nil ||
 		!strings.Contains(err.Error(), "解析") {
 		t.Fatalf("非法输出应报解析失败: %v", err)

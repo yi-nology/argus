@@ -54,12 +54,8 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 		wp.Stop(cfg.WorkerGrace)
 		return nil
 	})
-	// GitHub App token refresher 停机收编（v3.9.2）：此前 Stop 全仓无调用方，
-	// 优雅排水期间仍可能触发 provider 重建（未启用 GitHub App 时为 no-op）。
-	app.AddResource("github-app-refresher", func(context.Context) error {
-		sys.SDK.Stop()
-		return nil
-	})
+	// GitHub App refresher 停机收编已随 v5.3.2 TokenSource 迁移移除：installation
+	// token 改为每请求取值 + 临期懒续期，无后台 goroutine，停机序列无 SDKCtx 侧动作。
 
 	// ---- 运维加固：任务保留清理 + 队列深度采样（WorkerManager 管理生命周期）----
 	// ctx 取消时所有 ticker 自动退出（cancel 先于 close），无需显式 Close
