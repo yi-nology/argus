@@ -50,7 +50,11 @@ func main() {
 	config.LoadDotEnv()
 	cfg := config.Load()
 
-	log := logx.NewSlogLogger("argus")
+	// 日志装配（v5.4.0 接 logx.WithFilter 防御纵深）：本仓有凭证泄漏前科
+	//（v3.9.0 P0），logredact 只护 error 字符串路径——结构化 kv 侧由 FilterKey
+	// 在装配口统一兜底（含派生 logger），命中键值替换为 ***。
+	log := logx.WithFilter(logx.NewSlogLogger("argus"), logx.FilterKey(
+		"token", "secret", "authorization", "api_key", "apikey", "password", "access_token"))
 	obs.Init()
 	// 版本元数据单源：/version 端点（oekit core/version）与报告头/AgentCard
 	// 共用同一 ldflags 注入值（BuildCommit/BuildTime/BuildBranch 由 Makefile
@@ -183,7 +187,8 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// ⚠️ 必须传 slog 实例（NewSlogLogger），不能传 logx.WithService(...)——后者走
 	// logx 默认 hlog 后端，装回 hlog 后形成 adapter↔logx 无限递归（实测主 goroutine
 	// 卡死 + 100% CPU + SIGTERM 无响应，oekit AGENTS.md 的示例即此雷）。
-	hlog.SetLogger(ekithertz.NewLogger(logx.NewSlogLogger("argus-http")))
+	hlog.SetLogger(ekithertz.NewLogger(logx.WithFilter(logx.NewSlogLogger("argus-http"),
+		logx.FilterKey("token", "secret", "authorization", "api_key", "apikey", "password", "access_token"))))
 	h := server.Default(
 		server.WithHostPorts(cfg.Addr),
 		server.WithMaxRequestBodySize(cfg.WebhookMaxBody),

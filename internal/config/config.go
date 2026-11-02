@@ -19,10 +19,11 @@ type PlatformConfig struct {
 	// TokenStyle 覆盖默认认证头风格: "bearer" (Authorization: Bearer) / "private" (PRIVATE-TOKEN)。
 	// 空值使用平台默认值（GitLab=private, GitHub=bearer）。
 	TokenStyle string
-	// ConditionalRequests 开启 GET 条件请求（ETag/If-None-Match，304 重放缓存体，
-	// v5.3.2）：GitHub 的 304 不计入限流预算，poller 每 tick 全量翻页的场景下
-	// 可持续轮询速率实质抬升；平台不支持 ETag 时上游透明回退 200，无正确性影响。
-	// ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS。
+	// ConditionalRequests 开启 GET 条件请求（ETag/If-None-Match，304 重放缓存体）：
+	// v5.4.0 起默认开（上游 go-git-platform v0.100.2 修掉 304×LRU 驱逐竞态的硬失败，
+	// 进程内自愈后可安全默认）——GitHub 的 304 不计入限流预算，poller 每 tick 全量
+	// 翻页场景可持续轮询速率实质抬升；平台不支持 ETag 时透明回退 200，无正确性影响。
+	// ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS=0 显式关闭。
 	ConditionalRequests bool
 
 	// GitHub App 认证（仅 github 平台）：配置后自动用 installation token 替代 PAT。
@@ -545,7 +546,7 @@ func Load() *Config {
 			Secret:              os.Getenv(prefix + "SECRET"),
 			SkipTLS:             envBool(prefix+"SKIP_TLS", false),
 			TokenStyle:          os.Getenv(prefix + "TOKEN_STYLE"),
-			ConditionalRequests: envBool(prefix+"CONDITIONAL_REQUESTS", false),
+			ConditionalRequests: envBool(prefix+"CONDITIONAL_REQUESTS", true),
 		}
 	}
 	// GitHub App 认证：三者全配时启用（覆盖 Token）

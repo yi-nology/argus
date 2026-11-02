@@ -65,13 +65,36 @@
   5min TTL 默认分支缓存——describe/agents 是评论/HTTP 请求路径，此前每请求
   真打一次 GetRepo；runner/workflow 保持 pr.DefaultBranch 回填语义。2 用例
   （缓存命中/显式短路/解析失败上抛）。
-- **上游 issue 两枚**（收编前评审发现，已提）：
+- **上游 issue 两枚**（收编前评审发现，已提；**均已修复**）：
   - [go-git-platform#31](https://github.com/yi-nology/go-git-platform/issues/31)
-    ETagCache 304 应答但本地条目被 LRU 驱逐 ⇒ 整条请求硬失败；建议进程内
-    降级重发无条件请求（argus 默认 RetryConfig 可自愈，nil 重试配置直接炸）。
+    ETagCache 304 应答但本地条目被 LRU 驱逐 ⇒ 整条请求硬失败——**上游 v0.100.2
+    修**（进程内 `healETag304Miss`：剥 If-None-Match 无条件重发一次，回填缓存，
+    无循环），argus 已升 v0.101.0 吃到； ConditionalRequests 旋钮随之在 v5.4.0
+    默认开。
   - [oekit/pkg#162](https://github.com/oekit/pkg/issues/162)
     cli.Table runeWidth 缺 U+2600–27BF（⚠✅❌）与 U+FE0F ⇒ 状态符号行宽
-    1–2 列、表格错位（附复现）；顺带 cli.Usage 无 Summary 子命令尾随空格。
+    1–2 列、表格错位——**上游 v0.31.2 修**，argus 已追平。
+
+## v5.4.0 深度迭代批（2026-11-03）
+
+- **依赖**：go-git-platform v0.101.0（#31 自愈 + #30 空 diff PR MergeCR 谎报
+  MERGED 修复 + gitcode 能力面收缩）+ logx v0.8.1（测试幂等修复）+ pkg v0.31.2
+  （#162 Table 宽度）+ registry v0.5.2；go-gitcode 传递跳跃 v0.8.0→v0.13.0。
+  零代码适配。
+- **ConditionalRequests 默认开**（v5.3.2 引入时默认关的顾虑 = 上游 #31 硬失败
+  竞态，已修 ⇒ 顾虑解除）：四平台 `ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS`
+  默认 true（=0 显式关）；215 的 poller 每 tick 全量翻页直接受益。
+- **logx.WithFilter 防御纵深**（v0.8.0 原语）：main.go 两处日志装配口接
+  FilterKey（token/secret/authorization/api_key/apikey/password/access_token），
+  结构化 kv 命中键值替换 ***；logredact 只护 error 字符串路径，本层补结构化面
+  （v3.9.0 凭证泄漏前科的纵深兜底）。
+- **手写面→oekit 映射存档**（评估后不换，勿重探）：月度预算闸是 DB 实数记账
+  （`RepoMonthlyTokens` 月窗口求和），concurrency/budget.Ledger 是进程内存态、
+  无月度重置/多副本语义，不是对口替换；mcpserver 五处 `.(float64)` 断言链
+  形态已正确（ok+f>0 守卫），换 convert.OptInt32 只加指针噪音；contextx 不需要
+  （service_auth 已是 typed key 惯例）；inflight 是任务去重状态词非手写
+  singleflight；poller 翻页由 SDK 承担（pkg/pagination 是请求侧归一化，不对口）；
+  seen[] 去重惯例不值得机械翻新（同 withWriteLock 裁定口径）。
 
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 

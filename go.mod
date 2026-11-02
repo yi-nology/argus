@@ -29,15 +29,15 @@ require (
 	github.com/oekit/data v0.19.9
 	github.com/oekit/hertz v0.8.12
 	github.com/oekit/kitx v0.3.4
-	github.com/oekit/logx v0.8.0
+	github.com/oekit/logx v0.8.1
 	github.com/oekit/metrics v0.1.10
 	github.com/oekit/middleware v0.13.7
-	github.com/oekit/pkg v0.31.1
+	github.com/oekit/pkg v0.31.2
 	github.com/oekit/tracing v0.3.2
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.13.0
 	github.com/yi-nology/agent-memory v0.9.0
-	github.com/yi-nology/go-git-platform v0.100.0
+	github.com/yi-nology/go-git-platform v0.101.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0
@@ -135,7 +135,7 @@ require (
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oekit/gormx v0.6.6 // indirect
-	github.com/oekit/registry v0.5.1 // indirect
+	github.com/oekit/registry v0.5.2 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -154,7 +154,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
-	github.com/yi-nology/go-gitcode v0.8.0 // indirect
+	github.com/yi-nology/go-gitcode v0.13.0 // indirect
 	github.com/yi-nology/go-gongfeng v0.2.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/gitlab-org/api/client-go/v3 v3.40.0 // indirect
