@@ -54,11 +54,7 @@ func (s *Service) handleDescribe(ctx context.Context, platform, owner, repo, num
 // describeLabelVocab 仓库配置的 describe 标签词表（.reviewagents.yaml describe.labels；
 // 未配置返回 nil）。失败降级为 nil（模型自拟），不炸命令。
 func (s *Service) describeLabelVocab(ctx context.Context, platform, owner, repo string) []string {
-	repoInfo, err := s.SDK.GetRepo(ctx, platform, owner, repo)
-	if err != nil {
-		return nil
-	}
-	rc, err := s.SDK.LoadRepoConfig(ctx, platform, owner, repo, repoInfo.DefaultBranch)
+	rc, err := s.SDK.LoadRepoConfigAuto(ctx, platform, owner, repo, "")
 	if err != nil || rc == nil {
 		return nil
 	}

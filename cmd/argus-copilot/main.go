@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -26,21 +27,29 @@ import (
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/oekit/pkg/cli"
 )
 
-// 退出码契约（v3.124.0，review/poll 生效；review.go 与本注同源）：
-// 0=通过（无达阈值意见）/异步提交成功；1=有达阈值意见（建议阻断）；2=错误
-// （执行失败或用法错误）；4=空 diff 跳过；130=信号中断。hook 想放行一切照旧
+// globals 全局连接参数（flag 必须出现在子命令之前，surface 与 v3.124.0 兼容）。
+type globals struct {
+	url, token string
+	timeout    time.Duration
+}
+
+// 退出码契约（v3.124.0，review/poll 生效；v5.3.3 起 0/1/2 语义单源 pkg/cli
+// 常量，不再手写）：0=通过（无达阈值意见）/异步提交成功；1=有达阈值意见
+// （建议阻断）；2=错误（执行失败 cli.ExitError / 用法错误 cli.ExitUsage）；
+// 4=空 diff 跳过（exitEmpty，review.go）；130=信号中断。hook 想放行一切照旧
 // `|| true`，想阻断就保留退出码。
 func main() {
-	url := flag.String("url", envOr("ARGUS_MCP_URL", "http://127.0.0.1:8899/mcp"), "argus MCP 端点")
-	token := flag.String("token", os.Getenv("ARGUS_APITOKEN"), "Bearer token（ARGUS_APITOKEN）")
-	timeout := flag.Duration("timeout", 30*time.Second, "单次调用超时")
-	flag.Parse()
-	args := flag.Args()
-	if len(args) == 0 {
-		usage()
-	}
+	g := globals{}
+	fs := flag.NewFlagSet("argus-copilot", flag.ExitOnError)
+	fs.StringVar(&g.url, "url", envOr("ARGUS_MCP_URL", "http://127.0.0.1:8899/mcp"), "argus MCP 端点（ARGUS_MCP_URL）")
+	fs.StringVar(&g.token, "token", os.Getenv("ARGUS_APITOKEN"), "Bearer token（ARGUS_APITOKEN）")
+	fs.DurationVar(&g.timeout, "timeout", 30*time.Second, "单次调用超时")
+	fs.Parse(os.Args[1:])
+	rest := fs.Args()
+
 	// 信号中断 → 130（hook/CI 可与「审查发现意见」区分开）。
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -48,107 +57,259 @@ func main() {
 		<-sig
 		os.Exit(130)
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
-	cli := dial(ctx, *url, *token)
-	out, code, err := dispatch(ctx, cli, args[0], args[1:])
-	fail(err)
-	if out != "" {
-		fmt.Println(out)
-	}
-	os.Exit(code)
+	app := &cli.App{Name: "argus-copilot", Commands: commands(g)}
+	os.Exit(app.Run(ctx, rest, os.Stdout, os.Stderr))
 }
 
-func dial(ctx context.Context, url, token string) *mcpclient.Client {
-	cli, err := mcpclient.NewStreamableHttpClient(url,
+// commands 子命令表（v5.3.3 收编 pkg/cli.App：分发/用法/退出码 0-1-2 单源，
+// 每命令独立 FlagSet——假 flag 不再被静默接受而是用法错误）。
+func commands(g globals) []cli.Command {
+	return []cli.Command{
+		{
+			Name:    "capabilities",
+			Summary: "能力面快照：部署开了什么一次看清",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, err := call(ctx, c, "get_capabilities", map[string]any{})
+
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+		{
+			Name:    "stages",
+			Summary: "任务阶段视图（-task 必填）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("stages", stderr)
+				task := fs.String("task", "", "任务 ID（必填）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *task == "" {
+					fmt.Fprintln(stderr, "-task 必填")
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, err := call(ctx, c, "get_task_stages", map[string]any{"task_id": *task})
+
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+		{
+			Name:    "findings",
+			Summary: "任务意见清单，结构化 JSON（-task 必填）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("findings", stderr)
+				task := fs.String("task", "", "任务 ID（必填）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *task == "" {
+					fmt.Fprintln(stderr, "-task 必填")
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				// list_findings 返回的已是结构化 JSON（fp/severity/suggested_fix），
+				// 机器消费无需再包一层信封。
+				out, err := call(ctx, c, "list_findings", map[string]any{"task_id": *task})
+
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+		{
+			Name:    "suggest",
+			Summary: "单条意见的修复建议（-task 与 -fp 必填）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("suggest", stderr)
+				task := fs.String("task", "", "任务 ID（必填）")
+				fp := fs.String("fp", "", "意见指纹短码（必填）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *task == "" || *fp == "" {
+					fmt.Fprintln(stderr, "-task 与 -fp 必填")
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, err := call(ctx, c, "get_suggestion", map[string]any{"task_id": *task, "fp": *fp})
+
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+		{
+			Name:    "ask",
+			Summary: "PR 问答（-pr platform/owner/repo#number，-q 可选）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("ask", stderr)
+				pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
+				q := fs.String("q", "", "追问内容（可选）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *pr == "" {
+					fmt.Fprintln(stderr, "-pr 必填（platform/owner/repo#number）")
+					return cli.ExitUsage
+				}
+				platform, owner, repo, number, err := splitPR(*pr)
+				if err != nil {
+					fmt.Fprintln(stderr, "argus-copilot:", err)
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				qa := map[string]any{"platform": platform, "owner": owner, "repo": repo, "number": number}
+				if *q != "" {
+					qa["question"] = *q
+				}
+				out, err := call(ctx, c, "ask_argus", qa)
+
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+		{
+			Name: "review",
+			// pre-commit 本地预审（v3.74.1；v3.124.0 起支持 git 侧组装与机器可读面）。
+			Summary: "本地 diff 预审：stdin/`git diff --staged` 喂入，-json/-fail-on 定机器面与退出码阈值",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("review", stderr)
+				diffFile := fs.String("f", "", "diff 文件路径（缺省读 stdin：git diff --staged | argus-copilot review）")
+				staged := fs.Bool("staged", false, "输入源 git diff --staged（与 -f 互斥）")
+				uncommitted := fs.Bool("uncommitted", false, "输入源 git diff HEAD（staged+未暂存，与 -f/-staged 互斥）")
+				includeUntracked := fs.Bool("include-untracked", false, "追加未跟踪文件为新文件 diff（配合 -staged/-uncommitted）")
+				async := fs.Bool("async", false, "异步提交：立即返回 task_id 后退出，配合 poll 轮询结果")
+				jsonOut := fs.Bool("json", false, "结构化 JSON 输出（findings/file/line/severity/note）")
+				failOn := fs.String("fail-on", "high", "退出码 1 的严重度阈值：high|medium|low|none（none 恒 0）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, code, rerr := runReview(ctx, c, reviewInput{
+					DiffFile: *diffFile, Staged: *staged, Uncommitted: *uncommitted,
+					IncludeUntracked: *includeUntracked, Async: *async,
+					JSONOut: *jsonOut, FailOn: *failOn,
+				})
+				return emit(stdout, stderr, out, code, rerr)
+			},
+		},
+		{
+			Name: "poll",
+			// 提交方轮询（v3.123.0）：按 task_id 等 diff_preview 任务到终态，打印报告。
+			// 自带 10min 上限与 3s 间隔，不吃全局 -timeout（hook/CI 等待场景）。
+			// v3.124.0：-json/-fail-on 与 review 同契约——报告里的意见过阈值即退出 1。
+			Summary: "按 task_id 轮询异步任务到终态并按意见阈值给退出码（10min 上限，与 review -async 配对）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("poll", stderr)
+				task := fs.String("task", "", "任务 ID（必填）")
+				jsonOut := fs.Bool("json", false, "结构化 JSON 输出（与 review -json 同契约）")
+				failOn := fs.String("fail-on", "high", "退出码 1 的严重度阈值：high|medium|low|none（none 恒 0）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *task == "" {
+					fmt.Fprintln(stderr, "-task 必填")
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, code, rerr := pollTask(context.Background(), c, *task, pollOpts{JSONOut: *jsonOut, FailOn: *failOn})
+				return emit(stdout, stderr, out, code, rerr)
+			},
+		},
+		{
+			Name:    "fix",
+			Summary: "沙箱修复：服务端 agent 出 patch+确定性验证，回显 diff（需 ARGUS_FIX_AGENT，ci+ 档 token）",
+			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+				fs := cli.NewFlagSet("fix", stderr)
+				pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
+				fp := fs.String("fp", "", "意见指纹短码（必填）")
+				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+					return code
+				}
+				if *pr == "" || *fp == "" {
+					fmt.Fprintln(stderr, "-pr 与 -fp 必填")
+					return cli.ExitUsage
+				}
+				platform, owner, repo, number, err := splitPR(*pr)
+				if err != nil {
+					fmt.Fprintln(stderr, "argus-copilot:", err)
+					return cli.ExitUsage
+				}
+				c, code := connect(ctx, g, stderr)
+				if code != cli.ExitOK {
+					return code
+				}
+				out, err := call(ctx, c, "fix_finding", map[string]any{
+					"platform": platform, "owner": owner, "repo": repo, "number": number, "fp": *fp,
+				})
+				return emitCall(stdout, stderr, out, err)
+			},
+		},
+	}
+}
+
+// connect 懒连接：用法/帮助路径不要求 argus 在位（此前 dial 先于分发，
+// 服务器不可达时连 usage 都看不到）。
+func connect(ctx context.Context, g globals, stderr io.Writer) (*mcpclient.Client, int) {
+	c, err := dial(ctx, g.url, g.token)
+	if err != nil {
+		fmt.Fprintln(stderr, "argus-copilot:", err)
+		return nil, cli.ExitError
+	}
+	return c, cli.ExitOK
+}
+
+// emit 工具命令统一出口：err → ExitError(2)；review/poll 的业务退出码
+// （0/1/4）原样透传；成功输出走 stdout。
+func emit(stdout, stderr io.Writer, out string, code int, err error) int {
+	if err != nil {
+		fmt.Fprintln(stderr, "argus-copilot:", err)
+		return cli.ExitError
+	}
+	if out != "" && stdout != nil {
+		fmt.Fprintln(stdout, out)
+	}
+	return code
+}
+
+// emitCall 只读工具（call）的出口：成功即 ExitOK。
+func emitCall(stdout, stderr io.Writer, out string, err error) int {
+	return emit(stdout, stderr, out, cli.ExitOK, err)
+}
+
+func dial(ctx context.Context, url, token string) (*mcpclient.Client, error) {
+	c, err := mcpclient.NewStreamableHttpClient(url,
 		mcptransport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
-	fail(err)
+	if err != nil {
+		return nil, err
+	}
 	req := mcp.InitializeRequest{}
 	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	req.Params.ClientInfo = mcp.Implementation{Name: "argus-copilot", Version: "1"}
-	if _, err := cli.Initialize(ctx, req); err != nil {
-		fail(err)
+	if _, err := c.Initialize(ctx, req); err != nil {
+		return nil, err
 	}
-	return cli
-}
-
-func dispatch(ctx context.Context, cli *mcpclient.Client, cmd string, rest []string) (string, int, error) {
-	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
-	task := fs.String("task", "", "任务 ID")
-	fp := fs.String("fp", "", "意见指纹短码（suggest）")
-	pr := fs.String("pr", "", "platform/owner/repo#number（ask）")
-	q := fs.String("q", "", "追问内容（ask 可选）")
-	diffFile := fs.String("f", "", "diff 文件路径（review；缺省读 stdin）")
-	async := fs.Bool("async", false, "review 异步提交：立即返回 task_id 后退出，配合 poll 轮询结果")
-	jsonOut := fs.Bool("json", false, "review/poll 结构化 JSON 输出（findings/file/line/severity/note）")
-	failOn := fs.String("fail-on", "high", "退出码 1 的严重度阈值：high|medium|low|none（none 恒 0）")
-	staged := fs.Bool("staged", false, "review 输入源：git diff --staged（与 -f 互斥）")
-	uncommitted := fs.Bool("uncommitted", false, "review 输入源：git diff HEAD（staged+未暂存，与 -f/-staged 互斥）")
-	includeUntracked := fs.Bool("include-untracked", false, "review 追加未跟踪文件为新文件 diff（配合 -staged/-uncommitted）")
-	_ = fs.Parse(rest)
-
-	switch cmd {
-	case "stages":
-		need(*task != "", "-task 必填")
-		out, err := call(ctx, cli, "get_task_stages", map[string]any{"task_id": *task})
-		return out, exitClean, err
-	case "capabilities":
-		out, err := call(ctx, cli, "get_capabilities", map[string]any{})
-		return out, exitClean, err
-	case "findings":
-		need(*task != "", "-task 必填")
-		// list_findings 返回的已是结构化 JSON（fp/severity/suggested_fix），
-		// 机器消费无需再包一层信封。
-		out, err := call(ctx, cli, "list_findings", map[string]any{"task_id": *task})
-		return out, exitClean, err
-	case "suggest":
-		need(*task != "" && *fp != "", "-task 与 -fp 必填")
-		out, err := call(ctx, cli, "get_suggestion", map[string]any{"task_id": *task, "fp": *fp})
-		return out, exitClean, err
-	case "ask":
-		need(*pr != "", "-pr 必填（platform/owner/repo#number）")
-		platform, owner, repo, number, err := splitPR(*pr)
-		if err != nil {
-			return "", exitClean, err
-		}
-		args := map[string]any{"platform": platform, "owner": owner, "repo": repo, "number": number}
-		if *q != "" {
-			args["question"] = *q
-		}
-		out, err := call(ctx, cli, "ask_argus", args)
-		return out, exitClean, err
-	case "review":
-		// pre-commit 本地预审（v3.74.1；v3.124.0 起支持 git 侧组装与机器可读面）：
-		//   git diff --staged | argus-copilot review            # stdin 同步快审
-		//   argus-copilot review -staged -include-untracked      # CLI 自组 diff（含未跟踪文件）
-		//   argus-copilot review -staged -async                  # 异步提交秒回 task_id
-		// 退出码：0=无达阈值意见 1=有（-fail-on 定阈值）4=空 diff 2=错误。
-		return runReview(ctx, cli, reviewInput{
-			DiffFile: *diffFile, Staged: *staged, Uncommitted: *uncommitted,
-			IncludeUntracked: *includeUntracked, Async: *async,
-			JSONOut: *jsonOut, FailOn: *failOn,
-		})
-	case "poll":
-		// 提交方轮询（v3.123.0）：按 task_id 等 diff_preview 任务到终态，打印报告。
-		// 自带 10min 上限与 3s 间隔，不吃全局 -timeout（hook/CI 等待场景）。
-		// v3.124.0：-json/-fail-on 与 review 同契约——报告里的意见过阈值即退出 1。
-		need(*task != "", "-task 必填")
-		return pollTask(context.Background(), cli, *task, pollOpts{JSONOut: *jsonOut, FailOn: *failOn})
-	case "fix":
-		// 沙箱修复（v3.89.0）：按 PR+fp 同步执行自动修复，输出 diff 与验证结论
-		need(*pr != "" && *fp != "", "-pr 与 -fp 必填")
-		platform, owner, repo, number, err := splitPR(*pr)
-		if err != nil {
-			return "", exitClean, err
-		}
-		out, err := call(ctx, cli, "fix_finding", map[string]any{
-			"platform": platform, "owner": owner, "repo": repo, "number": number, "fp": *fp,
-		})
-		return out, exitClean, err
-	default:
-		usage()
-		return "", exitClean, nil
-	}
+	return c, nil
 }
 
 func call(ctx context.Context, cli *mcpclient.Client, name string, args map[string]any) (string, error) {
@@ -247,58 +408,9 @@ func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts po
 	}
 }
 
-func need(cond bool, msg string) {
-	if !cond {
-		fmt.Fprintln(os.Stderr, msg)
-		os.Exit(2)
-	}
-}
-
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return def
-}
-
-func fail(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "argus-copilot:", err)
-		os.Exit(2)
-	}
-}
-
-func usage() {
-	fmt.Fprint(os.Stderr, `argus-copilot — Argus 副驾参考客户端（数据面只读；review/fix 为服务端审查/修复面）
-
-用法:
-  argus-copilot -url <mcp> -token <t> capabilities
-                                  （能力面快照：部署开了什么一次看清）
-  argus-copilot -url <mcp> -token <t> stages   -task <id>
-  argus-copilot -url <mcp> -token <t> findings -task <id>
-  argus-copilot -url <mcp> -token <t> suggest  -task <id> -fp <短码>
-  argus-copilot -url <mcp> -token <t> ask      -pr platform/owner/repo#num [-q 问题]
-  git diff --staged | argus-copilot -url <mcp> -token <t> review [-f <diff文件>]
-                                  （pre-commit 本地预审：服务端单轮 LLM 审查，
-                                   不建任务不落库；模型未配置时返回错误）
-  argus-copilot -url <mcp> -token <t> review -staged [-include-untracked]
-                                  （CLI 自组 diff：-staged=git diff --staged，
-                                   -uncommitted=git diff HEAD；-include-untracked
-                                   把未跟踪文件合成 new-file diff 拼入）
-  argus-copilot -url <mcp> -token <t> review [-staged] -json -fail-on medium
-                                  （-json 结构化输出 findings；-fail-on 定退出码
-                                   阈值 high|medium|low|none，缺省 high）
-  git diff --staged | argus-copilot -url <mcp> -token <t> review -async
-  argus-copilot -url <mcp> -token <t> poll -task <id> [-json -fail-on <档>]
-                                  （异步预审闭环：提交秒回 task_id 不阻塞，
-                                   提交方稍后 poll 轮询报告；≤48KB）
-  argus-copilot -url <mcp> -token <t> fix      -pr platform/owner/repo#num -fp <短码>
-                                  （沙箱修复：服务端编码 agent 出 patch + 确定性
-                                   验证，回显 diff；需 ARGUS_FIX_AGENT 启用，ci+ 档 token）
-
-review/poll 退出码: 0=通过（无达阈值意见）/异步提交成功  1=有达阈值意见（建议阻断）
-  2=错误（执行失败或用法错误）  4=空 diff 跳过  130=信号中断
-环境: ARGUS_MCP_URL / ARGUS_APITOKEN
-`)
-	os.Exit(2)
 }

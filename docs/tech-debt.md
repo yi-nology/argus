@@ -47,16 +47,31 @@
 
 ### v5.3.2 遗留 issue（下一轮起步候选，按收益排序）
 
-1. **argus-copilot 分发/usage → pkg cli.App**（v0.31.0）：main.go 手写 switch
-   分发 + 33 行 usage，退出码契约靠注释人肉同步（review.go:27「改此须同步」）；
-   cli.App 内建 --help/version/默认子命令/退出码 0-1-2 单源，估删 ~70 行。风险：
-   usage 文案格式会变。
-2. **GetRepo→LoadRepoConfig 两步模式 4 处重复**（runner_prctx / requirement/verdict
-   / describe / service_agents）：收口 `SDKCtx.LoadRepoConfigAuto` + describe/agents
-   路径加 5min 默认分支缓存（与 collabCch 同款），估省每请求 1 次平台 API + ~30 行。
+1. ~~**argus-copilot 分发/usage → pkg cli.App**~~ **〔v5.3.3 已收口〕**见下节。
+2. ~~**GetRepo→LoadRepoConfig 两步模式 4 处重复**~~ **〔v5.3.3 已收口〕**见下节。
 3. **WebhookConfigManager 新功能机会**（非优化）：v0.100 提供单 webhook 查询/更新
    幂等管理（7 平台），argus 可做「启动时按配置 secret 幂等确保 webhook 存在」，
    省掉手工到平台配置——属功能决策，待试点环境拍板。
+
+## v5.3.3 收编批 + 上游 issue（2026-11-02）
+
+- **argus-copilot 分发/usage → pkg cli.App**（v0.31.0）：手写 switch 分发 + 33 行
+  usage 删除，退出码 0/1/2 单源 cli 常量（4/130 仍自定义）；每命令独立 FlagSet
+  ——假 flag 不再被静默接受而是用法错误（行为收紧）；`help`/`--help` → 退出 0
+  走 stdout（此前问帮助是 2）；懒连接：用法/帮助路径不要求 argus 在位。全局
+  `-url/-token/-timeout` 仍在子命令前（surface 兼容）。冒烟过全部退出码路径。
+- **ResolveBranch + LoadRepoConfigAuto 收口**：runner/workflow/describe/agents
+  四处「取默认分支 → 读 .reviewagents.yaml」两步模式收口为 sdkctx 单源。附
+  5min TTL 默认分支缓存——describe/agents 是评论/HTTP 请求路径，此前每请求
+  真打一次 GetRepo；runner/workflow 保持 pr.DefaultBranch 回填语义。2 用例
+  （缓存命中/显式短路/解析失败上抛）。
+- **上游 issue 两枚**（收编前评审发现，已提）：
+  - [go-git-platform#31](https://github.com/yi-nology/go-git-platform/issues/31)
+    ETagCache 304 应答但本地条目被 LRU 驱逐 ⇒ 整条请求硬失败；建议进程内
+    降级重发无条件请求（argus 默认 RetryConfig 可自愈，nil 重试配置直接炸）。
+  - [oekit/pkg#162](https://github.com/oekit/pkg/issues/162)
+    cli.Table runeWidth 缺 U+2600–27BF（⚠✅❌）与 U+FE0F ⇒ 状态符号行宽
+    1–2 列、表格错位（附复现）；顺带 cli.Usage 无 Summary 子命令尾随空格。
 
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 

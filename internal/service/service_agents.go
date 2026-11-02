@@ -63,12 +63,7 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 		addWarn("平台未接入: " + platform)
 		return view
 	}
-	repoInfo, err := s.SDK.GetRepo(ctx, platform, owner, repo)
-	if err != nil {
-		addWarn("获取仓库失败: " + err.Error())
-		return view
-	}
-	rc, err := s.SDK.LoadRepoConfig(ctx, platform, owner, repo, repoInfo.DefaultBranch)
+	rc, err := s.SDK.LoadRepoConfigAuto(ctx, platform, owner, repo, "")
 	if err != nil {
 		addWarn("读取 .reviewagents.yaml 失败: " + err.Error())
 		return view

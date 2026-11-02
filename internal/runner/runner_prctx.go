@@ -84,15 +84,13 @@ func (r *Runner) buildDiffIncremental(ctx context.Context, pr *plugin.PRContext,
 // v3.15.0 前该加载只在 workflow.loadRepoConfig，为传 diffprep 选项在此提前）。
 // 失败按无配置 + 告警（与 workflow 侧同纪律）。
 func (r *Runner) loadRepoConfig(ctx context.Context, pr *plugin.PRContext) *plugin.RepoConfig {
-	if pr.DefaultBranch == "" {
-		repo, err := r.SDK.GetRepo(ctx, pr.Platform, pr.Owner, pr.Repo)
-		if err != nil {
-			r.Log.Warn("argus.runner.repo_fetch_failed", "error", err.Error())
-			return plugin.EmptyRepoConfig()
-		}
-		pr.DefaultBranch = repo.DefaultBranch
+	branch, err := r.SDK.ResolveBranch(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
+	if err != nil {
+		r.Log.Warn("argus.runner.repo_fetch_failed", "error", err.Error())
+		return plugin.EmptyRepoConfig()
 	}
-	rc, err := r.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
+	pr.DefaultBranch = branch
+	rc, err := r.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, branch)
 	if err != nil {
 		r.Log.Warn("argus.runner.repo_config_failed", "error", err.Error())
 		return plugin.EmptyRepoConfig()

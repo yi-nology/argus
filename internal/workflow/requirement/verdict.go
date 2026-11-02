@@ -136,15 +136,13 @@ func (w *Workflow) loadRepoConfig(ctx context.Context, task plugin.Task) *plugin
 		return w.RepoConfig
 	}
 	pr := task.PR
-	if pr.DefaultBranch == "" {
-		repo, err := w.SDK.GetRepo(ctx, pr.Platform, pr.Owner, pr.Repo)
-		if err != nil {
-			w.Log.Warn("argus.workflow.repo_fetch_failed", "error", err.Error())
-			return plugin.EmptyRepoConfig()
-		}
-		pr.DefaultBranch = repo.DefaultBranch
+	branch, err := w.SDK.ResolveBranch(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
+	if err != nil {
+		w.Log.Warn("argus.workflow.repo_fetch_failed", "error", err.Error())
+		return plugin.EmptyRepoConfig()
 	}
-	rc, err := w.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
+	pr.DefaultBranch = branch
+	rc, err := w.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, branch)
 	if err != nil {
 		w.Log.Warn("argus.workflow.repo_config_failed", "error", err.Error())
 		return plugin.EmptyRepoConfig()
