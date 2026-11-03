@@ -49,9 +49,7 @@
 
 1. ~~**argus-copilot 分发/usage → pkg cli.App**~~ **〔v5.3.3 已收口〕**见下节。
 2. ~~**GetRepo→LoadRepoConfig 两步模式 4 处重复**~~ **〔v5.3.3 已收口〕**见下节。
-3. **WebhookConfigManager 新功能机会**（非优化）：v0.100 提供单 webhook 查询/更新
-   幂等管理（7 平台），argus 可做「启动时按配置 secret 幂等确保 webhook 存在」，
-   省掉手工到平台配置——属功能决策，待试点环境拍板。
+3. ~~**WebhookConfigManager 新功能机会**~~ **〔v5.4.1 已落地〕**见下节。
 
 ## v5.3.3 收编批 + 上游 issue（2026-11-02）
 
@@ -95,6 +93,25 @@
   （service_auth 已是 typed key 惯例）；inflight 是任务去重状态词非手写
   singleflight；poller 翻页由 SDK 承担（pkg/pagination 是请求侧归一化，不对口）；
   seen[] 去重惯例不值得机械翻新（同 withWriteLock 裁定口径）。
+
+## v5.4.1 深度迭代批（2026-11-03）：webhook ensure + DB 索引
+
+- **启动期 webhook 幂等确保**（tech-debt 遗留项 3 落地，opt-in）：`ARGUS_ENSURE_WEBHOOK=1`
+  + `ARGUS_PUBLIC_URL` 时对 PollRepos 逐仓 `provider.EnsureWebhook`（不存在建、
+  同 URL 事件集漂移重建）；**secret 每次启动重断言**（UpdateWebhook 补写——平台侧
+  write-only 不可比对，Ensure 对已存在钩子报 unchanged，轮换自愈全靠这步）。事件
+  词表按平台内置（gitea/forgejo=`pull_request_only,issue_comment` 试点实弹词；
+  github=`pull_request,issue_comment`；gitee=`pull_request,comment`；gitlab 只能
+  `merge_request`——note 族 SDK 面不可表达 ⇒
+  [go-git-platform#32](https://github.com/yi-nology/go-git-platform/issues/32)
+  已提）。`ARGUS_<P>_WEBHOOK_EVENTS` 可覆盖。异步 60s 上界、失败只告警
+  （poller 兜底不受影响）；替代手工跑 scripts/setup-webhook.sh。3 用例。
+- **tasks 表复合索引 idx_budget**（platform,owner,repo,status,created_at）：
+  RepoMonthlyTokens（预算闸，每任务启动一次）/MonthlyTokensByRepo（/usage/monthly）
+  此前靠 idx_pr 前缀回表过滤 status+created_at——仓库任务量随月累积后每次预算
+  闸都扫该仓全量历史。AutoMigrate 幂等建 + schema.sql 同步。其余热路径
+  （HasNewerNonFailedTask/CreateTaskForWebhook 去重/review_targets）已被既有
+  索引覆盖，审计无新发现。
 
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 

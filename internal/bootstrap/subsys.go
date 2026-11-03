@@ -6,6 +6,7 @@ import (
 
 	oagentworker "github.com/oagentkit/queue/worker"
 	oekitbootstrap "github.com/oekit/bootstrap"
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 
 	"argus/internal/config"
@@ -220,17 +221,34 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 		log.Info("argus.health.enabled", "interval", cfg.HealthReportInterval.String())
 	}
 
-	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
-	if cfg.PollInterval > 0 && cfg.PollRepos != "" {
-		targets, bad := poller.ParseTargets(cfg.PollRepos)
+	// ---- 任务源仓库清单（poller 与 webhook ensure 共用一次解析）----
+	var targets []poller.Target
+	if cfg.PollRepos != "" {
+		var bad []string
+		targets, bad = poller.ParseTargets(cfg.PollRepos)
 		for _, b := range bad {
 			log.Warn("argus.poller.bad_target", "item", b, "format", "platform:owner/repo")
 		}
-		if len(targets) > 0 {
-			pl := &poller.Poller{SDK: sys.SDK, Store: store, Targets: targets,
-				Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: sys.Bus,
-				IsLeader: pollElector.IsLeader}
-			pl.Start(ctx)
+	}
+
+	// ---- webhook 启动期幂等确保（v5.4.1，opt-in）：异步跑不延迟就绪，失败只
+	// 告警——webhook 是主任务源，poller 兜底仍在。secret 每次启动重断言（平台
+	// 侧 write-only 不可比对，轮换自愈靠这里）。----
+	if cfg.EnsureWebhook {
+		if cfg.PublicURL == "" {
+			log.Warn("argus.webhook_ensure.disabled", "reason", "ARGUS_ENSURE_WEBHOOK=1 但 ARGUS_PUBLIC_URL 未配置")
+		} else if len(targets) > 0 {
+			async.GoSafe(func() {
+				ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			})
 		}
+	}
+
+	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
+	if cfg.PollInterval > 0 && len(targets) > 0 {
+		pl := &poller.Poller{SDK: sys.SDK, Store: store, Targets: targets,
+			Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: sys.Bus,
+			IsLeader: pollElector.IsLeader}
+		pl.Start(ctx)
 	}
 }

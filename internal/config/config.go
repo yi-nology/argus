@@ -25,6 +25,10 @@ type PlatformConfig struct {
 	// 翻页场景可持续轮询速率实质抬升；平台不支持 ETag 时透明回退 200，无正确性影响。
 	// ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS=0 显式关闭。
 	ConditionalRequests bool
+	// WebhookEvents 覆盖启动期 webhook 确保的事件集（ARGUS_<P>_WEBHOOK_EVENTS，
+	// 逗号分隔；空 = 用 bootstrap 内置的平台原生默认词表）。词表是平台原生的
+	//（SDK 后端对 CreateWebhookOptions.Events 原样透传或按族映射，各平台不同）。
+	WebhookEvents string
 
 	// GitHub App 认证（仅 github 平台）：配置后自动用 installation token 替代 PAT。
 	// 三者全配才启用；AppID + PrivateKey 用于签发 JWT，InstallationID 用于换取 token。
@@ -84,6 +88,15 @@ type Config struct {
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭
 	PollRepos    string        // "platform:owner/repo" 逗号分隔
+
+	// webhook 启动期幂等确保（v5.4.1，上游 go-git-platform EnsureWebhook）：
+	// PublicURL 非空且 EnsureWebhook=true 时，对 PollRepos 逐仓确保回调
+	// {PublicURL}/webhook/{platform} 存在（不存在建、事件集漂移重建、secret 经
+	// UpdateWebhook 每次启动重断言——平台侧 secret write-only 不可比对，Ensure
+	// 对已存在钩子报 unchanged，必须显式补写才能自愈轮换）。失败仅告警不阻塞
+	// 启动（poller 兜底仍在）。
+	PublicURL     string // ARGUS_PUBLIC_URL：平台可达的本服务地址（无端口默认 8899 形态）
+	EnsureWebhook bool   // ARGUS_ENSURE_WEBHOOK（默认关）
 
 	// octopus IM 推送（v3.1）：终态经 octopus /api/v2/send/quick 发消息。
 	// URL 空 = 禁用。
@@ -453,6 +466,8 @@ func Load() *Config {
 		Platforms:                map[string]PlatformConfig{},
 		PollInterval:             envDuration("ARGUS_POLL_INTERVAL", 0),
 		PollRepos:                os.Getenv("ARGUS_POLL_REPOS"),
+		PublicURL:                strings.TrimRight(os.Getenv("ARGUS_PUBLIC_URL"), "/"),
+		EnsureWebhook:            envBool("ARGUS_ENSURE_WEBHOOK", false),
 		SDKCallTimeout:           envDuration("ARGUS_SDK_TIMEOUT", 0),
 		TaskRetentionDays:        envInt("ARGUS_TASK_RETENTION_DAYS", 30),
 		RepoMonthlyTokenBudget:   envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
@@ -547,6 +562,7 @@ func Load() *Config {
 			SkipTLS:             envBool(prefix+"SKIP_TLS", false),
 			TokenStyle:          os.Getenv(prefix + "TOKEN_STYLE"),
 			ConditionalRequests: envBool(prefix+"CONDITIONAL_REQUESTS", true),
+			WebhookEvents:       os.Getenv(prefix + "WEBHOOK_EVENTS"),
 		}
 	}
 	// GitHub App 认证：三者全配时启用（覆盖 Token）

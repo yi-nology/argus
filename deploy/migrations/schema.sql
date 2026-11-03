@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS `tasks` (
     INDEX `idx_tasks_runner_id` (`runner_id`),
     INDEX `idx_tasks_head_sha` (`head_sha`),
     INDEX `idx_tasks_created_at` (`created_at`),
-    INDEX `idx_tasks_platform_owner_repo_number` (`platform`, `owner`, `repo`, `number`)
+    INDEX `idx_tasks_platform_owner_repo_number` (`platform`, `owner`, `repo`, `number`),
+    INDEX `idx_tasks_budget` (`platform`, `owner`, `repo`, `status`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

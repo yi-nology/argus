@@ -25,12 +25,15 @@ import (
 )
 
 // Task tasks 表记录。Status 词表钉死：pending / running / done / failed / stale（§10.4）。
+// idx_budget 复合索引（v5.4.1）：RepoMonthlyTokens/MonthlyTokensByRepo 的
+// WHERE platform+owner+repo+status+created_at 全命中——此前靠 idx_pr 前缀回表
+// 过滤 status/created_at，仓库任务量随月累积后预算闸每次启动任务都扫全量历史。
 type Task struct {
 	ID       string `gorm:"column:id;primaryKey;size:40"`
 	Kind     string `gorm:"column:kind;size:32;not null"`
-	Platform string `gorm:"column:platform;size:16;not null;index:idx_pr,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;index:idx_pr,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;index:idx_pr,priority:3"`
+	Platform string `gorm:"column:platform;size:16;not null;index:idx_pr,priority:1;index:idx_budget,priority:1"`
+	Owner    string `gorm:"column:owner;size:128;not null;index:idx_pr,priority:2;index:idx_budget,priority:2"`
+	Repo     string `gorm:"column:repo;size:128;not null;index:idx_pr,priority:3;index:idx_budget,priority:3"`
 	Number   string `gorm:"column:number;size:16;not null;index:idx_pr,priority:4"`
 	HeadSHA  string `gorm:"column:head_sha;size:64;index"`
 	// EventType 触发本任务的平台事件（webhook 填 cr.opened/...；CLI 任务为空）
@@ -39,7 +42,7 @@ type Task struct {
 	// 缺 header 时保持 NULL（唯一索引允许多个 NULL；置空字符串会误判 duplicate）。
 	// 注意：MySQL 8.0+ / SQLite 支持 UNIQUE 列多 NULL；MariaDB 10.5- 行为不同，需 COALESCE 兼容。
 	EventID    *string `gorm:"column:event_id;size:128;uniqueIndex"`
-	Status     string  `gorm:"column:status;size:16;not null;default:pending;index"`
+	Status     string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:4"`
 	Verdict    string  `gorm:"column:verdict;size:32"`
 	Report     string  `gorm:"column:report;type:text"`
 	ResultJSON string  `gorm:"column:result_json;type:text"`
@@ -73,7 +76,7 @@ type Task struct {
 	// NextRetryAt 下次自动重试时间（指数退避 5m×3^attempt；nil = 不重试）。
 	NextRetryAt *time.Time `gorm:"column:next_retry_at"`
 
-	CreatedAt  time.Time  `gorm:"column:created_at;index"`
+	CreatedAt  time.Time  `gorm:"column:created_at;index;index:idx_budget,priority:5"`
 	UpdatedAt  time.Time  `gorm:"column:updated_at"`
 	StartedAt  *time.Time `gorm:"column:started_at"`
 	FinishedAt *time.Time `gorm:"column:finished_at"`
