@@ -136,7 +136,11 @@ func (r *Runner) prepareContext(ctx context.Context, task *storage.Task, knobs t
 		return pr, rc, diff, true, nil
 	}
 	if task.HeadSHA == "" && pr.HeadSHA != "" {
-		_ = r.Store.SetTaskHeadSHA(ctx, task.ID, pr.HeadSHA)
+		// 失败补留痕（v5.4.3）：head SHA 没回写 ⇒ 同 SHA 去重（last_head_sha）
+		// 对该任务失效，重跑场景会重复审查——盲区变可见。
+		if err := r.Store.SetTaskHeadSHA(ctx, task.ID, pr.HeadSHA); err != nil {
+			r.Log.Warn("argus.runner.head_sha_write_failed", "task", task.ID, "error", err.Error())
+		}
 	}
 	return pr, rc, diff, false, nil
 }
@@ -289,7 +293,11 @@ func (r *Runner) finalizeAndAnnounce(ctx context.Context, task *storage.Task, pr
 	// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
 	if r.Cfg.Debug && len(out.Debug) > 0 {
 		if b, e := json.Marshal(out.Debug); e == nil {
-			_ = r.Store.SetTaskDebug(ctx, task.ID, string(b))
+			// 失败补留痕（v5.4.3）：debug 产物丢失排查失据——用户开着 DEBUG
+			// 却查不到原始输出，得知道是写库失败而不是没生成。
+			if err := r.Store.SetTaskDebug(ctx, task.ID, string(b)); err != nil {
+				r.Log.Warn("argus.runner.debug_write_failed", "task", task.ID, "error", err.Error())
+			}
 		}
 	}
 	// 结果上报（ARGUS_SINK_URL 非空启用）：push 旁路给 review-service 承接展示，

@@ -24,15 +24,15 @@ require (
 	github.com/oagentkit/toolgate v0.12.5
 	github.com/oagentkit/tools v0.10.4
 	github.com/oekit/bootstrap v0.6.8
-	github.com/oekit/concurrency v0.23.3
+	github.com/oekit/concurrency v0.23.4
 	github.com/oekit/core v0.12.1
 	github.com/oekit/data v0.19.9
-	github.com/oekit/hertz v0.8.12
+	github.com/oekit/hertz v0.9.0
 	github.com/oekit/kitx v0.3.4
-	github.com/oekit/logx v0.8.1
-	github.com/oekit/metrics v0.1.10
-	github.com/oekit/middleware v0.13.7
-	github.com/oekit/pkg v0.31.2
+	github.com/oekit/logx v0.8.2
+	github.com/oekit/metrics v0.1.11
+	github.com/oekit/middleware v0.13.8
+	github.com/oekit/pkg v0.33.0
 	github.com/oekit/tracing v0.3.2
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.13.0
@@ -134,8 +134,8 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oekit/gormx v0.6.6 // indirect
-	github.com/oekit/registry v0.5.2 // indirect
+	github.com/oekit/gormx v0.7.1 // indirect
+	github.com/oekit/registry v0.5.3 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

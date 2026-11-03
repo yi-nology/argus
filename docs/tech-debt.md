@@ -132,6 +132,22 @@
   store.go 启动迁移 Background（启动期无请求 ctx，正确）；runner skill bgCtx
   有注释的刻意选择（本地文件读）。ctx 贯穿面整体健康。
 
+## v5.4.3 升级追平批（2026-11-04）
+
+- **oekit 8 模块追平最新**：pkg v0.31.2→**v0.33.0**（跨两 minor：v0.32 SetNX 原子
+  写入/LastN 保尾截断、v0.33 选择性 stale——argus 三处 datacache 均简单 TTL 无
+  对口场景；`stringx.Filter` 语义翻转 BREAKING **零消费**）+ hertz v0.8.12→
+  **v0.9.0**（crudh 分页/排序白名单契约 BREAKING **零消费**；transportx reply
+  header Add/Set、hertzotel span 修复、governance 路由模板键修复等被动受益）+
+  logx v0.8.2 / concurrency v0.23.4 / metrics v0.1.11 / middleware v0.13.8 /
+  gormx v0.7.1 / registry v0.5.3。零代码适配。go-git-platform v0.101.0 已最新；
+  #32（gitlab note 事件缺口）仍 OPEN 待上游修。
+- **best-effort 写失败留痕**（吞错分诊收尾）：runner_lifecycle 两处 `_ = r.Store.`
+  ——head SHA 回写失败 ⇒ 同 SHA 去重对该任务失效（重跑重复审查）；debug 产物
+  写失败 ⇒ ARGUS_DEBUG=1 排查失据。补 Warn 留痕，盲区变可见。
+- make arch（架构门禁）绿；吞错分诊其余项定性：storage `db.DB()` 惯用形低风险、
+  三处 Background ctx 均有注释的刻意选择。
+
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 
 | 函数 | 行数 | 裁定 |
