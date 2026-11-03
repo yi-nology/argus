@@ -54,11 +54,8 @@ func (s *Service) repoAllowedFor(ctx context.Context, platform, owner, repo stri
 	return true
 }
 
-// repoAllowed 无 ctx 场景的总白名单判定（内部受信路径用；外部入口一律走
-// repoAllowedFor）。
-func (s *Service) repoAllowed(platform, owner, repo string) bool {
-	return s.repoAllowedFor(context.Background(), platform, owner, repo)
-}
+// repoAllowed 无 ctx 的总白名单判定〔v5.4.2 已删除〕：全仓零调用方（外部入口
+// 一律 repoAllowedFor 携 ctx），deadcode 归零纪律下清除。
 
 // errRepoDenied 白名单拒绝的统一错误文案。
 const errRepoDenied = "仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内"

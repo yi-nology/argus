@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/httpjson"
 
@@ -99,7 +100,7 @@ func (r *Reporter) Report(payload *Payload) {
 	if !r.Enabled() {
 		return
 	}
-	go r.report(payload)
+	async.GoSafe(func() { r.report(payload) }) // GoSafe：panic 转留痕不进程死（v5.4.2）
 }
 
 // report 单次上报执行体。v3.76.0 收敛 agentkit httpx（ctx 感知/限容读体/状态码

@@ -147,6 +147,13 @@ var (
 		Name: "argus_webhook_rejected_total", Help: "webhook 入口拒绝分布（no_secret/signature/parse/body_too_large）",
 	}, []string{"reason"})
 
+	// webhookEnsure 启动期幂等确保动作分布（v5.4.2 补观测）：created/updated/
+	// unchanged/secret_patched/skipped/failed——ensure 是 opt-in 新通道，没指标
+	// 就只能翻日志核实它是否真的在工作（与 v3.7.x skipped 盲区同型教训）。
+	webhookEnsure = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_webhook_ensure_total", Help: "启动期 webhook 幂等确保动作分布（created/updated/unchanged/secret_patched/skipped/failed）",
+	}, []string{"action"})
+
 	// llmFailovers LLM 主备切换计数：此前只有 Warn 日志，切换频率无法聚合告警。
 	llmFailovers = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_llm_failovers_total", Help: "LLM 主→备切换次数（fallback/failover）",
@@ -195,7 +202,7 @@ func Init() {
 		tasksPending, tasksRunning, notifyFailures, reflectDropped, reflectDegraded, layerExec,
 		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
-		webhookSkipped, webhookRejected, llmFailovers, qaFailures, testGenVerify,
+		webhookSkipped, webhookRejected, webhookEnsure, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
@@ -280,6 +287,11 @@ func IncrWebhookSkipped(reason string) {
 // IncrWebhookRejected webhook 入口拒绝计数（含安全信号：签名/secret 拒绝）。
 func IncrWebhookRejected(reason string) {
 	webhookRejected.WithLabelValues(reason).Inc()
+}
+
+// IncrWebhookEnsure 启动期 webhook 幂等确保动作计数（bootstrap 调用）。
+func IncrWebhookEnsure(action string) {
+	webhookEnsure.WithLabelValues(action).Inc()
 }
 
 // IncrLLMFailover LLM 主备切换计数（bootstrap 装配的两类切换回调调用）。

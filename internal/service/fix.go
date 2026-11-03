@@ -14,6 +14,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/oekit/concurrency/async"
 )
 
 // fix 命令的硬上限（调整阈值须过评测/试点，不拍脑袋）。
@@ -78,7 +79,12 @@ func (s *Service) handleFix(ctx context.Context, platform, owner, repo, prNum, p
 	s.postQAError(ctx, platform, owner, repo, prNum,
 		fmt.Sprintf("修复任务已受理（fp:%s，agent %s）——异步执行中，完成后回帖结果。\n\n<!-- argus:fix delivery=%s phase=accepted -->",
 			shortFP(fp), s.Cfg.FixAgent, delivery))
-	go s.runFixReply(key, platform, owner, repo, prNum, fp, delivery)
+	// async.GoSafe（v5.4.2）：runFixReply 跑完整 LLM agent + 沙箱链路，裸
+	// goroutine 期 panic 即进程死（215 曾炸出 guardPanic 卡死教训）——panic
+	// 转结构化留痕，fixInflight 键随进程清理兜底。
+	async.GoSafe(func() {
+		s.runFixReply(key, platform, owner, repo, prNum, fp, delivery)
+	})
 }
 
 // fixExec 修复同步执行体（守卫 + 工作副本就绪 + 沙箱运行），评论链与 MCP

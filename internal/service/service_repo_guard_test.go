@@ -12,23 +12,24 @@ func TestRepoAllowlist(t *testing.T) {
 	mk := func(list []string) *Service {
 		return &Service{Cfg: &config.Config{RepoAllowlist: list}}
 	}
-	if !mk(nil).repoAllowed("gitlab", "any", "repo") {
+	// v5.4.2：repoAllowed（无 ctx 死代码）删除，断言改走活入口 repoAllowedFor。
+	if !mk(nil).repoAllowedFor(context.Background(), "gitlab", "any", "repo") {
 		t.Error("空清单应放行一切（向后兼容）")
 	}
 	s := mk([]string{"gitlab:demo-user/argus-validate", "gitlab:obs/*"})
-	if !s.repoAllowed("gitlab", "demo-user", "argus-validate") {
+	if !s.repoAllowedFor(context.Background(), "gitlab", "demo-user", "argus-validate") {
 		t.Error("精确条目应放行")
 	}
-	if !s.repoAllowed("gitlab", "obs", "insights-mcp-gateway") {
+	if !s.repoAllowedFor(context.Background(), "gitlab", "obs", "insights-mcp-gateway") {
 		t.Error("通配条目应放行")
 	}
-	if s.repoAllowed("gitlab", "demo-user", "other-repo") {
+	if s.repoAllowedFor(context.Background(), "gitlab", "demo-user", "other-repo") {
 		t.Error("清单外仓库应拒绝")
 	}
-	if s.repoAllowed("gitlab", "demo-userx", "argus-validate") {
+	if s.repoAllowedFor(context.Background(), "gitlab", "demo-userx", "argus-validate") {
 		t.Error("前缀相似不等于命中（owner 不同）")
 	}
-	if s.repoAllowed("github", "demo-user", "argus-validate") {
+	if s.repoAllowedFor(context.Background(), "github", "demo-user", "argus-validate") {
 		t.Error("平台不同应拒绝")
 	}
 	// 拒绝以内容态/错误态可见，不伪装

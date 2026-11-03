@@ -177,10 +177,10 @@ func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.Normali
 func (s *Service) DrainComments(timeout time.Duration) {
 	s.initCommentGate()
 	done := make(chan struct{})
-	go func() {
+	async.GoSafe(func() {
 		s.commentWG.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 	case <-time.After(timeout):

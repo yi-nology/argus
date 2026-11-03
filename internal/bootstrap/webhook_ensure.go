@@ -9,6 +9,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"argus/internal/config"
+	"argus/internal/obs"
 	"argus/internal/poller"
 )
 
@@ -76,18 +77,21 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 		p, err := sdk.Provider(t.Platform)
 		if err != nil {
 			log.Warn("argus.webhook_ensure.platform_unavailable", "platform", t.Platform, "error", err.Error())
+			obs.IncrWebhookEnsure("failed")
 			continue
 		}
 		pc := cfg.Platforms[t.Platform]
 		if pc.Token == "" {
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "reason", "平台未配 token")
+			obs.IncrWebhookEnsure("skipped")
 			continue
 		}
 		if pc.Secret == "" {
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo,
 				"reason", "平台未配 SECRET：入站签名校验 fail-closed，建了也会被本服务全拒")
+			obs.IncrWebhookEnsure("skipped")
 			continue
 		}
 		events := eventsFor(pc, t.Platform)
@@ -95,6 +99,7 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo,
 				"reason", "无平台默认事件词表且未配 ARGUS_"+strings.ToUpper(t.Platform)+"_WEBHOOK_EVENTS")
+			obs.IncrWebhookEnsure("skipped")
 			continue
 		}
 		repoCtx, repoCancel := context.WithTimeout(ctx, ensurePerRepoTimeout)
@@ -107,16 +112,20 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 		if err != nil {
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", "poller 兜底不受影响")
+			obs.IncrWebhookEnsure("failed")
 			repoCancel()
 			continue
 		}
 		switch action {
 		case provider.EnsureCreated:
 			created++
+			obs.IncrWebhookEnsure("created")
 		case provider.EnsureUpdated:
 			updated++
+			obs.IncrWebhookEnsure("updated")
 		default:
 			unchanged++
+			obs.IncrWebhookEnsure("unchanged")
 		}
 		// secret 重断言（write-only 不可比对，Ensure 报 unchanged 时 secret 可能
 		// 已轮换漂移——无条件补写一次，幂等）。
@@ -128,6 +137,8 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 					log.Warn("argus.webhook_ensure.secret_patch_failed", "platform", t.Platform,
 						"repo", t.Owner+"/"+t.Repo, "webhook_id", hook.ID, "error", uerr.Error(),
 						"hint", "secret 轮换未生效：入站将被 fail-closed 拒收，请手工更新平台 webhook")
+				} else {
+					obs.IncrWebhookEnsure("secret_patched")
 				}
 			}
 		}

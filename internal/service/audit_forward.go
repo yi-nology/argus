@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/oagentkit/textx/textutil"
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 )
 
@@ -45,7 +46,7 @@ func NewAuditForwarder(url, token string, log logx.Logger) *AuditForwarder {
 		client: &http.Client{Timeout: 5 * time.Second},
 		log:    log,
 	}
-	go f.run()
+	async.GoSafe(f.run) // GoSafe：run panic 转留痕不进程死（v5.4.2；stopCh 语义不变）
 	return f
 }
 

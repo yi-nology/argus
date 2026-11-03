@@ -113,6 +113,25 @@
   （HasNewerNonFailedTask/CreateTaskForWebhook 去重/review_targets）已被既有
   索引覆盖，审计无新发现。
 
+## v5.4.2 运行时纪律批（2026-11-03）：goroutine 不变式 + ensure 指标
+
+- **裸 goroutine 清零（不变式恢复）**：main.go:59 的「裸 goroutine 已全部收编
+  async.GoSafe」声明此前有 4 处反例——**fix.go:81 是高危**（评论触发的异步修复
+  跑完整 LLM agent + 沙箱链路，panic 即进程死；215 曾炸出 guardPanic 卡死教训）
+  + sink.go（report 上报）+ audit_forward.go（run 循环）+ service.go（DrainComments
+  等待器）。全部收编 GoSafe，`grep "^\s*go " -v GoSafe` 现为空，不变式恢复为真。
+- **repoAllowed 死代码删除**：service_repo_guard.go 无 ctx 白名单判定全仓零调用
+  方（外部入口一律 repoAllowedFor 携 ctx）；对应测试断言改走活入口 repoAllowedFor
+  （语义覆盖不变）。v3.9.2 曾有「Stop 全仓无调用方」同类前科——新增导出方法
+  时应同步查调用面。
+- **argus_webhook_ensure_total 指标**（6 动作：created/updated/unchanged/
+  secret_patched/skipped/failed）：ensure 是 opt-in 新通道，无指标就只能翻日志
+  核实它在工作——与 v3.7.x skipped 零指标盲区同型教训（v5.4.1 补日志时漏了
+  指标面，本批补齐）。
+- 审计核实不修项：ptc.go 工具 Info(context.Background()) 是纯元数据无 I/O；
+  store.go 启动迁移 Background（启动期无请求 ctx，正确）；runner skill bgCtx
+  有注释的刻意选择（本地文件读）。ctx 贯穿面整体健康。
+
 ## 剩余 >100 行函数（5 个，均有留痕裁定）
 
 | 函数 | 行数 | 裁定 |
