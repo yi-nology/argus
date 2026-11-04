@@ -13,6 +13,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	api "argus/biz/model/api"
+	"argus/internal/commentcmd"
 	"argus/internal/domain"
 	"argus/internal/obs"
 	"argus/internal/plugin"
@@ -72,7 +73,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	// 断连取消 ctx 杀掉 ReAct，平台重试又撞 30s 节流，用户永无回复。经
 	// SubmitComment（v3.8.0）：WithoutCancel 保 trace + 超时上界 + 有界并发 +
 	// 停机排水；delivery 幂等已下沉 DB（MarkCommentDelivery，多副本一致）。
-	if isCommentEvent(ev) {
+	if commentcmd.IsCommentEvent(ev) {
 		if !s.SubmitComment(ctx, ev, delivery) {
 			s.log().Warn("argus.comment.busy", "platform", platform, "event_id", delivery)
 			w := whResp(whBusy, "评论处理并发已满，请稍后重试")

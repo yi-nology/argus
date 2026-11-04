@@ -21,11 +21,6 @@ const describeSystem = "【Argus DESCRIBE】你是 PR 描述撰写助手。基�
 	"## 📝 PR 变更说明\n<2-4 句概述变更目的与内容>\n### 变更要点\n- <按文件/主题列出要点>\n" +
 	"### 建议标签\n- <标签列表，来自词表时只从词表选>\n中文输出。"
 
-// extractDescribe 解析 describe 命令（前缀 "describe"，其余为可选补充要求）。
-func extractDescribe(question string) (string, bool) {
-	return cutCommand(question, "describe")
-}
-
 // handleDescribe 执行 describe 命令：拉 diff →（词表标签提示）单次 LLM → 回帖。
 // 失败回帖错误说明（用户有感知），不静默。骨架走 runWritingCommand 模板。
 func (s *Service) handleDescribe(ctx context.Context, platform, owner, repo, number, prRef,

@@ -3,6 +3,10 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v5.4.4（2026-11-04，结构重构：评论指令词法层剥出）
+
+- **新包 internal/commentcmd**：@bot 评论指令「长什么样」从 service 门面（service_comment/cmd_registry/cmdparse/recheck/describe/testgen/changelog/fix/comment_router 九文件 ~500 行）剥出成纯函数包——指令目录单源（cmdCatalog：help 渲染/门控判定/冷却提示共用一张表）、词边界与 fp 短码解析、mention 词法（句中/句尾触发/引用行豁免/词边界防误命中）、各指令解析器（review/recheck/fix/describe/changelog/testgen/suppress/restore）、webhook 评论事件形态折叠（IsCommentEvent/ParseCommentMeta，canonical comment.created 与旧词表 issue_comment/cr.note 归一）。纯函数零依赖——「指令长什么样」与「指令怎么执行」分层，词法面可独立单测（三个词法测试文件随迁）。service 门面瘦身为纯执行体（dispatch*/handle*）。arch 白名单登记 service→commentcmd 边。
+
 ## v5.0.0（2026-10-27，大版本：四库深度收敛）
 
 三路系统重叠盘点（agent-harness 27 包 / agent-memory 全链 / oekit+oagentkit 25 模块逐一对照 argus internal 36 包）后按「机制面收编、领域面保留」纪律实施。净删 262 行。

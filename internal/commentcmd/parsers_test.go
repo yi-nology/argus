@@ -1,4 +1,4 @@
-package service
+package commentcmd
 
 import "testing"
 
@@ -36,8 +36,8 @@ func TestExtractQuestion_MentionAnywhere(t *testing.T) {
 		if c.name == "空 bot 名" {
 			bot = ""
 		}
-		if got := extractQuestion(c.in, bot); got != c.want {
-			t.Errorf("%s: extractQuestion(%q) = %q, want %q", c.name, c.in, got, c.want)
+		if got := ExtractQuestion(c.in, bot); got != c.want {
+			t.Errorf("%s: ExtractQuestion(%q) = %q, want %q", c.name, c.in, got, c.want)
 		}
 	}
 }
@@ -67,9 +67,9 @@ func TestExtractReviewCmd(t *testing.T) {
 		{"", "", false},
 	}
 	for _, c := range cases {
-		got, ok := extractReviewCmd(c.in)
+		got, ok := ExtractReviewCmd(c.in)
 		if ok != c.wantOK || got != c.want {
-			t.Errorf("extractReviewCmd(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.wantOK)
+			t.Errorf("ExtractReviewCmd(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.wantOK)
 		}
 	}
 }
@@ -81,22 +81,22 @@ func TestParseRecheck(t *testing.T) {
 		in       string
 		wantFP   string
 		wantNote string
-		wantKind recheckKind
+		wantKind RecheckKind
 	}{
-		{"recheck 合法短码", "recheck fp:ab12cd34", "ab12cd34", "", recheckFP},
-		{"复核带补充说明", "复核 fp:ab12cd34 这条是不是误报", "ab12cd34", "这条是不是误报", recheckFP},
-		{"短码大小写归一", "recheck fp:AB12CD34", "ab12cd34", "", recheckFP},
-		{"短码非法", "recheck fp:xyz", "", "", recheckFPBad},
-		{"短码过短", "复核 fp:ab12", "", "", recheckFPBad},
-		{"带 fp 但格式坏", "复核 fp: 什么", "", "", recheckFPBad},
-		{"无 fp 交重审命令", "复核一下这个 PR", "", "", recheckNone},
-		{"非复核命令", "review", "", "", recheckNone},
-		{"fix 不吞", "fix fp:ab12cd34", "", "", recheckNone},
+		{"recheck 合法短码", "recheck fp:ab12cd34", "ab12cd34", "", RecheckFP},
+		{"复核带补充说明", "复核 fp:ab12cd34 这条是不是误报", "ab12cd34", "这条是不是误报", RecheckFP},
+		{"短码大小写归一", "recheck fp:AB12CD34", "ab12cd34", "", RecheckFP},
+		{"短码非法", "recheck fp:xyz", "", "", RecheckFPBad},
+		{"短码过短", "复核 fp:ab12", "", "", RecheckFPBad},
+		{"带 fp 但格式坏", "复核 fp: 什么", "", "", RecheckFPBad},
+		{"无 fp 交重审命令", "复核一下这个 PR", "", "", RecheckNone},
+		{"非复核命令", "review", "", "", RecheckNone},
+		{"fix 不吞", "fix fp:ab12cd34", "", "", RecheckNone},
 	}
 	for _, c := range cases {
-		fp, note, kind := parseRecheck(c.in)
+		fp, note, kind := ParseRecheck(c.in)
 		if fp != c.wantFP || note != c.wantNote || kind != c.wantKind {
-			t.Errorf("%s: parseRecheck(%q) = (%q,%q,%v), want (%q,%q,%v)",
+			t.Errorf("%s: ParseRecheck(%q) = (%q,%q,%v), want (%q,%q,%v)",
 				c.name, c.in, fp, note, kind, c.wantFP, c.wantNote, c.wantKind)
 		}
 	}

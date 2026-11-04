@@ -1,11 +1,8 @@
-package service
+package commentcmd
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	"argus/internal/config"
 )
 
 // v5.3.0 指令目录单源：matchAnyCommand/isDriveCommand/信息类解析与手册渲染。
@@ -28,8 +25,8 @@ func TestMatchAnyCommand(t *testing.T) {
 		{"", false},
 	}
 	for _, c := range cases {
-		if got := matchAnyCommand(c.in); got != c.want {
-			t.Errorf("matchAnyCommand(%q) = %v, want %v", c.in, got, c.want)
+		if got := MatchAnyCommand(c.in); got != c.want {
+			t.Errorf("MatchAnyCommand(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
@@ -52,25 +49,25 @@ func TestIsDriveCommand(t *testing.T) {
 		{"suppress fp:ab12cd34", false}, // 误报反馈不烧预算，不门控
 	}
 	for _, c := range cases {
-		if got := isDriveCommand(c.in); got != c.want {
-			t.Errorf("isDriveCommand(%q) = %v, want %v", c.in, got, c.want)
+		if got := IsDriveCommand(c.in); got != c.want {
+			t.Errorf("IsDriveCommand(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
 
 func TestExtractInfoCommands(t *testing.T) {
-	if !extractHelp("help") || !extractHelp("帮助") || extractHelp("helping") {
+	if !ExtractHelp("help") || !ExtractHelp("帮助") || ExtractHelp("helping") {
 		t.Fatal("help 解析不符")
 	}
-	if !extractStatus("status") || !extractStatus("进度") || extractStatus("statusbar") {
+	if !ExtractStatus("status") || !ExtractStatus("进度") || ExtractStatus("statusbar") {
 		t.Fatal("status 解析不符")
 	}
 }
 
-// help 手册：目录全覆盖（每条指令的用法必须出现在手册里，防 help 漏项）。
+// TestHelpText_CoversCatalog help 手册目录全覆盖（每条指令的用法与说明必须出现在
+// 手册里，防 help 漏项）；fixEnabled=false 时标注未启用。
 func TestHelpText_CoversCatalog(t *testing.T) {
-	s := &Service{Cfg: &config.Config{CommentGate: "collaborator"}}
-	out := s.helpText()
+	out := HelpText(true)
 	if !strings.Contains(out, "指令速查") {
 		t.Fatalf("手册缺标题: %q", out)
 	}
@@ -85,16 +82,7 @@ func TestHelpText_CoversCatalog(t *testing.T) {
 	if !strings.Contains(out, "🔒") {
 		t.Error("手册应标注门控指令")
 	}
-}
-
-// actorCanDrive：open 模式零调用放行；collaborator 模式空 actor 拒绝。
-func TestActorCanDrive_OpenAndEmpty(t *testing.T) {
-	s := &Service{Cfg: &config.Config{CommentGate: "open"}}
-	if !s.actorCanDrive(context.Background(), "gitea", "o", "r", "anyone") {
-		t.Fatal("open 模式应放行")
-	}
-	s.Cfg.CommentGate = "collaborator"
-	if s.actorCanDrive(context.Background(), "gitea", "o", "r", "") {
-		t.Fatal("collaborator 模式空 actor 应拒绝（无需 SDK）")
+	if strings.Contains(HelpText(false), "fix 未启用") == false {
+		t.Error("fixEnabled=false 应标注未启用")
 	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"argus/internal/commentcmd"
 	"context"
 	"os"
 	"os/exec"
@@ -61,8 +62,8 @@ func TestExtractFix(t *testing.T) {
 		"fix fp:ab12cd34 extra": "ab12cd34",
 	}
 	for q, want := range ok {
-		if fp, got := extractFix(q); !got || fp != want {
-			t.Fatalf("extractFix(%q) = %q,%v; want %q", q, fp, got, want)
+		if fp, got := commentcmd.ExtractFix(q); !got || fp != want {
+			t.Fatalf("commentcmd.ExtractFix(%q) = %q,%v; want %q", q, fp, got, want)
 		}
 	}
 	bad := []string{
@@ -70,8 +71,8 @@ func TestExtractFix(t *testing.T) {
 		"fix fp:ab1", "fix fp:zzzzzz", "fix fp:", "refix fp:ab12cd34",
 	}
 	for _, q := range bad {
-		if _, got := extractFix(q); got {
-			t.Fatalf("extractFix(%q) 不应命中", q)
+		if _, got := commentcmd.ExtractFix(q); got {
+			t.Fatalf("commentcmd.ExtractFix(%q) 不应命中", q)
 		}
 	}
 }

@@ -22,11 +22,6 @@ const changelogSystem = "【Argus CHANGELOG】你是发布管理员，基于 git
 	"- **<类别>**: <一句话变更说明>（类别从 added/changed/fixed/removed/deprecated/security 中选）\n" +
 	"共 2-6 条，按重要度排序；确无面向用户的变化时输出「无面向用户的变更，可不记 CHANGELOG」。中文输出。"
 
-// extractChangelog 解析 changelog 命令（其余为可选补充要求）。
-func extractChangelog(question string) (string, bool) {
-	return cutCommand(question, "changelog")
-}
-
 // handleChangelog 执行 changelog 命令：拉 diff → 单次 LLM → 回帖草稿。
 func (s *Service) handleChangelog(ctx context.Context, platform, owner, repo, number, prRef,
 	hint, delivery string) {

@@ -25,16 +25,6 @@ const (
 	fixDefaultTimout = 10 * time.Minute
 )
 
-// extractFix 解析 "fix fp:xxxxxxxx" 指令（词边界 + fp 短码 ≥6 位十六进制）。
-// 不匹配时返回 false（落回后续路由，不吞其他意图）。
-func extractFix(question string) (string, bool) {
-	rest, ok := cutCommand(question, "fix")
-	if !ok {
-		return "", false
-	}
-	return parseFPHex(rest)
-}
-
 // fixFinding 修复目标（prints 表回查产物；suggested_fix 不入库，修复以
 // comment+邻近代码为上下文）。
 type fixFinding struct {

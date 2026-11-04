@@ -1,4 +1,4 @@
-package service
+package commentcmd
 
 import (
 	"encoding/json"
@@ -29,20 +29,20 @@ func TestGitLabNoteCommentRouting(t *testing.T) {
 		CR:         &provider.ChangeRequest{Number: "165"},
 		RawPayload: json.RawMessage(note("@argus 为什么是 high", false, 165)),
 	}
-	if !isCommentEvent(ev) {
+	if !IsCommentEvent(ev) {
 		t.Fatal("canonical comment.created 应识别为评论事件（修复前整条 GitLab 评论链路死于此）")
 	}
-	meta, ok := parseCommentMeta(ev)
+	meta, ok := ParseCommentMeta(ev)
 	if !ok || meta.PRNumber != 165 || meta.Body != "@argus 为什么是 high" {
 		t.Fatalf("canonical 结构解析失真: ok=%v meta=%+v", ok, meta)
 	}
 
 	// canonical 排除态：普通 issue/commit 评论（无 CR）、非法号。
-	if _, ok := parseCommentMeta(&provider.NormalizedEvent{
+	if _, ok := ParseCommentMeta(&provider.NormalizedEvent{
 		Type: canonical, Comment: &provider.IssueComment{Body: "x"}}); ok {
 		t.Fatal("无 CR（普通 issue 评论）不应解析为命令评论")
 	}
-	if _, ok := parseCommentMeta(&provider.NormalizedEvent{
+	if _, ok := ParseCommentMeta(&provider.NormalizedEvent{
 		Type: canonical, Comment: &provider.IssueComment{Body: "x"},
 		CR: &provider.ChangeRequest{Number: "abc"}}); ok {
 		t.Fatal("非数字 CR 号不应解析为命令评论")
@@ -50,20 +50,20 @@ func TestGitLabNoteCommentRouting(t *testing.T) {
 
 	// 旧词表兼容：cr.note 走 GitLab RawPayload 形状。
 	evOld := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("旧词表", false, 7))}
-	if !isCommentEvent(evOld) {
+	if !IsCommentEvent(evOld) {
 		t.Fatal("旧词表 cr.note 应保持兼容")
 	}
-	if m, ok := parseCommentMeta(evOld); !ok || m.PRNumber != 7 {
+	if m, ok := ParseCommentMeta(evOld); !ok || m.PRNumber != 7 {
 		t.Fatalf("旧词表形状应可解析: ok=%v m=%+v", ok, m)
 	}
 
 	// 排除态：system note 与非 MR 评论（iid=0）。
 	evSys := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("closed", true, 165))}
-	if _, ok := parseCommentMeta(evSys); ok {
+	if _, ok := ParseCommentMeta(evSys); ok {
 		t.Fatal("system note 不应解析为命令评论")
 	}
 	evIssue := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("x", false, 0))}
-	if _, ok := parseCommentMeta(evIssue); ok {
+	if _, ok := ParseCommentMeta(evIssue); ok {
 		t.Fatal("iid=0（非 MR 评论）不应解析为命令评论")
 	}
 }

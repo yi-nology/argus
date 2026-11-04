@@ -27,11 +27,6 @@ const testgenSystem = "【Argus TESTGEN】你是测试工程师助手。基于�
 // testgenFooter 固定尾注（确定性拼接，不依赖模型自觉）。
 const testgenFooter = "\n\n> ⚠️ 以上测试为骨架建议，未经编译验证，请人工核对后采用。"
 
-// extractTestGen 解析 testgen 命令（前缀 "testgen"，可带目标文件路径过滤）。
-func extractTestGen(question string) (string, bool) {
-	return cutCommand(question, "testgen")
-}
-
 // handleTestGen 执行 testgen 命令：拉 diff（target 非空时只留命中文件）→ 单次 LLM → 回帖。
 // 配置了沙箱验证包装命令（ARGUS_TESTGEN_VERIFY_CMD）且工作副本可用时，产物经
 // 隔离执行编译验证并把结果段附进回帖；未配置保持「未经编译验证」声明。

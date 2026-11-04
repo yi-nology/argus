@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"argus/internal/commentcmd"
 	"argus/internal/config"
 )
 
@@ -142,9 +143,9 @@ func TestExtractSuppressFP(t *testing.T) {
 		{"ask 这段代码为什么这样写", "", false},      // 非 suppress 指令
 	}
 	for _, c := range cases {
-		got, ok := extractSuppressFP(c.in)
+		got, ok := commentcmd.ExtractSuppressFP(c.in)
 		if ok != c.ok || got != c.want {
-			t.Errorf("extractSuppressFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
+			t.Errorf("commentcmd.ExtractSuppressFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
 		}
 	}
 }
@@ -163,9 +164,9 @@ func TestExtractRestoreFP(t *testing.T) {
 		{"ask 这段代码为什么这样写", "", false},       // 非 restore 指令
 	}
 	for _, c := range cases {
-		got, ok := extractRestoreFP(c.in)
+		got, ok := commentcmd.ExtractRestoreFP(c.in)
 		if ok != c.ok || got != c.want {
-			t.Errorf("extractRestoreFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
+			t.Errorf("commentcmd.ExtractRestoreFP(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.ok)
 		}
 	}
 }
@@ -187,7 +188,7 @@ func TestIsCommentEvent(t *testing.T) {
 		{"空事件", provider.NormalizedEvent{}, false},
 	}
 	for _, c := range cases {
-		if got := isCommentEvent(&c.ev); got != c.want {
+		if got := commentcmd.IsCommentEvent(&c.ev); got != c.want {
 			t.Errorf("%s: isCommentEvent = %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -237,7 +238,7 @@ func TestParseCommentMeta(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		meta, ok := parseCommentMeta(c.ev)
+		meta, ok := commentcmd.ParseCommentMeta(c.ev)
 		if ok != c.wantOK || meta.Body != c.wantBody || meta.PRNumber != c.wantNum {
 			t.Errorf("%s: parseCommentMeta = (%+v,%v), want body=%q num=%d ok=%v",
 				c.name, meta, ok, c.wantBody, c.wantNum, c.wantOK)
@@ -256,7 +257,7 @@ func TestNormalizeCommentEvent(t *testing.T) {
 			"comment": {"body": "@argus hi"}
 		}`),
 	}
-	normalizeCommentEvent(ev)
+	commentcmd.NormalizeCommentEvent(ev)
 	if ev.Repo == nil || ev.Repo.Owner != "acme" || ev.Repo.Name != "app" {
 		t.Fatalf("Repo 应从 repository.full_name 补齐: %+v", ev.Repo)
 	}
@@ -273,7 +274,7 @@ func TestNormalizeCommentEvent(t *testing.T) {
 			"user": {"username": "gl-user"}
 		}`),
 	}
-	normalizeCommentEvent(ev2)
+	commentcmd.NormalizeCommentEvent(ev2)
 	if ev2.Repo.Owner != "keep" || ev2.Repo.Name != "me" {
 		t.Fatalf("已有 Repo 不应被覆盖: %+v", ev2.Repo)
 	}
@@ -283,7 +284,7 @@ func TestNormalizeCommentEvent(t *testing.T) {
 
 	// 空负载：保持 nil，不 panic
 	ev3 := &provider.NormalizedEvent{Type: "cr.note"}
-	normalizeCommentEvent(ev3)
+	commentcmd.NormalizeCommentEvent(ev3)
 	if ev3.Repo != nil || ev3.Actor != nil {
 		t.Fatalf("空负载不应产生补齐: %+v %+v", ev3.Repo, ev3.Actor)
 	}

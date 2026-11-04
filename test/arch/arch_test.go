@@ -114,6 +114,8 @@ var layering = map[string][]string{
 		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
 	},
 	"argus/internal/service": {
+		// v5.4.4：评论指令词法层剥出（目录/解析/词表纯函数单源，执行体仍在本包）。
+		"argus/internal/commentcmd",
 		"argus/internal/domain", "argus/internal/config", "argus/internal/context", "argus/internal/health",
 		"argus/internal/dispatch",
 		"argus/internal/impactview",

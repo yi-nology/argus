@@ -11,6 +11,7 @@
 package service
 
 import (
+	"argus/internal/commentcmd"
 	"context"
 	"fmt"
 	"strings"
@@ -21,155 +22,21 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
-// cmdSpec 指令目录项。
-type cmdSpec struct {
-	word    string   // 主命令词（extract* 的 cutCommand 目标）
-	aliases []string // 同义词（中文/英文变体，help 展示与 matchAnyCommand 共用）
-	usage   string   // 用法（不含 @bot 前缀）
-	example string   // 示例
-	desc    string   // 一句话说明
-	drive   bool     // 烧预算/改状态：触发者需写权限（ARGUS_COMMENT_GATE）
-	info    bool     // 查询类：免节流永远可达
-}
-
-// cmdCatalog 指令目录（help 单源）。order 即 help 展示序。
-var cmdCatalog = []cmdSpec{
-	{word: "review", aliases: []string{"评审", "复核", "重审", "重新审查", "重新评审", "再审", "重跑评审", "rerun", "re-review"},
-		usage: "review [补充说明]", example: "请 @argus review 重点看登录模块",
-		desc: "触发一轮全量重审并回执任务号", drive: true},
-	{word: "recheck", aliases: []string{"复核"},
-		usage: "recheck fp:短码 [补充]", example: "@argus recheck fp:ab12cd34 是不是误报",
-		desc: "复核单条意见：对照 diff 裁决 成立/误报/存疑，附证据与处置建议", drive: true},
-	{word: "ask", aliases: []string{},
-		usage: "ask <问题>", example: "@argus ask 这个改动会影响性能吗",
-		desc: "基于 PR 上下文问答（ask 可省略，自由文本也会走问答/意图路由）"},
-	{word: "status", aliases: []string{"状态", "进度"},
-		usage: "status", example: "@argus status",
-		desc: "查看最近一轮审查的状态、结论与意见数", info: true},
-	{word: "help", aliases: []string{"帮助", "命令", "指令"},
-		usage: "help", example: "@argus help",
-		desc: "显示本指令手册", info: true},
-	{word: "describe", aliases: []string{},
-		usage: "describe [补充要求]", example: "@argus describe",
-		desc: "生成 PR 变更说明 + 建议标签"},
-	{word: "changelog", aliases: []string{},
-		usage: "changelog [补充要求]", example: "@argus changelog",
-		desc: "生成 CHANGELOG 条目草稿"},
-	{word: "testgen", aliases: []string{},
-		usage: "testgen [目标路径]", example: "@argus testgen internal/login.go",
-		desc: "按 diff 生成单元测试骨架（未经编译验证）", drive: true},
-	{word: "fix", aliases: []string{},
-		usage: "fix fp:短码", example: "@argus fix fp:ab12cd34",
-		desc: "沙箱自动修复该意见并回帖 diff（需 ARGUS_FIX_AGENT 启用）", drive: true},
-	{word: "suppress", aliases: []string{},
-		usage: "suppress fp:短码", example: "@argus suppress fp:ab12cd34",
-		desc: "误报反馈：后续轮次自动抑制 + 知识回流"},
-	{word: "restore", aliases: []string{},
-		usage: "restore fp:短码", example: "@argus restore fp:ab12cd34",
-		desc: "误抑制恢复：意见重新可见"},
-}
-
-// cmdWords 目录全部触发词（主词 + 同义词），matchAnyCommand 共用。
-func cmdWords() []string {
-	var out []string
-	for _, c := range cmdCatalog {
-		out = append(out, c.word)
-		out = append(out, c.aliases...)
-	}
-	return out
-}
-
-// matchAnyCommand question 是否以任一指令词开头（冷却提示用：指令被冷却要
-// 有感知，自由文本被冷却保持静默防刷屏）。
-func matchAnyCommand(question string) bool {
-	for _, w := range cmdWords() {
-		if _, ok := cutCommand(question, w); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// isDriveCommand question 是否为烧预算指令形态（review/recheck/fix/testgen）。
-// 权限门控在 HandleComment 统一执行，门控点只此一处。
-func isDriveCommand(question string) bool {
-	if _, _, k := parseRecheck(question); k != recheckNone {
-		return true
-	}
-	if _, ok := extractReviewCmd(question); ok {
-		return true
-	}
-	if _, ok := extractFix(question); ok {
-		return true
-	}
-	if _, ok := extractTestGen(question); ok {
-		return true
-	}
-	return false
-}
-
-// extractHelp 解析 help/帮助/命令/指令。
-func extractHelp(question string) bool {
-	for _, w := range []string{"help", "帮助", "命令", "指令"} {
-		if _, ok := cutCommand(question, w); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// extractStatus 解析 status/状态/进度。
-func extractStatus(question string) bool {
-	for _, w := range []string{"status", "状态", "进度"} {
-		if _, ok := cutCommand(question, w); ok {
-			return true
-		}
-	}
-	return false
-}
-
 // dispatchInfo 信息类指令（help/status）：免节流、免门控、零 LLM。
 // 返回 true 表示已消费该评论。
 func (s *Service) dispatchInfo(ctx context.Context, question, platform, owner, repo,
 	prNum, prRef, delivery string) bool {
 	switch {
-	case extractHelp(question):
-		body := s.helpText() + "\n\n<!-- argus:help delivery=" + delivery + " -->"
+	case commentcmd.ExtractHelp(question):
+		body := commentcmd.HelpText(s.Cfg != nil && s.Cfg.FixAgent != "") + "\n\n<!-- argus:help delivery=" + delivery + " -->"
 		s.postCommentReply(ctx, platform, owner, repo, prNum, prRef, body, "help", len(body))
 		return true
-	case extractStatus(question):
+	case commentcmd.ExtractStatus(question):
 		body := s.statusText(ctx, platform, owner, repo, prNum) + "\n\n<!-- argus:status delivery=" + delivery + " -->"
 		s.postCommentReply(ctx, platform, owner, repo, prNum, prRef, body, "status", len(body))
 		return true
 	}
 	return false
-}
-
-// helpText 指令手册（目录单源渲染；fix 未启用时标注）。
-func (s *Service) helpText() string {
-	var b strings.Builder
-	b.WriteString("## 📖 Argus 指令速查\n")
-	for _, c := range cmdCatalog {
-		alias := ""
-		if len(c.aliases) > 0 {
-			alias = "（同义：" + strings.Join(c.aliases, "/") + "）"
-		}
-		gate := ""
-		if c.drive {
-			gate = " 🔒"
-		}
-		fmt.Fprintf(&b, "- `%s`%s —— %s%s\n", c.usage, alias, c.desc, gate)
-	}
-	b.WriteString("\n**示例**\n")
-	for _, c := range cmdCatalog[:3] {
-		fmt.Fprintf(&b, "- %s\n", c.example)
-	}
-	b.WriteString("\n提示：mention 不必在句首（`请 @argus review` 也行）；引用行（`> …`）里的 @ 不触发；" +
-		"🔒 指令需仓库写权限。每 PR 30 秒指令冷却。")
-	if s.Cfg != nil && s.Cfg.FixAgent == "" {
-		b.WriteString("\n（fix 未启用：需服务端配置 ARGUS_FIX_AGENT）")
-	}
-	return b.String()
 }
 
 // statusText 审查状态（最近一轮任务 + 意见数 + 历史轮数）。
@@ -210,12 +77,30 @@ func orDash(s string) string {
 	return s
 }
 
-// gateDeniedText 烧预算指令被门控拒绝的回帖。
-const gateDeniedText = "🔒 该指令需要仓库写权限（协作者）才能触发，避免预算被路人评论消耗。" +
-	"请联系仓库维护者执行，或由管理员设置 `ARGUS_COMMENT_GATE=open` 放开限制。"
+// collabCache 协作者名单缓存（per-Service 懒建，TTL 5 分钟）。
+func (s *Service) collabCache() *datacache.LocalCache[string] {
+	s.qaThrottleMu.Lock()
+	defer s.qaThrottleMu.Unlock()
+	if s.collabCch == nil {
+		s.collabCch = datacache.NewLocalCache(datacache.LocalConfig[string]{
+			TTL:     5 * time.Minute,
+			MaxSize: 200,
+		})
+	}
+	return s.collabCch
+}
 
-// throttleNoticeText 指令撞冷却窗时的回帖（有感知，不再静默丢弃）。
-const throttleNoticeText = "⏱️ 指令处理中（每 PR 30 秒冷却），请稍后再发。"
+// ackComment 即时回执（v5.3.0）：给触发指令的评论加 👀，告诉用户"已看到"。
+// best-effort：能力缺失/失败只留痕，绝不影响主链路。
+func (s *Service) ackComment(ctx context.Context, platform, owner, repo string, commentID int64) {
+	if commentID <= 0 {
+		return
+	}
+	if err := s.SDK.AddIssueCommentReaction(ctx, platform, owner, repo, commentID, provider.ReactionEyes); err != nil {
+		s.log().Warn("argus.comment.ack_failed", "platform", platform,
+			"repo", owner+"/"+repo, "comment_id", commentID, "error", err.Error())
+	}
+}
 
 // actorCanDrive 烧预算指令触发者门控（v5.3.0）。
 // ARGUS_COMMENT_GATE=open 直接放行；collaborator 模式查协作者名单（每仓 5 分钟
@@ -249,29 +134,4 @@ func (s *Service) actorCanDrive(ctx context.Context, platform, owner, repo, acto
 		joined = &j
 	}
 	return strings.Contains(*joined, "\n"+strings.ToLower(actor)+"\n")
-}
-
-// collabCache 协作者名单缓存（per-Service 懒建，TTL 5 分钟）。
-func (s *Service) collabCache() *datacache.LocalCache[string] {
-	s.qaThrottleMu.Lock()
-	defer s.qaThrottleMu.Unlock()
-	if s.collabCch == nil {
-		s.collabCch = datacache.NewLocalCache(datacache.LocalConfig[string]{
-			TTL:     5 * time.Minute,
-			MaxSize: 200,
-		})
-	}
-	return s.collabCch
-}
-
-// ackComment 即时回执（v5.3.0）：给触发指令的评论加 👀，告诉用户"已看到"。
-// best-effort：能力缺失/失败只留痕，绝不影响主链路。
-func (s *Service) ackComment(ctx context.Context, platform, owner, repo string, commentID int64) {
-	if commentID <= 0 {
-		return
-	}
-	if err := s.SDK.AddIssueCommentReaction(ctx, platform, owner, repo, commentID, provider.ReactionEyes); err != nil {
-		s.log().Warn("argus.comment.ack_failed", "platform", platform,
-			"repo", owner+"/"+repo, "comment_id", commentID, "error", err.Error())
-	}
 }

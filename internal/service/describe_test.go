@@ -1,6 +1,7 @@
 package service
 
 import (
+	"argus/internal/commentcmd"
 	"strings"
 	"testing"
 )
@@ -19,9 +20,9 @@ func TestExtractDescribe(t *testing.T) {
 		{"ask 为什么", "", false},
 	}
 	for _, c := range cases {
-		got, ok := extractDescribe(c.in)
+		got, ok := commentcmd.ExtractDescribe(c.in)
 		if ok != c.match || (ok && got != c.want) {
-			t.Fatalf("extractDescribe(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.match)
+			t.Fatalf("commentcmd.ExtractDescribe(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.match)
 		}
 	}
 }
@@ -38,9 +39,9 @@ func TestExtractTestGen(t *testing.T) {
 		{"describe", "", false},
 	}
 	for _, c := range cases {
-		got, ok := extractTestGen(c.in)
+		got, ok := commentcmd.ExtractTestGen(c.in)
 		if ok != c.match || (ok && got != c.want) {
-			t.Fatalf("extractTestGen(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.match)
+			t.Fatalf("commentcmd.ExtractTestGen(%q) = (%q,%v), want (%q,%v)", c.in, got, ok, c.want, c.match)
 		}
 	}
 }
