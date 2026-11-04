@@ -160,10 +160,17 @@
 
 90~100 行区间（`runApp`/`mcpserver.New` 97/`CheckCompliance`/`sendReview`/`migratePrintFingerprintsV2`/`SuppressFinding` 等）为健康上限内，不再压。
 
+## v5.4.5 门面整理批（2026-11-04）
+
+- **sdkctx.go 按域四文件拆分**（见上表）——门面可读性：SDK 封装调用群/仓库配置族/webhook 面各自成文件，跳转可预期。零 API 变化，-race/全量测试绿。
+- **fake provider 收口降级结论**（v5.4.4 遗留候选，评估后不做）：五处 fake（branchFake/noteFake/hookFake/hangingProvider/e2e fakeProvider）方法集各异且多处带状态记账，强统一进共享包（如 test/sdkt）的间接成本 > ~100 行去重收益；e2e fakeProvider 巨型有状态单点本就应保留。**仅测试 import 不入 arch TestLayering 扫描面**（go list .Imports 只含生产 import）——门禁无障碍是事实，但价值判断仍为不划算。勿重探。
+- **webhook 准入链拆包评估结论**：service_webhook.go 312 行耦合面窄（Store/SDK/Cfg/obs/Audit），拆出需接口化 8 依赖——成本 > 收益，留 service 门面（webhook 主链路本就是 service 核心职责）。勿重探。
+
 ## 剩余较大文件（420~560 行，内聚面已单一）
 
 - `runner/runner.go` 554：核心编排（Execute/run 管线），再拆只剩把 run 四步提指针，负收益。
-- `service/fix.go` 493、`context/sdkctx.go` 493、`storage/store_task.go` 485、`plugin/merger.go` 470、`service/service_comment.go` 447、`poster/poster.go` 425：单一内聚面（fix 命令全链 / SDK 门面 / 任务表操作 / 合并器 / 评论处理 / 回帖）。
+- `service/fix.go`、`storage/store_task.go`、`plugin/merger.go`、`service/service_comment.go`（v5.4.4 词法层剥出后）、`poster/poster.go`：单一内聚面（fix 命令全链 / 任务表操作 / 合并器 / 评论执行体 / 回帖）。
+- ~~`context/sdkctx.go` 493~~ **〔v5.4.5 已拆〕**按域四文件：sdkctx.go 209（核心：构造/注册/GitHubApp 面）+ sdkctx_calls.go 236（call 泛型样板+SDK 封装调用群）+ sdkctx_repoconfig.go 81（ResolveBranch/LoadRepoConfig 族）+ sdkctx_webhook.go 37（DeliveryHeaders/ParseWebhook）。同包纯组织性拆分零 API 变化。
 
 ## 设计模式再勘察（v3.121.0，2026-10-04，12 点全评估）
 
