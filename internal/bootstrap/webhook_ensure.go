@@ -35,16 +35,15 @@ const ensurePerRepoTimeout = 20 * time.Second
 // webhookEvents 平台原生默认事件词表。SDK 后端对 Events 的映射各不相同：
 // gitea/forgejo 原样透传（试点脚本 pull_request_only+issue_comment 实弹验证）；
 // github 原生两词；gitee 经 giteeHookEventFlags 映射（pull_request→merge_requests
-// 族、comment→note 族）；gitlab 只映射 push/merge_request/tag_push 三族——note
-// 事件在 SDK 面不可表达（上游缺口在案），GitLab 评论命令仍需平台侧手工配
-// note_events，ensure 只覆盖 PR 事件并告警。平台不在表内且未配覆盖时跳过
-// （错词表整条 webhook 被平台拒收，宁可不建）。
+// 族、comment→note 族）；gitlab 三族映射（merge_request + note——v0.101.1 起
+// SDK 支持 note/comment 词，#32 缺口已修，GitLab 评论命令链路 SDK 面闭环）。
+// 平台不在表内且未配覆盖时跳过（错词表整条 webhook 被平台拒收，宁可不建）。
 var webhookEvents = map[string][]string{
 	"gitea":   {"pull_request_only", "issue_comment"},
 	"forgejo": {"pull_request_only", "issue_comment"},
 	"github":  {"pull_request", "issue_comment"},
 	"gitee":   {"pull_request", "comment"},
-	"gitlab":  {"merge_request"},
+	"gitlab":  {"merge_request", "note"},
 }
 
 // eventsFor 平台事件集：显式覆盖（ARGUS_<P>_WEBHOOK_EVENTS 逗号分隔）优先，

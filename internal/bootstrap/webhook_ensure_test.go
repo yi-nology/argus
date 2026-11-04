@@ -109,3 +109,19 @@ func (s stubSDK) Provider(platform string) (provider.Provider, error) {
 	}
 	return nil, context.Canceled
 }
+
+// TestGitlabEventsIncludeNote 钉 GitLab 事件词表含 note（评论）事件——上游
+// go-git-platform v0.101.1（#32）修复后 SDK 面可表达；词表漏掉它 = GitLab
+// 评论命令链路静默不通（ensure 建出的钩子收不到评论）。
+func TestGitlabEventsIncludeNote(t *testing.T) {
+	evs := eventsFor(config.PlatformConfig{}, "gitlab")
+	found := false
+	for _, e := range evs {
+		if e == "note" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("gitlab 默认词表缺 note 事件: %v", evs)
+	}
+}
