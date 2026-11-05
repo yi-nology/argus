@@ -37,7 +37,10 @@ func (s *Store) TryAcquire(ctx context.Context, key, holder string, ttl time.Dur
 	if res.RowsAffected > 0 {
 		return true, nil
 	}
-	err := s.db.WithContext(ctx).Exec("INSERT INTO leader_leases (lease_key, holder, expires_at, updated_at) VALUES (?, ?, ?, ?)", key, holder, exp, now).Error
+	// INSERT 走 quietDB：行被他实例持有时 INSERT 恒撞唯一键——gorm 默认 logger
+	// 会把这条预期内的冲突打红 ERROR（多副本下每次租约操作刷一条，噪声淹没真
+	// 故障）。冲突语义由下方回退条件 UPDATE 收敛，v5.4.9 实弹降噪。
+	err := s.quietDB().WithContext(ctx).Exec("INSERT INTO leader_leases (lease_key, holder, expires_at, updated_at) VALUES (?, ?, ?, ?)", key, holder, exp, now).Error
 	if err == nil {
 		return true, nil
 	}
