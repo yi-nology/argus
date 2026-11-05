@@ -159,6 +159,7 @@ type Store struct {
 	db      *gorm.DB
 	writeMu sync.Mutex
 	sqlite  bool
+	mysql   bool // MySQL 方言标志（pg 为 false；upgradeMySQLLongText/printalias 迁移按此分流）
 	// RunnerID 本实例标识（Open 后由 main 赋值；claim/心跳用它归属 running 任务）
 	RunnerID string
 }
@@ -192,11 +193,22 @@ var gormPlugin gorm.Plugin
 // SetGormPlugin 注入 GORM 插件（须在 Open 前调用；后调用者生效）。
 func SetGormPlugin(p gorm.Plugin) { gormPlugin = p }
 
-// Open 打开数据库并自动迁移。DSN 以 "mysql://" 前缀或含 "@tcp("（go-sql-driver 形态）
-// 视为 MySQL，否则 SQLite——不做子串 "mysql" 判断：路径含 mysql 的 SQLite 文件会误判。
+// Open 打开数据库并自动迁移。DSN 路由（v5.4.8 三态）：postgres://|postgresql://
+// 前缀 → PostgreSQL；"mysql://" 前缀或含 "@tcp("（go-sql-driver 形态）→ MySQL；
+// 否则 SQLite——不做子串 "mysql" 判断：路径含 mysql 的 SQLite 文件会误判。
 func Open(dsn string) (*Store, error) {
 	s := &Store{}
-	if strings.HasPrefix(strings.ToLower(dsn), "mysql://") || strings.Contains(dsn, "@tcp(") {
+	if strings.HasPrefix(strings.ToLower(dsn), "postgres://") || strings.HasPrefix(strings.ToLower(dsn), "postgresql://") {
+		db, err := gorm.Open(postgresOpen(dsn), &gorm.Config{
+			Logger: logger.Default.LogMode(logger.Warn),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("storage: 打开 postgres 失败: %w", err)
+		}
+		sqlDB, _ := db.DB()
+		sqlDB.SetConnMaxLifetime(time.Hour)
+		s.db, s.sqlite, s.mysql = db, false, false
+	} else if strings.HasPrefix(strings.ToLower(dsn), "mysql://") || strings.Contains(dsn, "@tcp(") {
 		// mysql:// 是便利前缀（go-sql-driver 不认识），大小写不敏感剥离
 		if len(dsn) >= 8 && strings.EqualFold(dsn[:8], "mysql://") {
 			dsn = dsn[8:]
@@ -209,7 +221,7 @@ func Open(dsn string) (*Store, error) {
 		}
 		sqlDB, _ := db.DB()
 		sqlDB.SetConnMaxLifetime(time.Hour)
-		s.db, s.sqlite = db, false
+		s.db, s.sqlite, s.mysql = db, false, true
 	} else {
 		// glebarez/sqlite 纯 Go 驱动；缺省注入 busy_timeout + WAL（§5.2 并发注意）。
 		// DSN 已带 query 时以 & 追加（v3.9.1：此前含 ? 的 DSN 会静默丢失
@@ -244,7 +256,7 @@ func Open(dsn string) (*Store, error) {
 	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}); err != nil {
 		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
-	if !s.sqlite {
+	if s.mysql {
 		if err := s.upgradeMySQLLongText(); err != nil {
 			return nil, err
 		}
