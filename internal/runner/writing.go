@@ -190,7 +190,7 @@ func (r *Runner) runCIAnalysis(ctx context.Context, task *storage.Task, start ti
 	ciJobs := make([]writing.CIJob, 0, len(jobs))
 	for _, j := range jobs {
 		ciJobs = append(ciJobs, writing.CIJob{
-			Name: j.Name, Stage: j.Stage, WebURL: j.WebURL, Trace: j.Trace, Truncat: j.Truncat,
+			Name: j.Name, Stage: j.Stage, WebURL: j.WebURL, Trace: j.Trace, Truncated: j.Truncated,
 		})
 	}
 	analysis, err := (&writing.Service{LLM: r.LLM}).AnalyzeCIFailure(ctx, writing.CIInput{

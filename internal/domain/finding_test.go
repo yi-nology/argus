@@ -19,8 +19,8 @@ func TestNormalizeSeverity(t *testing.T) {
 		{"MEDIUM", SeverityMedium, true},
 		{"low", SeverityLow, true},
 		{"Low", SeverityLow, true},
-		{"critical", SeverityHigh, true}, // 同义词归 high
-		{"banana", SeverityLow, false},   // 越界：归 low 并报 not-ok
+		{"critical", SeverityCritical, true}, // v5.5.0 四档：critical 独立档（textx#20）
+		{"banana", SeverityLow, false},       // 越界：归 low 并报 not-ok
 		{"", SeverityLow, false},
 	}
 	for _, c := range cases {

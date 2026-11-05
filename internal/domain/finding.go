@@ -17,9 +17,10 @@ import (
 // severity 词表钉死为 {high, medium, low}（design §3.3）。
 // 实现整体委托 oagentkit/textx/reportutil——单一来源，本包只做 API 门面。
 const (
-	SeverityHigh   = akreportutil.High
-	SeverityMedium = akreportutil.Medium
-	SeverityLow    = akreportutil.Low
+	SeverityCritical = akreportutil.Critical // v5.5.0 四档词表（textx#20）
+	SeverityHigh     = akreportutil.High
+	SeverityMedium   = akreportutil.Medium
+	SeverityLow      = akreportutil.Low
 )
 
 // NormalizeSeverity 把任意写法归一到词表。

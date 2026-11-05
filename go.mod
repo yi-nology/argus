@@ -11,20 +11,20 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.1.1
-	github.com/oagentkit/agent v0.11.0
-	github.com/oagentkit/guardx v0.15.0
-	github.com/oagentkit/llm v0.18.1
-	github.com/oagentkit/mcpkit v0.8.6
-	github.com/oagentkit/obs v0.9.7
-	github.com/oagentkit/queue v0.6.4
+	github.com/oagentkit/agent v0.12.0
+	github.com/oagentkit/guardx v0.18.0
+	github.com/oagentkit/llm v0.19.0
+	github.com/oagentkit/mcpkit v0.10.0
+	github.com/oagentkit/obs v0.9.8
+	github.com/oagentkit/queue v0.6.6
 	github.com/oagentkit/rag v0.8.5
-	github.com/oagentkit/runtime v0.7.2
+	github.com/oagentkit/runtime v0.7.3
 	github.com/oagentkit/skillkit v0.8.5
-	github.com/oagentkit/textx v0.7.0
-	github.com/oagentkit/toolgate v0.12.5
-	github.com/oagentkit/tools v0.10.4
+	github.com/oagentkit/textx v0.8.0
+	github.com/oagentkit/toolgate v0.12.6
+	github.com/oagentkit/tools v0.11.1
 	github.com/oekit/bootstrap v0.6.8
-	github.com/oekit/concurrency v0.23.4
+	github.com/oekit/concurrency v0.24.0
 	github.com/oekit/core v0.12.1
 	github.com/oekit/data v0.19.9
 	github.com/oekit/hertz v0.9.0
@@ -32,19 +32,18 @@ require (
 	github.com/oekit/logx v0.8.2
 	github.com/oekit/metrics v0.1.11
 	github.com/oekit/middleware v0.13.8
-	github.com/oekit/pkg v0.33.0
+	github.com/oekit/pkg v0.34.1
 	github.com/oekit/tracing v0.3.2
 	github.com/prometheus/client_golang v1.25.0
-	github.com/yi-nology/agent-harness v0.13.0
+	github.com/yi-nology/agent-harness v0.15.0
 	github.com/yi-nology/agent-memory v0.9.0
-	github.com/yi-nology/go-git-platform v0.106.0
+	github.com/yi-nology/go-git-platform v0.113.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3
-	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
 )
 
@@ -131,7 +130,6 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/meguminnnnnnnnn/go-openai v0.1.6 // indirect
 	github.com/milvus-io/milvus-proto/go-api/v2 v2.4.10-0.20240819025435-512e3b98866a // indirect
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2 // indirect

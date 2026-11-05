@@ -34,7 +34,7 @@ func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport
 	var high, midLow, unverifiable int
 	for _, f := range findings {
 		switch f.Severity {
-		case reportutil.High:
+		case reportutil.High, reportutil.Critical: // v5.5.0 textx#20 四档：critical 并入一票否决（掉出计数=最严重问题被 R5.5 APPROVE，四档升级实弹踩坑）
 			// scope 闸门：越界 high 不进 R5.2 计数，但保留为 COMMENT 级意见
 			if inScope != nil && f.File != "" && !inScope[f.File] {
 				outOfScope++

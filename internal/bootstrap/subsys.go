@@ -21,6 +21,29 @@ import (
 	argusworker "argus/internal/worker"
 )
 
+// dreamLeaseTTL 周期控制面 ticker 单飞租约的 ttl（v5.5.0）：覆盖单次执行
+// 上界即可（dream/gc/health 均分钟级），跑完即 Release。
+const dreamLeaseTTL = 10 * time.Minute
+
+// runOnceUnderLease 周期任务的多副本单飞门（v5.5.0）：每个 tick 尝试抢
+// leader_leases 短租约，抢到才执行、跑完即释放（抢不到 = 他副本正在跑或
+// 刚跑过，让位）。dream 的知识库导出是写面（非幂等，双跑会双导出）；
+// gc/health-report 幂等但避免双副本重复全表扫描与 IM 双发通知。锁面故障
+// 降级照常跑（与 webhook ensure 同款纪律：幂等/可恢复面宁重勿漏）。
+func runOnceUnderLease(ctx context.Context, st *storage.Store, key, holder string,
+	ttl time.Duration, fn func(context.Context)) {
+	ok, err := st.TryAcquire(ctx, key, holder, ttl)
+	if err != nil {
+		fn(ctx)
+		return
+	}
+	if !ok {
+		return
+	}
+	defer func() { _ = st.Release(ctx, key, holder) }()
+	fn(ctx)
+}
+
 // StartSubsystems 后台子系统组装与启动（v3.63.0 收口：main 只剩进程生命周期）。
 // 此前选主/worker 池/运维 ticker/dream/health/poller 散在 main.runApp 手工组装，
 // 组合根单点原则被破坏——现在全部构造收敛于此，main 只做资源注册后的 HTTP 接线。
@@ -164,10 +187,11 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			Log:          log,
 		}
 		wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
-			_, _, err := dm.RunOnce(ctx)
-			if err != nil {
-				log.Warn("argus.dream.run_failed", "error", err.Error())
-			}
+			runOnceUnderLease(ctx, store, "argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
+				if _, _, err := dm.RunOnce(c); err != nil {
+					log.Warn("argus.dream.run_failed", "error", err.Error())
+				}
+			})
 		})
 		log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
 	}
@@ -178,26 +202,28 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	// 仅内核开启时挂载；单库故障只告警不阻断（运维面）。
 	if sys.MemKernel != nil {
 		wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
-			before := time.Now().Add(-30 * 24 * time.Hour)
-			nss := []string{string(memorykernel.OrgNamespace)}
-			if repos, err := store.ListPatternRepos(ctx); err == nil {
-				for _, r := range repos {
-					nss = append(nss, string(memorykernel.NamespaceOf(
-						memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
+			runOnceUnderLease(ctx, store, "argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
+				before := time.Now().Add(-30 * 24 * time.Hour)
+				nss := []string{string(memorykernel.OrgNamespace)}
+				if repos, err := store.ListPatternRepos(c); err == nil {
+					for _, r := range repos {
+						nss = append(nss, string(memorykernel.NamespaceOf(
+							memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
+					}
 				}
-			}
-			total := 0
-			for _, ns := range nss {
-				n, err := sys.MemKernel.GC(ctx, ns, before)
-				if err != nil {
-					log.Warn("argus.memorykernel.gc_failed", "ns", ns, "error", err.Error())
-					continue
+				total := 0
+				for _, ns := range nss {
+					n, err := sys.MemKernel.GC(c, ns, before)
+					if err != nil {
+						log.Warn("argus.memorykernel.gc_failed", "ns", ns, "error", err.Error())
+						continue
+					}
+					total += n
 				}
-				total += n
-			}
-			if total > 0 {
-				log.Info("argus.memorykernel.gc_done", "namespaces", len(nss), "raw_deleted", total)
-			}
+				if total > 0 {
+					log.Info("argus.memorykernel.gc_done", "namespaces", len(nss), "raw_deleted", total)
+				}
+			})
 		})
 		log.Info("argus.memorykernel.gc_enabled", "interval", "24h", "raw_max_age", "720h")
 	}
@@ -215,9 +241,11 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			Log: log,
 		}
 		wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
-			if err := hr.RunOnce(ctx); err != nil {
-				log.Warn("argus.health.report_failed", "error", err.Error())
-			}
+			runOnceUnderLease(ctx, store, "argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
+				if err := hr.RunOnce(c); err != nil {
+					log.Warn("argus.health.report_failed", "error", err.Error())
+				}
+			})
 		})
 		log.Info("argus.health.enabled", "interval", cfg.HealthReportInterval.String())
 	}

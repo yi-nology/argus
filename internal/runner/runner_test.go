@@ -7,11 +7,11 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"golang.org/x/time/rate"
 
 	"argus/internal/config"
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
+	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/logx"
 )
 
@@ -34,7 +34,7 @@ func TestBuildWorkflowClientWiring(t *testing.T) {
 		Cfg:        &config.Config{LLM: config.LLMConfig{ContextToken: 32000}},
 		Model:      stubChatModel{},
 		ModelName:  "stub",
-		LLMLimiter: rate.NewLimiter(5, 5),
+		LLMLimiter: ratelimit.NewTokenBucketFloat(5, 5),
 		Log:        logx.Nop(),
 	}
 	wf := r.buildWorkflow(nil)

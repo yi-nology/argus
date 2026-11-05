@@ -119,7 +119,8 @@ func TestHandlerEndToEnd(t *testing.T) {
 		t.Fatalf("应 1 条 finding，got %+v", res.Findings)
 	}
 	f := res.Findings[0]
-	if f.File != "a.go" || f.Line != 7 || f.Comment != "竞态" || f.Severity != "high" || f.SuggestedFix != "加锁" {
+	// v5.5.0 四档：critical 独立档（textx#20）
+	if f.File != "a.go" || f.Line != 7 || f.Comment != "竞态" || f.Severity != "critical" || f.SuggestedFix != "加锁" {
 		t.Fatalf("归一化不符: %+v", f)
 	}
 

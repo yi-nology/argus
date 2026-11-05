@@ -238,11 +238,11 @@ type CIInput struct {
 
 // CIJob 单个失败 job 的元数据与日志尾部。
 type CIJob struct {
-	Name    string
-	Stage   string
-	WebURL  string
-	Trace   string
-	Truncat bool
+	Name      string
+	Stage     string
+	WebURL    string
+	Trace     string
+	Truncated bool
 }
 
 // ciAnalysisPrompt CI 失败归因写作指令：结构化产出（根因/归责/修复建议），
@@ -282,7 +282,7 @@ func (s *Service) AnalyzeCIFailure(ctx context.Context, in CIInput) (CIAnalysis,
 	var jobs strings.Builder
 	for _, j := range in.Jobs {
 		trunc := ""
-		if j.Truncat {
+		if j.Truncated {
 			trunc = "（已截断，仅尾部）"
 		}
 		jobs.WriteString(fmt.Sprintf("- 失败 job：%s（stage=%s）%s\n<details><summary>日志尾部</summary>\n\n```\n%s\n```\n</details>\n\n",

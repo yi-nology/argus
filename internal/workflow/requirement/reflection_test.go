@@ -195,8 +195,8 @@ func TestReflectFindings_SeverityNormalized(t *testing.T) {
 	task, merged := reflectTaskFixture()
 
 	w.reflectFindings(context.Background(), task, "", merged)
-	if merged.Findings[0].Severity != "high" {
-		t.Fatalf("critical 应归一化为 high，got %s", merged.Findings[0].Severity)
+	if merged.Findings[0].Severity != "critical" { // v5.5.0 四档（textx#20）：critical 独立档
+		t.Fatalf("critical 应保留独立档，got %s", merged.Findings[0].Severity)
 	}
 	if merged.Findings[1].Severity != "low" {
 		t.Fatalf("非法 severity 应回退原值 low，got %s", merged.Findings[1].Severity)

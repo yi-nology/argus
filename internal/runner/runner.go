@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
-	"golang.org/x/time/rate"
 
 	"github.com/oagentkit/obs/audit"
+	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/logx"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -73,7 +73,7 @@ type Runner struct {
 	Audit *audit.Logger
 
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
-	LLMLimiter *rate.Limiter
+	LLMLimiter ratelimit.Limiter
 
 	// Cost 全局成本追踪器（obsx OnUsage 回流；nil = 不记账）。
 	Cost *llm.CostTracker

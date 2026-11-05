@@ -8,7 +8,7 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
-	"golang.org/x/time/rate"
+	"github.com/oekit/concurrency/ratelimit"
 
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/httpjson"
@@ -63,7 +63,7 @@ type Models struct {
 	// BudgetInjector 注入预算后使用。
 	Generate llm.Generator
 	// Limiter 全局 LLM 限速器（ARGUS_LLM_RATE_LIMIT > 0 时非 nil；runner 透传）。
-	Limiter *rate.Limiter
+	Limiter ratelimit.Limiter
 	// Fallback 全局备模型 BaseChatModel（nil = 未配置降级）。runner 对 R3 旁路
 	//（R3Model 为 nil 时）用 Fallback+FallbackName 再包一层 Failover。
 	Fallback     model.BaseChatModel
@@ -100,7 +100,7 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	// v3.5.9 起覆盖主链 Client/Resilient（历史缺口：此前只到达非降级路径的阶段
 	// 覆盖 Client）。ReAct RawModel 旁路不经 Client/Resilient，仍不受限（oagentkit 侧限制）。
 	if cfg.LLMRateLimit > 0 {
-		m.Limiter = rate.NewLimiter(rate.Limit(cfg.LLMRateLimit), cfg.LLMRateBurst)
+		m.Limiter = ratelimit.NewTokenBucketFloat(cfg.LLMRateLimit, cfg.LLMRateBurst)
 		log.Info("argus.boot.llm_rate_limiter", "rps", cfg.LLMRateLimit, "burst", cfg.LLMRateBurst)
 	}
 
@@ -410,7 +410,7 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 // stageGenerator 阶段覆盖生成链：有全局降级 → Resilient 主备链（与主链共用
 // fallback Provider）；否则单模型 Client（挂全局限速器）。
 func stageGenerator(p llm.Provider, fallback llm.Provider, so *config.StageOverride,
-	cfg *config.Config, limiter *rate.Limiter) (llm.Generator, error) {
+	cfg *config.Config, limiter ratelimit.Limiter) (llm.Generator, error) {
 	if fallback != nil {
 		r, err := llm.NewResilient(llm.NewFallbackChain(p, fallback), llm.ResilientConfig{
 			RetriesPerModel: cfg.LLM.LLMResilienceRetries, BaseDelay: cfg.LLM.LLMResilienceBaseDelay,

@@ -41,8 +41,8 @@ describe:
 // 敌对输入：非法 severity 词整份拒绝（LoadRepoConfig 侧降级为无配置+告警）；
 // 超限列表钳制、超长 extra_instructions 截断、max_comments 封顶。
 func TestParseRepoConfigReviewClamps(t *testing.T) {
-	if _, err := ParseRepoConfig([]byte("review:\n  min_severity: critical\n")); err == nil {
-		t.Fatal("非法 min_severity 应拒绝加载")
+	if _, err := ParseRepoConfig([]byte("review:\n  min_severity: urgent\n")); err == nil {
+		t.Fatal("非法 min_severity 应拒绝加载") // critical 已入词表（v5.5.0 四档），非法样例换 urgent
 	}
 	long := strings.Repeat("x", 9000)
 	rc, err := ParseRepoConfig([]byte(

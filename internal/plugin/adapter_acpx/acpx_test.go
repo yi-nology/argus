@@ -64,9 +64,9 @@ func TestInvokeParseFindings(t *testing.T) {
 	if len(res.Findings) != 2 {
 		t.Fatalf("应解析出 2 条 finding，得到 %d", len(res.Findings))
 	}
-	// severity 归一化：CRITICAL → high
-	if res.Findings[0].Severity != reportutil.High {
-		t.Fatalf("severity 应归一为 high，得到 %q", res.Findings[0].Severity)
+	// severity 归一化：CRITICAL 保留独立档（v5.5.0 四档，textx#20）
+	if res.Findings[0].Severity != reportutil.Critical {
+		t.Fatalf("severity 应保留 critical，得到 %q", res.Findings[0].Severity)
 	}
 	// By 标注插件名
 	if res.Findings[0].By != "test-acpx" {

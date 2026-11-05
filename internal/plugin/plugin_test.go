@@ -6,7 +6,7 @@ import (
 
 func TestNormalizeSeverity(t *testing.T) {
 	cases := map[string]string{
-		"High": "high", "HIGH": "high", "critical": "high",
+		"High": "high", "HIGH": "high", "critical": "critical", // v5.5.0 四档（textx#20）
 		"Medium": "medium", "warn": "medium",
 		"low": "low", " info ": "low",
 	}

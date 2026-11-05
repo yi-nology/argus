@@ -21,8 +21,8 @@ func TestNormalizeNewSchemaWrapper(t *testing.T) {
 	if f.File != "internal/a.go" || f.Line != 12 || f.Comment != "存在竞态" || f.SuggestedFix != "加锁" {
 		t.Fatalf("字段映射不符: %+v", f)
 	}
-	if f.Severity != "high" { // critical → argus 词表 high
-		t.Fatalf("critical 应归 high，got %q", f.Severity)
+	if f.Severity != "critical" { // v5.5.0 四档：critical 独立档（textx#20）
+		t.Fatalf("critical 应保留独立档，got %q", f.Severity)
 	}
 	if fs[1].Line != 3 || fs[1].Severity != "low" {
 		t.Fatalf("第二条不符: %+v", fs[1])

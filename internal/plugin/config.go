@@ -279,10 +279,10 @@ func sanitizeReviewSettings(r ReviewSettings, maxList int) (ReviewSettings, erro
 		// 只收规范词表（比 reportutil.Normalize 严格）：别名宽容会让 "critcal" 类
 		// 笔误静默落到意外档位，配置卫生优先
 		switch strings.ToLower(strings.TrimSpace(r.MinSeverity)) {
-		case reportutil.Low, reportutil.Medium, reportutil.High:
+		case reportutil.Low, reportutil.Medium, reportutil.High, reportutil.Critical: // v5.5.0 四档（textx#20）
 			r.MinSeverity = strings.ToLower(strings.TrimSpace(r.MinSeverity))
 		default:
-			return r, fmt.Errorf(".reviewagents.yaml review.min_severity=%q 非法（合法词表 low|medium|high）", r.MinSeverity)
+			return r, fmt.Errorf(".reviewagents.yaml review.min_severity=%q 非法（合法词表 low|medium|high|critical）", r.MinSeverity)
 		}
 	}
 	const maxCommentsCap = 500
