@@ -32,6 +32,10 @@ const ensureOverallTimeout = 60 * time.Second
 // ensurePerRepoTimeout 单仓上界。
 const ensurePerRepoTimeout = 20 * time.Second
 
+// ensureLeaseTTL 多副本 ensure 单飞租约的 ttl（v5.4.8）：与整体上界同量级，
+// 跑完即 Release；实例崩溃时租约自然过期，不阻塞他副本补位。
+const ensureLeaseTTL = 2 * time.Minute
+
 // webhookEvents 平台原生默认事件词表。SDK 后端对 Events 的映射各不相同：
 // gitea/forgejo 原样透传（试点脚本 pull_request_only+issue_comment 实弹验证）；
 // github 原生两词；gitee 经 giteeHookEventFlags 映射（pull_request→merge_requests

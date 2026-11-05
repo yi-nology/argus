@@ -32,6 +32,21 @@ func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn f
 	} else if err != gorm.ErrRecordNotFound {
 		return 0, err
 	}
+	// 单飞锁（v5.4.8 多副本加固）：leader_leases 租约互斥——多副本（pg/MySQL
+	// 网络库）同时首启时防并发跑重建型迁移（printalias PR 域迁移是
+	// DROP+CREATE，并发执行会互相踩）。拿不到锁 = 他实例正在跑：本次让位返回
+	// 0（marker 未写，该实例下次启动重试；语义与「失败不写 marker」一致）。
+	// 拿到锁后双检 marker（他实例可能已跑完写 marker）。
+	holder := "schema_migration:" + version
+	if ok, lerr := s.TryAcquire(ctx, holder, holder, 5*time.Minute); lerr != nil || !ok {
+		return 0, lerr
+	}
+	defer func() { _ = s.Release(ctx, holder, holder) }()
+	if err := s.db.WithContext(ctx).Where("version = ?", version).First(&marker).Error; err == nil {
+		return 0, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return 0, err
+	}
 	applied, err = fn(ctx)
 	if err != nil {
 		return applied, err

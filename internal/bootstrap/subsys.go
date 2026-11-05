@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"os"
 	"time"
 
 	oagentworker "github.com/oagentkit/queue/worker"
@@ -238,9 +239,25 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 		if cfg.PublicURL == "" {
 			log.Warn("argus.webhook_ensure.disabled", "reason", "ARGUS_ENSURE_WEBHOOK=1 但 ARGUS_PUBLIC_URL 未配置")
 		} else if len(targets) > 0 {
-			async.GoSafe(func() {
-				ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
-			})
+			// 单飞门控（v5.4.8 多副本）：leader_leases 租约互斥——多副本同启时
+			// 只有一个实例刷 48+ 仓 hook API（幂等但翻倍浪费，并发 PUT 同仓
+			// hook 有平台侧竞态面）。拿不到 = 他副本正在 ensure：本次启动跳过
+			// （hook 已被他副本校准过；secret 轮换自愈由持有者重启时覆盖）。
+			// holder 用 hostname（pod 名天然唯一），ttl 与整体上界同量级。
+			holder, _ := os.Hostname()
+			if ok, lerr := store.TryAcquire(context.Background(), "webhook_ensure", holder, ensureLeaseTTL); lerr != nil {
+				log.Warn("argus.webhook_ensure.lease_failed", "error", lerr.Error(), "hint", "锁面故障照常跑（幂等）")
+				async.GoSafe(func() {
+					ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+				})
+			} else if !ok {
+				log.Info("argus.webhook_ensure.skipped_lease", "holder_hint", "他副本持有 ensure 租约，本次启动跳过")
+			} else {
+				async.GoSafe(func() {
+					ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+					_ = store.Release(context.Background(), "webhook_ensure", holder)
+				})
+			}
 		}
 	}
 
