@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"argus/internal/gitdeepen"
 	"github.com/oagentkit/runtime/procx"
 )
 
@@ -37,6 +38,10 @@ const (
 	MaxFuncDiffFiles = 40      // 参与对比的改动 Go 文件数
 	maxFuncFileBytes = 2 << 20 // 单文件字节上限（与 polyglot 同量级）
 	gitShowTimeout   = 10 * time.Second
+	// funcDiffDeepenTimeout 浅克隆 base 历史补全的独立上限（探测式 deepen 指数
+	// 轮次自带上限，预算只兜时间；与 ocrdeleg 的 defaultUnshallowTimeout 同思路，
+	// 取其一半——funcdiff 是影响面增强层，不值得占用 OCR 同级预算）。
+	funcDiffDeepenTimeout = 90 * time.Second
 )
 
 // FuncSnap 单侧函数快照（签名原文 + 出边调用集合）。
@@ -60,16 +65,36 @@ type FuncDiff struct {
 
 // diffFunctions 主入口：对 changed 中可处理的 Go 文件做函数级对比。
 // ranges 决定「本函数是否被本轮触达」（未被触达的同名函数不报，防噪声）。
+// insecureTLS 透传 deepen fetch 的 GIT_SSL_NO_VERIFY（与 workcopy 克隆同环境）。
 func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
-	ranges map[string][][2]int) ([]FuncDiff, []string) {
+	ranges map[string][][2]int, insecureTLS bool) ([]FuncDiff, []string) {
 	var notes []string
 	if dir == "" || baseRef == "" {
 		return nil, append(notes, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过")
 	}
 	// base 参照预检：ref 不可达时逐文件 git show 全会失败,若不拦会把所有函数
-	// 误判成「新文件全量新增」（语义完全错误且刷爆封顶）
+	// 误判成「新文件全量新增」（语义完全错误且刷爆封顶）。浅克隆历史未覆盖时
+	// 先做探测式 deepen（v5.4.7：funcdiff 此前注释声称「浅历史由 gitdeepen 保证」
+	// 实则 impactview 路径从未消费过——只有 OCR 通道调了 EnsureMergeBase；MR 审查
+	// 时 impactview 先于插件执行，历史无人补全 → 大仓必降级）。
 	if !refResolves(ctx, dir, baseRef) {
-		return nil, append(notes, "base 参照 "+baseRef+" 在工作副本不可达（浅历史未覆盖），函数级 diff 跳过")
+		if b := strings.TrimPrefix(baseRef, "origin/"); b != "" && b != baseRef {
+			dctx, dcancel := context.WithTimeout(ctx, funcDiffDeepenTimeout)
+			derr := gitdeepen.EnsureMergeBaseTLS(dctx, dir, b, funcDiffDeepenTimeout, insecureTLS)
+			dcancel()
+			switch {
+			case derr == nil && refResolves(ctx, dir, baseRef):
+				// 补全成功且 ref 现在可达：继续函数级 diff
+			case derr != nil:
+				notes = append(notes, "base 参照 "+baseRef+" deepen 补全失败（"+derr.Error()+"），函数级 diff 跳过")
+				return nil, notes
+			default:
+				notes = append(notes, "base 参照 "+baseRef+" 在工作副本不可达（deepen 后仍未覆盖），函数级 diff 跳过")
+				return nil, notes
+			}
+		} else {
+			return nil, append(notes, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过")
+		}
 	}
 	files := make([]string, 0, len(changed))
 	for _, f := range changed {

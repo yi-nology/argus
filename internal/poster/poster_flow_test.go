@@ -62,6 +62,7 @@ type fakePlatform struct {
 
 	comments    []*provider.IssueComment
 	updateErrs  map[int64]error // UpdateIssueComment 按 ID 注入错误
+	deleteErr   error           // DeleteNote 全局错误注入（轮换降级路径用）
 	updated     map[int64]string
 	nextID      int64
 	createNoteN int
@@ -129,6 +130,18 @@ func (f *fakePlatform) CreateNote(_ context.Context, _, _, _, body string) (stri
 	return fmt.Sprintf("%d", c.ID), nil
 }
 
+func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
+	return nil, fmt.Errorf("unsupported in fake")
+}
+
+func (f *fakePlatform) GetCRFiles(context.Context, string, string, string) ([]*provider.ChangedFile, error) {
+	return nil, fmt.Errorf("unsupported in fake")
+}
+
+func (f *fakePlatform) CreateDiscussion(context.Context, string, string, string, provider.DiscussionOptions) (string, error) {
+	return "", fmt.Errorf("unsupported in fake")
+}
+
 func (f *fakePlatform) CreateIssueComment(_ context.Context, _, _, _, body string) (*provider.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -143,6 +156,9 @@ func (f *fakePlatform) CreateIssueComment(_ context.Context, _, _, _, body strin
 func (f *fakePlatform) DeleteNote(_ context.Context, _, _, _ string, noteID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	id, err := strconv.ParseInt(noteID, 10, 64)
 	if err != nil {
 		return err
@@ -688,5 +704,71 @@ func TestPost_HappyPath(t *testing.T) {
 	}
 	if res2.SummaryCommentID != res.SummaryCommentID {
 		t.Fatalf("总结应原地更新: %d vs %d", res2.SummaryCommentID, res.SummaryCommentID)
+	}
+}
+
+// ---------- v5.4.7 总结评论轮换浮顶 ----------
+
+// head 推进（新一轮评审）→ 删旧建新浮顶，定位缓存回写新 ID + 新 head。
+func TestPostSummary_RotatesOnNewHead(t *testing.T) {
+	fp := newFakePlatform()
+	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	p, store := newTestPoster(t, fp)
+	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := mkPR()
+	pr.HeadSHA = "sha-2"
+	id, err := p.postSummary(context.Background(), pr, "## 新一轮报告")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == 42 {
+		t.Fatalf("head 推进应新建评论（浮顶），不应复用旧 ID: %d", id)
+	}
+	if len(fp.comments) != 1 || fp.comments[0].ID != id {
+		t.Fatalf("旧评论应被删除、仅剩新建评论: %+v", fp.comments)
+	}
+	tgt, _ := store.GetReviewTarget(context.Background(), "gitea", "acme", "app", "7")
+	if tgt == nil || tgt.LastSummaryCommentID != id || tgt.LastHeadSHA != "sha-2" {
+		t.Fatalf("定位缓存应回写新 ID+新 head: %+v", tgt)
+	}
+}
+
+// 同 head（重试/幂等刷新）→ 原地更新，不删不建。
+func TestPostSummary_SameHeadUpdatesInPlace(t *testing.T) {
+	fp := newFakePlatform()
+	p, store := newTestPoster(t, fp)
+	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := p.postSummary(context.Background(), mkPR(), "## 刷新")
+	if err != nil || id != 42 {
+		t.Fatalf("同 head 应原地更新: id=%d err=%v", id, err)
+	}
+	if fp.createNoteN != 0 {
+		t.Fatalf("不应新建: %d", fp.createNoteN)
+	}
+	if fp.updated[42] != "## 刷新" {
+		t.Fatalf("应原地更新评论 42: %v", fp.updated)
+	}
+}
+
+// 删除失败 → 降级原地更新，回帖主链不阻断。
+func TestPostSummary_RotateDeleteFailsFallsBack(t *testing.T) {
+	fp := newFakePlatform()
+	fp.deleteErr = fmt.Errorf("permission denied")
+	p, store := newTestPoster(t, fp)
+	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := mkPR()
+	pr.HeadSHA = "sha-2"
+	id, err := p.postSummary(context.Background(), pr, "## 降级更新")
+	if err != nil || id != 42 {
+		t.Fatalf("删除失败应降级原地更新: id=%d err=%v", id, err)
+	}
+	if fp.updated[42] != "## 降级更新" {
+		t.Fatalf("应原地更新评论 42: %v", fp.updated)
 	}
 }

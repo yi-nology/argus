@@ -257,10 +257,25 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 }
 
 // postSummary 三级降级定位总结评论。
+//
+// v5.4.7 轮换浮顶语义：① 主路径定位到既有总结评论后，先比对本轮 head 与
+// target.LastHeadSHA——不同（新一轮评审）→ 删旧建新（GitLab 讨论区按
+// created_at 排序，原地更新永不浮顶，用户在 MR 上看不到最新报告位置）；
+// 相同或 last_head_sha 缺失（同 head 重试/幂等刷新）→ 原地更新（不刷屏）。
+// 删除失败降级原地更新，不阻断。
 func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body string) (int64, error) {
 	// ① review_targets.last_summary_comment_id
 	if target, _ := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number); target != nil &&
 		target.LastSummaryCommentID > 0 {
+		if pr.HeadSHA != "" && target.LastHeadSHA != "" && pr.HeadSHA != target.LastHeadSHA {
+			// 新一轮评审（head 推进）：删旧建新浮顶
+			if id, rerr := p.rotateSummary(ctx, pr, target.LastSummaryCommentID, body); rerr == nil {
+				return id, nil
+			} else {
+				p.Log.Warn("argus.poster.summary_rotate_failed", "comment_id", target.LastSummaryCommentID,
+					"error", rerr.Error(), "fallback", "update-in-place")
+			}
+		}
 		c, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 			target.LastSummaryCommentID, body)
 		if err == nil {
@@ -351,6 +366,28 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	if err != nil {
 		return 0, err
 	}
+	return c.ID, nil
+}
+
+// rotateSummary 总结评论轮换（v5.4.7 浮顶语义）：删除上一轮总结评论并新建——
+// 新建评论的 created_at 刷新，讨论区（按 created_at 排序）里最新报告浮顶。
+// 删除失败或新建失败原样上抛，调用方降级原地更新（不阻断回帖主链）。
+// 成功时回写定位缓存（新 comment_id + 本轮 head）。
+func (p *Poster) rotateSummary(ctx context.Context, pr plugin.PRContext, oldID int64, body string) (int64, error) {
+	if err := p.SDK.DeleteIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, oldID); err != nil {
+		return 0, err
+	}
+	c, err := p.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body)
+	if err != nil {
+		// 旧评论已删、新评论失败：无缓存定位，下一轮走 ②扫描/④新建自愈
+		return 0, err
+	}
+	if uerr := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		c.ID, pr.HeadSHA); uerr != nil {
+		p.Log.Warn("argus.poster.target_repoint_failed", "comment_id", c.ID, "error", uerr.Error())
+	}
+	p.Log.Info("argus.poster.summary_rotated", "old_comment_id", oldID, "new_comment_id", c.ID,
+		"head", pr.HeadSHA)
 	return c.ID, nil
 }
 

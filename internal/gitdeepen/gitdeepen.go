@@ -10,3 +10,8 @@ import "github.com/oagentkit/tools/workcopy"
 
 // EnsureMergeBase 确保 origin/<baseBranch> 与 HEAD 的 merge-base 可达。
 var EnsureMergeBase = workcopy.EnsureMergeBase
+
+// EnsureMergeBaseTLS EnsureMergeBase 的 TLS 形态：insecureTLS=true 时对 deepen
+// fetch 注入 GIT_SSL_NO_VERIFY（v5.4.7 funcdiff 消费；与 workcopy 克隆/OCR 通道
+// 对自签平台的纪律对齐——漏注会让自签平台的 deepen 确定性失败且静默降级）。
+var EnsureMergeBaseTLS = workcopy.EnsureMergeBaseTLS

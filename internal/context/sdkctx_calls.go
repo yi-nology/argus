@@ -234,3 +234,21 @@ func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number 
 			return rm.ListReviews(ctx, owner, repo, number)
 		})
 }
+
+// DeleteIssueComment 删除一条评论（v5.4.7 总结评论轮换浮顶的删除面）。
+// 走 DiffManager.DeleteNote（GitLab MR Notes API；UpdateIssueComment 的
+// v3.92.0 换新兜底已实弹该面；provider.IssueManager 接口无删除方法）。
+// 平台未实现 DiffManager 时报错，由调用方降级原地更新（不阻断回帖主链）。
+func (s *SDKCtx) DeleteIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64) error {
+	_, err := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (bool, error) {
+		dm, ok := p.(provider.DiffManager)
+		if !ok {
+			return false, fmt.Errorf("platform %s: 无评论删除面（DiffManager 未实现）", platform)
+		}
+		if derr := dm.DeleteNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10)); derr != nil {
+			return false, derr
+		}
+		return true, nil
+	})
+	return err
+}

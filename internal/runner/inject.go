@@ -217,6 +217,7 @@ func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin
 		Index:        idx,
 		MaxCommits:   r.Cfg.ImpactCoupling,
 		BaseRef:      impactBaseRef(pr),
+		InsecureTLS:  r.Cfg.Platforms[pr.Platform].SkipTLS,
 	})
 	if len(snap.Nodes) == 0 {
 		return

@@ -24,6 +24,7 @@ type Input struct {
 	Index        *codeintel.Index    // 工作副本符号索引（nil = 跳过 L2；runner 复用 codegraph 已建索引）
 	MaxCommits   int                 // P2 共变扫描深度（0 = DefaultCommits；负 = 关闭）
 	BaseRef      string              // 函数级 diff 的 base 参照（如 origin/main；空 = 跳过该层）
+	InsecureTLS  bool                // funcdiff deepen fetch 的 TLS 跳过校验（与平台克隆同环境）
 	Timeout      time.Duration       // 构建总预算（0 = 30s；超时逐层降级不阻断）
 }
 
@@ -101,7 +102,7 @@ func Build(ctx context.Context, in Input) *Snapshot {
 
 	// ---- v3.185.0 函数/方法级图 diff：base 切面对比（预算内才做） ----
 	if in.BaseRef != "" && in.Dir != "" && hasGoChanged(s.Changed) && ctx.Err() == nil && time.Now().Before(deadline) {
-		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges)
+		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges, in.InsecureTLS)
 		s.FuncDiffs = fds
 		s.Notes = append(s.Notes, fnNotes...)
 		s.Stats.FuncDiffs = len(fds)
