@@ -37,6 +37,7 @@ import (
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/yi-nology/agent-memory/ports"
+	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
 )
 
 // System 装配产物：全部子系统就绪后的共享引用集合。
@@ -292,11 +293,15 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 			kemb = singleTextEmbedder{rag.NewOpenAIEmbedder(
 				cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)}
 		}
-		if k, err := memorykernel.Open(kpath, kemb, log); err != nil {
+		// FTS 分词器（v5.5.1，am#15）：缺省 trigram——unicode61 不切 CJK，中文
+		// 连续文本整段成 token，词面召回轨失效。存量库切分词器需重建 FTS 虚表。
+		kopts := []amsqlite.Option{amsqlite.WithFTSTokenize(cfg.MemoryFTSTokenize)}
+		if k, err := memorykernel.Open(kpath, kemb, log, kopts...); err != nil {
 			log.Warn("argus.boot.memorykernel_failed", "path", kpath, "error", err.Error())
 		} else {
 			sys.MemKernel = k
-			log.Info("argus.boot.memorykernel_enabled", "path", kpath, "semantic", kemb != nil)
+			log.Info("argus.boot.memorykernel_enabled", "path", kpath, "semantic", kemb != nil,
+				"fts_tokenize", cfg.MemoryFTSTokenize)
 		}
 	}
 	sys.Service = &service.Service{
