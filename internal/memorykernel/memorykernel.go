@@ -76,14 +76,14 @@ type Kernel struct {
 // emb 非 nil 时接通语义召回轨（embedding 端点未配置传 nil = 词面照旧，零行为变化）。
 // capture.New 缺 Redactor 直接失败（内核纪律：记忆是留存资产，脱敏必需）；
 // recall 注入面 MemoryBand 必需（防伪包裹不缺省）。
-func Open(path string, emb ports.Embedder, log logx.Logger) (*Kernel, error) {
+func Open(path string, emb ports.Embedder, log logx.Logger, opts ...sqlite.Option) (*Kernel, error) {
 	if path == "" {
 		return nil, fmt.Errorf("memorykernel: 库路径不可空")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("memorykernel: 建库目录: %w", err)
 	}
-	st, err := sqlite.OpenFile(path)
+	st, err := sqlite.OpenFile(path, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("memorykernel: 打开库: %w", err)
 	}

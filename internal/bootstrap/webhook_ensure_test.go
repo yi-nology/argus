@@ -44,8 +44,8 @@ func (f *hookFake) UpdateWebhook(_ context.Context, _, _ string, _ int64, opts p
 	return &provider.PlatformWebhook{ID: 1}, nil
 }
 
-// TestEnsureWebhooksCreatesAndPatchesSecret 无既有钩子 → EnsureCreated + secret
-// 无条件补写（write-only 不可比对，轮换自愈的关键，v5.4.1）。
+// TestEnsureWebhooksCreatesWithSecret 无既有钩子 → EnsureCreated，secret 随建
+// 生效不补写（gp#34 EnsureSecretAlwaysUpdate 语义：仅 match 分支重写，v5.5.1 收编）。
 func TestEnsureWebhooksCreatesAndPatchesSecret(t *testing.T) {
 	f := &hookFake{}
 	cfg := &config.Config{
@@ -66,8 +66,31 @@ func TestEnsureWebhooksCreatesAndPatchesSecret(t *testing.T) {
 	if len(f.created.Events) != 2 || f.created.Events[0] != "pull_request_only" || f.created.Events[1] != "issue_comment" {
 		t.Fatalf("gitea 默认事件词表错: %v", f.created.Events)
 	}
-	if f.updateN != 1 || f.patched == nil || f.patched.Secret == nil || *f.patched.Secret != "s1" {
-		t.Fatalf("secret 应补写一次: updateN=%d patched=%v", f.updateN, f.patched)
+	if f.updateN != 0 {
+		t.Fatalf("created 分支不应补写（secret 随建生效）: updateN=%d", f.updateN)
+	}
+}
+
+// TestEnsureWebhooksMatchRotatesSecret URL+事件集匹配 → AlwaysUpdate 重写 secret
+// （轮换收敛进单次 ensure 往返，替代 v5.4.1 时代的后置补写 workaround）。
+func TestEnsureWebhooksMatchRotatesSecret(t *testing.T) {
+	f := &hookFake{existing: []*provider.PlatformWebhook{
+		{ID: 7, URL: "http://argus:8899/webhook/gitea", Events: []string{"pull_request_only", "issue_comment"}},
+	}}
+	cfg := &config.Config{
+		PublicURL: "http://argus:8899",
+		Platforms: map[string]config.PlatformConfig{
+			"gitea": {Token: "t", Secret: "rotated"},
+		},
+	}
+	targets := []poller.Target{{Platform: "gitea", Owner: "o", Repo: "r"}}
+	ensureWebhooks(context.Background(), stubSDK{"gitea": f}, cfg, logx.Nop(), targets)
+
+	if f.createN != 0 {
+		t.Fatalf("match 不应新建: createN=%d", f.createN)
+	}
+	if f.updateN != 1 || f.patched == nil || f.patched.Secret == nil || *f.patched.Secret != "rotated" {
+		t.Fatalf("match 应重写 secret（EnsureSecretAlwaysUpdate）: updateN=%d patched=%v", f.updateN, f.patched)
 	}
 }
 

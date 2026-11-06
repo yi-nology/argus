@@ -130,6 +130,12 @@ func (f *fakePlatform) CreateNote(_ context.Context, _, _, _, body string) (stri
 	return fmt.Sprintf("%d", c.ID), nil
 }
 
+// DeleteIssueComment gp v0.114（issue #33）给 IssueManager 补删除能力——嵌入接口
+// 会以 nil 方法集"满足"断言然后 SIGSEGV，fake 纪律=新接口方法必须显式实现。
+func (f *fakePlatform) DeleteIssueComment(_ context.Context, _, _, _ string, id int64) error {
+	return f.DeleteNote(context.Background(), "", "", "", strconv.FormatInt(id, 10))
+}
+
 func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
 	return nil, fmt.Errorf("unsupported in fake")
 }

@@ -17,10 +17,10 @@ import (
 // 功能机会落地）：ARGUS_ENSURE_WEBHOOK=1 + ARGUS_PUBLIC_URL 时，对 PollRepos 逐仓
 // 确保 {PublicURL}/webhook/{platform} 回调存在（不存在建、同 URL 事件集漂移则重建）。
 //
-// secret 自愈（相对 setup-webhook.sh 的增量价值）：平台侧 secret write-only（list
-// 响应不返回），provider.EnsureWebhook 对「URL 相同但 secret 已轮换」的钩子报
-// unchanged 并保留旧 secret ⇒ 签名校验 fail-closed 全拒。随后经
-// WebhookConfigManager.UpdateWebhook 无条件补写 secret，每次启动重断言。
+// secret 自愈（v5.5.1 收编 gp#34 → EnsureSecretAlwaysUpdate）：平台侧 secret
+// write-only 不可比对，EnsureSecretMode=always-update 使「URL+事件集匹配即重写
+// secret」，轮换收敛收进单次 ensure 往返（此前的后置 UpdateWebhook 补写
+// workaround 已随上游收编删除）。
 //
 // 失败仅告警不阻塞启动：webhook 是主任务源，poller 兜底仍在。整体异步（GoSafe +
 // 60s 上界），不延迟就绪。
@@ -106,11 +106,16 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			continue
 		}
 		repoCtx, repoCancel := context.WithTimeout(ctx, ensurePerRepoTimeout)
-		action, hook, err := provider.EnsureWebhook(repoCtx, p, provider.CreateWebhookOptions{
+		action, _, err := provider.EnsureWebhook(repoCtx, p, provider.CreateWebhookOptions{
 			Owner: t.Owner, Repo: t.Repo,
 			URL:    cfg.PublicURL + "/webhook/" + t.Platform,
 			Secret: pc.Secret,
 			Events: events,
+			// secret 轮换收敛（gp#34 → v0.114.0 EnsureSecretAlwaysUpdate）：平台侧
+			// secret write-only 不可比对，unchanged 时可能携旧 secret——匹配即重写，
+			// 一次 ensure 往返内完成轮换收敛（v5.4.1 时代的手工 UpdateWebhook
+			// workaround 已收编进上游，此处删除后置补写段）。
+			EnsureSecretMode: provider.EnsureSecretAlwaysUpdate,
 		})
 		if err != nil {
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
@@ -129,21 +134,6 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 		default:
 			unchanged++
 			obs.IncrWebhookEnsure("unchanged")
-		}
-		// secret 重断言（write-only 不可比对，Ensure 报 unchanged 时 secret 可能
-		// 已轮换漂移——无条件补写一次，幂等）。
-		if hook != nil && hook.ID > 0 {
-			if ucm, ok := p.(provider.WebhookConfigManager); ok {
-				secret := pc.Secret
-				if _, uerr := ucm.UpdateWebhook(repoCtx, t.Owner, t.Repo, hook.ID,
-					provider.UpdateWebhookOptions{Secret: &secret}); uerr != nil {
-					log.Warn("argus.webhook_ensure.secret_patch_failed", "platform", t.Platform,
-						"repo", t.Owner+"/"+t.Repo, "webhook_id", hook.ID, "error", uerr.Error(),
-						"hint", "secret 轮换未生效：入站将被 fail-closed 拒收，请手工更新平台 webhook")
-				} else {
-					obs.IncrWebhookEnsure("secret_patched")
-				}
-			}
 		}
 		repoCancel()
 	}

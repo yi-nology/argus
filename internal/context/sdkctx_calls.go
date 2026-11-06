@@ -240,10 +240,19 @@ func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number 
 // v3.92.0 换新兜底已实弹该面；provider.IssueManager 接口无删除方法）。
 // 平台未实现 DiffManager 时报错，由调用方降级原地更新（不阻断回帖主链）。
 func (s *SDKCtx) DeleteIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64) error {
+	// 主路：IssueManager.DeleteIssueComment（gp#33 → v0.114.0 收编；GitLab/腾讯
+	// 工蜂 route through issue，七平台全覆盖）；DiffManager.DeleteNote 兜底保留
+	// （旧版本地板兼容，argus go.mod 已 v0.114 主路恒命中）。
+	if _, err := callIface(s, ctx, platform, "IssueManager",
+		func(ctx context.Context, im provider.IssueManager) (bool, error) {
+			return true, im.DeleteIssueComment(ctx, owner, repo, number, commentID)
+		}); err == nil {
+		return nil
+	}
 	_, err := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (bool, error) {
 		dm, ok := p.(provider.DiffManager)
 		if !ok {
-			return false, fmt.Errorf("platform %s: 无评论删除面（DiffManager 未实现）", platform)
+			return false, fmt.Errorf("platform %s: 无评论删除面（IssueManager/DiffManager 均未实现）", platform)
 		}
 		if derr := dm.DeleteNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10)); derr != nil {
 			return false, derr

@@ -278,6 +278,12 @@ type Config struct {
 	// <MemoryDir>/kernel.db。
 	MemoryKernel bool
 
+	// MemoryFTSTokenize 记忆内核 FTS5 分词器（v5.5.1，am#15 → agent-memory v0.10
+	// 选项化）：缺省 trigram——unicode61 不切 CJK，中文连续文本整段成 token，
+	// 中文宿主词面召回轨基本失效。存量库切分词器需重建 FTS 虚表（空库直接删
+	// kernel.db 重启即可）。
+	MemoryFTSTokenize string
+
 	// QAHistoryBudget QA 会话历史注入 token 预算（ARGUS_QA_HISTORY_BUDGET；
 	// v3.152.0 harness/budget 压力档压实——到 90% 档先压实后进 prompt。
 	// 0 = 缺省 6000，本地估算 ceil(runes/3) 口径）。
@@ -518,6 +524,7 @@ func Load() *Config {
 		MCPIdleReapMaxIdle:       envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
 		MemoryDir:                envStr("ARGUS_MEMORY_DIR", "memory"),
 		MemoryKernel:             envBool("ARGUS_MEMORY_KERNEL", false),
+		MemoryFTSTokenize:        envStr("ARGUS_MEMORY_FTS_TOKENIZE", "trigram"),
 		QAHistoryBudget:          envInt("ARGUS_QA_HISTORY_BUDGET", 0),
 		QAProgTools:              envBool("ARGUS_QA_PTC", false),
 		OTelEndpoint:             envStr("ARGUS_OTEL_ENDPOINT", ""),
