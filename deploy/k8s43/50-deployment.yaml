@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus
+  namespace: argus
+  labels:
+    app: argus
+spec:
+  replicas: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: argus
+  template:
+    metadata:
+      labels:
+        app: argus
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ubuntu-2404-k3s-master01
+      terminationGracePeriodSeconds: 120
+      containers:
+      - name: argus
+        image: argus:v5.5.1c-arm64-ocr
+        imagePullPolicy: IfNotPresent
+        command: ["/app/argus"]
+        envFrom:
+        - secretRef:
+            name: argus-env
+        ports:
+        - containerPort: 8899
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: work
+          mountPath: /data/work
+        - name: data
+          mountPath: /home/argus/.opencodereview
+          subPath: ocr-home
+        - name: plugins
+          mountPath: /app/plugins.yaml
+          subPath: plugins.yaml
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8899
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /readyz
+            port: 8899
+          initialDelaySeconds: 180
+          periodSeconds: 60
+          failureThreshold: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: argus-data
+      - name: work
+        emptyDir:
+          sizeLimit: 8Gi
+      - name: plugins
+        configMap:
+          name: argus-plugins
