@@ -1,0 +1,97 @@
+# pg 跨节点热备从库（v5.5.1）：流复制 standby——主库 master01（argus-pg），
+# 从库 worker01（独立 local-path PVC，数据经流复制拉取不受同 PVC 约束）。
+# master01 节点级故障时：kubectl exec promote 提升从库为可写主 + 切 argus DSN。
+# 提升：kubectl exec deploy/argus-pg-standby -- su-exec postgres pg_ctl -D $PGDATA promote
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: argus-pg-standby
+  namespace: argus
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argus-pg-repl
+  namespace: argus
+type: Opaque
+stringData:
+  REPL_PASSWORD: "repl79d9515f04de"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus-pg-standby
+  namespace: argus
+  labels:
+    app: argus-pg-standby
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: argus-pg-standby
+  template:
+    metadata:
+      labels:
+        app: argus-pg-standby
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ubuntu-2404-k3s-worker01
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: argus-pg-repl
+              key: REPL_PASSWORD
+        - name: PRIMARY_HOST
+          value: argus-pg.argus.svc
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          export PGDATA=/var/lib/postgresql/data
+          if [ ! -s "$PGDATA/PG_VERSION" ]; then
+            echo "standby 初始化：pg_basebackup 从主库全量拉取..."
+            until pg_basebackup -h "$PRIMARY_HOST" -U replica -D "$PGDATA" -R -X stream; do
+              echo "basebackup 失败，清理残留 15s 后重试（主库未就绪或网络抖动）"
+              rm -rf "$PGDATA"/* 2>/dev/null; sleep 15
+            done
+            # 密码持久化：standby 重启后的流复制连接需要（-R 不落明文密码）
+            echo "primary_conninfo = 'host=$PRIMARY_HOST user=replica password=$PGPASSWORD application_name=standby-worker01'" >> "$PGDATA/postgresql.auto.conf"
+            chown -R postgres:postgres "$PGDATA" 2>/dev/null || true
+            chmod 700 "$PGDATA"
+          fi
+          exec docker-entrypoint.sh postgres
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "argus", "-d", "argus"]
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 12
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: argus-pg-standby

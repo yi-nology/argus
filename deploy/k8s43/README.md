@@ -36,3 +36,12 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 - **pg 备份**：CronJob `argus-pg-backup`（每天 03:30，postgres:16-alpine 节点已有镜像，零新组件）——`pg_dump -Fc` 全库压缩 → PVC `argus-pg-backup`（5Gi），循环保留 7 份；手动触发 `kubectl -n argus create job --from=cronjob/argus-pg-backup <name>`；恢复：`pg_restore -h argus-pg -U argus -d argus --clean <dump>`
 - **MinIO 决策：不挂**——argus 全代码零 S3/OSS 消费面（grep 实锤）；报告/artifacts 在 pg TEXT（无上限）；work=emptyDir 瞬态；持久小文件=共享 PVC。对象存储的动机（跨节点共享/归档/S3 API）当前都不存在；触发条件=①跨节点多副本②长期归档合规③pg 备份外移——届时再挂（镜像 Mac 拉→save→scp→43 import，43 无公网）
 
+## pg 双副本（跨节点热备，2026-11-06 上线）
+
+- **形态**：主库 argus-pg（master01）+ 流复制从库 argus-pg-standby（**worker01**，独立 PVC 5Gi——数据经流复制拉取，不受 local-path 同 PVC 约束，节点级故障域真正分摊）
+- **状态核验**：主库 `SELECT application_name,state,sync_state,pg_wal_lsn_diff(pg_current_wal_lsn(),replay_lsn) FROM pg_stat_replication` → streaming/async/lag=0；从库 `pg_is_in_recovery()=t` 只读
+- **failover 预案（手动，写面 RTO 分钟级 RPO≈0）**：主库不可恢复时——① `kubectl exec deploy/argus-pg-standby -- su-exec postgres pg_ctl -D /var/lib/postgresql/data promote` ② 改 argus Secret DSN 指向 standby（需给 standby 建 svc 或直接 pod IP）③ argus rollout restart。主库仅 pod 级故障 → Deployment 自愈重启（PGDATA 持久），无需 promote
+- **复制凭据**：role replica（REPLICATION LOGIN，密码 Secret argus-pg-repl）；主库 pg_hba 追加 `host replication replica 10.42.0.0/16 scram-sha-256`（pod 网段）
+- **standby 初始化语义**：PGDATA 有 PG_VERSION 即直接进 standby（幂等，滚动重启不重复 basebackup）；空目录则 pg_basebackup -R 全量拉取（失败清残留重试）
+- **限制**：async 复制（主挂瞬间的最后几笔写入可能未达从库）；promote 后原主库回网需 pg_rewind 或重建——目前无自动 failover（Patroni 过重，人工预案已够）
+
