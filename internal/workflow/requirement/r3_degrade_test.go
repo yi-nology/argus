@@ -138,3 +138,31 @@ func TestCheckComplianceDegradedCarriesRunCause(t *testing.T) {
 		t.Fatalf("运行中断场景建议应指向重跑而非拆 PR: %q", msg)
 	}
 }
+
+// TestCheckComplianceBudgetGateSkipsRetryCarriesCause 预算门在真实约束区间
+// （Used≤2×Limit）拦下自救重试时，降级报告必须诚实写明"预算门拦下重试+调参路标"
+// （v5.5.4：MR186 实弹——门拦重试省下零头、丢掉全部判定，还把死因埋进旧文案）。
+func TestCheckComplianceBudgetGateSkipsRetryCarriesCause(t *testing.T) {
+	gm := &garbageModel{}
+	budget := llm.NewBudget(100)
+	budget.Add(150) // Remaining=-50≤0 且 Used=150≤2×100：门有效区间，拦
+	w := &Workflow{LLM: llm.NewClient(gm, "fake", nil), Log: nopLogger{}}
+	spec := &plugin.RequirementSpec{Source: "PR 描述",
+		ACs: []plugin.AcceptanceCriterion{{ID: "AC-1", Text: "验收点 1"}}}
+	task := plugin.Task{Budget: budget}
+	report, _, err := w.CheckCompliance(context.Background(), task, spec, "摘要")
+	if err != nil {
+		t.Fatalf("降级路径不应报错: %v", err)
+	}
+	if !strings.Contains(report.Summary, "预算门拦下重试") {
+		t.Fatalf("Summary 应含预算门死因: %q", report.Summary)
+	}
+	if gm.calls != 1 {
+		t.Fatalf("门拦下时只应有首轮调用（自救重试被拒），实得 %d", gm.calls)
+	}
+	for _, c := range report.Checks {
+		if !strings.HasPrefix(c.Detail, r3RuntimeFailPrefix) || !strings.Contains(c.Detail, "task_token_budget") {
+			t.Fatalf("Detail 应带运行中断前缀与调参路标: %q", c.Detail)
+		}
+	}
+}

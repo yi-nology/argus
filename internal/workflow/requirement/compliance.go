@@ -3,6 +3,7 @@ package requirement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -98,22 +99,30 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 		return report, text, nil
 	}
 	// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）。
-	// 预算门（深挖修复）：重试携带全量 diff 整体重跑，token 直接 ×2——预算
-	// 已耗尽时不烧这笔钱，直接走降级路径（全部 AC → unverifiable → R5.3）。
+	// 预算门（深挖修复；v5.5.4 修正适用域）：门只在预算真实约束区间内生效
+	// （Used≤2×Limit）。R3 的 ReAct 直调不受 Client 记账节奏约束，单轮就可能
+	// 烧掉数倍预算（MR186 实弹 922k/160k）——此时拒掉"多一次生成"的自救重试，
+	// 省下的是零头、丢掉的是全部判定，拣了芝麻丢了西瓜。
 	retryQ := query + "\n\n" + plugin.ReminderNote("retry-feedback",
 		"你上一轮输出无法解析为合法 JSON，请重新输出且只输出合法 JSON。上一轮输出：\n"+truncSummary(final, 800))
-	if task.Budget != nil && task.Budget.Remaining() <= 0 {
+	b := task.Budget
+	gateShut := b != nil && b.Remaining() <= 0 && b.Used() <= 2*b.Limit()
+	if gateShut {
 		w.Log.Warn("argus.r3.retry_skipped_budget", "reason", "任务 token 预算耗尽，跳过重试")
-	} else {
-		final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs)))
-		if e2 != nil {
-			// 重试轮运行中断：死因优先于"不可解析"透传（多半又是限流）。
-			w.Log.Warn("argus.r3.retry_agent_failed", "error", e2.Error())
-			return degradedComplianceReport(spec, e2), "", nil
-		}
-		if report2, text2, ok := parseAligned(final2); ok {
-			return report2, text2, nil
-		}
+		return degradedComplianceReport(spec, errR3RetrySkippedBudget), "", nil
+	}
+	if b != nil && b.Remaining() <= 0 {
+		w.Log.Warn("argus.r3.retry_despite_budget", "used", b.Used(), "limit", b.Limit(),
+			"reason", "超支已达 2× 预算上限，门不再拦自救重试")
+	}
+	final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs)))
+	if e2 != nil {
+		// 重试轮运行中断：死因优先于"不可解析"透传（多半又是限流）。
+		w.Log.Warn("argus.r3.retry_agent_failed", "error", e2.Error())
+		return degradedComplianceReport(spec, e2), "", nil
+	}
+	if report2, text2, ok := parseAligned(final2); ok {
+		return report2, text2, nil
 	}
 
 	// 仍失败：全部 AC 置 unverifiable → R5.3 COMMENT（降级为人工确认，不丢结果）
@@ -157,10 +166,16 @@ func (w *Workflow) r3Instruction(ctx context.Context, task plugin.Task, strategy
 // 建议文案不再对前者说"拆分 PR"。
 const r3RuntimeFailPrefix = "R3 运行中断"
 
+// errR3RetrySkippedBudget 预算门在真实约束区间内拦掉了自救重试（v5.5.4）：
+// 死因是"输出不可解析 + 预算不允许再试"，措辞须给出调预算的路标。
+var errR3RetrySkippedBudget = errors.New("输出不可解析且 token 预算耗尽跳过重试")
+
 // r3FailCause 运行失败死因归类（措辞进报告，供人一眼判断可否重跑）。
 func r3FailCause(err error) string {
 	s := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(s, "预算耗尽"):
+		return "输出不可解析且预算门拦下重试（可调 repo_settings.task_token_budget / ARGUS_TASK_TOKEN_BUDGET 后重跑）"
 	case strings.Contains(s, "429") || strings.Contains(s, "too many requests"):
 		return "上游限流 429（瞬时，可重跑）"
 	case strings.Contains(s, "max iterations"):
