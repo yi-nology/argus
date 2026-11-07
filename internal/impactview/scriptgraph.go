@@ -40,8 +40,8 @@ const (
 
 type scriptFile struct {
 	rel       string
-	srcs      []string        // 解析成功的 source 目标（相对路径）
-	defs      []string        // 定义的 shell 函数名
+	srcs      []string        // 解析成功的装载目标（shell source / py·js import，相对路径）
+	defs      []string        // 定义的函数名（shell fn()/py def；JS 不做函数级）
 	tokens    map[string]bool // 词元集（调用检测用）
 	writesTbl []string        // SQL 写表（CREATE/INSERT/UPDATE/DELETE/ALTER）
 	readsTbl  []string        // SQL 读表（FROM/JOIN，不含自身写表）
@@ -57,6 +57,12 @@ type scriptGraph struct {
 var (
 	reShellSrc = regexp.MustCompile(`(?m)^[ \t]*(?:source|\.)[ \t]+([^\n#]+)`)
 	reFuncDef  = regexp.MustCompile(`(?m)^[ \t]*(?:function[ \t]+)?([a-zA-Z_][a-zA-Z0-9_]*)[ \t]*\(\s*\)[ \t\r\n]*\{|^[ \t]*function[ \t]+([a-zA-Z_][a-zA-Z0-9_]*)[ \t\r\n]*\{`)
+	rePyFunc   = regexp.MustCompile(`(?m)^[ \t]*def[ \t]+([a-zA-Z_][a-zA-Z0-9_]*)[ \t]*\(`)
+	// import x.y[, z] / from x.y import …（from 的模块可为相对点前缀）
+	rePyImport = regexp.MustCompile(`(?m)^[ \t]*(?:from[ \t]+(\.+[\w.]*|[\w.]+)[ \t]+import|import[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*))`)
+	// require("x") / import … from "x" / export … from "x"（CJS+ESM：from 在
+	// 路径之后，与 Python 语法相反——首版写反实弹即漏）
+	reJSImport = regexp.MustCompile(`(?:require\(\s*["']([^"']+)["']\s*\)|import[^;\n]*?from[ \t]+["']([^"']+)["']|export[^;\n]*?from[ \t]+["']([^"']+)["'])`)
 	reToken    = regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`)
 	// 引号/反引号/方括号起始的表名一律放过（字符类含 ` 不能进反引号原文，改双引号转义）
 	reSQLWrite = regexp.MustCompile("(?i)\\b(?:CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?|CREATE\\s+(?:OR\\s+REPLACE\\s+)?VIEW|INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|ALTER\\s+TABLE|MERGE\\s+INTO)\\s+[\"`\\[]?([a-zA-Z_][\\w$]*(?:\\.[a-zA-Z_][\\w$]*)?)")
@@ -267,7 +273,7 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 			return nil
 		}
 		switch filepath.Ext(path) {
-		case ".sh", ".bash", ".sql":
+		case ".sh", ".bash", ".sql", ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx":
 			if len(paths) >= MaxScriptFiles {
 				return nil
 			}
@@ -281,6 +287,10 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 		return nil
 	}
 	sort.Strings(paths)
+	fileSet := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		fileSet[p] = true
+	}
 	sg := &scriptGraph{byRel: map[string]*scriptFile{}}
 	for _, rel := range paths {
 		if time.Now().After(deadline) {
@@ -292,8 +302,8 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 		}
 		text := string(b)
 		sf := &scriptFile{rel: rel}
-		switch filepath.Ext(rel) {
-		case ".sh", ".bash":
+		switch ext := filepath.Ext(rel); {
+		case ext == ".sh" || ext == ".bash":
 			base := filepath.Dir(rel)
 			for _, m := range reShellSrc.FindAllStringSubmatch(text, -1) {
 				if p := resolveSourcePath(base, m[1]); p != "" {
@@ -313,7 +323,44 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 			for _, tk := range reToken.FindAllString(text, -1) {
 				sf.tokens[tk] = true
 			}
-		case ".sql":
+		case ext == ".py" || ext == ".pyw":
+			// import 面（v5.6.3）：相对/绝对模块 → 仓内文件解析（宁缺勿滥，
+			// 解析不到（第三方/动态）不入图）；def 进函数级 caller 检测
+			for _, m := range rePyImport.FindAllStringSubmatch(text, -1) {
+				mods := []string{m[1]}
+				if m[2] != "" {
+					mods = strings.Split(m[2], ",")
+				}
+				for _, mod := range mods {
+					if p := resolvePyModule(filepath.Dir(rel), strings.TrimSpace(mod), fileSet); p != "" {
+						sf.srcs = appendUnique(sf.srcs, p)
+					}
+				}
+			}
+			for _, m := range rePyFunc.FindAllStringSubmatch(text, MaxDefsPerFile) {
+				if m[1] != "" {
+					sf.defs = appendUnique(sf.defs, m[1])
+				}
+			}
+			sf.tokens = map[string]bool{}
+			for _, tk := range reToken.FindAllString(text, -1) {
+				sf.tokens[tk] = true
+			}
+		case ext == ".js" || ext == ".mjs" || ext == ".cjs" || ext == ".ts" || ext == ".jsx" || ext == ".tsx":
+			// JS/TS 只做文件级相对 import（裸名=node_modules 域，不入图）；
+			// 函数级刻意不做（箭头函数/重导出形态太多，误报面失控）
+			for _, m := range reJSImport.FindAllStringSubmatch(text, -1) {
+				spec := m[1]
+				for _, g := range m[2:] {
+					if spec == "" {
+						spec = g
+					}
+				}
+				if p := resolveJSRel(rel, spec, fileSet); p != "" {
+					sf.srcs = appendUnique(sf.srcs, p)
+				}
+			}
+		case ext == ".sql":
 			for _, m := range reSQLWrite.FindAllStringSubmatch(text, -1) {
 				sf.writesTbl = appendUnique(sf.writesTbl, strings.ToLower(m[1]))
 			}
@@ -363,6 +410,75 @@ func resolveSourcePath(base, rawLine string) string {
 		return ""
 	}
 	return filepath.ToSlash(clean)
+}
+
+// resolvePyModule Python import → 仓内文件。相对点前缀按层级上溯（`.`=当前
+// 目录、`..`=父目录）；绝对模块从仓库根解析。仅命中仓内已知文件（x/y.py 或
+// x/y/__init__.py）才返回路径——第三方/动态 import 不入图（宁缺勿滥）。
+func resolvePyModule(base, mod string, files map[string]bool) string {
+	if mod == "" {
+		return ""
+	}
+	rel := mod
+	up := 0
+	for strings.HasPrefix(rel, ".") {
+		rel = rel[1:]
+		up++
+	}
+	p := strings.ReplaceAll(rel, ".", "/")
+	var root string
+	switch {
+	case up > 0:
+		// `from . import`（空尾）指包自身目录 __init__；`from .x import` 当前目录
+		root = base
+		for i := 1; i < up; i++ {
+			root = filepath.Dir(root)
+		}
+		if rel == "" {
+			py := pyFileFor(filepath.ToSlash(filepath.Clean(root)), files)
+			if py == "" {
+				return ""
+			}
+			// `from . import` 装载的是包 __init__：指向目录自身即够（边语义=装载）
+			return py
+		}
+	default:
+		// 绝对模块（无点前缀）：从仓库根解析，多级包 a.b.c → a/b/c.py
+		root = "."
+	}
+	return pyFileFor(filepath.ToSlash(filepath.Clean(filepath.Join(root, p))), files)
+}
+
+func pyFileFor(c string, files map[string]bool) string {
+	if strings.HasPrefix(c, "..") {
+		return ""
+	}
+	for _, cand := range []string{c + ".py", filepath.Join(c, "__init__.py")} {
+		cand = filepath.ToSlash(filepath.Clean(cand))
+		if files[cand] {
+			return cand
+		}
+	}
+	return ""
+}
+
+// resolveJSRel JS/TS import spec → 仓内文件。仅相对引用（./ ../）；候选覆盖
+// 显式扩展名与 index 文件；裸名（node_modules 域）一律放弃。
+func resolveJSRel(relFile, spec string, files map[string]bool) string {
+	if spec == "" || (!strings.HasPrefix(spec, "./") && !strings.HasPrefix(spec, "../")) {
+		return ""
+	}
+	c := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(relFile), spec)))
+	if strings.HasPrefix(c, "..") {
+		return ""
+	}
+	for _, cand := range []string{c, c + ".js", c + ".mjs", c + ".cjs", c + ".ts", c + ".tsx", c + ".jsx",
+		filepath.Join(c, "index.js"), filepath.Join(c, "index.mjs"), filepath.Join(c, "index.ts"), filepath.Join(c, "index.tsx")} {
+		if files[cand] {
+			return cand
+		}
+	}
+	return ""
 }
 
 func containsStr(hay []string, needle string) bool {

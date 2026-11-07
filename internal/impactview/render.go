@@ -71,7 +71,7 @@ func RenderReportSection(s *Snapshot) string {
 	if s == nil || len(s.Nodes) == 0 {
 		return ""
 	}
-	mermaid := RenderMermaid(s)
+	mermaid, trimmedCallers := RenderMermaidWithStats(s)
 	head := fmt.Sprintf("📊 影响范围（风险 %s · %d 分）", riskBadge(s.Risk.Level), s.Risk.Score)
 	var b strings.Builder
 	b.WriteString("\n<details>\n<summary>" + head + "</summary>\n\n")
@@ -84,6 +84,11 @@ func RenderReportSection(s *Snapshot) string {
 	if mermaid != "" {
 		b.WriteString("> 图例：左→右 = 影响方向（左=本次改动，右=受影响）；红=改动文件，黄=改动符号（有调用方者），蓝=受影响包，绿=测试。\n\n")
 		b.WriteString("```mermaid\n" + mermaid + "```\n")
+		// v5.6.3 caller 预算图注：被剪边必须让读者知道是视图剪裁而非完整面
+		if trimmedCallers > 0 {
+			fmt.Fprintf(&b, "\n> 调用方边按评论图预算剪裁 %d 条（每符号≤%d）；函数级细节用交互视图（`GET /tasks/:id/impact`）。\n",
+				trimmedCallers, maxCallerPerSym)
+		}
 		// 截断注明（渲染端点在 keep 集外的边会静默消失——与悬挂边同形态，
 		// 必须让读者知道这是视图截断而非完整面）
 		if len(s.Nodes) > MaxMermaidNodes {

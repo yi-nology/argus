@@ -139,3 +139,46 @@ func TestScriptLayerNoGoRepoNoteFlow(t *testing.T) {
 		t.Fatalf("产出边必须注明词法图: %v", s.Notes)
 	}
 }
+
+func TestScriptLayerPyImportAndCalls(t *testing.T) {
+	dir := t.TempDir()
+	// 绝对 import：report/main.py import util.helpers（同根包形态）
+	sgFile(t, dir, "util/helpers.py", "def fmt(x):\n    return x\n")
+	sgFile(t, dir, "util/__init__.py", "")
+	sgFile(t, dir, "report/main.py", "from util.helpers import fmt\n\ndef run():\n    return fmt(1)\n")
+	// 相对 import：report/sub.py → 同目录 sibling
+	sgFile(t, dir, "report/sibling.py", "VALUE = 1\n")
+	sgFile(t, dir, "report/sub.py", "from .sibling import VALUE\n")
+	s := sgSnap("util/helpers.py")
+	affected, calls := buildScriptLayer(context.Background(), dir, s, time.Now().Add(5*time.Second))
+	if sgCountRel(s, RelSource) < 1 {
+		t.Fatalf("helpers 应被 main.py 装载: edges=%+v", s.Edges)
+	}
+	if calls == 0 {
+		t.Fatalf("py def fmt 应命中 main.py 调用位")
+	}
+	_ = affected
+	s2 := sgSnap("report/sibling.py")
+	buildScriptLayer(context.Background(), dir, s2, time.Now().Add(5*time.Second))
+	if sgCountRel(s2, RelSource) < 1 {
+		t.Fatalf("相对 import sibling 应被 sub.py 装载: %+v", s2.Edges)
+	}
+}
+
+func TestScriptLayerJSImportRelative(t *testing.T) {
+	dir := t.TempDir()
+	sgFile(t, dir, "src/lib.js", "export const x = 1\n")
+	sgFile(t, dir, "src/app.js", "import { x } from './lib.js'\nconsole.log(x)\n")
+	sgFile(t, dir, "src/idx/index.ts", "export const y = 2\n")
+	sgFile(t, dir, "src/app2.js", "import { y } from './idx'\n")
+	s := sgSnap("src/lib.js")
+	buildScriptLayer(context.Background(), dir, s, time.Now().Add(5*time.Second))
+	if sgCountRel(s, RelSource) < 1 {
+		t.Fatalf("lib.js 应被 app.js require: edges=%+v", s.Edges)
+	}
+	s2 := sgSnap("src/idx/index.ts")
+	buildScriptLayer(context.Background(), dir, s2, time.Now().Add(5*time.Second))
+	if sgCountRel(s2, RelSource) < 1 {
+		t.Fatalf("index.ts 应被 app2.js 经目录导入命中: %+v", s2.Edges)
+	}
+}

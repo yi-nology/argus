@@ -37,6 +37,7 @@ type repoMapEntry struct {
 	snap   []byte // nil = 生成中（in-flight 占位，并发请求直接让路）
 	errMsg string // 生成失败短因（缓存半程 TTL，防坏仓反复打克隆）
 	empty  bool   // 空图（纯文档仓）缓存
+	dir    string // 工作副本目录（freshness 探测用）
 }
 
 // repoMaps 进程内缓存（Service 单例同生命周期；包级变量与 Bearer 同模式）。
@@ -110,8 +111,14 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 		fresh := now.Sub(e.at) < repoMapTTL
 		switch {
 		case e.snap != nil && fresh:
-			repoMaps.mu.Unlock()
-			return e.snap, nil
+			// v5.6.3 freshness：远程 HEAD 与本地副本一致才回缓存。探测失败按
+			// 一致处理——探测是优化不是正确性依赖，宁可旧图不打死缓存。
+			if s.repoMapHeadMatches(ctx, e.dir) {
+				repoMaps.mu.Unlock()
+				return e.snap, nil
+			}
+			// 失配：丢弃旧副本走下方全量重建（cloneForMap 见无 .git 重克隆）
+			os.RemoveAll(e.dir)
 		case e.snap == nil && e.errMsg == "" && fresh:
 			repoMaps.mu.Unlock()
 			return nil, fmt.Errorf("地图生成中（浅克隆+扫描），数十秒后重试")
@@ -137,13 +144,33 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 		return nil, err
 	}
 	if len(snap.Nodes) == 0 {
-		repoMaps.items[key] = repoMapEntry{at: time.Now(), empty: true, snap: b}
+		repoMaps.items[key] = repoMapEntry{at: time.Now(), empty: true, snap: b, dir: dir}
 		repoMaps.mu.Unlock()
 		return b, nil
 	}
-	repoMaps.items[key] = repoMapEntry{at: time.Now(), snap: b}
+	repoMaps.items[key] = repoMapEntry{at: time.Now(), snap: b, dir: dir}
 	repoMaps.mu.Unlock()
 	return b, nil
+}
+
+// repoMapHeadMatches 远程默认分支 HEAD 与本地副本是否一致（ls-remote 单往返，
+// 10s 超时）。任何失败按一致处理——见上。
+func (s *Service) repoMapHeadMatches(ctx context.Context, dir string) bool {
+	if dir == "" {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	local, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return true
+	}
+	remote, err := exec.CommandContext(ctx, "git", "ls-remote", "origin", "HEAD").Output()
+	if err != nil {
+		return true
+	}
+	fields := strings.Fields(string(remote))
+	return len(fields) > 0 && fields[0] == strings.TrimSpace(string(local))
 }
 
 // cloneForMap 浅克隆（复用既有副本且 TTL 内免 fetch）。ctx 贯穿 git 进程取消。

@@ -14,18 +14,57 @@ import (
 // 节点超 MaxMermaidNodes 先聚合（symbol/test → 所属 file，file → 所属 package），
 // 源超 MaxMermaidRunes 二次聚合后仍超则返回空串（调用方降级 RenderList）。
 func RenderMermaid(s *Snapshot) string {
-	if s == nil || len(s.Nodes) == 0 {
-		return ""
+	src, _ := RenderMermaidWithStats(s)
+	return src
+}
+
+// 评论图 caller 边预算（v5.6.3）：词法图层后单 MR 的 sym→file caller 边可轻易
+// 破 40 条（deploy-sql 实弹 45 条，逼近 MaxMermaidRunes 截断线），评论图职责是
+// "受影响面速览"，函数级细节由交互图（/tasks/:id/impact）承载。每改动符号
+// 最多 maxCallerPerSym 条（字典序确定性），caller 总预算 maxCallerEdgesComment。
+const (
+	maxCallerEdgesComment = 24
+	maxCallerPerSym       = 3
+)
+
+// trimCallerEdgesForComment 评论视图的 caller 边修剪（纯函数：返回新切片，
+// 不污染 s.Edges——聚合轮依赖完整边集）。返回 (修剪后边集, 被剪条数)。
+func trimCallerEdgesForComment(edges []Edge) ([]Edge, int) {
+	per := map[string]int{}
+	out := make([]Edge, 0, len(edges))
+	budget := maxCallerEdgesComment
+	trimmed := 0
+	for _, e := range edges {
+		if e.Rel != RelCaller {
+			out = append(out, e)
+			continue
+		}
+		if per[e.From] >= maxCallerPerSym || budget <= 0 {
+			trimmed++
+			continue
+		}
+		per[e.From]++
+		budget--
+		out = append(out, e)
 	}
-	if src := renderMermaid(s, s.Nodes, s.Edges); src != "" && runeLen(src) <= MaxMermaidRunes {
-		return src
+	return out, trimmed
+}
+
+// RenderMermaidWithStats 同 RenderMermaid，额外返回被剪 caller 边数（图注用）。
+func RenderMermaidWithStats(s *Snapshot) (string, int) {
+	if s == nil || len(s.Nodes) == 0 {
+		return "", 0
+	}
+	edges, trimmed := trimCallerEdgesForComment(s.Edges)
+	if src := renderMermaid(s, s.Nodes, edges); src != "" && runeLen(src) <= MaxMermaidRunes {
+		return src, trimmed
 	}
 	// 一次聚合：非改动 file 节点并入所属 package（或删除孤立文件节点）
 	aggNodes, aggEdges := aggregateToPackages(s)
 	if src := renderMermaid(s, aggNodes, aggEdges); src != "" && runeLen(src) <= MaxMermaidRunes {
-		return src
+		return src, trimmed
 	}
-	return "" // 仍超 → 降级列表
+	return "", trimmed // 仍超 → 降级列表
 }
 
 // renderMermaid 具体渲染（节点已选定）。无可渲染节点返回空串。
