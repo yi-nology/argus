@@ -35,6 +35,11 @@ func scoreRisk(in riskInput) Risk {
 		score += add
 		reasons = append(reasons, strconv.Itoa(add)+"分：命中 "+strconv.Itoa(in.CallSites)+" 处调用方")
 	}
+	if in.ScriptAffected > 0 {
+		add := minInt(in.ScriptAffected*2, 12)
+		score += add
+		reasons = append(reasons, strconv.Itoa(add)+"分：波及 "+strconv.Itoa(in.ScriptAffected)+" 个脚本/用表方（词法图）")
+	}
 	if in.ExportedSymbols > 0 {
 		score += 10
 		reasons = append(reasons, "10分：改动含导出符号（对外契约面）")
@@ -89,6 +94,7 @@ type riskInput struct {
 	StrongCoupling    int  // ≥MinCoupleCount 的共变对数
 	DepsChanged       bool // go.mod/go.sum 在改动清单（依赖面变更）
 	TestsOnlyChanged  bool // 改动全部为测试文件（降分项）
+	ScriptAffected    int  // v5.6.0 词法图波及文件数（非 Go 仓 source/血缘传导）
 }
 
 // detectSignatureChange diff 文本里是否有 func 声明行的增/删（近似判定：

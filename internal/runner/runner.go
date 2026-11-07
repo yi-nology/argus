@@ -331,6 +331,13 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		var snap impactview.Snapshot
 		if err := json.Unmarshal([]byte(raw), &snap); err == nil {
 			rep.ImpactSection = impactview.RenderReportSection(&snap)
+			// v5.6.0 交互图路标：HTML 视图是 🔒 鉴权面（authMw），措辞不承诺
+			// "人人可点"，指向有 API 令牌的读者。
+			if rep.ImpactSection != "" && r.Cfg.PublicURL != "" && len(snap.Nodes) > 0 {
+				rep.ImpactSection += fmt.Sprintf(
+					"\n> 🔎 [交互式影响面图](%s/tasks/%s/impact)（自包含单页：缩放/拖拽/搜索/点选详情，需 API 令牌）\n",
+					r.Cfg.PublicURL, task.ID)
+			}
 		}
 	}
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）

@@ -254,6 +254,10 @@ aside .kv{margin:2px 0;font-size:12px;color:#334155;word-break:break-all}
 aside .kv b{color:#64748b;font-weight:500;margin-right:6px}
 details{margin:8px 20px}
 summary{cursor:pointer;color:#334155}
+#kinds{display:inline-flex;gap:4px;margin:0 6px}
+.kchip{padding:2px 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;font-size:12px;cursor:pointer;user-select:none}
+.kchip.on{background:#1e293b;color:#fff;border-color:#1e293b}
+.node.focus rect{stroke:#2563eb;stroke-width:2.5}
 </style></head><body>
 <header>
 <h1>Argus 影响面视图</h1>
@@ -263,7 +267,9 @@ summary{cursor:pointer;color:#334155}
 </header>
 <div id="toolbar">
 <input id="q" placeholder="搜索文件 / 包 / 符号…">
+<span id="kinds"></span>
 <button id="zin">放大</button><button id="zout">缩小</button><button id="fit">复位</button>
+<button id="export">导出 SVG</button>
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
 <details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
@@ -286,19 +292,40 @@ window.addEventListener('mousemove',e=>{if(!drag)return;tx=e.clientX-drag.x;ty=e
 window.addEventListener('mouseup',()=>{drag=null;vp.classList.remove('dragging');});
 document.getElementById('zin').onclick=()=>{scale=Math.min(4,scale*1.25);apply();};
 document.getElementById('zout').onclick=()=>{scale=Math.max(.2,scale/1.25);apply();};
-document.getElementById('fit').onclick=()=>{scale=1;tx=0;ty=0;q.value='';filter('');panel.style.display='none';apply();};
+document.getElementById('fit').onclick=()=>{scale=1;tx=0;ty=0;q.value='';setFocus(null);filter('');panel.style.display='none';apply();};
 q.addEventListener('input',()=>filter(q.value.trim().toLowerCase()));
+// v5.6.0 探索器增强 ①类型过滤 chips（file/symbol/table/package/test 计数）
+const kindFilter=new Set();
+const kindsEl=document.getElementById('kinds');
+const kindCounts={};data.nodes.forEach(n=>{kindCounts[n.kind]=(kindCounts[n.kind]||0)+1;});
+Object.keys(kindCounts).sort().forEach(k=>{
+ const b=document.createElement('span');b.className='kchip on';b.dataset.k=k;
+ b.textContent=k+' '+kindCounts[k];
+ b.onclick=()=>{if(kindFilter.has(k)){kindFilter.delete(k);b.classList.remove('on');}else{kindFilter.add(k);b.classList.add('on');}filter(q.value.trim().toLowerCase());};
+ kindsEl.appendChild(b);
+});
+let focusId=null,focusSet=null;
+function neighborhood(id){
+ const s=new Set([id]);
+ data.edges.forEach(e=>{if(e.from===id)s.add(e.to);if(e.to===id)s.add(e.from);});
+ return s;
+}
+function setFocus(id){focusId=id;focusSet=id?neighborhood(id):null;}
 function filter(kw){
  const hit={};
  document.querySelectorAll('#g .node').forEach(g=>{
   const id=g.dataset.id,n=byId[id];
-  hit[id]=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw)));
+  const kwOK=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw)));
+  const kindOK=!kindFilter.size||!n||!kindFilter.has(n.kind);
+  const focusOK=!focusId||id===focusId||focusSet.has(id);
+  hit[id]=kwOK&&kindOK&&focusOK;
   g.classList.toggle('dim',!hit[id]);
+  g.classList.toggle('focus',focusId===id);
  });
  // 边联动：kw 为空全亮；有 kw 时仅两端都命中的边保持可见
  //（data-i 回查快照边序，不依赖 DOM 序=数据序）
  document.querySelectorAll('#g .edge').forEach(p=>{
-  if(!kw){p.classList.remove('dim');return;}
+  if(!kw&&!kindFilter.size&&!focusId){p.classList.remove('dim');return;}
   const e=data.edges[+p.dataset.i];
   p.classList.toggle('dim',!(e&&hit[e.from]&&hit[e.to]));
  });
@@ -306,18 +333,34 @@ function filter(kw){
 svg.addEventListener('click',e=>{
  const g=e.target.closest('.node');if(!g)return;
  const n=byId[g.dataset.id];if(!n)return;
+ // v5.6.0 探索器增强 ②邻域聚焦：点选节点高亮其一跳邻居，再点同节点/复位取消
+ setFocus(focusId===n.id?null:n.id);
+ filter(q.value.trim().toLowerCase());
  const edgesIn=data.edges.filter(x=>x.to===n.id),edgesOut=data.edges.filter(x=>x.from===n.id);
  const li=a=>a.map(x=>'<div class="kv">'+(x.rel||'')+' → '+(byId[x.to]?byId[x.to].label:x.to)+'</div>').join('')||'<div class="kv">—</div>';
  panel.innerHTML='<h3>'+esc(n.label)+'</h3>'
   +'<div class="kv"><b>类型</b>'+esc(n.kind)+(n.changed?'（本轮改动）':'')+'</div>'
   +(n.detail?'<div class="kv"><b>详情</b>'+esc(n.detail)+'</div>':'')
   +'<div class="kv"><b>ID</b>'+esc(n.id)+'</div>'
+  +'<div class="kv"><b>聚焦</b>'+(focusId?'已聚焦一跳邻居（再点本节点取消）':'未聚焦')+'</div>'
   +'<h3 style="margin-top:12px">入边 '+edgesIn.length+'</h3>'+li(edgesIn)
   +'<h3 style="margin-top:12px">出边 '+edgesOut.length+'</h3>'+li(edgesOut);
  panel.style.display='block';
  document.getElementById('closepanel').style.display='inline-block';
 });
 document.getElementById('closepanel').onclick=function(){panel.style.display='none';this.style.display='none';};
+// v5.6.0 探索器增强 ③导出 SVG：克隆图+内联样式单文件落盘（离线评审/贴周报用）
+document.getElementById('export').onclick=()=>{
+ const clone=svg.cloneNode(true);
+ const st=document.createElementNS('http://www.w3.org/2000/svg','style');
+ st.textContent=Array.from(document.styleSheets).flatMap(ss=>{try{return Array.from(ss.cssRules).map(r=>r.cssText);}catch(e){return [];}}).join('\n');
+ clone.insertBefore(st,clone.firstChild);
+ clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+ const blob=new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+ a.download='argus-impact-'+(data&&data.nodes?data.nodes.length:'x')+'.svg';a.click();
+ setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+};
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 apply();
 </script></body></html>`

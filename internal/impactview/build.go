@@ -110,6 +110,13 @@ func Build(ctx context.Context, in Input) *Snapshot {
 		s.Notes = append(s.Notes, "未提供 base 参照，函数级 diff 跳过")
 	}
 
+	// ---- v5.6.0 多语言图层：非 Go 仓词法图（source/函数调用/表血缘；预算内） ----
+	// Go 仓不走此层：import 闭包+AST 是更强的真相源，词法图只会添误报。
+	scriptAffected, scriptCalls := 0, 0
+	if in.Dir != "" && (ws == nil || ws.module == "") && ctx.Err() == nil && time.Now().Before(deadline) {
+		scriptAffected, scriptCalls = buildScriptLayer(ctx, in.Dir, s, deadline)
+	}
+
 	// ---- 风险分（确定性） ----
 	exported := 0
 	for _, h := range syms {
@@ -123,10 +130,11 @@ func Build(ctx context.Context, in Input) *Snapshot {
 			strongCoupling++
 		}
 	}
-	s.Stats.CallSites = callTotal
+	s.Stats.CallSites = callTotal + scriptCalls
 	s.Risk = scoreRisk(riskInput{
 		AffectedPackages:  countForeignPackages(affected, s.Changed),
-		CallSites:         callTotal,
+		CallSites:         callTotal + scriptCalls,
+		ScriptAffected:    scriptAffected,
 		ExportedSymbols:   exported,
 		SignatureChanged:  detectSignatureChange(in.DiffText),
 		TestsMissing:      testsMissing(affected),

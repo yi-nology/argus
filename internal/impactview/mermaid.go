@@ -124,6 +124,8 @@ func prioritizeNodes(nodes []Node, max int) []Node {
 			return 1
 		case n.Kind == KindPackage:
 			return 2
+		case n.Kind == KindTable: // v5.6.0 血缘枢纽：与包同级可见性
+			return 2
 		case n.Kind == KindTest:
 			return 3
 		default:
@@ -244,6 +246,10 @@ func mermaidRel(rel string) string {
 		return "波及依赖包"
 	case RelCaller:
 		return "波及调用方"
+	case RelSource:
+		return "波及装载方"
+	case RelLineage:
+		return "表血缘"
 	case RelTestOf:
 		return "需跑测试"
 	case RelCouple:
