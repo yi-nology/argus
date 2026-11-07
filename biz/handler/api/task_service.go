@@ -210,3 +210,29 @@ func HealthReport(ctx context.Context, c *app.RequestContext) {
 	}
 	mw.SuccessRespMsg(c, resp, "ok")
 }
+
+// RepoMap 仓库级代码地图（自包含交互 HTML 直写，v5.6.2）。
+// owner/repo 走 query：repo 常含子群斜杠（obs/ops/deploy-sql），路径段不跨 /。
+// @router /repos/map [GET]
+func RepoMap(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	owner, repo := c.Query("owner"), c.Query("repo")
+	if owner == "" || repo == "" {
+		mw.ErrorResp(c, consts.StatusBadRequest, "缺少 owner/repo（query 参数）")
+		return
+	}
+	platform, err := Svc.RepoMapPlatform(c.Query("platform"))
+	if err != nil {
+		mw.ErrorResp(c, consts.StatusBadRequest, err.Error())
+		return
+	}
+	page, err := Svc.RepoMapHTML(ctx, platform, owner, repo)
+	if err != nil {
+		// 生成中/克隆失败/空图统一 502（上游 git/扫描面故障，非客户端错误）
+		mw.ErrorResp(c, consts.StatusBadGateway, err.Error())
+		return
+	}
+	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
+}

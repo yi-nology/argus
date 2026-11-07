@@ -199,6 +199,8 @@ struct StatsOverviewResponse {}
 // TaskImpactResponse 响应为自包含交互 HTML（c.Data 直写 text/html，无 JSON 信封）。
 struct TaskImpactResponse {}
 
+struct RepoMapResponse {} // 仓库级代码地图（v5.6.2）：自包含交互 HTML 直写（同 TaskImpact，无 JSON 信封）。
+
 struct HealthReportResponse {}
 
 service TaskService {
@@ -215,6 +217,8 @@ service TaskService {
     StatsOverviewResponse StatsOverview(1: StatsOverviewRequest request) (api.get="/stats/overview")
     // 任务影响面交互视图（v3.183.0）。
     TaskImpactResponse TaskImpact(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId/impact")
+    // 仓库级代码地图（v5.6.2）：整仓目录依赖图自包含交互 HTML（浅克隆+TTL 缓存）。
+    RepoMapResponse RepoMap(1: string owner (api.query="owner"), 2: string repo (api.query="repo"), 3: optional string platform (api.query="platform")) (api.get="/repos/map")
     // 健康报告查询面（v3.13.0，与周期 IM 推送同数据源）。
     HealthReportResponse HealthReport() (api.get="/reports/health")
 }

@@ -159,3 +159,13 @@ func _reposettingsgetMw() []app.HandlerFunc {
 func _reposettingsputMw() []app.HandlerFunc {
 	return authMw() // 🔒 v3.187.0 写入覆盖（admin 档由 requiredScope 收口）
 }
+
+func _reposMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _repomapMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

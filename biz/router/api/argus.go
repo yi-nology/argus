@@ -49,6 +49,10 @@ func Register(r *server.Hertz) {
 		_reports.GET("/:ref", append(_reportbyrefMw(), api.ReportByRef)...)
 	}
 	{
+		_repos := root.Group("/repos", _reposMw()...)
+		_repos.GET("/map", append(_repomapMw(), api.RepoMap)...)
+	}
+	{
 		_stats := root.Group("/stats", _statsMw()...)
 		_stats.GET("/overview", append(_statsoverviewMw(), api.StatsOverview)...)
 	}

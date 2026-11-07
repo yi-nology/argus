@@ -213,6 +213,7 @@ func New(core Core, version string) *server.MCPServer {
 	})
 	NewCopilotTools(s, core)
 	NewImpactTool(s, core)     // v3.183.0：core 实现 ImpactViewer（影响面快照）时注册
+	NewRepoMapTool(s, core)    // v5.6.2：core 实现 RepoMapper（仓库代码地图）时注册
 	NewRepoConfigTool(s, core) // v3.187.0：core 实现 RepoConfigViewer（按仓配置只读视图）时注册
 	NewFixerTool(s, core)      // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
 	NewSuppressorTool(s, core) // v3.128.0：core 实现 FindingSuppressor（admin scope 透传二次判定）时注册

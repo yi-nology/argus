@@ -24,6 +24,16 @@ const (
 
 // RenderHTML 渲染自包含交互 HTML（taskID 仅作页头标识可空；快照空节点返回空串）。
 func RenderHTML(s *Snapshot, taskID string) string {
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID))
+}
+
+// RenderRepoHTML 仓库级代码地图页（v5.6.2）：同一渲染面，页头换标题与
+// 仓库标识；空图返回空串。
+func RenderRepoHTML(s *Snapshot, repoLabel string) string {
+	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel))
+}
+
+func renderImpactHTML(s *Snapshot, taskID, title, headLabel string) string {
 	if s == nil || len(s.Nodes) == 0 {
 		return ""
 	}
@@ -31,7 +41,7 @@ func RenderHTML(s *Snapshot, taskID string) string {
 	dataStr := strings.ReplaceAll(string(data), "</", `<\/`) // script 内闭合防线
 	vn, vi, ve := viewGraph(s)
 	pos, w, h := layoutSVG(vn, ve)
-	return htmlTemplate(html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
+	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
 		string(dataStr), svgBody(pos, vn, vi, ve), w, h)
 }
 
@@ -211,8 +221,9 @@ func truncateRunes(s string, max int) string {
 	return string(r[:max-1]) + "…"
 }
 
-// htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。
-func htmlTemplate(riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int) string {
+// htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。title/headLabel 支撑
+// 影响面与仓库地图双页头（v5.6.2）。
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
@@ -223,7 +234,7 @@ func htmlTemplate(riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string
 	}
 	return `<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
-<title>Argus 影响面视图 · 风险 ` + riskBadgeStr + `</title>
+<title>` + title + ` · 风险 ` + riskBadgeStr + `</title>
 <style>
 body{font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;color:#0f172a;background:#f8fafc}
 header{padding:12px 20px;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
@@ -260,10 +271,10 @@ summary{cursor:pointer;color:#334155}
 .node.focus rect{stroke:#2563eb;stroke-width:2.5}
 </style></head><body>
 <header>
-<h1>Argus 影响面视图</h1>
+<h1>` + title + `</h1>
 <span class="badge ` + s.Risk.Level + `">风险 ` + riskBadgeStr + ` · ` + fmt.Sprint(s.Risk.Score) + ` 分</span>
 <span class="meta">` + html.EscapeString(fmt.Sprintf("%d 改动 · %d 节点 · %d 边 · 调用位 %d · 共变 %d", len(s.Changed), len(s.Nodes), len(s.Edges), s.Stats.CallSites, len(s.Coupling))) + `</span>
-<span class="meta">` + taskMeta(taskID) + `</span>
+<span class="meta">` + headLabel + `</span>
 </header>
 <div id="toolbar">
 <input id="q" placeholder="搜索文件 / 包 / 符号…">
