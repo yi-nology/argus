@@ -175,6 +175,11 @@ func newBuiltinAgent(d *Deps, decl *plugin.AgentDecl, manifest dispatch.AgentMan
 	if c, ok := client.(*llm.Client); ok && d.ReviewerLLM == nil {
 		c.ContextTokens = d.Cfg.LLM.ContextToken
 		c.MaxOutputTokens = d.Cfg.MaxTokensResolved()
+		// v5.5.2：插件单轮兜底路径（ReAct 失败后落这里）此前恒用库默认
+		// 3 试/2s——分钟级 RPM 限流下退避够不着窗口，security 等插件被
+		// 429 静默打掉；韧性参数在此同样接线。
+		c.MaxRetries = d.Cfg.LLM.LLMResilienceRetries + 1
+		c.BaseDelay = d.Cfg.LLM.LLMResilienceBaseDelay
 	}
 	if d.ReviewerLLM != nil {
 		client = d.ReviewerLLM

@@ -148,6 +148,9 @@ func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow
 		// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
 		c.ContextTokens = r.Cfg.LLM.ContextToken
 		c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
+		// v5.5.2：同 bootstrap——单模型 Client 也吃韧性参数（MaxRetries 含首次，+1 对齐）。
+		c.MaxRetries = r.Cfg.LLM.LLMResilienceRetries + 1
+		c.BaseDelay = r.Cfg.LLM.LLMResilienceBaseDelay
 		c.Limiter = r.LLMLimiter
 		// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
 		c.OnUsage = func(stage string, prompt, completion int) {

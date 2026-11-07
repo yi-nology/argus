@@ -149,6 +149,12 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 		c := llm.NewClient(chatModel, cfg.LLM.Model, nil)
 		c.ContextTokens = cfg.LLM.ContextToken
 		c.MaxOutputTokens = cfg.MaxTokensResolved()
+		// v5.5.2：无降级分支同样落 RETRIES/BASE_DELAY——此前该 env 只在 Resilient
+		// 链生效，单模型 Client 恒用库默认（3 试/2s 基），429 退避够不着分钟级限流
+		// 窗口（demoos 网关 per-model RPM 实测 10）。Client.MaxRetries 含首次，
+		// env 语义「不含首次」，+1 对齐。
+		c.MaxRetries = cfg.LLM.LLMResilienceRetries + 1
+		c.BaseDelay = cfg.LLM.LLMResilienceBaseDelay
 		c.Limiter = m.Limiter
 		m.Generate = c
 		return nil, nil
@@ -427,6 +433,9 @@ func stageGenerator(p llm.Provider, fallback llm.Provider, so *config.StageOverr
 		c.ContextTokens = cfg.LLM.ContextToken
 	}
 	c.MaxOutputTokens = cfg.MaxTokensResolved()
+	// v5.5.2：同 buildGenerateChain——单模型 Client 也吃全局韧性参数。
+	c.MaxRetries = cfg.LLM.LLMResilienceRetries + 1
+	c.BaseDelay = cfg.LLM.LLMResilienceBaseDelay
 	c.Limiter = limiter
 	return c, nil
 }

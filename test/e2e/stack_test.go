@@ -182,6 +182,21 @@ func (f *fakeProvider) CreateIssueComment(_ context.Context, _, _, _ string, bod
 	return c, nil
 }
 
+// DeleteIssueComment v0.114.0 gp#33 起 IssueManager 主路方法：必须显式实现，
+// 否则 promoted method 落嵌入接口（nil）panic——rotateSummary head 轮换
+// （v5.4.7）即经此。语义对齐生产：删不存在的 comment 返回 nil（幂等）。
+func (f *fakeProvider) DeleteIssueComment(_ context.Context, _, _, _ string, commentID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, c := range f.comments {
+		if c.ID == commentID {
+			f.comments = append(f.comments[:i], f.comments[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 // CreateNote DiffManager 路径（sdkctx v3.0.3 起优先走 MR Notes API）：
 // 必须显式实现，否则 DiffManager 断言命中嵌入接口的 promoted method（nil panic 兜底）。
 // 语义与 CreateIssueComment 一致：新建一条总结评论，返回字符串 note ID。
