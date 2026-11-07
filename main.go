@@ -185,6 +185,9 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// master token；为空=鉴权关闭，本机制整体不启用）。泄露面=单任务图谱，
 	// 其数据在 MR 评论中本已全量公开。
 	rapi.SetImpactShare = svc.ImpactShareVerifier()
+	// v5.6.4 仓库地图 share（repo-map 域令牌；v5.6.2 起鉴权 mw 曾被 hz 重生成
+	// 吞掉致匿名开放，此热修一并补上 share 面）
+	rapi.SetRepoMapShare = svc.RepoMapShareVerifier()
 
 	// ---- HTTP（ARGUS_ADDR 默认 :8899）----
 	// oekit/logx hlog 桥接：Hertz 框架内部日志（连接异常、路由警告等）统一走 logx。

@@ -6,6 +6,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"html"
+	"net/url"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 
@@ -71,5 +74,24 @@ func (s *Service) ImpactViewHTML(ctx context.Context, taskID string) (string, bo
 	if !ok {
 		return "", false
 	}
-	return impactview.RenderHTML(snap, task.ID), true
+	page := impactview.RenderHTML(snap, task.ID)
+	// v5.6.4 图谱互跳：影响图页头注入整仓地图链接（同源相对路径；带 repo-map
+	// share 令牌——share 访客（免登看任务图谱）点过去不落 401；secret 空=
+	// 鉴权关闭时裸链即可）。
+	if page != "" {
+		link := repoMapLink(s.Cfg.APIToken, task.Platform, task.Owner, task.Repo)
+		page = strings.Replace(page, "<header>",
+			`<header><a class="meta" href="`+html.EscapeString(link)+`" style="margin-left:auto">🗺 整仓地图</a>`, 1)
+	}
+	return page, true
+}
+
+// repoMapLink 整仓地图互跳链接（share 令牌可选注入）。
+func repoMapLink(secret, platform, owner, repo string) string {
+	link := "/repos/map?platform=" + url.QueryEscape(platform) +
+		"&owner=" + url.QueryEscape(owner) + "&repo=" + url.QueryEscape(repo)
+	if tok := impactview.ImpactShareToken(secret, repoMapShareID(platform, owner, repo)); tok != "" {
+		link += "&share=" + tok
+	}
+	return link
 }

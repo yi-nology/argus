@@ -21,6 +21,10 @@ var SetAuth app.HandlerFunc // nil = 未装配（放行，仅学习期）
 // 有效 ?share=（任务绑定 HMAC 令牌）放行该任务 /impact 页，否则回落 Bearer。
 var SetImpactShare func(c *app.RequestContext) bool
 
+// SetRepoMapShare 仓库地图 share 校验器注入点（v5.6.4）：repo-map 域令牌，
+// 与任务域互不通用。
+var SetRepoMapShare func(c *app.RequestContext) bool
+
 func rootMw() []app.HandlerFunc {
 	// your code...
 	return nil
@@ -166,6 +170,15 @@ func _reposMw() []app.HandlerFunc {
 }
 
 func _repomapMw() []app.HandlerFunc {
-	// your code...
-	return nil
+	// 🔒 v5.6.2 仓库代码地图——**v5.6.2/v5.6.3 曾失守**：hz update 重生成把
+	// 手改恢复成 stub，当时漏补致匿名可访问（v5.6.4 热修，实弹复验四态）。
+	// v5.6.4 起有效 ?share=（repo-map 域令牌）免 Bearer 放行。
+	return []app.HandlerFunc{func(ctx context.Context, c *app.RequestContext) {
+		if SetRepoMapShare != nil && SetRepoMapShare(c) {
+			return
+		}
+		for _, h := range authMw() {
+			h(ctx, c)
+		}
+	}}
 }

@@ -49,6 +49,9 @@ type FuncSnap struct {
 	Signature string   `json:"signature"`       // 声明头原文（≤200 runes）
 	Calls     []string `json:"calls,omitempty"` // 出边调用限定名（有序去重）
 	Lines     int      `json:"lines"`           // 函数体行数（体量变化感知）
+	// BodyHash 函数体文本指纹（v5.6.4 脚本版专用：行数不变体变的感知，
+	// 如 pass→return 1；Go 版不填——AST 口径下 Calls 增减已覆盖）。
+	BodyHash string `json:"body_hash,omitempty"`
 }
 
 // FuncDiff 函数级 diff 条目。

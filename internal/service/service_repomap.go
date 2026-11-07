@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
+
 	"argus/internal/impactview"
 )
 
@@ -45,6 +47,23 @@ var repoMaps = struct {
 	mu    sync.Mutex
 	items map[string]repoMapEntry
 }{items: map[string]repoMapEntry{}}
+
+// repoMapShareID 仓库地图 share 令牌域（与任务 share 同 HMAC 机制、域串不同
+// ——任务令牌开不了地图页，反之亦然）。
+func repoMapShareID(platform, owner, repo string) string {
+	return "repo-map:" + platform + "/" + owner + "/" + repo
+}
+
+// RepoMapShareVerifier main 装配进 routerapi.SetRepoMapShare：?share= 命中
+// repo-map 域令牌免 Bearer 放行该仓地图页，否则回落 Bearer。
+func (s *Service) RepoMapShareVerifier() func(*app.RequestContext) bool {
+	secret := s.Cfg.APIToken
+	return func(c *app.RequestContext) bool {
+		return impactview.ImpactShareValid(secret,
+			repoMapShareID(c.Query("platform"), c.Query("owner"), c.Query("repo")),
+			c.Query("share"))
+	}
+}
 
 // RepoMapPlatform 解析地图请求的平台：显式 query 优先；缺省=唯一已配置平台，
 // 多平台歧义报错（提示带 platform 参数）。

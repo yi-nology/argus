@@ -101,6 +101,8 @@ func Build(ctx context.Context, in Input) *Snapshot {
 	}
 
 	// ---- v3.185.0 函数/方法级图 diff：base 切面对比（预算内才做） ----
+	// v5.6.4 起 shell/py 走词法版（funcdiff_script.go），与 Go 版共用 FuncDiffs
+	// 出口（mermaid/HTML/prompt 三面零改动生效）；Go 在前脚本在后保持稳定序。
 	if in.BaseRef != "" && in.Dir != "" && hasGoChanged(s.Changed) && ctx.Err() == nil && time.Now().Before(deadline) {
 		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges, in.InsecureTLS)
 		s.FuncDiffs = fds
@@ -108,6 +110,12 @@ func Build(ctx context.Context, in Input) *Snapshot {
 		s.Stats.FuncDiffs = len(fds)
 	} else if in.BaseRef == "" && in.Dir != "" && hasGoChanged(s.Changed) {
 		s.Notes = append(s.Notes, "未提供 base 参照，函数级 diff 跳过")
+	}
+	if in.BaseRef != "" && in.Dir != "" && hasScriptChanged(s.Changed) && ctx.Err() == nil && time.Now().Before(deadline) {
+		sfds, snNotes := diffScriptFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges)
+		s.FuncDiffs = append(s.FuncDiffs, sfds...)
+		s.Notes = append(s.Notes, snNotes...)
+		s.Stats.FuncDiffs = len(s.FuncDiffs)
 	}
 
 	// ---- v5.6.0 多语言图层：非 Go 仓词法图（source/函数调用/表血缘；预算内） ----
