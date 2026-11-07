@@ -331,12 +331,15 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		var snap impactview.Snapshot
 		if err := json.Unmarshal([]byte(raw), &snap); err == nil {
 			rep.ImpactSection = impactview.RenderReportSection(&snap)
-			// v5.6.0 交互图路标：HTML 视图是 🔒 鉴权面（authMw），措辞不承诺
-			// "人人可点"，指向有 API 令牌的读者。
+			// 交互图路标（v5.6.0 附链接；v5.6.1 任务绑定 share 令牌——MR 评审人
+			// 免 API 令牌直开图谱页，secret 空=鉴权关闭时不带参数）。
 			if rep.ImpactSection != "" && r.Cfg.PublicURL != "" && len(snap.Nodes) > 0 {
+				link := fmt.Sprintf("%s/tasks/%s/impact", r.Cfg.PublicURL, task.ID)
+				if tok := impactview.ImpactShareToken(r.Cfg.APIToken, task.ID); tok != "" {
+					link += "?share=" + tok
+				}
 				rep.ImpactSection += fmt.Sprintf(
-					"\n> 🔎 [交互式影响面图](%s/tasks/%s/impact)（自包含单页：缩放/拖拽/搜索/点选详情，需 API 令牌）\n",
-					r.Cfg.PublicURL, task.ID)
+					"\n> 🔎 [交互式影响面图](%s)（自包含单页：缩放/拖拽/搜索/类型过滤/邻域聚焦/导出）\n", link)
 			}
 		}
 	}

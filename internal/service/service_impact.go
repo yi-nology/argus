@@ -7,10 +7,23 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/cloudwego/hertz/pkg/app"
+
 	"argus/internal/impactview"
 	"argus/internal/plugin"
 	"argus/internal/storage"
 )
+
+// ImpactShareVerifier 影响面 share 链接校验器（v5.6.1，main 装配进
+// routerapi.SetImpactShare）：?share= 命中任务绑定 HMAC 令牌即放行该任务的
+// /impact 页，否则回落 Bearer（middleware 层组合）。secret 取 API master
+// token，为空（鉴权关闭）恒 false——此场景下 Bearer 本就不拦。
+func (s *Service) ImpactShareVerifier() func(*app.RequestContext) bool {
+	secret := s.Cfg.APIToken
+	return func(c *app.RequestContext) bool {
+		return impactview.ImpactShareValid(secret, c.Param("taskId"), c.Query("share"))
+	}
+}
 
 // impactSnapshot 任务影响面快照。无任务/域外任务/无快照/坏 JSON 一律 false
 // （域外按不存在处理，不泄露存在性——TaskStages 同纪律）。

@@ -181,6 +181,10 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	})
 	hapi.SetService(svc)
 	rapi.SetAuth = svc.BearerMiddleware()
+	// v5.6.1 影响面 share 链接：任务绑定 HMAC 令牌免登可看图谱页（密钥=API
+	// master token；为空=鉴权关闭，本机制整体不启用）。泄露面=单任务图谱，
+	// 其数据在 MR 评论中本已全量公开。
+	rapi.SetImpactShare = svc.ImpactShareVerifier()
 
 	// ---- HTTP（ARGUS_ADDR 默认 :8899）----
 	// oekit/logx hlog 桥接：Hertz 框架内部日志（连接异常、路由警告等）统一走 logx。

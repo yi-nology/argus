@@ -8,12 +8,18 @@
 package api
 
 import (
+	"context"
+
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
 // SetAuth 由 main 装配注入 Bearer 中间件（§5 🔒 路由：/tasks、/tasks/:taskId、/agents）。
 // webhook 路由不挂此中间件——它靠平台签名（§10.2）。
 var SetAuth app.HandlerFunc // nil = 未装配（放行，仅学习期）
+
+// SetImpactShare 影响面 share 校验器注入点（v5.6.1，与 SetAuth 同装配模式）：
+// 有效 ?share=（任务绑定 HMAC 令牌）放行该任务 /impact 页，否则回落 Bearer。
+var SetImpactShare func(c *app.RequestContext) bool
 
 func rootMw() []app.HandlerFunc {
 	// your code...
@@ -75,7 +81,16 @@ func _taskidMw() []app.HandlerFunc {
 }
 
 func _taskimpactMw() []app.HandlerFunc {
-	return authMw() // 🔒 v3.183.0 影响面视图
+	// 🔒 v3.183.0 影响面视图；v5.6.1 起有效 ?share= 任务绑定令牌免 Bearer 放行
+	//（SetImpactShare 由 main 注入；nil = 无 share 面，恒走 Bearer）。
+	return []app.HandlerFunc{func(ctx context.Context, c *app.RequestContext) {
+		if SetImpactShare != nil && SetImpactShare(c) {
+			return
+		}
+		for _, h := range authMw() {
+			h(ctx, c)
+		}
+	}}
 }
 
 func _tasks0Mw() []app.HandlerFunc {
