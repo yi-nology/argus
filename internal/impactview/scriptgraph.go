@@ -64,6 +64,15 @@ var (
 	// 路径之后，与 Python 语法相反——首版写反实弹即漏）
 	reJSImport = regexp.MustCompile(`(?:require\(\s*["']([^"']+)["']\s*\)|import[^;\n]*?from[ \t]+["']([^"']+)["']|export[^;\n]*?from[ \t]+["']([^"']+)["'])`)
 	reToken    = regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`)
+	// Rust：mod 声明（带分号=文件模块；inline `mod x {` 不产生文件不入图）/
+	// use 路径（crate::/super::/self::，外部 crate 不入图）/ fn 定义
+	reRustMod  = regexp.MustCompile(`(?m)^[ \t]*(?:pub(?:\([\w ]+\))?[ \t]+)?mod[ \t]+([a-zA-Z_]\w*)[ \t]*;`)
+	reRustUse  = regexp.MustCompile(`(?m)^[ \t]*(?:pub(?:\([\w ]+\))?[ \t]+)?use[ \t]+([a-zA-Z_][\w]*::[\w:{}, ]*?)(?:[ \t]+as[ \t]+\w+)?[ \t]*;`)
+	reRustFunc = regexp.MustCompile(`(?m)^[ \t]*(?:pub(?:\([\w ]+\))?[ \t]+)?(?:async[ \t]+)?fn[ \t]+([a-zA-Z_]\w*)`)
+	// Java/Kotlin：import（通配 .* 不入图；静态导入同解析）
+	reJavaImport = regexp.MustCompile(`(?m)^[ \t]*import[ \t]+(?:static[ \t]+)?([\w.]+)[ \t]*;`)
+	// C/C++：#include "x.h"（双引号=本仓相对路径；<系统头> 不入图）
+	reCInclude = regexp.MustCompile(`(?m)^[ \t]*#[ \t]*include[ \t]*"([^"]+)"`)
 	// 引号/反引号/方括号起始的表名一律放过（字符类含 ` 不能进反引号原文，改双引号转义）
 	reSQLWrite = regexp.MustCompile("(?i)\\b(?:CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?|CREATE\\s+(?:OR\\s+REPLACE\\s+)?VIEW|INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|ALTER\\s+TABLE|MERGE\\s+INTO)\\s+[\"`\\[]?([a-zA-Z_][\\w$]*(?:\\.[a-zA-Z_][\\w$]*)?)")
 	reSQLRead  = regexp.MustCompile("(?i)\\b(?:FROM|JOIN)\\s+[\"`\\[]?([a-zA-Z_][\\w$]*(?:\\.[a-zA-Z_][\\w$]*)?)")
@@ -273,7 +282,8 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 			return nil
 		}
 		switch filepath.Ext(path) {
-		case ".sh", ".bash", ".sql", ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx":
+		case ".sh", ".bash", ".sql", ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx",
+			".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx":
 			if len(paths) >= MaxScriptFiles {
 				return nil
 			}
@@ -290,6 +300,28 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 	fileSet := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		fileSet[p] = true
+	}
+	// 段边界后缀索引（v5.6.5）：包路径相对源根而非仓库根（Maven src/main/java、
+	// Python src 布局同病）——键=任意段边界起的路径后缀，值=完整 rel（先到先得，
+	// paths 已排序保证确定性）。JVM import 与 Python 绝对模块共用。
+	suffixIdx := map[string]string{}
+	for _, p := range paths {
+		segs := strings.Split(p, "/")
+		for i := range segs {
+			key := strings.Join(segs[i:], "/")
+			if _, ok := suffixIdx[key]; !ok {
+				suffixIdx[key] = p
+			}
+		}
+	}
+	// Rust crate 根：**/src/{lib,main}.rs 所在的 src 目录（use crate:: 解析锚点；
+	// workspace 多 crate 各自映射，取最长前缀归属）
+	crateSrc := map[string]bool{}
+	for _, p := range paths {
+		d, b := filepath.Dir(p), filepath.Base(p)
+		if (b == "lib.rs" || b == "main.rs") && strings.HasSuffix(d, "/src") {
+			crateSrc[d] = true
+		}
 	}
 	sg := &scriptGraph{byRel: map[string]*scriptFile{}}
 	for _, rel := range paths {
@@ -332,7 +364,7 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 					mods = strings.Split(m[2], ",")
 				}
 				for _, mod := range mods {
-					if p := resolvePyModule(filepath.Dir(rel), strings.TrimSpace(mod), fileSet); p != "" {
+					if p := resolvePyModule(filepath.Dir(rel), strings.TrimSpace(mod), fileSet, suffixIdx); p != "" {
 						sf.srcs = appendUnique(sf.srcs, p)
 					}
 				}
@@ -357,6 +389,40 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 					}
 				}
 				if p := resolveJSRel(rel, spec, fileSet); p != "" {
+					sf.srcs = appendUnique(sf.srcs, p)
+				}
+			}
+		case ext == ".rs":
+			for _, m := range reRustMod.FindAllStringSubmatch(text, -1) {
+				if p := resolveRustMod(rel, m[1], fileSet); p != "" {
+					sf.srcs = appendUnique(sf.srcs, p)
+				}
+			}
+			for _, m := range reRustUse.FindAllStringSubmatch(text, -1) {
+				if p := resolveRustUse(rel, m[1], crateSrc, fileSet); p != "" {
+					sf.srcs = appendUnique(sf.srcs, p)
+				}
+			}
+			for _, m := range reRustFunc.FindAllStringSubmatch(text, MaxDefsPerFile) {
+				if m[1] != "" {
+					sf.defs = appendUnique(sf.defs, m[1])
+				}
+			}
+			sf.tokens = map[string]bool{}
+			for _, tk := range reToken.FindAllString(text, -1) {
+				sf.tokens[tk] = true
+			}
+		case ext == ".java" || ext == ".kt":
+			// JVM 系只做文件级跨包 import（方法定义形态太多不做函数级；
+			// 同包同目录的隐式耦合不画——会密成毛线团）
+			for _, m := range reJavaImport.FindAllStringSubmatch(text, -1) {
+				if p := resolveJvmImport(m[1], suffixIdx); p != "" {
+					sf.srcs = appendUnique(sf.srcs, p)
+				}
+			}
+		case ext == ".c" || ext == ".h" || ext == ".cpp" || ext == ".hpp" || ext == ".cc" || ext == ".cxx":
+			for _, m := range reCInclude.FindAllStringSubmatch(text, -1) {
+				if p := resolveCInclude(rel, m[1], fileSet); p != "" {
 					sf.srcs = appendUnique(sf.srcs, p)
 				}
 			}
@@ -415,7 +481,7 @@ func resolveSourcePath(base, rawLine string) string {
 // resolvePyModule Python import → 仓内文件。相对点前缀按层级上溯（`.`=当前
 // 目录、`..`=父目录）；绝对模块从仓库根解析。仅命中仓内已知文件（x/y.py 或
 // x/y/__init__.py）才返回路径——第三方/动态 import 不入图（宁缺勿滥）。
-func resolvePyModule(base, mod string, files map[string]bool) string {
+func resolvePyModule(base, mod string, files map[string]bool, suffixIdx map[string]string) string {
 	if mod == "" {
 		return ""
 	}
@@ -443,8 +509,16 @@ func resolvePyModule(base, mod string, files map[string]bool) string {
 			return py
 		}
 	default:
-		// 绝对模块（无点前缀）：从仓库根解析，多级包 a.b.c → a/b/c.py
-		root = "."
+		// 绝对模块（无点前缀）：包路径相对源根（src 布局），段边界后缀索引命中
+		// 即归属；未命中（第三方/动态）不入图。候选=模块路径本身（包 __init__
+		// 形态已在索引键里）+ .py 后缀（模块文件形态）
+		if got, ok := suffixIdx[p]; ok {
+			return got
+		}
+		if got, ok := suffixIdx[p+".py"]; ok {
+			return got
+		}
+		return ""
 	}
 	return pyFileFor(filepath.ToSlash(filepath.Clean(filepath.Join(root, p))), files)
 }
@@ -477,6 +551,119 @@ func resolveJSRel(relFile, spec string, files map[string]bool) string {
 		if files[cand] {
 			return cand
 		}
+	}
+	return ""
+}
+
+// resolveRustMod `mod x;` → x.rs 或 x/mod.rs（相对当前文件目录）。
+func resolveRustMod(relFile, name string, files map[string]bool) string {
+	if name == "" {
+		return ""
+	}
+	c := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(relFile), name)))
+	for _, cand := range []string{c + ".rs", filepath.Join(c, "mod.rs")} {
+		if files[cand] {
+			return cand
+		}
+	}
+	return ""
+}
+
+// resolveRustUse use 路径 → 仓内文件。crate:: 从归属 crate 的 src 目录解析；
+// super::/self:: 相对当前文件；外部 crate 名（首段非关键字）不入图。
+// 候选链：全路径与去尾段各试 .rs / mod.rs（尾段可能是类型而非模块）。
+func resolveRustUse(relFile, usePath string, crateSrc map[string]bool, files map[string]bool) string {
+	segs := strings.Split(usePath, "::")
+	if len(segs) == 0 || segs[0] == "" {
+		return ""
+	}
+	var root string
+	rest := segs
+	switch segs[0] {
+	case "crate":
+		root = crateRootFor(relFile, crateSrc)
+		rest = segs[1:]
+	case "super":
+		root = filepath.Dir(filepath.Dir(relFile))
+		rest = segs[1:]
+	case "self":
+		root = filepath.Dir(relFile)
+		rest = segs[1:]
+	default:
+		return "" // 外部 crate（serde::…）或裸 crate 名引用，无从归属
+	}
+	if len(rest) == 0 || root == "" {
+		return ""
+	}
+	tryCands := func(parts []string) string {
+		c := filepath.ToSlash(filepath.Clean(filepath.Join(append([]string{root}, parts...)...)))
+		if strings.HasPrefix(c, "..") {
+			return ""
+		}
+		for _, cand := range []string{c + ".rs", filepath.Join(c, "mod.rs")} {
+			if files[cand] {
+				return cand
+			}
+		}
+		return ""
+	}
+	if got := tryCands(rest); got != "" {
+		return got
+	}
+	if len(rest) > 1 {
+		return tryCands(rest[:len(rest)-1])
+	}
+	return ""
+}
+
+// crateRootFor 归属 crate 的 src 目录（最长前缀匹配；无命中退化当前目录）。
+func crateRootFor(relFile string, crateSrc map[string]bool) string {
+	d := filepath.Dir(relFile)
+	best := ""
+	for src := range crateSrc {
+		if d == src || strings.HasPrefix(d, src+"/") {
+			if len(src) > len(best) {
+				best = src
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return d
+}
+
+// resolveJvmImport Java/Kotlin import（com.foo.Bar）→ com/foo/Bar.java|.kt。
+// 通配 .* 不入图。
+func resolveJvmImport(imp string, suffixIdx map[string]string) string {
+	if imp == "" || strings.HasSuffix(imp, ".*") {
+		return ""
+	}
+	c := filepath.ToSlash(strings.ReplaceAll(imp, ".", "/"))
+	if strings.HasPrefix(c, "..") {
+		return ""
+	}
+	if got, ok := suffixIdx[c+".java"]; ok {
+		return got
+	}
+	if got, ok := suffixIdx[c+".kt"]; ok {
+		return got
+	}
+	return ""
+}
+
+// resolveCInclude #include "x.h" → 相对当前文件目录解析（引号形态=本仓头，
+// 含 gcc 惯用的 ./ ../ 前缀）；越出仓库根不入图。
+func resolveCInclude(relFile, inc string, files map[string]bool) string {
+	if inc == "" || strings.HasPrefix(inc, "/") {
+		return ""
+	}
+	c := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(relFile), inc)))
+	if strings.HasPrefix(c, "..") {
+		return ""
+	}
+	if files[c] {
+		return c
 	}
 	return ""
 }

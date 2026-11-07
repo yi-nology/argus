@@ -36,7 +36,8 @@ type scriptFuncDef struct {
 func scriptExts(f string) bool {
 	l := strings.ToLower(f)
 	return strings.HasSuffix(l, ".sh") || strings.HasSuffix(l, ".bash") ||
-		strings.HasSuffix(l, ".py") || strings.HasSuffix(l, ".pyw")
+		strings.HasSuffix(l, ".py") || strings.HasSuffix(l, ".pyw") ||
+		strings.HasSuffix(l, ".rs") // v5.6.5：rust fn 词法 diff
 }
 
 // hasScriptChanged 改动清单是否含 shell/py 文件。
@@ -172,6 +173,14 @@ func scriptFuncDefs(text, ext string) []scriptFuncDef {
 			}
 			appendHit(text[loc[2]:loc[3]], loc[0])
 		}
+	} else if ext == ".rs" {
+		// rust fn（含 pub/async 形态）；trait impl 与普通 fn 同词法口径
+		for _, loc := range reRustFunc.FindAllStringSubmatchIndex(text, MaxDefsPerFile) {
+			if loc[2] < 0 {
+				continue
+			}
+			appendHit(text[loc[2]:loc[3]], loc[0])
+		}
 	} else {
 		for _, loc := range reFuncDef.FindAllStringSubmatchIndex(text, MaxDefsPerFile) {
 			name := ""
@@ -247,6 +256,8 @@ func extOf(rel string) string {
 		return ".pyw"
 	case strings.HasSuffix(rel, ".py"):
 		return ".py"
+	case strings.HasSuffix(rel, ".rs"):
+		return ".rs"
 	default:
 		return ".sh"
 	}
