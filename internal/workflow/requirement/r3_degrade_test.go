@@ -7,6 +7,7 @@ package requirement
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -76,5 +77,64 @@ func TestCheckComplianceDegradedOnUnparseable(t *testing.T) {
 	}
 	if gm.calls == 0 {
 		t.Fatal("模型应被实际调用")
+	}
+}
+
+// rateLimitModel 恒返回 429 的桩：驱动 R3 运行中断降级路径（v5.5.3 死因透传）。
+type rateLimitModel struct{ calls int }
+
+func (m *rateLimitModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	m.calls++
+	return nil, errors.New("failed to create chat completion: error, status code: 429, status: 429 Too Many Requests, message: per-model RPM 超限")
+}
+
+func (m *rateLimitModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, errors.New("status code: 429, Too Many Requests")
+}
+
+// TestCheckComplianceDegradedCarriesRunCause R3 运行中断（限流）：降级报告必须
+// 写明真实死因与"重跑可救"，不得洗白成"模型输出不可解析"（MR186 实弹教训）。
+func TestCheckComplianceDegradedCarriesRunCause(t *testing.T) {
+	m := &rateLimitModel{}
+	w := &Workflow{
+		LLM: llm.NewClient(m, "fake", nil),
+		Log: nopLogger{},
+	}
+	spec := &plugin.RequirementSpec{
+		Source: "PR 描述",
+		ACs:    []plugin.AcceptanceCriterion{{ID: "AC-1", Text: "验收点 1"}},
+	}
+	task := plugin.Task{PR: plugin.PRContext{HeadBranch: "feature/x"}}
+	report, _, err := w.CheckCompliance(context.Background(), task, spec, "摘要")
+	if err != nil {
+		t.Fatalf("降级路径不应返回错误: %v", err)
+	}
+	if !strings.Contains(report.Summary, "上游限流 429") {
+		t.Fatalf("Summary 应含真实死因: %q", report.Summary)
+	}
+	for _, c := range report.Checks {
+		if !strings.HasPrefix(c.Detail, r3RuntimeFailPrefix) {
+			t.Fatalf("Detail 应带运行中断前缀供 completeness 对症建议: %q", c.Detail)
+		}
+		if !strings.Contains(c.Detail, "重跑") {
+			t.Fatalf("Detail 应提示重跑可救: %q", c.Detail)
+		}
+	}
+	// completeness 对症：全量运行中断时不得说"拆分 PR"
+	rep := JudgeCompleteness(nil, nil, nil, task, spec, report)
+	msg := ""
+	for _, item := range rep.Items {
+		if item.Check == plugin.CheckUnverifiableRatio {
+			if item.OK {
+				t.Fatal("100% unverifiable 应 fail")
+			}
+			msg = item.Detail
+		}
+	}
+	if msg == "" {
+		t.Fatal("CheckUnverifiableRatio 应落项")
+	}
+	if !strings.Contains(msg, "重跑") || strings.Contains(msg, "建议拆分") {
+		t.Fatalf("运行中断场景建议应指向重跑而非拆 PR: %q", msg)
 	}
 }

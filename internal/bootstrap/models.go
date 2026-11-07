@@ -389,7 +389,11 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 				obs.AddCtxBreakdown(stage, role, n)
 			}
 		}
-		return wrap.NewContinueModel(fm, stage, continueOnEvent)
+		// v5.5.3：重试环补在直调旁路最外层——ReAct（R3/Reviewer/R35/QA/Router）
+		// 此前一发 429 即整轮阵亡（单轮侧早已有的韧性，这里对齐同参数）。
+		return newRetryChatModel(wrap.NewContinueModel(fm, stage, continueOnEvent),
+			cfg.LLM.LLMResilienceRetries+1, cfg.LLM.LLMResilienceBaseDelay,
+			30*time.Second, stage, log)
 	}
 	m.React = wrapStage(m.React, "chat", cfg.LLM.ContextToken)
 	if m.ReviewerGen == nil {

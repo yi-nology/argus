@@ -102,16 +102,31 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 			pass(plugin.CheckACUncovered, "")
 		}
 		if report != nil && len(report.Checks) > 0 {
-			uv := 0
+			uv, uvRuntime := 0, 0
 			for _, c := range report.Checks {
 				if c.Status == plugin.ACUnverifiable {
 					uv++
+					if strings.HasPrefix(c.Detail, r3RuntimeFailPrefix) {
+						uvRuntime++
+					}
 				}
 			}
 			if ratio := float64(uv) / float64(len(report.Checks)); ratio > unverifiableRatioThreshold {
-				fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
-					"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——大面积不可判定，建议拆分 PR 或补充预览环境",
-					ratio*100, uv, len(report.Checks)))
+				switch {
+				case uvRuntime == uv:
+					// 全量运行中断：不可验证是假象，重跑即救——此时"拆 PR"建议误导人。
+					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——均为本轮运行中断（限流/超时类瞬时故障），直接重跑任务即可，无需拆分 PR",
+						ratio*100, uv, len(report.Checks)))
+				case uvRuntime > 0:
+					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——其中 %d 条系运行中断（重跑可救），其余建议拆分 PR 或补充预览环境",
+						ratio*100, uv, len(report.Checks), uvRuntime))
+				default:
+					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——大面积不可判定，建议拆分 PR 或补充预览环境",
+						ratio*100, uv, len(report.Checks)))
+				}
 			} else {
 				pass(plugin.CheckUnverifiableRatio, "")
 			}

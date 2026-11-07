@@ -88,27 +88,36 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	}
 	final, err := w.runAgent(ctx, instruction, query, toolsFactory, reactMaxIterations(len(spec.ACs)))
 	if err != nil {
+		// 执行失败死因原样透传降级报告（v5.5.3）：429/超时/迭代上限是"运行中断"，
+		// 与"需求不可验证"是两回事——此前一律写成"模型输出不可解析"并在完备性
+		// 里建议"拆分 PR"，是洗白 + 误导（MR186 实弹：429 秒杀 R3 全轮）。
 		w.Log.Warn("argus.r3.agent_failed", "error", err.Error())
+		return degradedComplianceReport(spec, err), "", nil
+	}
+	if report, text, ok := parseAligned(final); ok {
+		return report, text, nil
+	}
+	// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）。
+	// 预算门（深挖修复）：重试携带全量 diff 整体重跑，token 直接 ×2——预算
+	// 已耗尽时不烧这笔钱，直接走降级路径（全部 AC → unverifiable → R5.3）。
+	retryQ := query + "\n\n" + plugin.ReminderNote("retry-feedback",
+		"你上一轮输出无法解析为合法 JSON，请重新输出且只输出合法 JSON。上一轮输出：\n"+truncSummary(final, 800))
+	if task.Budget != nil && task.Budget.Remaining() <= 0 {
+		w.Log.Warn("argus.r3.retry_skipped_budget", "reason", "任务 token 预算耗尽，跳过重试")
 	} else {
-		if report, text, ok := parseAligned(final); ok {
-			return report, text, nil
+		final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs)))
+		if e2 != nil {
+			// 重试轮运行中断：死因优先于"不可解析"透传（多半又是限流）。
+			w.Log.Warn("argus.r3.retry_agent_failed", "error", e2.Error())
+			return degradedComplianceReport(spec, e2), "", nil
 		}
-		// 解析失败：带错误重试 1 次（把错误作为追加轮询消息）。
-		// 预算门（深挖修复）：重试携带全量 diff 整体重跑，token 直接 ×2——预算
-		// 已耗尽时不烧这笔钱，直接走降级路径（全部 AC → unverifiable → R5.3）。
-		retryQ := query + "\n\n" + plugin.ReminderNote("retry-feedback",
-			"你上一轮输出无法解析为合法 JSON，请重新输出且只输出合法 JSON。上一轮输出：\n"+truncSummary(final, 800))
-		if task.Budget != nil && task.Budget.Remaining() <= 0 {
-			w.Log.Warn("argus.r3.retry_skipped_budget", "reason", "任务 token 预算耗尽，跳过重试")
-		} else if final2, e2 := w.runAgent(ctx, instruction, retryQ, toolsFactory, reactMaxIterations(len(spec.ACs))); e2 == nil {
-			if report2, text2, ok := parseAligned(final2); ok {
-				return report2, text2, nil
-			}
+		if report2, text2, ok := parseAligned(final2); ok {
+			return report2, text2, nil
 		}
 	}
 
 	// 仍失败：全部 AC 置 unverifiable → R5.3 COMMENT（降级为人工确认，不丢结果）
-	return degradedComplianceReport(spec), "", nil
+	return degradedComplianceReport(spec, nil), "", nil
 }
 
 // r3Instruction R3 系统提示词组装：基线 + 工具策略 + codegraph 触达提示 +
@@ -143,15 +152,42 @@ func (w *Workflow) r3Instruction(ctx context.Context, task plugin.Task, strategy
 	return instruction
 }
 
+// r3RuntimeFailPrefix R3 运行中断（执行失败）降级 Detail 的统一前缀（v5.5.3）：
+// completeness 据此区分"运行中断（重跑可救）"与"证据确实不足（真不可验证）"，
+// 建议文案不再对前者说"拆分 PR"。
+const r3RuntimeFailPrefix = "R3 运行中断"
+
+// r3FailCause 运行失败死因归类（措辞进报告，供人一眼判断可否重跑）。
+func r3FailCause(err error) string {
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "429") || strings.Contains(s, "too many requests"):
+		return "上游限流 429（瞬时，可重跑）"
+	case strings.Contains(s, "max iterations"):
+		return "ReAct 迭代上限打满"
+	case strings.Contains(s, "timeout") || strings.Contains(s, "deadline exceeded"):
+		return "调用超时"
+	default:
+		return "执行错误"
+	}
+}
+
 // degradedComplianceReport R3 判定失败的降级报告：全部 AC 置 unverifiable。
-func degradedComplianceReport(spec *plugin.RequirementSpec) *plugin.ComplianceReport {
-	degraded := &plugin.ComplianceReport{
-		Summary: "R3 判定失败（模型输出不可解析），已全部降级为需人工确认",
+// runErr!=nil 为运行中断（死因透传）；nil 为模型输出不可解析。
+func degradedComplianceReport(spec *plugin.RequirementSpec, runErr error) *plugin.ComplianceReport {
+	degraded := &plugin.ComplianceReport{}
+	detail := "自动判定不可用，请人工确认"
+	if runErr != nil {
+		cause := r3FailCause(runErr)
+		degraded.Summary = fmt.Sprintf("R3 判定失败（%s），已全部降级为需人工确认", cause)
+		detail = fmt.Sprintf("%s（%s）：本轮自动判定作废，建议重跑任务；非需求不可验证", r3RuntimeFailPrefix, cause)
+	} else {
+		degraded.Summary = "R3 判定失败（模型输出不可解析），已全部降级为需人工确认"
 	}
 	for _, ac := range spec.ACs {
 		degraded.Checks = append(degraded.Checks, plugin.ACCheck{
 			ID: ac.ID, Status: plugin.ACUnverifiable,
-			Detail: "自动判定不可用，请人工确认",
+			Detail: detail,
 		})
 	}
 	return degraded

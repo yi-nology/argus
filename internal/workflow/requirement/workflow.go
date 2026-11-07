@@ -380,7 +380,9 @@ func (w *Workflow) mergeAndReflect(ctx context.Context, task plugin.Task, outcom
 			"R2 变更理解失败，变更摘要缺失（R3/R4 直接基于原始 diff 审查，报告不含变更动机摘要）")
 	}
 	for _, p := range pruned {
-		merged.Degraded = append(merged.Degraded, p+" 未参与（token 预算裁剪）")
+		// 预算是被调的，不是天条：把旋钮指给读者（v5.5.3）
+		merged.Degraded = append(merged.Degraded,
+			p+" 未参与（token 预算裁剪；可调：repo_settings.task_token_budget / ARGUS_TASK_TOKEN_BUDGET）")
 	}
 
 	// R3.5 报告反思（v3.4）：合并去重后、分歧标注与 R5 裁决前——被剔除的意见连带
