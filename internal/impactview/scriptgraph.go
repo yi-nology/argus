@@ -28,6 +28,9 @@ const (
 	RelSource  = "source"  // shell 装载：改动 → 装载它的文件（含传递）
 	RelLineage = "lineage" // SQL 表血缘：改动文件→表（写）、表→消费方（读）
 	KindTable  = "table"   // SQL 表枢纽节点
+	// v5.7.4 函数级变更一等节点（仅 HTML 渲染层合成,快照与 mermaid 不含）：
+	RelFuncOf    = "func_of"  // 归属边：改动文件 → 其函数级变更节点
+	KindFuncDiff = "funcdiff" // 函数级变更节点（Detail 前缀=状态词表）
 )
 
 // 封顶：非 Go 仓常是巨型脚本仓，扫描与快照两头都要闸。

@@ -38,12 +38,60 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string) string {
 	if s == nil || len(s.Nodes) == 0 {
 		return ""
 	}
-	data, _ := json.Marshal(s)
+	// v5.7.4 函数级变更一等节点：视图副本上合成 FuncDiff 节点/归属边——
+	// JSON（JS 联动数据源）与布局/绘制三处同源一致；mermaid/报告面用原
+	// snapshot,不受影响（评论图已有独立 FuncDiffMermaid 块,不重复膨胀）。
+	vs := withFuncDiffNodes(s)
+	data, _ := json.Marshal(vs)
 	dataStr := strings.ReplaceAll(string(data), "</", `<\/`) // script 内闭合防线
-	vn, vi, ve := viewGraph(s)
+	vn, vi, ve := viewGraph(vs)
 	pos, w, h := layoutSVG(vn, ve)
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
 		string(dataStr), svgBody(pos, vn, vi, ve), w, h)
+}
+
+// maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
+// 仍在侧栏与 fdcard 区块）。
+const maxFuncDiffNodes = 8
+
+// withFuncDiffNodes 视图层合成：每个 FuncDiff（file 在改动节点集内）生成
+// funcdiff 节点 + file→fd 归属边（新增/删除/变更状态进 Detail 前缀,配色
+// 与侧栏徽标同词表）。返回副本,不改入参（mermaid/报告面共用原 snapshot）。
+func withFuncDiffNodes(s *Snapshot) *Snapshot {
+	if s == nil || len(s.FuncDiffs) == 0 {
+		return s
+	}
+	changed := map[string]bool{}
+	for _, n := range s.Nodes {
+		if n.Changed && n.Kind == KindFile {
+			changed[n.ID] = true
+		}
+	}
+	vs := *s
+	added := 0
+	for _, fd := range s.FuncDiffs {
+		if added >= maxFuncDiffNodes {
+			break
+		}
+		fid := "file:" + fd.File
+		if !changed[fid] {
+			continue // 所在文件不在改动集（截断/非直接改动）,不合成
+		}
+		detail := fd.Status
+		if fd.SigSame {
+			detail += "|sig_same"
+		}
+		vs.Nodes = append(vs.Nodes, Node{
+			ID: "fd:" + fd.File + ":" + fd.Name, Kind: KindFuncDiff,
+			Label: fd.Name + "()", Detail: detail,
+		})
+		vs.Edges = append(vs.Edges, Edge{From: fid, To: "fd:" + fd.File + ":" + fd.Name, Rel: RelFuncOf})
+		added++
+	}
+	if added == 0 {
+		return s
+	}
+	return &vs
 }
 
 // viewGraph 交互视图的剪枝集（与 mermaid 同纪律，v3.185.2）：孤立改动符号
@@ -57,9 +105,19 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 		deg[e.To]++
 	}
 	nodes := make([]Node, 0, len(s.Nodes))
+	noTest := map[string]bool{}
+	for _, p := range s.Packages {
+		if p.Tests == 0 {
+			noTest["pkg:"+p.Path] = true
+		}
+	}
 	for _, n := range s.Nodes {
 		if n.Kind == KindSymbol && deg[n.ID] == 0 {
 			continue
+		}
+		// v5.7.4 包节点标注测试覆盖缺口（风险面 TestMissing 的图上直读形态）
+		if n.Kind == KindPackage && noTest[n.ID] && !strings.HasSuffix(n.Label, "·无测试") {
+			n.Label += " ·无测试"
 		}
 		nodes = append(nodes, n)
 	}
@@ -111,7 +169,7 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 			maxDepth = d
 		}
 	}
-	weight := map[string]int{KindSymbol: 0, KindPackage: 1, KindFile: 2, KindTest: 3}
+	weight := map[string]int{KindSymbol: 0, KindFuncDiff: 0, KindPackage: 1, KindFile: 2, KindTest: 3}
 	type colItem struct {
 		id     string
 		weight int
@@ -169,6 +227,15 @@ func nodeFill(n Node) (fill, stroke string) {
 		return "#dcfce7", "#16a34a"
 	case KindTable: // v5.7.3 SQL 血缘枢纽的专属视觉编码
 		return "#ede9fe", "#7c3aed"
+	case KindFuncDiff: // v5.7.4 函数级变更:状态三色(新增绿/删除红/变更黄)
+		switch {
+		case strings.HasPrefix(n.Detail, FuncAdded):
+			return "#86efac", "#16a34a"
+		case strings.HasPrefix(n.Detail, FuncRemoved):
+			return "#fca5a5", "#dc2626"
+		default:
+			return "#fde68a", "#d97706"
+		}
 	default:
 		return "#e2e8f0", "#64748b"
 	}
@@ -339,7 +406,7 @@ function filter(kw){
  const hit={};
  document.querySelectorAll('#g .node').forEach(g=>{
   const id=g.dataset.id,n=byId[id];
-  const kwOK=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw)));
+  const kwOK=!kw||(id.toLowerCase().includes(kw)||(n&&(n.label||'').toLowerCase().includes(kw))||(n&&(n.detail||'').toLowerCase().includes(kw)));
   const kindOK=!kindFilter.size||!n||!kindFilter.has(n.kind);
   const focusOK=!focusId||id===focusId||focusSet.has(id);
   hit[id]=kwOK&&kindOK&&focusOK;
@@ -372,11 +439,41 @@ function showPanel(n){
  filter(q.value.trim().toLowerCase());
  const edgesIn=data.edges.filter(x=>x.to===n.id),edgesOut=data.edges.filter(x=>x.from===n.id);
  const li=a=>a.map(x=>'<div class="kv">'+(x.rel||'')+' → '+(byId[x.to]?byId[x.to].label:x.to)+'</div>').join('')||'<div class="kv">—</div>';
+ // v5.7.4 函数级变更节点：完整 before/after 签名与调用增减
+ if(n.kind==='funcdiff'){
+  const m=(n.id||'').match(/^fd:(.+):([^:]+)$/);
+  const fd=(data.func_diffs||[]).find(f=>f.file===m[1]&&f.name===m[2]);
+  if(fd){
+   const stTxt={added:'🟢 新增',removed:'🔴 删除'}[fd.status]||'🟡 变更';
+   const card=x=>'<pre style="background:#f1f5f9;padding:6px;border-radius:6px;font-size:12px;margin:2px 0;white-space:pre-wrap;word-break:break-all">'+esc(x||'（无）')+'</pre>';
+   panel.innerHTML='<h3>'+stTxt+' '+esc(fd.name)+'()</h3>'
+    +'<div class="kv"><b>文件</b>'+esc(fd.file)+'</div>'
+    +'<div class="kv"><b>签名</b>'+(fd.sig_same?'未变化':'已变化')+'</div>'
+    +'<h3 style="margin-top:12px">BEFORE</h3>'+card(fd.before&&fd.before.signature)
+    +'<h3 style="margin-top:8px">AFTER</h3>'+card(fd.after&&fd.after.signature)
+    +(((fd.calls_added||[]).length||((fd.calls_removed||[]).length))?'<h3 style="margin-top:8px">调用增减</h3>'+(fd.calls_added||[]).slice(0,6).map(c=>'<div class="kv">+ '+esc(c)+'</div>').join('')+(fd.calls_removed||[]).slice(0,6).map(c=>'<div class="kv">− '+esc(c)+'</div>').join(''):'');
+   panel.style.display='block';
+   document.getElementById('closepanel').style.display='inline-block';
+   return;
+  }
+ }
+ // v5.7.4 包聚合详情：文件数/测试覆盖/对外暴露/深度
+ let pkgExtra='';
+ if(n.kind==='package'&&data.packages){
+  const p=(data.packages||[]).find(x=>'pkg:'+x.path===n.id);
+  if(p){
+   pkgExtra='<div class="kv"><b>Go 文件</b>'+p.files+'</div>'
+    +'<div class="kv"><b>测试</b>'+(p.tests>0?p.tests+' 个 *_test.go':'<b style="color:#dc2626">无测试覆盖</b>')+'</div>'
+    +(p.exposed?'<div class="kv"><b>暴露面</b>被受影响集之外的包依赖</div>':'')
+    +'<div class="kv"><b>距改动</b>'+p.depth+' 跳'+(p.direct_change?'（含直接改动）':'')+'</div>';
+  }
+ }
  // 关联融合：函数级 diff（文件节点的改动函数）与历史共变（import 图外隐性耦合）
  const filePath=n.id.startsWith('file:')?n.id.slice(5):null;
  const stIcon={added:'🟢',removed:'🔴'};
  let extra='';
- if(filePath){
+ if(n.kind==='package'&&pkgExtra){extra='<h3 style="margin-top:12px">包聚合</h3>'+pkgExtra;}
+ else if(filePath){
   const fds=(data.func_diffs||[]).filter(fd=>fd.file===filePath);
   if(fds.length){
    extra+='<h3 style="margin-top:12px">函数级变更 '+fds.length+'</h3>'+fds.map(fd=>{
