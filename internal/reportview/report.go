@@ -165,6 +165,18 @@ func renderCompliance(b *strings.Builder, r Report) {
 			}
 		}
 		fmt.Fprintf(b, "\n\n### 验收清单完成度: %d/%d %s\n", done, total, icon)
+		// v5.7.1 运行中断 banner：全灭/大面积中断时收敛为顶部一段说明，
+		// AC 行只留短后缀（jianmu MR47 实弹：24-30 行同款长文案刷屏）。
+		rtFail := 0
+		for _, ac := range r.ACs {
+			if plugin.IsRuntimeFailDetail(ac.Evid) {
+				rtFail++
+			}
+		}
+		if rtFail > 0 {
+			fmt.Fprintf(b, "\n> ⚠️ **本轮 %d/%d 条判定被运行中断**（限流/超时类瞬时故障）：判定作废、非需求不可验证；下方逐条仅留短注，建议错峰重跑任务。\n",
+				rtFail, total)
+		}
 		for _, ac := range r.ACs {
 			detail := ac.Evid
 			if detail == "" {

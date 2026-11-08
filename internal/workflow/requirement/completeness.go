@@ -106,7 +106,7 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 			for _, c := range report.Checks {
 				if c.Status == plugin.ACUnverifiable {
 					uv++
-					if strings.HasPrefix(c.Detail, r3RuntimeFailPrefix) {
+					if plugin.IsRuntimeFailDetail(c.Detail) {
 						uvRuntime++
 					}
 				}
@@ -115,8 +115,10 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 				switch {
 				case uvRuntime == uv:
 					// 全量运行中断：不可验证是假象，重跑即救——此时"拆 PR"建议误导人。
+					// v5.7.1：不再断言"直接重跑即可"——持续限流下重跑两连灭的实弹
+					// 教训（jianmu MR47），措辞改错峰且中性。
 					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
-						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——均为本轮运行中断（限流/超时类瞬时故障），直接重跑任务即可，无需拆分 PR",
+						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——均为本轮运行中断（限流/超时类瞬时故障）：判定作废、非需求不可验证，建议错峰重跑任务，无需拆分 PR",
 						ratio*100, uv, len(report.Checks)))
 				case uvRuntime > 0:
 					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(

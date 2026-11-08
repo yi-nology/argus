@@ -164,7 +164,7 @@ func (w *Workflow) r3Instruction(ctx context.Context, task plugin.Task, strategy
 // r3RuntimeFailPrefix R3 运行中断（执行失败）降级 Detail 的统一前缀（v5.5.3）：
 // completeness 据此区分"运行中断（重跑可救）"与"证据确实不足（真不可验证）"，
 // 建议文案不再对前者说"拆分 PR"。
-const r3RuntimeFailPrefix = "R3 运行中断"
+const r3RuntimeFailPrefix = plugin.RuntimeFailMark
 
 // errR3RetrySkippedBudget 预算门在真实约束区间内拦掉了自救重试（v5.5.4）：
 // 死因是"输出不可解析 + 预算不允许再试"，措辞须给出调预算的路标。
@@ -189,13 +189,17 @@ func r3FailCause(err error) string {
 
 // degradedComplianceReport R3 判定失败的降级报告：全部 AC 置 unverifiable。
 // runErr!=nil 为运行中断（死因透传）；nil 为模型输出不可解析。
+// v5.7.1 报告降噪：大清单（jianmu MR47 实弹 24-30 条 AC）逐条盖同款长文案
+// 是刷屏——运行中断的 Detail 收敛为短后缀（死因在 Summary/completeness
+// 建议里说一次），且措辞不再断言"重跑即愈"（持续限流下重跑两连灭的实弹
+// 教训：错峰措辞，不断言必然成功）。
 func degradedComplianceReport(spec *plugin.RequirementSpec, runErr error) *plugin.ComplianceReport {
 	degraded := &plugin.ComplianceReport{}
 	detail := "自动判定不可用，请人工确认"
 	if runErr != nil {
 		cause := r3FailCause(runErr)
 		degraded.Summary = fmt.Sprintf("R3 判定失败（%s），已全部降级为需人工确认", cause)
-		detail = fmt.Sprintf("%s（%s）：本轮自动判定作废，建议重跑任务；非需求不可验证", r3RuntimeFailPrefix, cause)
+		detail = fmt.Sprintf("%s（%s）：建议错峰重跑", r3RuntimeFailPrefix, cause)
 	} else {
 		degraded.Summary = "R3 判定失败（模型输出不可解析），已全部降级为需人工确认"
 	}

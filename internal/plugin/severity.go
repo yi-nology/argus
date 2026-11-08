@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"strings"
+
 	aktextutil "github.com/oagentkit/textx/textutil"
 
 	"argus/internal/domain"
@@ -42,3 +44,13 @@ func FingerprintNorm(file, comment string, line int) (fp, norm string) {
 
 // GlobMatch 极简 glob（.gitignore 语义：`web/**` 只匹配目录内部；`?` 按 rune）。
 func GlobMatch(pattern, path string) bool { return aktextutil.GlobMatch(pattern, path) }
+
+// RuntimeFailMark R3 运行中断降级 Detail 的统一前缀（v5.5.3 引入，v5.7.1
+// 上提至契约层）：reportview 报告面据此把「本轮判定被运行中断」收敛成顶部
+// banner，避免大清单逐条长文案刷屏；requirement 与 completeness 共用判定。
+const RuntimeFailMark = "R3 运行中断"
+
+// IsRuntimeFailDetail 判定 AC Detail 是否运行中断形态。
+func IsRuntimeFailDetail(detail string) bool {
+	return strings.HasPrefix(detail, RuntimeFailMark)
+}
