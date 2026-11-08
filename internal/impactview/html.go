@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -166,6 +167,8 @@ func nodeFill(n Node) (fill, stroke string) {
 		return "#fef9c3", "#ca8a04"
 	case KindTest:
 		return "#dcfce7", "#16a34a"
+	case KindTable: // v5.7.3 SQL 血缘枢纽的专属视觉编码
+		return "#ede9fe", "#7c3aed"
 	default:
 		return "#e2e8f0", "#64748b"
 	}
@@ -269,6 +272,10 @@ summary{cursor:pointer;color:#334155}
 .kchip{padding:2px 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;font-size:12px;cursor:pointer;user-select:none}
 .kchip.on{background:#1e293b;color:#fff;border-color:#1e293b}
 .node.focus rect{stroke:#2563eb;stroke-width:2.5}
+.lgd{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 8px;vertical-align:-1px}
+.lgd-chg{background:#fecaca;border:1px solid #dc2626}.lgd-sym{background:#fef9c3;border:1px solid #ca8a04}.lgd-pkg{background:#dbeafe;border:1px solid #2563eb}.lgd-tst{background:#dcfce7;border:1px solid #16a34a}.lgd-tbl{background:#ede9fe;border:1px solid #7c3aed}.lgd-file{background:#e2e8f0;border:1px solid #64748b}
+.cplrow{cursor:pointer;padding:2px 0;font-size:12px;color:#334155}
+.cplrow:hover{color:#2563eb;text-decoration:underline}
 </style></head><body>
 <header>
 <h1>` + title + `</h1>
@@ -284,6 +291,12 @@ summary{cursor:pointer;color:#334155}
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
 <details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
+<details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
+节点：<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件<br>
+边：import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变<br>
+交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
+</div></details>
+` + couplingDetails(s) + `
 ` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
 <div id="viewport"><svg id="g" width="` + fmt.Sprint(w) + `" height="` + fmt.Sprint(h) + `" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `">
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#94a3b8"/></marker></defs>
@@ -344,20 +357,58 @@ function filter(kw){
 svg.addEventListener('click',e=>{
  const g=e.target.closest('.node');if(!g)return;
  const n=byId[g.dataset.id];if(!n)return;
- // v5.6.0 探索器增强 ②邻域聚焦：点选节点高亮其一跳邻居，再点同节点/复位取消
+ showPanel(n);
+});
+// v5.7.3 关联联动：函数级 diff 卡片/共变面板 → 聚焦对应文件节点并开侧栏
+window.focusFileNode=function(fileId){
+ const n=byId[fileId];if(!n)return;
+ setFocus(fileId);filter(q.value.trim().toLowerCase());
+ showPanel(byId[fileId]);
+ document.getElementById('viewport').scrollIntoView({behavior:'smooth',block:'center'});
+};
+function showPanel(n){
+ // v5.7.3 邻域聚焦：点选节点高亮其一跳邻居，再点同节点/复位取消
  setFocus(focusId===n.id?null:n.id);
  filter(q.value.trim().toLowerCase());
  const edgesIn=data.edges.filter(x=>x.to===n.id),edgesOut=data.edges.filter(x=>x.from===n.id);
  const li=a=>a.map(x=>'<div class="kv">'+(x.rel||'')+' → '+(byId[x.to]?byId[x.to].label:x.to)+'</div>').join('')||'<div class="kv">—</div>';
+ // 关联融合：函数级 diff（文件节点的改动函数）与历史共变（import 图外隐性耦合）
+ const filePath=n.id.startsWith('file:')?n.id.slice(5):null;
+ const stIcon={added:'🟢',removed:'🔴'};
+ let extra='';
+ if(filePath){
+  const fds=(data.func_diffs||[]).filter(fd=>fd.file===filePath);
+  if(fds.length){
+   extra+='<h3 style="margin-top:12px">函数级变更 '+fds.length+'</h3>'+fds.map(fd=>{
+    const ic=stIcon[fd.status]||'🟡';
+    const ln=((fd.before&&fd.before.lines)??'—')+'→'+((fd.after&&fd.after.lines)??'—');
+    return '<div class="kv">'+ic+' <b>'+esc(fd.name)+'</b>'+(fd.sig_same?'（签名未变）':'')+' 行数 '+ln+'</div>'
+     +(fd.calls_added||[]).slice(0,4).map(c=>'<div class="kv">+ '+esc(c)+'</div>').join('')
+     +(fd.calls_removed||[]).slice(0,4).map(c=>'<div class="kv">− '+esc(c)+'</div>').join('');
+   }).join('');
+  }
+  const coup=(data.coupling||[]).filter(c=>c.file===filePath||c.other===filePath);
+  if(coup.length){
+   extra+='<h3 style="margin-top:12px">历史共变 '+coup.length+'</h3>'+coup.map(c=>{
+    const o=c.other===filePath?c.file:c.other;
+    return '<div class="cplrow" onclick="window.focusFileNode && window.focusFileNode(\'file:'+esc(o)+'\')">'+esc(o)+' ×'+c.count+'</div>';
+   }).join('');
+  }
+ }
  panel.innerHTML='<h3>'+esc(n.label)+'</h3>'
   +'<div class="kv"><b>类型</b>'+esc(n.kind)+(n.changed?'（本轮改动）':'')+'</div>'
   +(n.detail?'<div class="kv"><b>详情</b>'+esc(n.detail)+'</div>':'')
   +'<div class="kv"><b>ID</b>'+esc(n.id)+'</div>'
   +'<div class="kv"><b>聚焦</b>'+(focusId?'已聚焦一跳邻居（再点本节点取消）':'未聚焦')+'</div>'
   +'<h3 style="margin-top:12px">入边 '+edgesIn.length+'</h3>'+li(edgesIn)
-  +'<h3 style="margin-top:12px">出边 '+edgesOut.length+'</h3>'+li(edgesOut);
+  +'<h3 style="margin-top:12px">出边 '+edgesOut.length+'</h3>'+li(edgesOut)
+  +extra;
  panel.style.display='block';
  document.getElementById('closepanel').style.display='inline-block';
+}
+// 函数级 diff 卡片联动（funcDiffDetails 产物）
+document.querySelectorAll('.fdcard[data-fdfile]').forEach(el=>{
+ el.addEventListener('click',()=>window.focusFileNode('file:'+el.dataset.fdfile));
 });
 document.getElementById('closepanel').onclick=function(){panel.style.display='none';this.style.display='none';};
 // v5.6.0 探索器增强 ③导出 SVG：克隆图+内联样式单文件落盘（离线评审/贴周报用）
@@ -383,6 +434,27 @@ func taskMeta(taskID string) string {
 		return ""
 	}
 	return "任务 " + html.EscapeString(taskID)
+}
+
+// couplingDetails 历史共变面板（v5.7.3）：Top 共变对可点击联动聚焦主图——
+// import 图外的隐性耦合（同 commit 反复共现）是评审最容易漏的关联面。
+func couplingDetails(s *Snapshot) string {
+	if s == nil || len(s.Coupling) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<details><summary>🔗 历史共变（` + fmt.Sprint(len(s.Coupling)) + ` 对，点击聚焦图中节点）</summary>`)
+	for _, c := range s.Coupling {
+		if c.Count < MinCoupleCount {
+			continue
+		}
+		b.WriteString(`<div class="cplrow" onclick="window.focusFileNode &amp;&amp; window.focusFileNode(` +
+			strconv.Quote("file:"+c.File) + `)">` +
+			html.EscapeString(shortLabel(c.File)) + ` ↔ ` + html.EscapeString(shortLabel(c.Other)) +
+			` <b>×` + fmt.Sprint(c.Count) + `</b>（同 commit 共现）</div>`)
+	}
+	b.WriteString(`</details>`)
+	return b.String()
 }
 
 // funcDiffDetails 函数级图 diff 区块（before/after 双列卡片 + 调用边增减
@@ -420,7 +492,7 @@ func funcDiffDetails(s *Snapshot) string {
 		default:
 			st, stCls = "变更", "st-mod"
 		}
-		b.WriteString(`<div class="fdcard"><div class="fdhead"><span class="fdst ` + stCls + `">` + st + `</span><b>` + html.EscapeString(fd.Name) + `</b><span style="color:#64748b;font-size:12px">` + html.EscapeString(fd.File) + `</span></div>`)
+		b.WriteString(`<div class="fdcard" data-fdfile="` + html.EscapeString(fd.File) + `" style="cursor:pointer" title="点击在图中聚焦该文件"><div class="fdhead"><span class="fdst ` + stCls + `">` + st + `</span><b>` + html.EscapeString(fd.Name) + `</b><span style="color:#64748b;font-size:12px">` + html.EscapeString(fd.File) + `</span></div>`)
 		before, after := "", ""
 		if fd.Before != nil {
 			before = fd.Before.Signature
