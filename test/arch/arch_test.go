@@ -62,7 +62,8 @@ var layering = map[string][]string{
 	"argus/internal/gitdeepen":  {},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
 	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁红至今）
-	"argus/internal/impactview": {"argus/internal/gitdeepen"},
+	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）
+	"argus/internal/impactview": {"argus/internal/gitdeepen", "argus/internal/plugin"},
 	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
 	"argus/internal/reposettings": {},
 

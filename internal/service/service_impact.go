@@ -74,7 +74,9 @@ func (s *Service) ImpactViewHTML(ctx context.Context, taskID string) (string, bo
 	if !ok {
 		return "", false
 	}
-	page := impactview.RenderHTML(snap, task.ID)
+	// v5.8.0 审查意见挂图：findings 从任务 ResultJSON 解码（两态单源同 GetTask）
+	fs, _ := taskFindings(task.ResultJSON)
+	page := impactview.RenderHTMLWithFindings(snap, task.ID, fs)
 	// v5.6.4 图谱互跳：影响图页头注入整仓地图链接（同源相对路径；带 repo-map
 	// share 令牌——share 访客（免登看任务图谱）点过去不落 401；secret 空=
 	// 鉴权关闭时裸链即可）。

@@ -1,6 +1,7 @@
 package impactview
 
 import (
+	"argus/internal/plugin"
 	"strings"
 	"testing"
 )
@@ -36,5 +37,30 @@ func TestRenderHTMLFuncDiffNodes(t *testing.T) {
 	}
 	if m := RenderMermaid(s); m != "" && strings.Contains(m, "fd:a.go:F") {
 		t.Fatal("mermaid 不应含合成 fd 节点")
+	}
+}
+
+// TestRenderHTMLFindingsOverlay v5.8.0:审查意见挂图——徽标计数与侧栏意见
+// 数据同源嵌入,快照契约零变更。
+func TestRenderHTMLFindingsOverlay(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"},
+		Nodes: []Node{{ID: "file:a.go", Kind: KindFile, Label: "a.go", Changed: true, Detail: "a.go"}}}
+	fs := []plugin.Finding{
+		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针解引用", FP: "071298e9abcd"},
+		{File: "other/b.go", Line: 2, Severity: "low", Comment: "未检查错误"},
+	}
+	html := RenderHTMLWithFindings(s, "t1", fs)
+	if !strings.Contains(html, `impact-findings`) {
+		t.Fatal("findings 数据块应嵌入")
+	}
+	if !strings.Contains(html, `<circle cx="234"`) { // nodeW-6=234 徽标红点
+		t.Fatal("a.go 节点应有意见数徽标(红点)")
+	}
+	if !strings.Contains(html, "空指针解引用") {
+		t.Fatal("意见文本应入 JSON")
+	}
+	// 无 findings:整块省略
+	if html2 := RenderHTML(s, "t1"); strings.Contains(html2, `<script type="application/json" id="impact-findings">`) {
+		t.Fatal("无 findings 不应有数据块")
 	}
 }

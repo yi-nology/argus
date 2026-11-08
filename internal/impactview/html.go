@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"argus/internal/plugin"
 )
 
 // 布局常量（分层 LR：深度列 × 列内栈）。
@@ -25,16 +27,22 @@ const (
 
 // RenderHTML 渲染自包含交互 HTML（taskID 仅作页头标识可空；快照空节点返回空串）。
 func RenderHTML(s *Snapshot, taskID string) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID))
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), nil)
+}
+
+// RenderHTMLWithFindings 影响面视图+审查意见挂图（v5.8.0）：findings 按文件
+// 聚合为节点徽标与侧栏意见列表——评审产物与影响拓扑在图上直接互查。
+func RenderHTMLWithFindings(s *Snapshot, taskID string, findings []plugin.Finding) string {
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), findings)
 }
 
 // RenderRepoHTML 仓库级代码地图页（v5.6.2）：同一渲染面，页头换标题与
 // 仓库标识；空图返回空串。
 func RenderRepoHTML(s *Snapshot, repoLabel string) string {
-	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel))
+	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel), nil)
 }
 
-func renderImpactHTML(s *Snapshot, taskID, title, headLabel string) string {
+func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, findings []plugin.Finding) string {
 	if s == nil || len(s.Nodes) == 0 {
 		return ""
 	}
@@ -47,7 +55,7 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string) string {
 	vn, vi, ve := viewGraph(vs)
 	pos, w, h := layoutSVG(vn, ve)
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
-		string(dataStr), svgBody(pos, vn, vi, ve), w, h)
+		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(findings)), w, h, findingsJSON(findings))
 }
 
 // maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
@@ -243,7 +251,7 @@ func nodeFill(n Node) (fill, stroke string) {
 
 // svgBody 产出 SVG 主体（框 + 标签 + 贝塞尔边）。
 // viewNodes/viewEdges 是布局与绘制共用的剪枝后视图集（见 viewGraph）。
-func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge) string {
+func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge, fcount map[string]int) string {
 	var b strings.Builder
 	// 边先画（垫底）；data-i 携带快照边序——JS 搜索联动按它回查 data.edges,
 	// 不依赖「DOM 序=数据序」的隐式对齐。边标签包 .edgeg 组默认隐藏、悬停
@@ -275,9 +283,15 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		if n.Detail != "" {
 			tip += "\n" + n.Detail
 		}
-		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text></g>`+"\n",
+		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
 			n.Kind, html.EscapeString(n.ID), p[0], p[1],
 			html.EscapeString(tip), nodeW, nodeH, fill, stroke, html.EscapeString(label))
+		// v5.8.0 findings 徽标:有审查意见的文件节点右上角红点+计数
+		if c := fcount[n.ID]; c > 0 {
+			fmt.Fprintf(&b, `<circle cx="%d" cy="%d" r="9" fill="#dc2626"/><text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#fff" pointer-events="none">%d</text>`,
+				nodeW-6, 6, nodeW-6, 10, c)
+		}
+		fmt.Fprintf(&b, `</g>`+"\n")
 	}
 	return b.String()
 }
@@ -293,10 +307,15 @@ func truncateRunes(s string, max int) string {
 
 // htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。title/headLabel 支撑
 // 影响面与仓库地图双页头（v5.6.2）。
-func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int) string {
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON string) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
+	}
+	// v5.8.0 findings 数据块(空则整块省略)
+	fScript := ""
+	if findingsJSON != "" {
+		fScript = `<script type="application/json" id="impact-findings">` + findingsJSON + `</script>`
 	}
 	var riskList strings.Builder
 	for _, r := range s.Risk.Reasons {
@@ -361,7 +380,7 @@ summary{cursor:pointer;color:#334155}
 <details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
 节点：<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件<br>
 边：import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变<br>
-交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
+徽标：文件节点右上角红点数字=该文件审查意见数（点节点看意见摘要）。交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
 </div></details>
 ` + couplingDetails(s) + `
 ` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
@@ -370,9 +389,11 @@ summary{cursor:pointer;color:#334155}
 ` + svg + `</svg></div>
 <aside id="panel"></aside>
 <script type="application/json" id="impact-data">` + dataJSON + `</script>
+` + fScript + `
 <script>
 const data=JSON.parse(document.getElementById('impact-data').textContent);
 const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
+const fdata=(()=>{const el=document.getElementById('impact-findings');try{return el?JSON.parse(el.textContent):[];}catch(e){return [];}})();
 const svg=document.getElementById('g'),vp=document.getElementById('viewport'),q=document.getElementById('q'),panel=document.getElementById('panel');
 let scale=1,tx=0,ty=0;
 function apply(){svg.style.transformOrigin='0 0';svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';}
@@ -491,6 +512,17 @@ function showPanel(n){
     return '<div class="cplrow" onclick="window.focusFileNode && window.focusFileNode(\'file:'+esc(o)+'\')">'+esc(o)+' ×'+c.count+'</div>';
    }).join('');
   }
+  // v5.8.0 审查意见挂图:该文件的 findings(severity 图标+行号+fp 短码+摘要)
+  if(fdata.length){
+   const fs=fdata.filter(f=>f.file===filePath);
+   if(fs.length){
+    const sev={high:'🔴',medium:'🟡',critical:'🔴',low:'🟢'};
+    extra+='<h3 style="margin-top:12px">审查意见 '+fs.length+'</h3>'+fs.map(f=>
+     '<div class="kv">'+(sev[(f.severity||'').toLowerCase()]||'⚪')+' <b>'+(f.line||'?')+':</b> '+esc(f.comment)
+     +(f.fp?' <span style="color:#94a3b8">fp:'+esc(String(f.fp).slice(0,8))+'</span>':'')+'</div>').join('')
+     +'<div class="kv" style="color:#64748b">完整意见与修复建议见任务报告</div>';
+   }
+  }
  }
  panel.innerHTML='<h3>'+esc(n.label)+'</h3>'
   +'<div class="kv"><b>类型</b>'+esc(n.kind)+(n.changed?'（本轮改动）':'')+'</div>'
@@ -531,6 +563,43 @@ func taskMeta(taskID string) string {
 		return ""
 	}
 	return "任务 " + html.EscapeString(taskID)
+}
+
+// findingsByFile 文件→意见数(徽标渲染输入)。
+func findingsByFile(findings []plugin.Finding) map[string]int {
+	m := map[string]int{}
+	for _, f := range findings {
+		if f.File != "" {
+			m["file:"+f.File]++
+		}
+	}
+	return m
+}
+
+// findingsJSON 渲染面瘦身子集(file/line/severity/fp/comment 摘要/by)。
+func findingsJSON(findings []plugin.Finding) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	type slim struct {
+		File     string `json:"file"`
+		Line     int    `json:"line"`
+		Severity string `json:"severity"`
+		FP       string `json:"fp,omitempty"`
+		By       string `json:"by,omitempty"`
+		Comment  string `json:"comment"`
+	}
+	out := make([]slim, 0, len(findings))
+	for _, f := range findings {
+		c := []rune(f.Comment)
+		if len(c) > 160 {
+			c = append(c[:160], []rune("…")...)
+		}
+		out = append(out, slim{File: f.File, Line: f.Line, Severity: f.Severity,
+			FP: f.FP, By: f.By, Comment: string(c)})
+	}
+	b, _ := json.Marshal(out)
+	return strings.ReplaceAll(string(b), "</", `<\/`)
 }
 
 // couplingDetails 历史共变面板（v5.7.3）：Top 共变对可点击联动聚焦主图——
