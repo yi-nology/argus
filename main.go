@@ -61,8 +61,9 @@ func main() {
 	// 直接注入 core/version 包变量）。
 	oekitversion.Version = version
 	// oekit/concurrency async 的 panic 恢复日志注入 logx（裸 goroutine 已全部收编为 async.GoSafe）
-	async.SetPanicHandler(func(msg string, stack []byte) {
-		log.Error("argus.goroutine_panic", "error", msg, "stack", string(stack))
+	// v5.7.2：PanicHandler 签名扩为 (ctx, r, stack)——panic 值原样进日志，ctx 供上层串联。
+	async.SetPanicHandler(func(ctx context.Context, r any, stack []byte) {
+		log.Error("argus.goroutine_panic", "error", r, "stack", string(stack))
 	})
 
 	if err := cfg.Validate(); err != nil {

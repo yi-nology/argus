@@ -200,7 +200,7 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 
 	// 解析末稿：输出不可解析保留原 findings（零修订优于半截修订）。
 	var revised []reflectFindingWire
-	if jsonrepair.Unmarshal(res.Text, &revised) != nil {
+	if jsonrepair.Unmarshal(plugin.NormalizeFence(res.Text), &revised) != nil {
 		w.Log.Warn("argus.r35.parse_failed", "hint", "输出不可解析，保留原 findings")
 		return nil
 	}

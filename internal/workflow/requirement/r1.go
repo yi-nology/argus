@@ -109,7 +109,7 @@ func (w *Workflow) ParseRequirement(ctx context.Context, task plugin.Task) (*plu
 	// R5.3 强制 COMMENT——最贵的失败模式。R3/R3.5 已迁移，R1 补齐。
 	resp, err := w.LLM.Generate(ctx, plugin.LayerR1, msgs)
 	if err == nil {
-		if e := jsonrepair.Unmarshal(resp.Content, &spec); e != nil {
+		if e := jsonrepair.Unmarshal(plugin.NormalizeFence(resp.Content), &spec); e != nil {
 			err = e
 		}
 	}

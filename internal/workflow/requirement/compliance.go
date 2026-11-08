@@ -71,7 +71,7 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 	// 解析+双向对齐+证据门：首试与重试共用（此前两遍克隆，重试路径漏记对齐日志）
 	parseAligned := func(final string) (*plugin.ComplianceReport, string, bool) {
 		var report plugin.ComplianceReport
-		if e := jsonrepair.Unmarshal(final, &report); e != nil {
+		if e := jsonrepair.Unmarshal(plugin.NormalizeFence(final), &report); e != nil {
 			return nil, "", false
 		}
 		dropped, fixed := alignChecksToSpec(spec, &report) // 双向对齐（防发明条目放大 R5.1，也防漏报缩水成 APPROVE）

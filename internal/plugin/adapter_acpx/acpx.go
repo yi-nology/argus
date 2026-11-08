@@ -192,7 +192,7 @@ type rawFinding struct {
 // 熔断）；(空切片, nil) = 合法解析出的空数组 = 真零 findings。
 func parseFindings(text string) ([]plugin.Finding, error) {
 	var items []rawFinding
-	if err := jsonrepair.Unmarshal(text, &items); err != nil {
+	if err := jsonrepair.Unmarshal(plugin.NormalizeFence(text), &items); err != nil {
 		return nil, err
 	}
 	out := make([]plugin.Finding, 0, len(items))

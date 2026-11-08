@@ -14,6 +14,6 @@ type FindingsWire struct {
 // 尾逗号类损坏不致命）。解析失败的错误包装留给调用方（各路径错误语义不同）。
 func DecodeFindingsJSON(text string) (FindingsWire, error) {
 	var w FindingsWire
-	err := jsonrepair.Unmarshal(text, &w)
+	err := jsonrepair.Unmarshal(NormalizeFence(text), &w)
 	return w, err
 }
