@@ -27,22 +27,33 @@ const (
 
 // RenderHTML 渲染自包含交互 HTML（taskID 仅作页头标识可空；快照空节点返回空串）。
 func RenderHTML(s *Snapshot, taskID string) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), nil)
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{})
 }
 
 // RenderHTMLWithFindings 影响面视图+审查意见挂图（v5.8.0）：findings 按文件
 // 聚合为节点徽标与侧栏意见列表——评审产物与影响拓扑在图上直接互查。
 func RenderHTMLWithFindings(s *Snapshot, taskID string, findings []plugin.Finding) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), findings)
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{Findings: findings})
+}
+
+// ViewOpts 渲染可选面（v5.8.1 收口：findings/演化对比,避免签名继续膨胀）。
+type ViewOpts struct {
+	Findings []plugin.Finding
+	Compare  *ImpactCompare // 同 MR 上一轮快照的集合差(nil=无对比面)
+}
+
+// RenderHTMLWithCompare 影响面视图 + findings + 演化对比摘要（v5.8.1）。
+func RenderHTMLWithCompare(s *Snapshot, taskID string, findings []plugin.Finding, cmp *ImpactCompare) string {
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{Findings: findings, Compare: cmp})
 }
 
 // RenderRepoHTML 仓库级代码地图页（v5.6.2）：同一渲染面，页头换标题与
 // 仓库标识；空图返回空串。
 func RenderRepoHTML(s *Snapshot, repoLabel string) string {
-	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel), nil)
+	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel), ViewOpts{})
 }
 
-func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, findings []plugin.Finding) string {
+func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpts) string {
 	if s == nil || len(s.Nodes) == 0 {
 		return ""
 	}
@@ -55,7 +66,8 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, findings []p
 	vn, vi, ve := viewGraph(vs)
 	pos, w, h := layoutSVG(vn, ve)
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
-		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(findings)), w, h, findingsJSON(findings))
+		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings)), w, h,
+		findingsJSON(opts.Findings), compareSummary(opts.Compare))
 }
 
 // maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
@@ -307,7 +319,7 @@ func truncateRunes(s string, max int) string {
 
 // htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。title/headLabel 支撑
 // 影响面与仓库地图双页头（v5.6.2）。
-func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON string) string {
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary string) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
@@ -376,7 +388,7 @@ summary{cursor:pointer;color:#334155}
 <button id="export">导出 SVG</button>
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
-<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
+` + cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
 <details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
 节点：<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件<br>
 边：import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变<br>
@@ -519,7 +531,7 @@ function showPanel(n){
     const sev={high:'🔴',medium:'🟡',critical:'🔴',low:'🟢'};
     extra+='<h3 style="margin-top:12px">审查意见 '+fs.length+'</h3>'+fs.map(f=>
      '<div class="kv">'+(sev[(f.severity||'').toLowerCase()]||'⚪')+' <b>'+(f.line||'?')+':</b> '+esc(f.comment)
-     +(f.fp?' <span style="color:#94a3b8">fp:'+esc(String(f.fp).slice(0,8))+'</span>':'')+'</div>').join('')
+     +(f.fp?' <span class="cplrow" title="点击复制修复指令" onclick="navigator.clipboard&&navigator.clipboard.writeText(\'fix fp:'+esc(String(f.fp).slice(0,8))+'\')">📋fp:'+esc(String(f.fp).slice(0,8))+'</span>':'')+'</div>').join('')
      +'<div class="kv" style="color:#64748b">完整意见与修复建议见任务报告</div>';
    }
   }

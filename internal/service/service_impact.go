@@ -17,6 +17,37 @@ import (
 	"argus/internal/storage"
 )
 
+// prevImpactCompare 同 MR 上一轮 done 任务的影响面快照集合差。
+// 无上一轮/无快照/解码失败一律 nil（无对比面,不阻断主图）。
+func (s *Service) prevImpactCompare(ctx context.Context, cur *storage.Task) *impactview.ImpactCompare {
+	tasks, err := s.Store.ListTasksByPR(ctx, cur.Platform, cur.Owner, cur.Repo, cur.Number, 6)
+	if err != nil {
+		return nil
+	}
+	for i := range tasks {
+		pt := &tasks[i]
+		if pt.ID == cur.ID || pt.Status != storage.StatusDone {
+			continue
+		}
+		raw := storage.DecodeJSONMap(pt.ArtifactsJSON)[plugin.ArtifactImpactView]
+		if raw == "" {
+			continue
+		}
+		var prev impactview.Snapshot
+		if json.Unmarshal([]byte(raw), &prev) != nil {
+			continue
+		}
+		var curSnap impactview.Snapshot
+		if raw2 := storage.DecodeJSONMap(cur.ArtifactsJSON)[plugin.ArtifactImpactView]; raw2 != "" {
+			if json.Unmarshal([]byte(raw2), &curSnap) != nil {
+				return nil
+			}
+		}
+		return impactview.CompareSnapshots(&prev, &curSnap)
+	}
+	return nil
+}
+
 // ImpactShareVerifier 影响面 share 链接校验器（v5.6.1，main 装配进
 // routerapi.SetImpactShare）：?share= 命中任务绑定 HMAC 令牌即放行该任务的
 // /impact 页，否则回落 Bearer（middleware 层组合）。secret 取 API master
@@ -65,6 +96,10 @@ func (s *Service) ImpactView(ctx context.Context, taskID string) (map[string]any
 	}
 	m["task_id"] = task.ID
 	m["task_status"] = task.Status
+	// v5.8.1 演化对比数据面（MCP get_impact 消费）
+	if cmp := s.prevImpactCompare(ctx, task); cmp != nil {
+		m["compare"] = cmp
+	}
 	return m, true
 }
 
@@ -76,7 +111,9 @@ func (s *Service) ImpactViewHTML(ctx context.Context, taskID string) (string, bo
 	}
 	// v5.8.0 审查意见挂图：findings 从任务 ResultJSON 解码（两态单源同 GetTask）
 	fs, _ := taskFindings(task.ResultJSON)
-	page := impactview.RenderHTMLWithFindings(snap, task.ID, fs)
+	// v5.8.1 演化对比：同 MR 上一轮快照集合差进页头摘要
+	cmp := s.prevImpactCompare(ctx, task)
+	page := impactview.RenderHTMLWithCompare(snap, task.ID, fs, cmp)
 	// v5.6.4 图谱互跳：影响图页头注入整仓地图链接（同源相对路径；带 repo-map
 	// share 令牌——share 访客（免登看任务图谱）点过去不落 401；secret 空=
 	// 鉴权关闭时裸链即可）。
