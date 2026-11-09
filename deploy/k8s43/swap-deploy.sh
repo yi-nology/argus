@@ -11,8 +11,10 @@ set -e
 V=${VERSION:?需 VERSION=vx.y.z}
 [ -f bin/argus ] || { echo "缺 bin/argus"; exit 1; }
 T=$(ssh 215 'grep "^ARGUS_GITLAB_TOKEN=" /opt/argus/argus.env | cut -d= -f2')
-curl -sk --max-time 300 --request PUT --header "PRIVATE-TOKEN: $T" \
-  --upload-file bin/argus "https://git.example.com/api/v4/projects/1340/packages/generic/argus-bin/$V/argus-linux-arm64" -o /dev/null -w "up=%{http_code}\n"
+UP=$(curl -sk --max-time 300 --request PUT --header "PRIVATE-TOKEN: $T" \
+  --upload-file bin/argus "https://git.example.com/api/v4/projects/1340/packages/generic/argus-bin/$V/argus-linux-arm64" -o /dev/null -w "%{http_code}") || exit 1
+[ "$UP" = "201" ] || { echo "up=$UP 非 201,中止"; exit 1; }
+echo "up=201"
 ssh 215 "T=$T; curl -sk -L --header \"PRIVATE-TOKEN: \$T\" -o /tmp/swapbuild/argus 'https://git.example.com/api/v4/projects/1340/packages/generic/argus-bin/$V/argus-linux-arm64' \
   && chmod 0755 /tmp/swapbuild/argus \
   && [ \$(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] \
