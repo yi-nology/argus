@@ -2,6 +2,7 @@ package impactview
 
 import (
 	"argus/internal/plugin"
+	"argus/internal/storage"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,29 @@ func TestRenderHTMLFindingsOverlay(t *testing.T) {
 	// 无 findings:整块省略
 	if html2 := RenderHTML(s, "t1"); strings.Contains(html2, `<script type="application/json" id="impact-findings">`) {
 		t.Fatal("无 findings 不应有数据块")
+	}
+}
+
+// TestRenderHTMLHistoryArchive v5.8.2:惯犯文件热力——total≥3 的文件档案进
+// 数据块,低频文件不进(防噪);快照契约零变更。
+func TestRenderHTMLHistoryArchive(t *testing.T) {
+	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"},
+		Nodes: []Node{{ID: "file:a.go", Kind: KindFile, Label: "a.go", Changed: true, Detail: "a.go"}}}
+	opts := ViewOpts{History: map[string]storage.FindingFileHistory{
+		"a.go":     {Total: 12, Suppressed: 5},
+		"quiet.go": {Total: 1},
+	}}
+	html := RenderHTMLFull(s, "t1", opts)
+	if !strings.Contains(html, `impact-history`) {
+		t.Fatal("历史数据块应嵌入")
+	}
+	if !strings.Contains(html, `"total":12`) {
+		t.Fatal("惯犯档案应入 JSON")
+	}
+	if strings.Contains(html, `"total":1,`) {
+		t.Fatal("低频文件不应入 JSON(防噪)")
+	}
+	if html2 := RenderHTMLFull(s, "t2", ViewOpts{}); strings.Contains(html2, `<script type="application/json" id="impact-history">`) {
+		t.Fatal("空历史不应有数据块")
 	}
 }

@@ -113,7 +113,11 @@ func (s *Service) ImpactViewHTML(ctx context.Context, taskID string) (string, bo
 	fs, _ := taskFindings(task.ResultJSON)
 	// v5.8.1 演化对比：同 MR 上一轮快照集合差进页头摘要
 	cmp := s.prevImpactCompare(ctx, task)
-	page := impactview.RenderHTMLWithCompare(snap, task.ID, fs, cmp)
+	// v5.8.2 惯犯文件热力：prints 跨 MR 意见史（改动文件集合聚合）
+	hist, _ := s.Store.FindingHistoryByFiles(ctx, task.Platform, task.Owner, task.Repo, snap.Changed)
+	page := impactview.RenderHTMLFull(snap, task.ID, impactview.ViewOpts{
+		Findings: fs, Compare: cmp, History: hist,
+	})
 	// v5.6.4 图谱互跳：影响图页头注入整仓地图链接（同源相对路径；带 repo-map
 	// share 令牌——share 访客（免登看任务图谱）点过去不落 401；secret 空=
 	// 鉴权关闭时裸链即可）。

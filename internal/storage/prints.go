@@ -393,3 +393,37 @@ func (s *Store) ListAllPrints(ctx context.Context) ([]FindingPrint, error) {
 	err := s.db.WithContext(ctx).Order("id").Find(&rows).Error
 	return rows, err
 }
+
+// FindingFileHistory 单文件的意见历史档案（跨 MR 聚合,v5.8.2 惯犯文件热力）。
+type FindingFileHistory struct {
+	Total      int `json:"total"`
+	Suppressed int `json:"suppressed,omitempty"` // 被人工抑制数(误报倾向参考)
+}
+
+// FindingHistoryByFiles 按文件聚合该仓全部 MR 的意见史(total/抑制数)。
+// files 为空返回空 map;IN 参数化查询,聚合在 DB 侧完成。
+func (s *Store) FindingHistoryByFiles(ctx context.Context, platform, owner, repo string,
+	files []string) (map[string]FindingFileHistory, error) {
+	out := map[string]FindingFileHistory{}
+	if len(files) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		File       string `gorm:"column:file"`
+		Total      int    `gorm:"column:total"`
+		Suppressed int    `gorm:"column:suppressed"`
+	}
+	err := s.quietDB().WithContext(ctx).
+		Table("finding_prints").
+		Select("file, COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END), 0) AS suppressed").
+		Where("platform = ? AND owner = ? AND repo = ? AND file IN ?", platform, owner, repo, files).
+		Group("file").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.File] = FindingFileHistory{Total: r.Total, Suppressed: r.Suppressed}
+	}
+	return out, nil
+}

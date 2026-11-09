@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"argus/internal/plugin"
+	"argus/internal/storage"
 )
 
 // 布局常量（分层 LR：深度列 × 列内栈）。
@@ -40,11 +41,18 @@ func RenderHTMLWithFindings(s *Snapshot, taskID string, findings []plugin.Findin
 type ViewOpts struct {
 	Findings []plugin.Finding
 	Compare  *ImpactCompare // 同 MR 上一轮快照的集合差(nil=无对比面)
+	// History 文件意见历史档案(v5.8.2 惯犯文件热力;key=file 相对路径)
+	History map[string]storage.FindingFileHistory
 }
 
 // RenderHTMLWithCompare 影响面视图 + findings + 演化对比摘要（v5.8.1）。
 func RenderHTMLWithCompare(s *Snapshot, taskID string, findings []plugin.Finding, cmp *ImpactCompare) string {
 	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{Findings: findings, Compare: cmp})
+}
+
+// RenderHTMLFull 全量渲染面(v5.8.2):findings+演化对比+历史档案。
+func RenderHTMLFull(s *Snapshot, taskID string, opts ViewOpts) string {
+	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), opts)
 }
 
 // RenderRepoHTML 仓库级代码地图页（v5.6.2）：同一渲染面，页头换标题与
@@ -67,7 +75,7 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpt
 	pos, w, h := layoutSVG(vn, ve)
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
 		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings)), w, h,
-		findingsJSON(opts.Findings), compareSummary(opts.Compare))
+		findingsJSON(opts.Findings), compareSummary(opts.Compare), historyJSON(opts.History))
 }
 
 // maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
@@ -319,7 +327,7 @@ func truncateRunes(s string, max int) string {
 
 // htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。title/headLabel 支撑
 // 影响面与仓库地图双页头（v5.6.2）。
-func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary string) string {
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary, historyJSON string) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
@@ -328,6 +336,10 @@ func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, da
 	fScript := ""
 	if findingsJSON != "" {
 		fScript = `<script type="application/json" id="impact-findings">` + findingsJSON + `</script>`
+	}
+	hScript := ""
+	if historyJSON != "" {
+		hScript = `<script type="application/json" id="impact-history">` + historyJSON + `</script>`
 	}
 	var riskList strings.Builder
 	for _, r := range s.Risk.Reasons {
@@ -392,7 +404,8 @@ summary{cursor:pointer;color:#334155}
 <details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
 节点：<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件<br>
 边：import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变<br>
-徽标：文件节点右上角红点数字=该文件审查意见数（点节点看意见摘要）。交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
+徽标：文件节点右上角红点数字=该文件审查意见数（点节点看意见摘要+历史档案）。
+历史：点选文件节点的「历史档案」= 跨 MR 意见史与人工抑制计数（误报倾向参考）。交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
 </div></details>
 ` + couplingDetails(s) + `
 ` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
@@ -401,11 +414,12 @@ summary{cursor:pointer;color:#334155}
 ` + svg + `</svg></div>
 <aside id="panel"></aside>
 <script type="application/json" id="impact-data">` + dataJSON + `</script>
-` + fScript + `
+` + fScript + hScript + `
 <script>
 const data=JSON.parse(document.getElementById('impact-data').textContent);
 const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
 const fdata=(()=>{const el=document.getElementById('impact-findings');try{return el?JSON.parse(el.textContent):[];}catch(e){return [];}})();
+const hdata=(()=>{const el=document.getElementById('impact-history');try{return el?JSON.parse(el.textContent):{};}catch(e){return {};}})();
 const svg=document.getElementById('g'),vp=document.getElementById('viewport'),q=document.getElementById('q'),panel=document.getElementById('panel');
 let scale=1,tx=0,ty=0;
 function apply(){svg.style.transformOrigin='0 0';svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';}
@@ -524,7 +538,11 @@ function showPanel(n){
     return '<div class="cplrow" onclick="window.focusFileNode && window.focusFileNode(\'file:'+esc(o)+'\')">'+esc(o)+' ×'+c.count+'</div>';
    }).join('');
   }
-  // v5.8.0 审查意见挂图:该文件的 findings(severity 图标+行号+fp 短码+摘要)
+  // v5.8.0/v5.8.2 审查意见挂图+历史档案：该文件的 findings 与跨 MR 意见史
+  if(hdata[filePath]&&hdata[filePath].total){
+   const h=hdata[filePath];
+   extra+='<h3 style="margin-top:12px">历史档案</h3><div class="kv">该文件历史上共 <b>'+h.total+'</b> 条意见'+(h.suppressed>0?'，其中 <b>'+h.suppressed+'</b> 条被人工抑制（误报倾向参考，审阅可降权）':'')+'</div>';
+  }
   if(fdata.length){
    const fs=fdata.filter(f=>f.file===filePath);
    if(fs.length){
@@ -609,6 +627,24 @@ func findingsJSON(findings []plugin.Finding) string {
 		}
 		out = append(out, slim{File: f.File, Line: f.Line, Severity: f.Severity,
 			FP: f.FP, By: f.By, Comment: string(c)})
+	}
+	b, _ := json.Marshal(out)
+	return strings.ReplaceAll(string(b), "</", `<\/`)
+}
+
+// historyJSON 文件意见历史档案的瘦身影射(file→total/suppressed,仅保留 total≥3 的惯犯)。
+func historyJSON(h map[string]storage.FindingFileHistory) string {
+	if len(h) == 0 {
+		return ""
+	}
+	out := map[string]storage.FindingFileHistory{}
+	for f, v := range h {
+		if v.Total >= 3 {
+			out[f] = v
+		}
+	}
+	if len(out) == 0 {
+		return ""
 	}
 	b, _ := json.Marshal(out)
 	return strings.ReplaceAll(string(b), "</", `<\/`)
