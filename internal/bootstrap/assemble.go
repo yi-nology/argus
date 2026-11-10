@@ -17,6 +17,13 @@ import (
 
 	"github.com/oekit/logx"
 
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/obs/audit"
+	"github.com/oagentkit/rag"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
+	"github.com/yi-nology/agent-memory/ports"
+	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
 	"github.com/yi-nology/argus/internal/config"
 	argusctx "github.com/yi-nology/argus/internal/context"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -32,13 +39,6 @@ import (
 	"github.com/yi-nology/argus/internal/sink"
 	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/toolpool"
-	"github.com/oagentkit/llm"
-	"github.com/oagentkit/obs/audit"
-	"github.com/oagentkit/rag"
-	"github.com/oagentkit/skillkit/skill"
-	"github.com/oagentkit/tools/workcopy"
-	"github.com/yi-nology/agent-memory/ports"
-	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
 )
 
 // System 装配产物：全部子系统就绪后的共享引用集合。

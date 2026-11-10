@@ -14,11 +14,11 @@ import (
 	"github.com/oekit/pkg/httpjson"
 	"github.com/oekit/tracing/httpotel"
 
+	"github.com/oagentkit/llm"
+	"github.com/oagentkit/llm/wrap"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/oagentkit/llm"
-	"github.com/oagentkit/llm/wrap"
 )
 
 // tracedLLMClient LLM 出站 HTTP 客户端（v3.177.0，llm v0.15 HTTPClient +

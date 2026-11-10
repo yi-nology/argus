@@ -1,8 +1,8 @@
 package dispatch
 
 import (
-	"github.com/yi-nology/argus/internal/learning"
 	"context"
+	"github.com/yi-nology/argus/internal/learning"
 	"strings"
 	"testing"
 

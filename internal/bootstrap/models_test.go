@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/argus/internal/config"
 	"github.com/oagentkit/llm"
 	"github.com/oekit/logx"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // fullCfg 主模型 + 全局降级 + 全部 P6 阶段覆盖（构造离线：模型/Provider 构造不发网络请求）。
