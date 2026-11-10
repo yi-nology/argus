@@ -43,7 +43,7 @@ func (b *ByteBatchEmbedder) Embed(ctx context.Context, texts []string) ([][]floa
 			size += len(texts[start+n])
 			n++
 		}
-		vecs, err := b.inner.Embed(ctx, texts[start : start+n])
+		vecs, err := b.inner.Embed(ctx, texts[start:start+n])
 		if err != nil {
 			return nil, err
 		}

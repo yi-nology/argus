@@ -8,8 +8,8 @@ import (
 
 // recEmbedder 记录每次调用的批量与字节数（字节预算断言用）。
 type recEmbedder struct {
-	calls   []int
-	bytes   []int
+	calls    []int
+	bytes    []int
 	innerDim int
 }
 
