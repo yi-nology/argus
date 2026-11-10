@@ -560,8 +560,8 @@ github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:
 github.com/yalp/jsonpath v0.0.0-20180802001716-5cc68e5049a0/go.mod h1:/LWChgwKmvncFJFHJ7Gvn9wZArjbV5/FppcK2fKk/tI=
 github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5FYc=
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
-github.com/yi-nology/agent-harness v0.27.0 h1:KLPNmTZDlN5Q61LMltWLezzVBnqGrhktMd7cA+wjQ0Q=
-github.com/yi-nology/agent-harness v0.27.0/go.mod h1:v/UWv+ZMWvKMNuvMuK5qrdfZeu8KI2q3XoG+7i1fklI=
+github.com/yi-nology/agent-harness v0.27.1 h1:fxOXADPNG8Eeq0/OPRkLePmSag/DE31uPhsBFNzN9EY=
+github.com/yi-nology/agent-harness v0.27.1/go.mod h1:v/UWv+ZMWvKMNuvMuK5qrdfZeu8KI2q3XoG+7i1fklI=
 github.com/yi-nology/agent-memory v0.10.0 h1:UdL6eTQ3kG7v8hNEMmaH9F10U0oam/7604HBTwllw6o=
 github.com/yi-nology/agent-memory v0.10.0/go.mod h1:hCCt3W3X/u3zFSIAalH8PDbuchMV5FfhA4aMukroEMs=
 github.com/yi-nology/go-git-platform v0.124.0 h1:Fj6QiJAc+HMmzH071LaUfixt4jqnWJ98u6dos4XisBQ=

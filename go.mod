@@ -36,7 +36,7 @@ require (
 	github.com/oekit/pkg v0.41.1
 	github.com/oekit/tracing v0.3.7
 	github.com/prometheus/client_golang v1.25.0
-	github.com/yi-nology/agent-harness v0.27.0
+	github.com/yi-nology/agent-harness v0.27.1
 	github.com/yi-nology/agent-memory v0.10.0
 	github.com/yi-nology/go-git-platform v0.124.0
 	go.opentelemetry.io/otel v1.47.0
