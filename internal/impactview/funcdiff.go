@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/oagentkit/runtime/procx"
+	"github.com/yi-nology/argus/internal/gitdeepen"
 )
 
 // 函数级变更状态词表（FuncDiff.Status）。

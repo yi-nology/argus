@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yi-nology/argus/internal/notify/octopus"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
+	"github.com/yi-nology/argus/internal/notify/octopus"
 
 	"github.com/yi-nology/argus/internal/obs"
 )

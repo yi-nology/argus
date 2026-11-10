@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/yi-nology/argus/internal/commentcmd"
 	"context"
+	"github.com/yi-nology/argus/internal/commentcmd"
 	"os"
 	"os/exec"
 	"path/filepath"

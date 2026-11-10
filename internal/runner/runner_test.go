@@ -8,11 +8,11 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/yi-nology/argus/internal/config"
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/logx"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // stubChatModel 最小 BaseChatModel 桩（装配测试不发真实请求）。

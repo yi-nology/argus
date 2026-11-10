@@ -12,9 +12,9 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oekit/logx"
 
+	"github.com/oagentkit/textx/codeintel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/semsearch"
-	"github.com/oagentkit/textx/codeintel"
 )
 
 // v3.15.0 P0-1：CodeGraph 非 nil 时 R3/R4 工具表挂 get_symbol/get_references，

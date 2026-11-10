@@ -21,6 +21,9 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	agentkitworker "github.com/oagentkit/queue/worker"
+	"github.com/oagentkit/skillkit/skill"
+	"github.com/oagentkit/tools/workcopy"
 	bizapi "github.com/yi-nology/argus/biz/handler/api"
 	routerapi "github.com/yi-nology/argus/biz/router/api"
 	"github.com/yi-nology/argus/internal/bootstrap"
@@ -34,12 +37,9 @@ import (
 	"github.com/yi-nology/argus/internal/runner"
 	"github.com/yi-nology/argus/internal/service"
 	"github.com/yi-nology/argus/internal/storage"
-	agentkitworker "github.com/oagentkit/queue/worker"
-	"github.com/oagentkit/skillkit/skill"
-	"github.com/oagentkit/tools/workcopy"
 
-	argusworker "github.com/yi-nology/argus/internal/worker"
 	"github.com/cloudwego/hertz/pkg/app"
+	argusworker "github.com/yi-nology/argus/internal/worker"
 )
 
 // ---------- fake Gitea provider ----------
