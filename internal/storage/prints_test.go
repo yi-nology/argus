@@ -362,9 +362,11 @@ func TestMigratePrintAliasPRScope(t *testing.T) {
 	// 规范行：同指纹 Fx 在 PR 7 与 PR 8 各一条；孤儿别名指向的 Gx 不存在
 	fx, gx, a1, a2 := "fx0000000001", "gx0000000001", "a10000000001", "a20000000002"
 	for _, number := range []string{"7", "8"} {
+		// 时间字段显式赋值（MySQL 严格模式拒 '0000-00-00' 零值 datetime——CI 矩阵实锤）。
 		if err := s.db.Create(&FindingPrint{Platform: "gitea", Owner: "acme", Repo: "app",
 			Number: number, Print: fx, File: "a.go", Line: 1, Severity: "high",
-			Comment: "注入风险", Status: PrintOpen}).Error; err != nil {
+			Comment: "注入风险", Status: PrintOpen,
+			FirstSeenAt: time.Now(), LastSeenAt: time.Now()}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

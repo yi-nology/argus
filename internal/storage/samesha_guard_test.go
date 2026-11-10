@@ -38,10 +38,19 @@ func TestSameSHAGuard(t *testing.T) {
 	if err != nil || dup != "in_flight" || id != "task-a" {
 		t.Fatalf("在飞去重应拦: dup=%q id=%q err=%v", dup, id, err)
 	}
-	// 跨实例纪律：绕过事务检查直插第二条在飞 → 撞部分唯一索引
-	err = s.db.Create(mk("task-c", "evt-c", StatusRunning)).Error
-	if !isDuplicateKeyErr(err) {
-		t.Fatalf("同 SHA 第二条在飞应撞唯一索引: %v", err)
+	// 跨实例纪律：绕过事务检查直插第二条在飞 → 撞部分唯一索引。
+	// 方言分支（CI MySQL 矩阵实锤）：部分唯一索引是 SQLite 专有，MySQL 分支
+	// EnsureSameSHAGuard 恒 (true, nil) 占位（samesha_guard.go:34 设计在案），
+	// 无索引可撞——MySQL 下断言占位语义，跨实例约束不在其契约面。
+	if s.sqlite {
+		err = s.db.Create(mk("task-c", "evt-c", StatusRunning)).Error
+		if !isDuplicateKeyErr(err) {
+			t.Fatalf("同 SHA 第二条在飞应撞唯一索引: %v", err)
+		}
+	} else {
+		if active, err := s.EnsureSameSHAGuard(); err != nil || !active {
+			t.Fatalf("MySQL 分支应恒占位 (true, nil): active=%v err=%v", active, err)
+		}
 	}
 	// 经公开入口再建（4b 事务检查兜住）→ in_flight 语义不变
 	dup, id, err = s.CreateTaskForWebhook(ctx, mk("task-d", "evt-d", StatusPending))

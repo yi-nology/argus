@@ -74,6 +74,8 @@ func setupTestMySQL(t *testing.T, baseDSN string) string {
 		testDB = testDB[:64]
 	}
 
+	// 幂等（CI 二轮实锤）：库名可能被 64 字符截断撞名或残留重跑——先清再建。
+	_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + testDB + "`")
 	_, err = admin.Exec("CREATE DATABASE `" + testDB + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
 	if err != nil {
 		t.Fatalf("openTestStore: create db %q: %v", testDB, err)
