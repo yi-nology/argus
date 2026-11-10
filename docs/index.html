@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus — 给一个 PR，还你一份带证据的审查报告</title>
+<meta name="description" content="Argus 是 AI 代码审查机器人：多 agent 编排读完代码、对照需求、派出审查专家，把带证据的报告回帖到 PR 上。Apache-2.0 开源。">
+<style>
+:root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--sub:#475569;--line:#e2e8f0;--accent:#2563eb;--accent2:#7c3aed;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111a2e;--ink:#e6edf7;--sub:#94a3b8;--line:#1e293b;--accent:#60a5fa;--accent2:#a78bfa;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:960px;margin:0 auto;padding:0 24px}
+header{padding:20px 0;display:flex;align-items:center;justify-content:space-between}
+.brand{font-weight:700;font-size:18px;letter-spacing:.5px}
+.hero{padding:72px 0 56px;text-align:center}
+.hero h1{font-family:Georgia,"Songti SC",serif;font-size:clamp(28px,5vw,44px);line-height:1.3;margin:0 0 18px}
+.hero p.lead{font-size:17px;color:var(--sub);max-width:640px;margin:0 auto 28px}
+.btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-block;padding:11px 22px;border-radius:10px;font-weight:600}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.ghost{border:1px solid var(--line);color:var(--ink);background:var(--card)}
+.tags{margin-top:22px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.tag{font-size:12px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:3px 12px;background:var(--card)}
+section{padding:52px 0}
+h2{font-family:Georgia,"Songti SC",serif;font-size:clamp(22px,3.4vw,30px);text-align:center;margin:0 0 8px}
+.sub{text-align:center;color:var(--sub);margin:0 0 36px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 14px;text-align:center;transition:transform .15s ease}
+.step:hover{transform:translateY(-3px)}
+.step .no{width:30px;height:30px;line-height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;margin:0 auto 10px;font-size:13px}
+.step b{display:block;font-size:14px}
+.step small{color:var(--sub);font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;transition:transform .15s ease}
+.card:hover{transform:translateY(-3px)}
+.card h3{margin:0 0 8px;font-size:16px}
+.card p{margin:0 0 12px;color:var(--sub);font-size:13.5px}
+.mini{font-family:var(--mono);font-size:11.5px;line-height:1.7;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre;color:var(--sub)}
+.sample{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;max-width:720px;margin:0 auto}
+.sample .verdict{font-size:16px;font-weight:700;margin-bottom:10px}
+.sample .tldr{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:8px;padding:12px 16px;margin:12px 0;font-size:13.5px}
+.ac{font-family:var(--mono);font-size:12.5px;color:var(--sub);margin:4px 0}
+.tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.tgroup{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.tgroup h4{margin:0 0 10px;font-size:13px;color:var(--sub);text-transform:uppercase;letter-spacing:1px}
+.chip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;margin:2px}
+pre.start{background:#0f172a;color:#e2e8f0;border-radius:12px;padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.9}
+pre.start .c{color:#64748b}
+pre.start .k{color:#93c5fd}
+footer{border-top:1px solid var(--line);padding:28px 0 40px;text-align:center;color:var(--sub);font-size:13px}
+@media (max-width:640px){.hero{padding:48px 0 36px}.sample{padding:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><div class="brand">Argus</div><nav><a href="https://github.com/yi-nology/argus">GitHub</a></nav></header>
+
+<section class="hero">
+<h1>给一个 PR，<br>还你一份带证据的审查报告。</h1>
+<p class="lead">Argus 读完代码、对照需求、派出多个审查专家，把逐条带 file:line 证据的报告与 APPROVE / COMMENT / REQUEST_CHANGES 结论回帖到 PR 上。</p>
+<div class="btns">
+<a class="btn primary" href="https://github.com/yi-nology/argus">⭐ GitHub 仓库</a>
+<a class="btn ghost" href="#start">快速开始</a>
+</div>
+<div class="tags">
+<span class="tag">Gitea · Forgejo · GitHub · GitLab</span>
+<span class="tag">单二进制 · 本地化部署</span>
+<span class="tag">MCP 原生</span>
+<span class="tag">Apache-2.0</span>
+</div>
+</section>
+
+<section id="pipeline">
+<h2>它怎么审查</h2>
+<p class="sub">多 agent 编排，确定性裁决——不是「一问一答」，是一条有反思、有证据链的流水线。</p>
+<div class="steps">
+<div class="step"><div class="no">1</div><b>需求解析</b><small>R1 · AC 清单化</small></div>
+<div class="step"><div class="no">2</div><b>变更理解</b><small>R2 · diff 深读</small></div>
+<div class="step"><div class="no">3</div><b>完成度判定</b><small>R3 · 逐条核实</small></div>
+<div class="step"><div class="no">4</div><b>报告反思</b><small>R3.5 · 自纠</small></div>
+<div class="step"><div class="no">5</div><b>专家插件</b><small>R4 · 安全/OCR/…</small></div>
+<div class="step"><div class="no">6</div><b>确定性裁决</b><small>R5 · 结论回帖</small></div>
+</div>
+</section>
+
+<section id="features">
+<h2>核心能力</h2>
+<p class="sub">每个能力都用真实数据验证过，不是演示文稿功能。</p>
+<div class="cards">
+<div class="card">
+<h3>📋 需求复核</h3>
+<p>把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable，堵 scope creep。</p>
+<div class="mini">验收清单完成度: 12/14
+- ✅ AC-1  复用镜像选择器  implemented (view.vue:1239)
+- ❓ AC-2  加载失败重试  unverifiable</div>
+</div>
+<div class="card">
+<h3>🎯 影响面视图</h3>
+<p>blast radius 一图看清：import 闭包、调用方、测试面、函数级图 diff、跨轮演化对比、审查意见挂图。</p>
+<div class="mini">nodes/edges/risk 结构化 JSON
++ 交互 HTML + mermaid 回帖
+→ MCP get_impact 直取</div>
+</div>
+<div class="card">
+<h3>🔬 消歧符号图</h3>
+<p>目录限定键根治同名假边；get_trace 查两符号调用链、get_symbol_context 看定义+调用方全景。</p>
+<div class="mini">get_trace(from=Alpha,to=Delta)
+Alpha (a.go:5) —calls→
+  Beta (a.go:9) —calls→ Delta</div>
+</div>
+</div>
+<div class="cards" style="margin-top:16px">
+<div class="card">
+<h3>🧠 语义检索</h3>
+<p>按意图找代码（「哪里处理认证」）+ Graph RAG 邻接增强；R3 审查面与 MCP 双入口。</p>
+<div class="mini">search_sem(query="数据库连接")
+[1] db.go:19 score=0.52
+邻接：调用方 Handle；被调 Save</div>
+</div>
+<div class="card">
+<h3>🧩 专家插件</h3>
+<p>可插拔审查插件编队：security、OCR 截图审查、正确性、自定义插件——意见合并去重进同一份报告。</p>
+<div class="mini">R4 专家委派 →
+security ✓  ocr ✓  custom ✓
+→ 合并器去重 → R5 裁决</div>
+</div>
+<div class="card">
+<h3>💬 MR 上的体验</h3>
+<p>执行期进度条原地滚动；完成后 TL;DR 结论先行 + 完整报告置底；行内意见带 suggestion 一键应用。</p>
+<div class="mini">🔍 审查中… 进度：R3 ⏳ · R4 未开始
+→ ✅ 结论：COMMENT
+意见：high 0 · medium 1 · low 0</div>
+</div>
+</div>
+</section>
+
+<section id="sample">
+<h2>审查长什么样</h2>
+<p class="sub">结论先行，证据随行——下面是简化的真实回帖形态。</p>
+<div class="sample">
+<div class="verdict">✅ Argus 审查完成，结论：💬 COMMENT（R5.4）</div>
+<div class="ac">📋 验收清单完成度: 6/6 &nbsp;·&nbsp; head=5b3439be</div>
+<div class="tldr"><b>TL;DR</b><br>意见：high 0 · medium 1 · low 0（共 1 条，行内已标注 1 条）<br><b>重点关注：</b><br>• [MEDIUM] <code>demo.go:5</code> Sum 的实现与函数名/注释语义相反（返回乘积）——会静默污染上游计算。</div>
+<div class="ac">完整报告见总结评论（随每次同步更新）· 影响面图 / 函数级 diff / 历史意见档案随报告可查</div>
+</div>
+</section>
+
+<section id="mcp">
+<h2>MCP 原生 · 23 个工具</h2>
+<p class="sub">审查能力全部以 MCP 工具暴露，任意 agent/IDE 直接驱动。</p>
+<div class="tools">
+<div class="tgroup"><h4>审查发起</h4><span class="chip">review_pr</span><span class="chip">requirement_compliance</span><span class="chip">review_diff</span><span class="chip">review_diff_async</span></div>
+<div class="tgroup"><h4>结果消费</h4><span class="chip">get_report</span><span class="chip">ask_argus</span><span class="chip">list_tasks</span><span class="chip">list_findings</span><span class="chip">get_task_stages</span><span class="chip">get_suggestion</span></div>
+<div class="tgroup"><h4>代码检索</h4><span class="chip">search_code</span><span class="chip">search_sem</span><span class="chip">search_knowledge</span><span class="chip">search_findings</span><span class="chip">get_trace</span><span class="chip">get_symbol_context</span></div>
+<div class="tgroup"><h4>影响与配置</h4><span class="chip">get_impact</span><span class="chip">get_repo_map</span><span class="chip">get_repo_config</span><span class="chip">get_capabilities</span><span class="chip">list_agents</span><span class="chip">fix_finding</span><span class="chip">suppress_finding</span><span class="chip">restore_finding</span></div>
+</div>
+</section>
+
+<section id="start">
+<h2>快速开始</h2>
+<p class="sub">单二进制，内网可离线运行；配置即环境变量。</p>
+<pre class="start"><span class="c"># 1. 获取（go install 或 Release 二进制）</span>
+<span class="k">go</span> install github.com/yi-nology/argus@latest
+
+<span class="c"># 2. 配置平台与模型（环境变量）</span>
+<span class="k">export</span> ARGUS_API_TOKENS=tok:admin
+<span class="k">export</span> ARGUS_GITEA_URL=https://your-git.example.com
+<span class="k">export</span> ARGUS_GITEA_TOKEN=xxxx
+<span class="k">export</span> ARGUS_LLM_BASE_URL=https://your-llm-gateway/v1
+
+<span class="c"># 3. 启动；PR 触发即自动审查，报告回帖到平台</span>
+<span class="k">./argus</span> serve</pre>
+<p class="sub" style="margin-top:18px">更多部署形态（k3s / Docker / OCR 插件 / 按仓配置）见 <a href="https://github.com/yi-nology/argus/blob/main/README.md">README</a>。</p>
+</section>
+
+<footer>
+Argus · <a href="https://github.com/yi-nology/argus">github.com/yi-nology/argus</a> · Apache License 2.0 · © 2026 yi-nology
+</footer>
+</div>
+</body>
+</html>

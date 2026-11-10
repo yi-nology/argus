@@ -1,0 +1,48 @@
+name: Pages
+
+# 宣传页部署：docs/index.html → GitHub Pages（upload-pages-artifact + deploy-pages 标准组合）。
+# 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
+on:
+  push:
+    branches: [main]
+    paths: ["docs/index.html"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 部署串行防重入；不腰斩（Pages 部署中途取消会留下半发布态）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (stage site)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 只发 docs/index.html 宣传页；docs/ 其余内容是内部文档，不进 Pages
+      - name: Stage site
+        run: |
+          mkdir -p _site
+          cp docs/index.html _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: deploy (GitHub Pages)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

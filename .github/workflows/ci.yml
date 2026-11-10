@@ -1,0 +1,167 @@
+name: CI
+
+# 开源仓 CI/CD 三面单文件：
+#   ci      —— 构建 / vet / 测试 / 架构守卫（push、PR to main；tag 复跑作为 release 门禁）
+#   image   —— GHCR 多架构镜像（push main + tag v*）
+#   release —— GitHub Release 二进制 + sha256（tag v*）
+# 纪律：仅用 GitHub 标准 secrets（GITHUB_TOKEN）；零内网主机、零自定义凭据。
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+# 权限最小化：默认只读；image job 提升 packages:write、release job 提升 contents:write。
+permissions:
+  contents: read
+
+# 并发防重入：同一 ref 单飞行；main 上新提交直接取消旧 run（cancel-in-progress on main），
+# tag 不取消——发布流水线不允许腰斩。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+
+jobs:
+  ci:
+    name: ci (build / vet / test / arch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go 版本从 go.mod 读取（go 1.27.3），不在此处钉版本
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+      # 可执行架构守卫：分层白名单 / 组合根单向性 / 包文档完整性（口径单源在 Makefile）
+      - name: Arch guards
+        run: make arch
+
+  # 镜像发布（push main + tag v*）。
+  # Dockerfile 形态判定：仓内 Dockerfile 是完整 multi-stage（golang:1.27-alpine builder
+  # 产出 argus + ocrshim，alpine:3.20 运行层附带 plugins.yaml 与 skills）——docker build 直出，
+  # 不是换芯模板（deploy/k8s43/swap.Dockerfile 才是换芯形态，不适合 CI 首发）。
+  # go.mod 无 SSH 私有依赖（依赖全为公共 module），Dockerfile 的 --mount=type=ssh 在无 agent 时
+  # 为空挂载，CI 无需转发 SSH、无需任何内网可达性。
+  image:
+    name: image (GHCR multi-arch)
+    needs: ci
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本元数据注入 Dockerfile 的 ARG VERSION / GIT_COMMIT（/version 端点与镜像标签同源）
+      - name: Version metadata
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      # GITHUB_TOKEN 标准登录 GHCR
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # tag 策略：main → latest + sha-短；tag v* → 版本号（tag 原文）+ latest
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/yi-nology/argus
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # GitHub Release（tag v*）：交叉编译 linux amd64 + arm64 两个 argus 二进制 + sha256 清单；
+  # body 引用 docs/releases/<tag>.md（存在才引，否则仅自动生成 notes）。
+  release:
+    name: release (binaries + checksums)
+    needs: ci
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # 口径单源在 Makefile：make build（LDFLAGS 版本注入与本地一致）；
+      # 命令行覆盖 VERSION/GIT_*，GOOS/GOARCH 经命令行变量透传给 go build 做交叉编译。
+      - name: Cross-compile argus (linux amd64 + arm64)
+        run: |
+          mkdir -p dist
+          for goarch in amd64 arm64; do
+            make build \
+              VERSION="${GITHUB_REF_NAME}" \
+              GIT_COMMIT="${GITHUB_SHA:0:7}" \
+              GIT_BRANCH="${GITHUB_REF_NAME}" \
+              BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+              GOOS=linux GOARCH="${goarch}"
+            mv bin/argus "dist/argus_linux_${goarch}"
+          done
+          (cd dist && sha256sum argus_linux_amd64 argus_linux_arm64 > checksums.txt)
+
+      - name: Locate release notes
+        id: notes
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "${notes}" ]; then
+            echo "path=${notes}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/argus_linux_amd64
+            dist/argus_linux_arm64
+            dist/checksums.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
