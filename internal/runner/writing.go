@@ -1,6 +1,7 @@
 // writing.go 写作面任务执行（v3.71.0）：describe 生成并写回 PR 描述、
 // changelog 生成变更条目并发评论。不走 R 系列审查管线与插件派发——
 // 单步 LLM 写作后直接平台写回，复用 runner 的 marker/落库/播报原语收口。
+
 package runner
 
 import (

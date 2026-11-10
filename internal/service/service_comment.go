@@ -11,7 +11,7 @@ import (
 
 	"github.com/oagentkit/rag"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/obs"
 )
@@ -221,7 +221,7 @@ func (s *Service) handleSuppressComment(ctx context.Context, ev *provider.Normal
 	number int, fpPrefix, commentBody string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)
-	req := &api.SuppressFindingRequest{
+	req := &argus.SuppressFindingRequest{
 		Platform: platform, Owner: ev.Repo.Owner, Repo: ev.Repo.Name, Number: num,
 		Fingerprint: strPtr(fpPrefix),
 		Comment:     strPtr(commentBody),

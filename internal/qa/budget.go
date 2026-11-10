@@ -12,6 +12,7 @@
 // CJK/ASCII 分类计量）。旧手写 ceil(runes/3) 是全 CJK 上界——英文型问答
 // 内容（代码标识符/英文注释）被系统性高估 ~2×，Critical 门提前触发白压实。
 // 非 provider 报数的纪律不变（budget 包纪律：分段估算永不回填 provider 报数）。
+
 package qa
 
 import (

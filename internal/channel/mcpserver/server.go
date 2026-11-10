@@ -35,16 +35,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 )
 
 // Core Argus 能力面（由 *service.Service 实现，无 hertz 依赖）。
 type Core interface {
 	CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
-		artifacts map[string]string) (*api.CreateTaskResponse, int)
-	GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int)
-	ListTasks(ctx context.Context, status string, limit int) (*api.ListTasksResponse, int)
-	ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse
+		artifacts map[string]string) (*argus.CreateTaskResponse, int)
+	GetTask(ctx context.Context, taskID string) (*argus.GetTaskResponse, int)
+	ListTasks(ctx context.Context, status string, limit int) (*argus.ListTasksResponse, int)
+	ListAgents(ctx context.Context, platform, owner, repo string) *argus.ListAgentsResponse
 }
 
 // DiffReviewer 可选扩展（v3.74.1）：review_diff 本地预审的数据面。
@@ -72,7 +72,7 @@ type CodeSearcher interface {
 // *service.Service 实现。
 type DiffTaskCreator interface {
 	// CreateDiffTask diff 文本 → 异步预审任务（秒回 task_id，报告落库供轮询）。
-	CreateDiffTask(ctx context.Context, diff string) (*api.CreateTaskResponse, int)
+	CreateDiffTask(ctx context.Context, diff string) (*argus.CreateTaskResponse, int)
 }
 
 // KnowledgeSearcher 可选扩展（v3.125.0）：search_knowledge 的数据面——R3/R4

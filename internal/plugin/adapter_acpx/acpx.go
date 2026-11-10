@@ -152,6 +152,10 @@ func (p *Plugin) ensureWorkDir(ctx context.Context, task plugin.Task) (string, f
 
 // buildPrompt 审查提示词：角色 + 聚焦 + 输出契约（JSON 数组）+ diff 数据区。
 // diff 来自 diffprep 清洗产物，不依赖沙箱内 git 拓扑（浅克隆场景 two-dot diff 不可靠）。
+// diff 与编队黑板是 PR 作者/同队输出可控的半可信内容，一律过 plugin.DataFence
+// （防线 #1，ARCHITECTURE.md 不变量 6）：内容中伪造围栏边界会被中和，注入指令
+// 抬不出数据区。此前手写 ```diff 围栏直拼——diff 里伪造 ``` 行即可提前"闭栏"，
+// 把后续文本抬出围栏以指令身份进入 CLI agent 上下文（P0 注入面）。
 func buildPrompt(task plugin.Task, hasWorkDir bool) string {
 	var b strings.Builder
 	b.WriteString("你是资深代码审查专家。请审查以下代码变更，只报告有实际影响的问题" +
@@ -161,19 +165,19 @@ func buildPrompt(task plugin.Task, hasWorkDir bool) string {
 	}
 	b.WriteString("输出契约（严格遵守）：只输出一个 JSON 数组，不要任何解释或 markdown 围栏。\n" +
 		`[{"file":"文件路径","line":行号,"severity":"high|medium|low","comment":"问题说明"}]` + "\n" +
-		"无问题输出 []。\n\n请审查以下 diff：\n```diff\n")
+		"无问题输出 []。\n\n请审查以下 diff：\n")
 	if task.Diff != nil && task.Diff.Text != "" {
-		b.WriteString(task.Diff.Text)
+		b.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
 	} else {
 		b.WriteString("（diff 为空）")
 	}
-	b.WriteString("\n```")
-	// v3.4 编队共识模式：黑板记录同队专家已报告的发现（CLI agent 上下文里
-	// 没有围栏纪律约束，用显式指令行 + 独立段落划清数据边界）
+	// v3.4 编队共识模式：黑板记录同队专家已报告的发现（指令在数据区外、黑板
+	// 内容走 DataFence——与 builtin 适配器同源防线，squad_consensus「adapter 用
+	// DataFence 包裹后注入」契约）
 	if s := task.Artifacts[dispatch.ArtifactSquadBoard]; s != "" {
 		b.WriteString("\n\n【编队共识】同队专家已报告以下发现，只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，输出 []：\n")
-		b.WriteString(s)
+		b.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
 	}
 	return b.String()
 }

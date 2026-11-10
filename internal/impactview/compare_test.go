@@ -58,7 +58,7 @@ func TestRenderHTMLCompareSummary(t *testing.T) {
 		{ID: "pkg:b", Kind: KindPackage, Label: "b"},
 	}, []Edge{{From: "file:a.go", To: "pkg:b", Rel: RelImport}}, []FuncDiff{{File: "a.go", Name: "N", Status: FuncAdded}}, 45)
 	cmp := CompareSnapshots(prev, cur)
-	html := RenderHTMLWithCompare(cur, "t-cur", nil, cmp)
+	html := RenderHTMLFull(cur, "t-cur", ViewOpts{Compare: cmp})
 	if !strings.Contains(html, "对比上一轮") || !strings.Contains(html, "20→45") {
 		t.Fatal("应含演化摘要与风险前后值")
 	}
@@ -66,7 +66,7 @@ func TestRenderHTMLCompareSummary(t *testing.T) {
 		t.Fatal("应含新增波及明细")
 	}
 	// nil cmp:无摘要块
-	if html2 := RenderHTML(cur, "t2"); strings.Contains(html2, "对比上一轮") {
+	if html2 := RenderHTMLFull(cur, "t2", ViewOpts{}); strings.Contains(html2, "对比上一轮") {
 		t.Fatal("无对比面不应渲染摘要")
 	}
 }

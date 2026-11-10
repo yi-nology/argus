@@ -3,6 +3,7 @@
 // 直调 → 失败记账回帖 → 截断留痕 → 装饰段 → 评论回执）此前两份拷贝各自演化，
 // 任一步漂移都无从测红。差异面全部收进 spec 钩子：build（diff→提示词对，可
 // 拒绝）、decorate（截断后正文追加段，如 testgen 沙箱验证）。
+
 package service
 
 import (

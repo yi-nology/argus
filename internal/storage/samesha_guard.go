@@ -8,6 +8,7 @@
 //     只禁止两份"在飞"任务并存；
 //   - MySQL：无 partial index，改由 CreateTaskForWebhook 事务内对 review_targets
 //     行 FOR UPDATE 串行化（跨实例互斥；首审 PR 无锚行的残余竞窗可接受）。
+
 package storage
 
 // sameSHAIndex 旧版部分唯一索引名（v3.74.2 前不含 kind）——升级时删除。

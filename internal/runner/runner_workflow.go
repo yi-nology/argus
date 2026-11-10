@@ -1,4 +1,5 @@
 // runner_workflow.go —— 工作流装配面：技能文本注入 + Workflow 构造/工厂（阶段模型/预接线）。
+
 package runner
 
 import (

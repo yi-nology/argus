@@ -4,6 +4,7 @@
 // 超限请求被分流到兜底路由，错误文案误导；直调小请求全绿、argus 10×2000
 // rune≈21KB 恒死）。预算 8KB 留余量；每段 ≤2000 rune（≤6KB UTF-8，clipText
 // 保证）恒可独占一请求，不截断不丢段。
+
 package semsearch
 
 import (

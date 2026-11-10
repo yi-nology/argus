@@ -1,6 +1,7 @@
 // fix_sandbox.go —— @argus fix 的修复执行沙箱（v3.167.0 自 fix.go 拆出；零逻辑变更）：
 // 本地克隆沙箱 → agent（workspace-write）→ diff 采集 → 确定性验证 → 陈旧沙箱清扫。
 // 隔离语义由 ARGUS_TESTGEN_VERIFY_CMD 同族的部署方包装声明承担（§8 纪律）。
+
 package service
 
 import (

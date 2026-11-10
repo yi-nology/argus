@@ -8,6 +8,7 @@
 // 完备性报告，动作只有三种且都不直接改写 findings——附注（annotate，默认）、
 // 降级门（demote，配置开启时 APPROVE→COMMENT，rule=R5.C）、受限补审（retry，
 // 配置开启时对失败插件重试一次，由 workflow 在 fan-out 后执行）。
+
 package requirement
 
 import (

@@ -2,6 +2,7 @@
 // 契约，SymbolContext 增候选数）：命中附邻接、单符号上下文、两符号最短调用链。
 // 图由 Refresh 收尾恒重建（graph.go），查询只读且持 ix.mu；容量封顶与关系词表
 // 同在 graph.go，此处不重复定义。
+
 package semsearch
 
 import "sort"

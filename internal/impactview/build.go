@@ -1,6 +1,7 @@
 // build.go —— 影响面管线编排：L0 文件 → L1 import 反向闭包 → L2 符号调用方
 // → L3 测试面 → P2 共变，逐层独立降级（失败记 Notes 继续上层），输出确定化
 // 快照。Build 是唯一入口，runner 接线只做类型搬运。
+
 package impactview
 
 import (

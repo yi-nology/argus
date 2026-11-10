@@ -5,6 +5,7 @@
 // （如 `docker run --rm -v {dir}:/w -w /w golang:1.24 go test ./...`），
 // 网络/文件系统/资源限制等隔离责任全部在包装命令侧，与 cli 插件供应链同构。
 // 未配置包装命令时整段功能不存在（回帖保持「未经编译验证」声明）。
+
 package service
 
 import (

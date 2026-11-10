@@ -2,6 +2,7 @@
 // 收敛"只能跑一份"的控制面组件（出站轮询、定时清理）。SQL 条件更新保证原子性——
 // `WHERE lease_key=? AND (holder=? OR expires_at<?)` 单语句完成"判-占-续"。
 // 时间统一 UTC：跨实例时钟偏移（同 LAN 毫秒级）远小于 ttl 量级，可容忍。
+
 package storage
 
 import (

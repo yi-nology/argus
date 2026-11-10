@@ -1,6 +1,7 @@
 // describe.go —— @argus describe 评论命令（v3.15.0 P1-4，对标 PR-Agent /describe）：
 // 基于清洗后 diff 生成 PR 变更说明 + 建议标签，回帖为评论（不写回 PR body）。
 // 轻量路径：不建 task、单次 LLM 直调；节流与 delivery 幂等由 HandleComment 统一保障。
+
 package service
 
 import (

@@ -3,18 +3,12 @@
 package main
 
 import (
-	api "github.com/yi-nology/argus/biz/handler/api"
-	routerapi "github.com/yi-nology/argus/biz/router/api"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
 // customizeRegister registers customize routers.
 //
-// 2026-10-27 IDL 收敛（v3.188.0/v3.189.0）：业务面路由全部收编进
-// idl/argus.thrift 由生成路由承载，此处不再手挂任何业务端点。仅保留无 IDL
-// 语义的存量：/events（SSE 流式响应体无法用 IDL 声明）。/ping（hz 脚手架
-// 遗留，与 /healthz 重复）已删。
+// v6.3.0 起 IDL 生成路由承载全部业务面（/events SSE 已收编进 idl/argus.thrift
+// EventsService），本函数保留空体：调用点在 router_gen.go（hz 模板持有，勿删）。
 func customizedRegister(r *server.Hertz) {
-	// v3.1 SSE 任务进度流（🔒 复用 Bearer 鉴权；流式写入走 hertzsse.Writer）
-	r.GET("/events", append(routerapi.Auth(), api.Events)...)
 }

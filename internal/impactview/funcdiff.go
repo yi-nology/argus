@@ -7,6 +7,7 @@
 // 此文件 = 已删除，全量 removed）。对齐键 = 函数展示名（Recv.Name / Name）；
 // 不做签名结构化解析（参数级 diff 留展示原文），不做重载（Go 无重载）。
 // 任何取 base/解析失败逐文件降级记 Note，不阻断影响面主体。
+
 package impactview
 
 import (

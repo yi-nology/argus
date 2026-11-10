@@ -3,9 +3,9 @@
 // 注意：本文件是 hz 的"用户自定义区"——与 handler.go 同级，`hz update` 会保留
 // 已修改的 *_Mw 函数体、只为新增路由追加空壳。🔒 鉴权挂载（authMw/SetAuth）是
 // 用户维护内容，不属于可再生成的脚手架；改动路由后请重跑
-// `hz update -idl idl/argus.thrift` 并核对本文件仍覆盖全部 🔒 路由。
+// `make idl-gen` 并核对本文件仍覆盖全部 🔒 路由（e2e auth 探针测试兜底校验）。
 
-package api
+package argus
 
 import (
 	"context"
@@ -24,6 +24,10 @@ var SetImpactShare func(c *app.RequestContext) bool
 // SetRepoMapShare 仓库地图 share 校验器注入点（v5.6.4）：repo-map 域令牌，
 // 与任务域互不通用。
 var SetRepoMapShare func(c *app.RequestContext) bool
+
+func _eventsMw() []app.HandlerFunc {
+	return authMw() // 🔒 v6.3.0 /events 收编进 IDL（SSE 流复用 Bearer）
+}
 
 func rootMw() []app.HandlerFunc {
 	// your code...
@@ -57,7 +61,6 @@ func _receiveMw() []app.HandlerFunc {
 }
 
 // Auth 暴露鉴权中间件给 customizedRegister 的新增路由复用（v3.1）。
-func Auth() []app.HandlerFunc { return authMw() }
 
 func authMw() []app.HandlerFunc {
 	if SetAuth == nil {

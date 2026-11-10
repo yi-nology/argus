@@ -8,6 +8,7 @@
 // 纪律：轻量路径——不建 task、单次 LLM 直调，与 describe/testgen 共用
 // writingSpec 模板；节流与 delivery 幂等由 HandleComment 统一保障。裁决是
 // 建议不是动作：复核结论不自动 suppress/fix（与「持久抑制只来自人工」红线一致）。
+
 package service
 
 import (

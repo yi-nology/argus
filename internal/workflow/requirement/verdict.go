@@ -1,5 +1,6 @@
 // verdict.go —— 判决与门禁面：Verdict/VerdictScoped 判决矩阵 + judgeAndGate
 // 总门（完备性裁判/scope 闸门/R5.C 降级门）+ 仓库配置加载 + diff 路径提取。
+
 package requirement
 
 import (

@@ -2,6 +2,7 @@
 // 数据类工具可读 bot GitLab token 可见的一切仓库代码是设计边界，泄露一个
 // ci token = 全仓沦陷。白名单把「一切」收成「清单」：MCP/TaskAPI/QA 等外部
 // 入口只能触达清单内仓库；webhook/poller 受信路径不受此门约束。
+
 package service
 
 import (

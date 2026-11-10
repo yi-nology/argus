@@ -2,7 +2,7 @@
 // 路由自 v3.189.0 起由 idl/argus.thrift 的 RepoSettingsService 生成承载；
 // 鉴权 authMw（routerapi.SetAuth），写档（PUT/DELETE）由 service.requiredScope
 // 收口为 admin、读档 read。
-package api
+package argus
 
 import (
 	"context"

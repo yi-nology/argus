@@ -2,6 +2,7 @@
 // HTTP /findings/suppress 的写语义复用 SuppressFinding 单源，本文件只补
 // 「MCP 工具级权限二次判定」——/mcp 路由鉴权只要 ci 档，而抑制写库进学习环
 // 是信任边界操作，必须按工具级 admin 收口（fail-closed：ctx 无 scope 一律拒）。
+
 package service
 
 import (
@@ -13,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -40,7 +41,7 @@ func (s *Service) SuppressFindingScoped(ctx context.Context, platform, owner, re
 	if len(fp) < 6 || len(fp) > 64 {
 		return nil, fmt.Errorf("fp 须为报告中的指纹短码（6-64 位十六进制）")
 	}
-	resp, code := s.SuppressFinding(ctx, &api.SuppressFindingRequest{
+	resp, code := s.SuppressFinding(ctx, &argus.SuppressFindingRequest{
 		Platform:    platform,
 		Owner:       owner,
 		Repo:        repo,

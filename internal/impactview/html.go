@@ -2,6 +2,7 @@
 // 零 CDN 依赖（215 内网部署无外网也完整可用）：Go 侧做分层布局产 SVG，
 // 内嵌 JSON + 少量原生 JS 供给缩放/拖拽/搜索/点选详情。经 GET /tasks/:id/impact
 // 下发（text/html），也可离线存档。
+
 package impactview
 
 import (
@@ -26,17 +27,6 @@ const (
 	orgY   = 24
 )
 
-// RenderHTML 渲染自包含交互 HTML（taskID 仅作页头标识可空；快照空节点返回空串）。
-func RenderHTML(s *Snapshot, taskID string) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{})
-}
-
-// RenderHTMLWithFindings 影响面视图+审查意见挂图（v5.8.0）：findings 按文件
-// 聚合为节点徽标与侧栏意见列表——评审产物与影响拓扑在图上直接互查。
-func RenderHTMLWithFindings(s *Snapshot, taskID string, findings []plugin.Finding) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{Findings: findings})
-}
-
 // ViewOpts 渲染可选面（v5.8.1 收口：findings/演化对比,避免签名继续膨胀）。
 type ViewOpts struct {
 	Findings []plugin.Finding
@@ -48,12 +38,11 @@ type ViewOpts struct {
 	RepoMode bool
 }
 
-// RenderHTMLWithCompare 影响面视图 + findings + 演化对比摘要（v5.8.1）。
-func RenderHTMLWithCompare(s *Snapshot, taskID string, findings []plugin.Finding, cmp *ImpactCompare) string {
-	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), ViewOpts{Findings: findings, Compare: cmp})
-}
-
-// RenderHTMLFull 全量渲染面(v5.8.2):findings+演化对比+历史档案。
+// RenderHTMLFull 全量渲染面(v5.8.2):findings+演化对比+历史档案（taskID 仅作
+// 页头标识可空；快照空节点返回空串）。任务视角唯一 HTML 入口——v6.2.x 架构
+// 卫生批 B 销掉 RenderHTML/RenderHTMLWithFindings/RenderHTMLWithCompare
+// 三个生产零消费平行壳（测试直走本入口，语义覆盖不变；历史先例 v5.4.2
+// repoAllowed 死代码删、v3.9.2 Stop 教训）。
 func RenderHTMLFull(s *Snapshot, taskID string, opts ViewOpts) string {
 	return renderImpactHTML(s, taskID, "Argus 影响面视图", taskMeta(taskID), opts)
 }

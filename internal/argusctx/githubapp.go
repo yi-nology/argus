@@ -2,6 +2,7 @@
 // 用 App ID + Private Key 签发 JWT（RS256，纯标准库），再调 GitHub API 换取 installation access token（1h 有效期）。
 // token 供给走 go-git-platform v0.100+ 的 provider.TokenSource：transport 每请求取值，
 // 临期懒续期，不再需要后台 ticker + provider 重建（旧方案的过期 token 在飞窗口归零）。
+
 package argusctx
 
 import (

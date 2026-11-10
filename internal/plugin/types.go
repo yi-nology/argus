@@ -1,6 +1,6 @@
-// Package plugin 是 Argus 的 L4 插拔层（design §3）：
-// 统一契约（AgentPlugin/Task/Result）→ Registry → Dispatcher → Merger。
-// 原则：路由/裁决/合并不走 LLM，全部确定性 Go 代码。
+// types.go —— 契约类型面：AgentPlugin/Task/Result/PRContext/DiffContext/
+// AgentManifest 与词表（Kind/Protocol 等）（包文档见 doc.go）。
+
 package plugin
 
 import (

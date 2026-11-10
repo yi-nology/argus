@@ -1,5 +1,6 @@
-// Package requirement L3 编排层：requirement-compliance workflow（R1→R5，design §4）。
-// 原则：编排是确定性 Go 代码——路由/裁决/合并不走 LLM；自主性只给 R3 阶段内 agent（ReAct 调工具）。
+// workflow.go —— R1→R5 编排主面：Workflow 编排器与 Options 装配面
+// （包文档见 doc.go；各阶段面按 r1/stages/compliance/r3tools/r4ckpt/verdict 分文件）。
+
 package requirement
 
 import (

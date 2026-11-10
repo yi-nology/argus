@@ -2,6 +2,7 @@
 // 管理/读取面。写入走 admin 档（requiredScope 收口：PUT/DELETE /repo-settings/*），
 // 值经 reposettings.Parse 校验后落规范 JSON；读面返回「按仓覆盖 + 全局生效值」
 // 合并视图——部署方/外部 AI 一次看清某仓现在到底按什么参数在跑。
+
 package service
 
 import (

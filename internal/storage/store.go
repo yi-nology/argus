@@ -1,7 +1,5 @@
-// Package storage 持久化（design §5.2）：GORM + 多方言（SQLite 单文件起步 /
-// MySQL / PostgreSQL，v5.4.8 生产切 pg）。模型定义见 models.go，操作面按域
-// 归位（store_task/prints/printalias/reviewtarget/...），本文件只留 Store
-// 生命周期（Open/Close/Ping）与包级小工具。
+// store.go —— Store 生命周期（Open/Close/Ping）与包级小工具（包文档见 doc.go）。
+
 package storage
 
 import (

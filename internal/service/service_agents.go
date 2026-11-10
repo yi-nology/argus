@@ -1,4 +1,5 @@
 // service_agents.go —— Agent 可观测与 MCP 副驾数据面：agent 清单/仓库配置视图/任务阶段/findings/建议定位。
+
 package service
 
 import (
@@ -7,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
@@ -16,11 +17,11 @@ import (
 // ListAgents 插拔层可观测（🔒）：Registry 全部插件清单/状态（含 needs/triggers）。
 // platform/owner/repo 三参全传时，附带该仓库 .reviewagents.yaml 的可观测视图：
 // 配置原文（信任边界规范化后）+ 各插件生效状态 + 告警（§3.4 落到看得见的地方）。
-func (s *Service) ListAgents(ctx context.Context, platform, owner, repo string) *api.ListAgentsResponse {
-	resp := &api.ListAgentsResponse{}
+func (s *Service) ListAgents(ctx context.Context, platform, owner, repo string) *argus.ListAgentsResponse {
+	resp := &argus.ListAgentsResponse{}
 	for _, reg := range s.Registry.Snapshot() {
 		m := reg.Manifest
-		dto := &api.AgentManifestDTO{
+		dto := &argus.AgentManifestDTO{
 			Name:          m.Name,
 			Kind:          kindToIDL(m.Kind),
 			Skills:        m.Skills,
@@ -53,8 +54,8 @@ func (s *Service) ListAgents(ctx context.Context, platform, owner, repo string) 
 }
 
 // repoConfigView 拉取并解析仓库配置为可观测视图；失败降级为 loaded=false + 告警（不 5xx）。
-func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo string) *api.RepoConfigView {
-	view := &api.RepoConfigView{Loaded: false}
+func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo string) *argus.RepoConfigView {
+	view := &argus.RepoConfigView{Loaded: false}
 	addWarn := func(msg string) {
 		view.Warnings = append(view.Warnings, msg)
 	}
@@ -74,13 +75,13 @@ func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo stri
 	view.Use = rc.Use
 	view.Disable = rc.Disable
 	for _, rule := range rc.Routing {
-		view.Routing = append(view.Routing, &api.RoutingRuleView{
+		view.Routing = append(view.Routing, &argus.RoutingRuleView{
 			Paths: rule.Paths, Labels: rule.Labels, Use: rule.Use,
 		})
 	}
 	view.Warnings = append(view.Warnings, warnings...)
 	for _, st := range statuses {
-		item := &api.RepoAgentStatus{
+		item := &argus.RepoAgentStatus{
 			Name:       st.Name,
 			RepoEffect: st.Effect,
 			Note:       strPtrOrEmpty(st.Note),

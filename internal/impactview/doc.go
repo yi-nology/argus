@@ -11,8 +11,9 @@
 //	L3 测试面  受影响包目录下的 *_test.go 定位
 //	P2 共变    git log 历史共变（change coupling，频率阈值过滤）
 //
-// 架构定位：L0 纯底座（test/arch 分层白名单零 internal 依赖）——输入只收
-// 通用原语（目录/路径/行区间），不认识 plugin.DiffContext；包装与接线在
-// runner（inject.go）。风险分是确定性算法（可复现、可解释），LLM 只做语义
-// 描述不做打分。所有输出确定化排序，同输入同输出。
+// 架构定位：影响面管线能力包（test/arch 分层白名单 internal 边 = gitdeepen/
+// plugin/semsearch/storage，全部朝底座与契约单源方向）——输入只收通用原语
+// （目录/路径/行区间），不认识 plugin.DiffContext；包装与接线在 runner
+// （inject.go）。风险分是确定性算法（可复现、可解释），LLM 只做语义描述
+// 不做打分。所有输出确定化排序，同输入同输出。
 package impactview

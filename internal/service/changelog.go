@@ -2,6 +2,7 @@
 // 基于 diff 生成面向用户的 CHANGELOG 条目草稿，回帖评论（不写 CHANGELOG.md——
 // 版本记录是人的编辑决策，bot 只出草稿）。轻量路径：不建 task、单次 LLM 直调，
 // 与 describe/testgen 共用 writingSpec 模板。
+
 package service
 
 import (

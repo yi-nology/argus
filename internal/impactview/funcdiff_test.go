@@ -168,7 +168,7 @@ func TestBuildWithFuncDiff(t *testing.T) {
 	if !strings.Contains(RenderPromptSection(s), "函数级变更") {
 		t.Fatal("prompt 段缺函数级行")
 	}
-	if page := RenderHTML(s, "t"); !strings.Contains(page, "函数级图 diff") {
+	if page := RenderHTMLFull(s, "t", ViewOpts{}); !strings.Contains(page, "函数级图 diff") {
 		t.Fatal("HTML 缺函数级卡片区块")
 	}
 }

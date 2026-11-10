@@ -3,6 +3,7 @@
 // 此前 HandleComment 的 delivery 幂等是纯内存 map：多副本共库时各副本独立
 // 判重（平台 at-least-once 重试命中另一副本即重复烧 LLM + 重复回帖）；单实例
 // 重启后 1 小时窗口内的重投递也会重复回答。DB 主键幂等多副本天然一致。
+
 package storage
 
 import (

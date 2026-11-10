@@ -1,6 +1,7 @@
 // render.go —— 快照的文本形态渲染（v5.1.0 mermaid 图面拆至 mermaid.go）：
 // 报告段（details 折叠）、prompt 段（数据区由调用方包 plugin.DataFence）。
 // 全部纯函数，不触 IO。
+
 package impactview
 
 import (

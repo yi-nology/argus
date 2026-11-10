@@ -148,7 +148,16 @@
 - make arch（架构门禁）绿；吞错分诊其余项定性：storage `db.DB()` 惯用形低风险、
   三处 Background ctx 均有注释的刻意选择。
 
-## 剩余 >100 行函数（5 个，均有留痕裁定）
+## v6.3.0 深度重构批（2026-11-11，oagentkit/oekit 全家桶+架构卫生）
+
+- **全家桶 13 模块升级最新**（oagentkit 9+oekit 4，零代码适配；8 条 BREAKING 逐条核销仅 queue 心跳缺省 20→15s 一条良性命中）。**harness v0.27.1 复核=收编面已饱和**（见上节）。
+- **P0 安全修复**：acpx buildPrompt 手工围栏直拼 diff/黑板未过 DataFence（PR 作者可控内容可向 CLI agent 注入指令）——改走 DataFence 对齐 builtin 对照组，注入中和测试钉死（伪围栏行/伪数据区头全中和）。
+- **收编三件**：①fixverifier resolveSafePath 23 行手写围栏→guardx sandbox.FSFence（更强：悬空软链拒判+root 归一）②fixverifier/ocrshim procx.Run→RunDetailed（截断事实结构化，废「尾窗填满」启发式；ocrshim StdoutTruncated fail-closed 拒解析）③**fence_norm.go 保留勿硬删**——退役回归实测 pkg v0.42.0 仍有 2 形态退化（无闭栏 inline 围栏+散文含括号/schema 提示形 → 整段丢弃），复跑条件=上游修复散文括号误导切片或实弹语料确认该类不出现。
+- **架构卫生 8 项**：arch 白名单清 3 幽灵+4 死条目+盲区 4 包补边（42 包 41 入表）；10 包包文档统一 doc.go「恰一文件」（86 文件注释搬移）；ARCHITECTURE.md 依赖表整表重写（41 包对齐+幽灵名/错层号清理）；死导出 4 个删除（RenderHTML×3+RenderMermaid，生产零消费，测试改走活入口）；fixverifier 恢复原文件吞错补 Output 留痕（v5.4.3 先例）。
+- **超长函数现状表**（>100 行，替换下方旧表 5 个口径）：18 个=旧账 5 个（Assemble 204→266/Load 137→161/JudgeCompleteness 108→125/tools 108 持平/RunWithHook 133=Dispatcher.Run 后身）+**新债 13 个**（BuildRepoMap 207/commands 204/scanScripts 181/runApp 147/Build 131/buildAffectedPackages 125/buildScriptLayer 120/diffFunctions 119/CheckCompliance 114/postSummary 110/Refresh 105/r3Tools 103/sendReview 103——v5.6-6.1 图谱/工具批长出，集中在 impactview 三件+r3tools）。大文件越带 8 个（html.go 761/scriptgraph.go 689/r3tools.go 657 等），semsearch.go 迁文档后跌回带内。
+- P2 遗留清单见 /tmp/arch-hygiene-report.md（arch_test 措辞/四处框式头/deep-dive 旧路径/层号统一等，下轮打磨）。
+
+## 剩余 >100 行函数（旧表 5 个——已由 v6.3.0 现状表替代，条目裁定仍有效）
 
 | 函数 | 行数 | 裁定 |
 |---|---|---|

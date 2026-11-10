@@ -1,6 +1,7 @@
 // service_impact.go —— 影响面视图数据面（v3.183.0）：MCP get_impact 与
 // GET /tasks/:id/impact（交互 HTML）共用。快照由 runner 影响面管线即时落
 // artifacts_json（任务 running 期即可消费，评审失败也不丢）。
+
 package service
 
 import (
