@@ -189,8 +189,8 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 	// opt-in 门注入（assemble.go 同款判定），未开即纯图模式（nil）。
 	var gx *semsearch.Index
 	if r.Cfg.SemSearch && r.Cfg.EmbeddingBaseURL != "" {
-		gx = semsearch.NewIndex(rag.NewOpenAIEmbedder(
-			r.Cfg.EmbeddingBaseURL, r.Cfg.EmbeddingAPIKey, r.Cfg.EmbeddingModel, r.Cfg.EmbeddingDim))
+		gx = semsearch.NewIndex(semsearch.NewByteBatchEmbedder(rag.NewOpenAIEmbedder(
+			r.Cfg.EmbeddingBaseURL, r.Cfg.EmbeddingAPIKey, r.Cfg.EmbeddingModel, r.Cfg.EmbeddingDim)))
 	} else {
 		gx = semsearch.NewIndex(nil)
 	}

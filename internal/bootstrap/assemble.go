@@ -283,8 +283,8 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		if cfg.GraphPrecise {
 			semOpts = append(semOpts, semsearch.WithEdges(goedges.New()))
 		}
-		semMgr = semsearch.NewManager(rag.NewOpenAIEmbedder(
-			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim),
+		semMgr = semsearch.NewManager(semsearch.NewByteBatchEmbedder(rag.NewOpenAIEmbedder(
+			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)),
 			semOpts...)
 		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim,
 			"precise", cfg.GraphPrecise)
