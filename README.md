@@ -4,9 +4,10 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v3.91.0**（版本口径以 origin/main 提交历史为准，CHANGELOG 记至 v3.69.0；依赖以 `go.mod` 为准）。真实 Forgejo（git.example.com）
-完整生命周期试点验证通过，并已在生产环境常驻运行（内网 GitLab git.example.com：4 仓库 webhook、
-OCR 等 4 插件启用）。v3.1→v3.5 演进全记录见 [CHANGELOG.md](CHANGELOG.md)，架构深读见
+当前版本 **v6.1.6**（版本口径以 origin/main 提交历史为准，CHANGELOG 记至 v3.69.0；依赖以 `go.mod` 为准）。
+真实 Forgejo/GitLab 双平台完整生命周期试点验证通过，生产环境 k3s 常驻在役（多仓库 webhook+poller 双任务源、
+R1-R5 全管线 + 23 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
+开源镜像：https://github.com/yi-nology/argus（脱敏快照）。架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
 [docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)。
 

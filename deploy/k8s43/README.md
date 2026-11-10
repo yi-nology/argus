@@ -45,3 +45,12 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 - **standby 初始化语义**：PGDATA 有 PG_VERSION 即直接进 standby（幂等，滚动重启不重复 basebackup）；空目录则 pg_basebackup -R 全量拉取（失败清残留重试）
 - **限制**：async 复制（主挂瞬间的最后几笔写入可能未达从库）；promote 后原主库回网需 pg_rewind 或重建——目前无自动 failover（Patroni 过重，人工预案已够）
 
+
+
+## v6.x 运维备忘（2026-11-10 实弹沉淀）
+
+- **在役 v6.1.6**（go-git-platform v0.124.0）；MCP 23 工具（含 get_trace/get_symbol_context/search_sem/get_impact/get_repo_map）
+- **网关 embedding 请求体硬限**：内部网关 /v1/embeddings 按请求体大小分流，≥~10KB 返回误导性 404「model does not exist」（实测 9KB 过/12KB 挂）——argus 侧已用 ByteBatchEmbedder 8KB 字节预算分批消化；直调网关排障时单请求务必 <10KB
+- **ARGUS_GRAPH_PRECISE=缺省关（GO-ABSENT）**：容器无 go 工具链，go/packages 无法加载；要开须镜像叠 Go 工具链层（成本另评）——词法消歧档已全量在役
+- **webhook 入站链路**：om-gitlab → 215 前门 → 43:30899 实测在跑；PUBLIC_URL 保持 215 前门不动（直连 43 需网络侧放行，勿凭 Mac-VPN-SSH 判 215 死活）
+- **search_sem 两层失效教训**（已修）：scanDir SkipAll 中止整树 + 网关 body 分流，曾静默失效一个月——「工具注册成功 ≠ 数据面工作」，验收必须打到真实仓库
