@@ -21,8 +21,8 @@ import (
 
 	"github.com/yi-nology/agent-harness/checkpoint"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // restoreR4Outcomes 同任务重试回流：命中 ckpt_r4/<plugin> 且产物可解析的插件，

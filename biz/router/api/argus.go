@@ -3,7 +3,7 @@
 package api
 
 import (
-	api "argus/biz/handler/api"
+	api "github.com/yi-nology/argus/biz/handler/api"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 

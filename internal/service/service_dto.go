@@ -7,9 +7,9 @@ import (
 
 	"fmt"
 
-	api "argus/biz/model/api"
-	"argus/internal/domain"
-	"argus/internal/plugin"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/ptrx"
 )

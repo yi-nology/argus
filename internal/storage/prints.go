@@ -10,8 +10,8 @@ import (
 
 	"github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/domain"
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // GetPrintState 实现 domain.PrintStore（别名一跳解析：新措辞指纹查到既有条目）。

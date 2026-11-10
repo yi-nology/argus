@@ -9,7 +9,7 @@ import (
 	"github.com/oekit/logx"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // fakePrintStore 内存版 PrintStore：预置 prior 状态与抑制表，用于 Merger

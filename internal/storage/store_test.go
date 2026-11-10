@@ -13,7 +13,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 func openTestStore(t *testing.T) *Store {

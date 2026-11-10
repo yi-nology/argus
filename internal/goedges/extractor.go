@@ -42,7 +42,7 @@ import (
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/types/typeutil"
 
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/semsearch"
 )
 
 // DefaultMaxFiles Go 源文件总数上限（./... 装载面内的非测试文件）：全量

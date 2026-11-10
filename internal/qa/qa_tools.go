@@ -16,10 +16,10 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/codesearch"
-	argusctx "argus/internal/context"
-	"argus/internal/plugin"
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/codesearch"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/semsearch"
 )
 
 // qa 工具入出参（具名类型——InferTool 泛型推断需要）。

@@ -331,7 +331,7 @@ import (
     "github.com/cloudwego/eino/schema"
 
     "github.com/oagentkit/llm"
-    "argus/internal/plugin"
+    "github.com/yi-nology/argus/internal/plugin"
 )
 
 type PerformanceReviewer struct {

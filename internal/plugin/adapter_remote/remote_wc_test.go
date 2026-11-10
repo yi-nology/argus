@@ -12,7 +12,7 @@ import (
 
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // fakePool 记录 Ensure/Release 调用（*workcopy.Pool 结构性满足 WorkcopyPool）。

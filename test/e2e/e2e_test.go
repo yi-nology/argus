@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 场景①：需求部分完成 → R5.1 REQUEST_CHANGES（TaskAPI 全链路：runner→workflow→poster）。

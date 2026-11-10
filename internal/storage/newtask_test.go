@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // TestNewTask 钉工厂不变量：四个建任务入口（taskapi/webhook×2/poller）此前

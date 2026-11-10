@@ -9,10 +9,10 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
-	"argus/internal/domain"
-	"argus/internal/storage"
-	"argus/internal/worker"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/worker"
 )
 
 func knobsTestRunner(t *testing.T) (*Runner, *storage.Store, context.Context) {

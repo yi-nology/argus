@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 type fakeStore struct {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func TestSpecsFromDecls(t *testing.T) {

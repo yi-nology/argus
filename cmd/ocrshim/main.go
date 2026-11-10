@@ -22,7 +22,7 @@ import (
 
 	oekitconfig "github.com/oekit/core/config"
 
-	"argus/internal/ocrshim"
+	"github.com/yi-nology/argus/internal/ocrshim"
 )
 
 func main() {

@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"argus/internal/notify/octopus"
+	"github.com/yi-nology/argus/internal/notify/octopus"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
-	"argus/internal/obs"
+	"github.com/yi-nology/argus/internal/obs"
 )
 
 // Notifier octopus 推送器（nil 安全：nil 接收者直接 no-op）。

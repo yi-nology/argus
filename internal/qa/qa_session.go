@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // qaSessionHistory 会话历史加载结果。

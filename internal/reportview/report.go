@@ -9,8 +9,8 @@ import (
 
 	"github.com/oagentkit/guardx/fence"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ReportHeaderPrefix 报告评论 HTML 注释头前缀（人不可见，机器定位用：§10.1 审计可追溯 +

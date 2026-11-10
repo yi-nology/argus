@@ -8,7 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // fakeSummaryModel 返回定值摘要的 QA 模型（压实路径专用桩）。

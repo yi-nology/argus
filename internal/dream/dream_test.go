@@ -10,9 +10,9 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/learning"
-	"argus/internal/memorykernel"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/memorykernel"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 type fakeStore struct {

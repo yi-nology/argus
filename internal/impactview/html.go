@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // 布局常量（分层 LR：深度列 × 列内栈）。

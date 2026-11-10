@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"argus/internal/config"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // openVisStore 可见性测试用真 Store（sqlite 临时库）。

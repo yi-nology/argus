@@ -6,7 +6,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func diffFile(path, text string, adds int) *provider.ChangedFile {

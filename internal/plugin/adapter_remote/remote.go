@@ -17,7 +17,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。

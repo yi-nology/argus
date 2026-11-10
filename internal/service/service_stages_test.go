@@ -3,8 +3,8 @@ package service
 import (
 	"testing"
 
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // TestDeriveStageDone_ProgressMarker stage_progress 主判据：标记之前的全 done、

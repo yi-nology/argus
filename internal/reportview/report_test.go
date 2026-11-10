@@ -7,7 +7,7 @@ import (
 
 	"github.com/oagentkit/guardx/fence"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func TestRenderFullReport(t *testing.T) {

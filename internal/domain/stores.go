@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // PrintUpsert 批量入库的一条输入（指纹 + 本轮意见）。

@@ -8,7 +8,7 @@ import (
 
 	"github.com/oekit/metrics"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 var (

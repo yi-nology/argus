@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // v3.0.1 修复回归：Triggers.Events 此前整体失效（Match 对纯 Events 触发器恒 false +

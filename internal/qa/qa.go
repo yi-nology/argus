@@ -26,10 +26,10 @@ import (
 	"github.com/oekit/logx"
 	"github.com/yi-nology/agent-harness/budget"
 
-	argusctx "argus/internal/context"
-	"argus/internal/plugin"
-	"argus/internal/semsearch"
-	"argus/internal/storage"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // Engine 问答引擎。

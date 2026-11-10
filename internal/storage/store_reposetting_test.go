@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/reposettings"
+	"github.com/yi-nology/argus/internal/reposettings"
 )
 
 func TestRepoSettingCRUD(t *testing.T) {

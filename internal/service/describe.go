@@ -7,8 +7,8 @@ import (
 	"context"
 	"strings"
 
-	argusctx "argus/internal/context"
-	"argus/internal/plugin"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // describeMaxRunes 输出上限（防刷屏；diff 超大场景模型跑飞时兜底）。

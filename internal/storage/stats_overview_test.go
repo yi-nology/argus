@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // TestStatsOverview v3.88.0：按仓聚合只算 done 任务、verdict 分布、抑制计数、

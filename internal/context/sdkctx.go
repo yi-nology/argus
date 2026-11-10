@@ -14,7 +14,7 @@ import (
 	_ "github.com/yi-nology/go-git-platform/backends/all"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // SDKCtx L5 上下文服务：git-platform-sdk 的薄封装（diff/issue/文件/webhook 解析）。

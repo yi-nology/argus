@@ -8,7 +8,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/concurrency/ratelimit"

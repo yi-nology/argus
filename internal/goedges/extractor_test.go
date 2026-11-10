@@ -16,7 +16,7 @@ import (
 	"sort"
 	"testing"
 
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/semsearch"
 )
 
 // fixture 文件集（module fix；全部 stdlib 依赖）。

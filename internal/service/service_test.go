@@ -11,8 +11,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/commentcmd"
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 type testLogger struct{}

@@ -18,7 +18,7 @@ import (
 	"github.com/oekit/pkg/jsonrepair"
 	"github.com/oekit/pkg/pathx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // buildFixPrompt 组装修复 prompt：finding 上下文 + 邻近代码摘录（数据区）+

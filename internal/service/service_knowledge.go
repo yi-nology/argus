@@ -13,7 +13,7 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // search_knowledge 的入参钳制与渲染预算（MCP 工具描述里的「缺省 5、上界 10」

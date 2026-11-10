@@ -7,8 +7,8 @@ import (
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/config"
-	"argus/internal/poller"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/poller"
 )
 
 // hookFake 只实现 WebhookManager 三方法（EnsureWebhook 的消费面）；未覆盖方法借

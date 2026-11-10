@@ -3,7 +3,7 @@
 package main
 
 import (
-	router "argus/biz/router"
+	router "github.com/yi-nology/argus/biz/router"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 

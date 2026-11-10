@@ -22,7 +22,7 @@ import (
 	"github.com/oagentkit/textx/compact"
 	"github.com/yi-nology/agent-harness/budget"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // defaultHistoryBudgetTokens 历史注入 token 预算缺省（ARGUS_QA_HISTORY_BUDGET 可配）。

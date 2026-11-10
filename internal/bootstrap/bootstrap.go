@@ -20,13 +20,13 @@ import (
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/config"
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
-	"argus/internal/plugin/adapter_acpx"
-	"argus/internal/plugin/adapter_builtin"
-	"argus/internal/plugin/adapter_cli"
-	"argus/internal/plugin/adapter_remote"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin/adapter_acpx"
+	"github.com/yi-nology/argus/internal/plugin/adapter_builtin"
+	"github.com/yi-nology/argus/internal/plugin/adapter_cli"
+	"github.com/yi-nology/argus/internal/plugin/adapter_remote"
 )
 
 // Deps 构造插件所需的共享依赖。

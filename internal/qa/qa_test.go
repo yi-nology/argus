@@ -12,7 +12,7 @@ import (
 	"github.com/oagentkit/textx/conversation"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // 自 service 迁入（v3.5.6 随 renderHistory 拆包）：单条回答截断到 400 rune + 省略号，

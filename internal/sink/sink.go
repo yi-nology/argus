@@ -16,7 +16,7 @@ import (
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/httpjson"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 硬上限：payload 意见条数与单次超时（超限截断并标记，防异常刷爆对端）。

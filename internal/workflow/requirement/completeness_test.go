@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func sel(name string, lock bool) dispatch.Selection {

@@ -13,7 +13,7 @@ import (
 
 	"github.com/oagentkit/llm"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ---------- 测试基建：假模型 + 空 logger（复用 worker_test 的 nopLogger 形态） ----------

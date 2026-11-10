@@ -12,7 +12,7 @@ import (
 	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/pkg/jsonrepair"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // CheckCompliance R3：完成度判定 → ComplianceReport（ADK ReAct agent + 工具）。

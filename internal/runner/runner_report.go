@@ -10,12 +10,12 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/notify"
-	"argus/internal/plugin"
-	"argus/internal/progress"
-	"argus/internal/reportview"
-	"argus/internal/storage"
-	"argus/internal/workflow/requirement"
+	"github.com/yi-nology/argus/internal/notify"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
 // costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。

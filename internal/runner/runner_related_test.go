@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/config"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // v3.90.0：契约快照 section 渲染——成功文件数据区化、失败注明、全失败不产

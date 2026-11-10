@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 	"github.com/oagentkit/llm"
 	"github.com/oekit/logx"
 )

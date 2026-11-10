@@ -14,7 +14,7 @@ import (
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/obs"
+	"github.com/yi-nology/argus/internal/obs"
 )
 
 // writingSpec 单轮写作命令的参数与钩子面。

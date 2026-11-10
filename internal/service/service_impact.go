@@ -12,9 +12,9 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"argus/internal/impactview"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // prevImpactCompare 同 MR 上一轮 done 任务的影响面快照集合差。

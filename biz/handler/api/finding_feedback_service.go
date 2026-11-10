@@ -5,7 +5,7 @@ package api
 import (
 	"context"
 
-	api "argus/biz/model/api"
+	api "github.com/yi-nology/argus/biz/model/api"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/oekit/hertz/validatorh"

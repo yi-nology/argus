@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // Kind 插件形态：builtin 进程内 agent / cli 外部命令行 / remote 远端服务。

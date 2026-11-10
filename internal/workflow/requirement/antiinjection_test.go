@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 深挖修复回归：证据门交叉校验——格式合法但路径不在变更集内的虚构引用要降级。

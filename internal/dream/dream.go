@@ -25,10 +25,10 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
-	"argus/internal/learning"
-	"argus/internal/memorykernel"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/memorykernel"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // DedupPrefixRunes 去重键：pattern_text 前 N 个 rune（normalize 后已无路径/hex 噪声）。

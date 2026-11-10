@@ -28,9 +28,9 @@ import (
 
 	"github.com/oagentkit/agent/router"
 
-	"argus/internal/commentcmd"
-	"argus/internal/domain"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 评论意图词表（router.Route.Name；词表保持最小——两类处理链，第三类就是过度设计）。

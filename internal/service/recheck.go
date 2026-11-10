@@ -14,8 +14,8 @@ import (
 	"context"
 	"fmt"
 
-	"argus/internal/commentcmd"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // recheckMaxRunes 复核结论输出上限（三分类结论 + 理由 + 证据，不该更长）。

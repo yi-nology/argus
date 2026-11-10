@@ -4,7 +4,7 @@ package config
 import (
 	"github.com/oagentkit/llm"
 
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // contextTokens 返回生效的模型窗口（缺省 128k，防未配置时按小窗口裸奔）。

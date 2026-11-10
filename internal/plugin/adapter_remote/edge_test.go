@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // TestRemoteMCP_MissingParams 任务元数据不齐 → 对端 create_review 参数校验报错上抛。

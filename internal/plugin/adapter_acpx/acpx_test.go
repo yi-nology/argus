@@ -10,7 +10,7 @@ import (
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // stubAgent 假 acpx agent：返回固定文本（合法 findings JSON）。

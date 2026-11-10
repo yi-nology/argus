@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"argus/internal/config"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 func repoSettingsTestService(t *testing.T) (*Service, context.Context) {

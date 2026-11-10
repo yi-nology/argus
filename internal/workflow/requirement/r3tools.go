@@ -15,9 +15,9 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/toolgate/toolprior"
 
-	"argus/internal/codesearch"
-	"argus/internal/plugin"
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/codesearch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/semsearch"
 )
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。

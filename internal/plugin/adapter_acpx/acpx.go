@@ -24,8 +24,8 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
 )

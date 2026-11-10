@@ -14,9 +14,9 @@ import (
 	"github.com/oekit/pkg/httpjson"
 	"github.com/oekit/tracing/httpotel"
 
-	"argus/internal/config"
-	"argus/internal/obs"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/llm/wrap"
 )

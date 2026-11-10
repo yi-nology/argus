@@ -1,7 +1,7 @@
 package service
 
 import (
-	"argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/commentcmd"
 	"strings"
 	"testing"
 )

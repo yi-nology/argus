@@ -10,7 +10,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // rbacEngine 挂 BearerMiddleware 的最小测试引擎（回显放行）。

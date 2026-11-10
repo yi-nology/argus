@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func TestVerify(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/pkg/pathx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // VerifyConfig 包装命令配置（来自服务级 env）。

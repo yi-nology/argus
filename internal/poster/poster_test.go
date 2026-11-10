@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
-	"argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reportview"
 )
 
 // 行内评论正文：严重级大写 + 不可信评语中和 + by 锚点。

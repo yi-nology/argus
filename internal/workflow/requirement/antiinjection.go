@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ---------- 反注入防线 #3（代码级校验）：含指令性语句的 AC 进 Ambiguous ----------

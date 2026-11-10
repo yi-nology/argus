@@ -22,7 +22,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 
-	"argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/impactview"
 )
 
 // repoMapTTL 快照缓存有效期：目录图对"几分钟前的 main"不敏感，30 分钟足够新。

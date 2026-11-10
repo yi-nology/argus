@@ -21,8 +21,8 @@ import (
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // diffPathDiscipline 注入 diff 数据区前的路径纪律（v3.51.0）：实测模型常以子项目

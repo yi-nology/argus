@@ -20,7 +20,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // CLIPlugin 通用 cli 插件。

@@ -17,8 +17,8 @@ import (
 	mcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // waitCond 轮询等待（异步断言用）。

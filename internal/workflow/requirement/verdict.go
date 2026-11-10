@@ -12,8 +12,8 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // VerdictScoped R5 裁决真值表（design §4，按序求值首条命中即短路），scope 感知

@@ -12,8 +12,8 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/semsearch"
 	"github.com/oagentkit/textx/codeintel"
 )
 

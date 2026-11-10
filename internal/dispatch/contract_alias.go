@@ -4,7 +4,7 @@
 // 跨包传递无装箱无转换。
 package dispatch
 
-import "argus/internal/plugin"
+import "github.com/yi-nology/argus/internal/plugin"
 
 type (
 	// AgentManifest 插件清单（契约）。

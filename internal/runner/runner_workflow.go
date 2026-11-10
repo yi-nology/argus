@@ -11,8 +11,8 @@ import (
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/skillkit/skill"
 
-	"argus/internal/plugin"
-	"argus/internal/workflow/requirement"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
 // skillText 惰性解析 skillRef（§9.1：含 checksum，防内容漂移难排查），10 分钟周期刷新。

@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func TestMergeTaskArtifacts(t *testing.T) {

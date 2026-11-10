@@ -14,8 +14,8 @@ import (
 
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/obs"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 缺省需求文本截断上限（字符）——Workflow 未装配 config 派生值时的兜底。

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // TestTaskFindings 往返钉 ResultJSON findings 载荷契约（读写两端必须同步演化；

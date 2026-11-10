@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/semsearch"
 
 	"github.com/oagentkit/textx/codeintel"
 )

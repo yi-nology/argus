@@ -1,8 +1,8 @@
 package impactview
 
 import (
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 	"strings"
 	"testing"
 )

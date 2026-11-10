@@ -1,4 +1,4 @@
-module argus
+module github.com/yi-nology/argus
 
 go 1.27.3
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	api "argus/biz/model/api"
+	api "github.com/yi-nology/argus/biz/model/api"
 )
 
 // ---------- 测试替身（消费侧窄接口 Core/ReviewQA/Copilot 的最小实现） ----------

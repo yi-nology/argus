@@ -10,8 +10,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/plugin"
-	"argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reportview"
 )
 
 // 有意见：分级计数正确、重点关注最多 3 条且 severity 降序（同级别按报告序）。

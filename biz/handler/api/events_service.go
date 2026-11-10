@@ -13,7 +13,7 @@ import (
 	hertzsse "github.com/oekit/hertz/sse"
 	mw "github.com/oekit/middleware"
 
-	"argus/internal/obs"
+	"github.com/yi-nology/argus/internal/obs"
 )
 
 const sseKeepalive = 15 * time.Second

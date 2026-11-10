@@ -6,8 +6,8 @@ import (
 	"context"
 	"strconv"
 
-	api "argus/biz/model/api"
-	"argus/internal/service"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/service"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/oekit/hertz/validatorh"

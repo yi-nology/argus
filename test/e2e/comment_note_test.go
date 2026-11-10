@@ -10,7 +10,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // TestScenario20_GitLabNoteComment （v3.5.3）GitLab note 评论 @argus 触发链路：

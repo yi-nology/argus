@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // StoreQueue 适配 *storage.Store 实现 oagentkit/queue/worker.TaskQueue 接口。

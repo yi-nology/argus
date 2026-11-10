@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // actorCanDrive：open 模式零调用放行；collaborator 模式空 actor 拒绝（v5.3.0 门控，

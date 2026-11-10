@@ -8,7 +8,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
-	"argus/internal/health"
+	"github.com/yi-nology/argus/internal/health"
 )
 
 // HealthReport 学习环飞轮状态快照（噪声处置建议 + guidelines 增量建议 + 计数）。

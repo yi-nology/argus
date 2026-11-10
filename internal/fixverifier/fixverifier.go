@@ -20,7 +20,7 @@ import (
 
 	"github.com/oagentkit/runtime/procx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // Config 修复验证配置。

@@ -11,9 +11,9 @@ import (
 
 	"github.com/oagentkit/rag"
 
-	api "argus/biz/model/api"
-	"argus/internal/commentcmd"
-	"argus/internal/obs"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/obs"
 )
 
 // admitComment 评论事件准入守卫：模型在位 → 负载归一化 → 解析评论要素 →

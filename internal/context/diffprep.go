@@ -11,7 +11,7 @@ import (
 	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 噪声路径规则（复用 v1 原型实现，design §4 术语：diffprep）。

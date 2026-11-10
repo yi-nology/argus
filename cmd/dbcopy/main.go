@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"

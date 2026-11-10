@@ -12,8 +12,8 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/logx"
 
-	"argus/internal/domain"
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // PrintStore / PatternStore 持久化契约住在 internal/domain（storage 实现、Merger 消费），

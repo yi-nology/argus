@@ -9,7 +9,7 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // TestBuildKnowledge_LocalAndNoop 钉知识检索装配的本地路径：目录就绪 → Local

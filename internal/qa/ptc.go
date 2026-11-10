@@ -34,7 +34,7 @@ import (
 
 	"github.com/oagentkit/llm"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ptc 三预算缺省：墙钟 30s（工具含冷克隆 30s 预算，超了 ReAct 也一样慢）；

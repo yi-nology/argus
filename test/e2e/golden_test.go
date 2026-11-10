@@ -26,8 +26,8 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 	"gopkg.in/yaml.v3"
 
-	"argus/internal/config"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 const goldenDir = "../../eval/golden"

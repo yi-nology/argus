@@ -16,13 +16,13 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/domain"
-	"argus/internal/impactview"
-	"argus/internal/ocrdeleg"
-	"argus/internal/plugin"
-	"argus/internal/sastscan"
-	"argus/internal/semsearch"
-	"argus/internal/workflow/requirement"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/ocrdeleg"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/sastscan"
+	"github.com/yi-nology/argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/workflow/requirement"
 
 	"github.com/oagentkit/textx/codeintel"
 )

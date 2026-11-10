@@ -11,8 +11,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"argus/internal/domain"
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // PatternSignal 仓库级审查模式信任历史：repo × plugin × pattern_key。

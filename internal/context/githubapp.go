@@ -23,7 +23,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // githubAppHTTPClient GitHub API 调用共享客户端（包级复用连接池——每次换 token

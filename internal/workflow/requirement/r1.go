@@ -14,7 +14,7 @@ import (
 	"github.com/oekit/pkg/jsonrepair"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // issueRefRe 从分支名/PR 描述中提取关联 issue（需求源三入口之一）。

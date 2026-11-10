@@ -7,7 +7,7 @@ package service
 import (
 	"context"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // changelogMaxRunes 输出上限（条目草稿 2-6 条，不该更长）。

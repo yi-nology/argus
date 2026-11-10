@@ -30,7 +30,7 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // mcpPollInterval get_review 终态轮询间隔。单次查询毫秒级，10s 对分钟级审查

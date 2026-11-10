@@ -13,8 +13,8 @@ import (
 
 	"github.com/oagentkit/obs/audit"
 
-	"argus/internal/reposettings"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/reposettings"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // 审计动作（service.go 常量同源）。

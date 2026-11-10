@@ -3,8 +3,8 @@
 package main
 
 import (
-	api "argus/biz/handler/api"
-	routerapi "argus/biz/router/api"
+	api "github.com/yi-nology/argus/biz/handler/api"
+	routerapi "github.com/yi-nology/argus/biz/router/api"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // TaskAPI 入参校验边界（2026-10-01 评测补缺回归）：恶意/畸形入参应在触达

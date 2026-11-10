@@ -10,15 +10,15 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
-	"argus/internal/dream"
-	"argus/internal/health"
-	"argus/internal/memorykernel"
-	"argus/internal/obs"
-	"argus/internal/poller"
-	"argus/internal/runner"
-	"argus/internal/storage"
-	argusworker "argus/internal/worker"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/dream"
+	"github.com/yi-nology/argus/internal/health"
+	"github.com/yi-nology/argus/internal/memorykernel"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/poller"
+	"github.com/yi-nology/argus/internal/runner"
+	"github.com/yi-nology/argus/internal/storage"
+	argusworker "github.com/yi-nology/argus/internal/worker"
 )
 
 // dreamLeaseTTL 周期控制面 ticker 单飞租约的 ttl（v5.5.0）：覆盖单次执行
@@ -61,7 +61,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	// ---- 多副本控制面选主（oagentkit/queue/worker.LeaderElector）----
 	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
 	// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
-	pollElector := oagentworker.NewLeaderElector(store, "argus/poller", instanceID,
+	pollElector := oagentworker.NewLeaderElector(store, "github.com/yi-nology/argus/poller", instanceID,
 		30*time.Second, 10*time.Second, oagentworker.WithLeaderLogger(log))
 	pollElector.Start(ctx)
 	app.AddResource("poll-leader", func(context.Context) error {
@@ -187,7 +187,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			Log:          log,
 		}
 		wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
+			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
 				if _, _, err := dm.RunOnce(c); err != nil {
 					log.Warn("argus.dream.run_failed", "error", err.Error())
 				}
@@ -202,7 +202,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	// 仅内核开启时挂载；单库故障只告警不阻断（运维面）。
 	if sys.MemKernel != nil {
 		wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
+			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
 				before := time.Now().Add(-30 * 24 * time.Hour)
 				nss := []string{string(memorykernel.OrgNamespace)}
 				if repos, err := store.ListPatternRepos(c); err == nil {
@@ -241,7 +241,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			Log: log,
 		}
 		wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
+			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
 				if err := hr.RunOnce(c); err != nil {
 					log.Warn("argus.health.report_failed", "error", err.Error())
 				}

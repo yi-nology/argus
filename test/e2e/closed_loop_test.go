@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // v3.5 review 闭环 e2e：两轮任务验证 regret 学习环 + 证据门。

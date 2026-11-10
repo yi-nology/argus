@@ -21,7 +21,7 @@ import (
 	"github.com/oagentkit/guardx/fence"
 	"github.com/oekit/logx"
 
-	"argus/internal/learning"
+	"github.com/yi-nology/argus/internal/learning"
 )
 
 // Store 健康报告需要的最小存储面（storage.Store 满足）。v3.54.0 起全面走

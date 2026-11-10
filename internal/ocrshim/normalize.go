@@ -14,8 +14,8 @@ import (
 
 	"github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/plugin"
-	"argus/internal/plugin/adapter_cli"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin/adapter_cli"
 )
 
 // ocrComment OCR v1.12+ `review --format json` 单条意见（上游 internal/model.LlmComment 同构）。

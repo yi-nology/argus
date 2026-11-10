@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	api "argus/biz/model/api"
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // ListAgents 插拔层可观测（🔒）：Registry 全部插件清单/状态（含 needs/triggers）。

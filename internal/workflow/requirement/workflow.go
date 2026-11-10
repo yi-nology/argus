@@ -15,12 +15,12 @@ import (
 
 	"github.com/oekit/logx"
 
-	argusctx "argus/internal/context"
-	"argus/internal/dispatch"
-	"argus/internal/domain"
-	"argus/internal/plugin"
-	"argus/internal/semsearch"
-	"argus/internal/toolpool"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/toolpool"
 
 	"github.com/oagentkit/textx/codeintel"
 

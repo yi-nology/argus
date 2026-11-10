@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 中段阶段：R1/R2 已过 ✅，R3 当前 ⏳，R35/R4/R5 未到「未开始」。

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"argus/internal/gitdeepen"
+	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/oagentkit/runtime/procx"
 )
 

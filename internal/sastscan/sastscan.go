@@ -14,8 +14,8 @@ import (
 
 	"github.com/oagentkit/tools/sast"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // Config SAST 工具配置（SDK 形态别名；全部来自服务级 env，默认全空 = 关闭）。

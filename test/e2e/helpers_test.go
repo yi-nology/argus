@@ -13,7 +13,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"gopkg.in/yaml.v3"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 type utHeader = struct{ Key, Value string }

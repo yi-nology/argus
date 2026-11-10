@@ -5,7 +5,7 @@ import (
 
 	aktextutil "github.com/oagentkit/textx/textutil"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // severity 词表钉死为 {high, medium, low}（design §3.3）。

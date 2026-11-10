@@ -9,7 +9,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ResolveBranch 解析仓库默认分支：branch 非空原样返回（零 API 调用）；空则查

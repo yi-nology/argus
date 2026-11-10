@@ -24,7 +24,7 @@ import (
 	"github.com/oagentkit/agent/reflection"
 	"github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
 )

@@ -11,9 +11,9 @@ import (
 
 	"github.com/oekit/logx"
 
-	argusctx "argus/internal/context"
-	"argus/internal/progress"
-	"argus/internal/storage"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // ---------- pollOnce 行为套件（v3.112.0）：此前 pollOnce 零直接锚点，

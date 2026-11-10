@@ -11,9 +11,9 @@ import (
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/shellx"
 
-	"argus/internal/config"
-	"argus/internal/domain"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 const ocrdelegPreviewFixture = `{"schema_version":"1","mode":"range","merge_base":"abc123",` +

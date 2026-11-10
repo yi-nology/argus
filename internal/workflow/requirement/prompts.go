@@ -1,6 +1,6 @@
 package requirement
 
-import "argus/internal/plugin"
+import "github.com/yi-nology/argus/internal/plugin"
 
 // 提示词契约（design §4）。
 // 反注入防线在此落地为提示词文本 + 代码级校验（antiinjection.go）双保险：

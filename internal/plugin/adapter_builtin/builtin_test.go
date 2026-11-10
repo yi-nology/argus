@@ -18,8 +18,8 @@ import (
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oekit/logx"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // fakeGen 最小 llm.Generator：GenerateJSON 把 canned JSON 解进 out（与

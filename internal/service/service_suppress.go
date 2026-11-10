@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	api "argus/biz/model/api"
-	"argus/internal/plugin"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // SuppressFindingScoped 单条意见的误报抑制（MCP suppress_finding 数据面）：

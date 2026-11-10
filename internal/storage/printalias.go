@@ -17,7 +17,7 @@ import (
 	akreportutil "github.com/oagentkit/textx/reportutil"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // PrintAlias 别名映射：alias_fp（某轮出现的新措辞指纹）→ print_fp（既有条目的

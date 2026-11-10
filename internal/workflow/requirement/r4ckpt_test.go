@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func r4sel(names ...string) []dispatch.Selection {

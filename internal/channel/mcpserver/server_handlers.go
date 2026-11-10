@@ -11,7 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	api "argus/biz/model/api"
+	api "github.com/yi-nology/argus/biz/model/api"
 )
 
 // ---------- 工具执行 ----------

@@ -11,7 +11,7 @@ import (
 	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/logx"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 func TestBreaker(t *testing.T) {

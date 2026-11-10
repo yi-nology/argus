@@ -13,7 +13,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 干净 PR 的合法"零意见"输出（[] 或 {"comments":[]}）不再是错误——

@@ -27,7 +27,7 @@ var deps map[string]map[string]bool
 
 func TestMain(m *testing.M) {
 	out, err := exec.Command("go", "list", "-f",
-		`{{.ImportPath}}|{{join .Imports "|"}}`, "argus/internal/...").Output()
+		`{{.ImportPath}}|{{join .Imports "|"}}`, "github.com/yi-nology/argus/internal/...").Output()
 	if err != nil {
 		// 编译失败等场景：让 go test 自身的构建错误先行暴露，这里直接失败
 		panic("go list 失败: " + err.Error() + ": " + string(out))
@@ -55,101 +55,101 @@ func TestMain(m *testing.M) {
 // 规则变更 = 架构变更：必须同步 docs/architecture-deep-dive.md 并在 CHANGELOG 记档。
 var layering = map[string][]string{
 	// ---- L0 纯底座：零 internal 依赖 ----
-	"argus/internal/codesearch": {},
-	"argus/internal/semsearch":  {},
-	"argus/internal/learning":   {},
-	"argus/internal/progress":   {},
-	"argus/internal/gitdeepen":  {},
+	"github.com/yi-nology/argus/internal/codesearch": {},
+	"github.com/yi-nology/argus/internal/semsearch":  {},
+	"github.com/yi-nology/argus/internal/learning":   {},
+	"github.com/yi-nology/argus/internal/progress":   {},
+	"github.com/yi-nology/argus/internal/gitdeepen":  {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
 	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配
 	// （bootstrap 不受本表约束），不另立白名单条目。
-	"argus/internal/goedges": {"argus/internal/semsearch"},
+	"github.com/yi-nology/argus/internal/goedges": {"github.com/yi-nology/argus/internal/semsearch"},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
 	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁红至今）
 	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）
 	// v5.8.2 惯犯热力：ViewOpts.History 用 storage.FindingFileHistory 聚合结果类型
 	// v6.0.0 L2 调用方升级：消歧符号图优先解析调用方（semsearch.NodeKey 键契约
 	// + SymbolContext 邻接；纯底座消费，方向与 goedges 同款）
-	"argus/internal/impactview": {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/impactview": {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
 	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
-	"argus/internal/reposettings": {},
+	"github.com/yi-nology/argus/internal/reposettings": {},
 
 	// ---- 域类型层：只依赖更纯的域类型 ----
-	"argus/internal/domain": {"argus/internal/learning"},
+	"github.com/yi-nology/argus/internal/domain": {"github.com/yi-nology/argus/internal/learning"},
 
 	// ---- 引擎面（v3.173.0 自 plugin 拆出）：契约/观测经别名桥引用 plugin，方向单一 ----
-	"argus/internal/dispatch": {"argus/internal/agent/agentrun", "argus/internal/agent/blackboard", "argus/internal/learning", "argus/internal/domain", "argus/internal/llm", "argus/internal/plugin", "argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/dispatch": {"github.com/yi-nology/argus/internal/agent/agentrun", "github.com/yi-nology/argus/internal/agent/blackboard", "github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/llm", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
 
 	// ---- L4 核心域与横切底座 ----
-	"argus/internal/plugin": {"argus/internal/domain", "argus/internal/learning"},
-	"argus/internal/config": {"argus/internal/learning"},
+	"github.com/yi-nology/argus/internal/plugin": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning"},
+	"github.com/yi-nology/argus/internal/config": {"github.com/yi-nology/argus/internal/learning"},
 	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）
-	"argus/internal/obs":    {"argus/internal/plugin"},
-	"argus/internal/notify": {"argus/internal/notify/octopus", "argus/internal/obs"},
+	"github.com/yi-nology/argus/internal/obs":    {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/notify": {"github.com/yi-nology/argus/internal/notify/octopus", "github.com/yi-nology/argus/internal/obs"},
 
 	// ---- 自有协议客户端子包：零 internal 依赖（v3.148.0 octopus 回归本仓）----
-	"argus/internal/notify/octopus": {},
+	"github.com/yi-nology/argus/internal/notify/octopus": {},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
-	"argus/internal/reportview": {"argus/internal/dispatch", "argus/internal/plugin"},
-	"argus/internal/toolpool":   {"argus/internal/plugin"},
-	"argus/internal/sastscan":   {"argus/internal/dispatch", "argus/internal/plugin"},
-	"argus/internal/sink":       {"argus/internal/plugin"},
-	"argus/internal/storage":    {"argus/internal/domain", "argus/internal/learning"},
-	"argus/internal/worker":     {"argus/internal/storage"},
-	"argus/internal/health":     {"argus/internal/learning"},
-	"argus/internal/context":    {"argus/internal/config", "argus/internal/obs", "argus/internal/plugin"},
-	"argus/internal/qa":         {"argus/internal/codesearch", "argus/internal/context", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
-	"argus/internal/dream":      {"argus/internal/learning", "argus/internal/memorykernel", "argus/internal/plugin", "argus/internal/storage"},
-	"argus/internal/poster":     {"argus/internal/context", "argus/internal/plugin", "argus/internal/dispatch", "argus/internal/reportview", "argus/internal/storage"},
-	"argus/internal/poller":     {"argus/internal/context", "argus/internal/domain", "argus/internal/obs", "argus/internal/plugin", "argus/internal/progress", "argus/internal/storage"},
-	"argus/internal/ocrdeleg":   {"argus/internal/gitdeepen", "argus/internal/plugin"},
-	"argus/internal/ocrshim":    {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/plugin/adapter_cli"},
+	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/toolpool":   {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/storage":    {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning"},
+	"github.com/yi-nology/argus/internal/worker":     {"github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/health":     {"github.com/yi-nology/argus/internal/learning"},
+	"github.com/yi-nology/argus/internal/context":    {"github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/qa":         {"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/dream":      {"github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/poster":     {"github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/reportview", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/poller":     {"github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/ocrdeleg":   {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/ocrshim":    {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/plugin/adapter_cli"},
 
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
-	"argus/internal/workflow/requirement": {
-		"argus/internal/codesearch", "argus/internal/context", "argus/internal/domain",
-		"argus/internal/dispatch",
-		"argus/internal/obs", "argus/internal/plugin",
+	"github.com/yi-nology/argus/internal/workflow/requirement": {
+		"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/domain",
+		"github.com/yi-nology/argus/internal/dispatch",
+		"github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin",
 		// v5.11.0：图面进审查管线——Workflow.Graph 字段与 get_trace/
 		// get_symbol_context 工具渲染消费 semsearch（SymRef/Index.Precise）。
-		"argus/internal/semsearch", "argus/internal/toolpool",
+		"github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
 	},
-	"argus/internal/runner": {
-		"argus/internal/domain", "argus/internal/config", "argus/internal/context",
-		"argus/internal/dispatch",
-		"argus/internal/fixverifier", "argus/internal/impactview", "argus/internal/learning",
-		"argus/internal/memorykernel",
-		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
-		"argus/internal/poster", "argus/internal/progress", "argus/internal/reposettings", "argus/internal/reportview",
+	"github.com/yi-nology/argus/internal/runner": {
+		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/context",
+		"github.com/yi-nology/argus/internal/dispatch",
+		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",
+		"github.com/yi-nology/argus/internal/memorykernel",
+		"github.com/yi-nology/argus/internal/notify", "github.com/yi-nology/argus/internal/ocrdeleg", "github.com/yi-nology/argus/internal/plugin",
+		"github.com/yi-nology/argus/internal/poster", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/reportview",
 		// v5.11.0：injectCodeGraph 同工作副本再建消歧符号图（semsearch 纯图模式）。
-		"argus/internal/sastscan", "argus/internal/semsearch", "argus/internal/sink", "argus/internal/storage",
-		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
+		"github.com/yi-nology/argus/internal/sastscan", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/sink", "github.com/yi-nology/argus/internal/storage",
+		"github.com/yi-nology/argus/internal/toolpool", "github.com/yi-nology/argus/internal/workflow/requirement", "github.com/yi-nology/argus/internal/writing",
 	},
-	"argus/internal/service": {
+	"github.com/yi-nology/argus/internal/service": {
 		// v5.4.4：评论指令词法层剥出（目录/解析/词表纯函数单源，执行体仍在本包）。
-		"argus/internal/commentcmd",
-		"argus/internal/domain", "argus/internal/config", "argus/internal/context", "argus/internal/health",
-		"argus/internal/dispatch",
-		"argus/internal/impactview",
-		"argus/internal/memorykernel", "argus/internal/obs",
-		"argus/internal/plugin", "argus/internal/progress", "argus/internal/qa",
-		"argus/internal/reposettings", "argus/internal/semsearch", "argus/internal/storage",
+		"github.com/yi-nology/argus/internal/commentcmd",
+		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/health",
+		"github.com/yi-nology/argus/internal/dispatch",
+		"github.com/yi-nology/argus/internal/impactview",
+		"github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/obs",
+		"github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/qa",
+		"github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage",
 		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
 		// 委派（与 runner→writing 同向；同 qa 消费先例）。
-		"argus/internal/writing",
+		"github.com/yi-nology/argus/internal/writing",
 	},
 
 	// ---- 入口适配层：channel 靠消费侧窄接口（Core/Copilot/ReviewQA）实现
 	// 零 internal 依赖——service 由 main 装配注入，mcpserver 永不见 runner/service ----
-	"argus/internal/channel/mcpserver": {},
+	"github.com/yi-nology/argus/internal/channel/mcpserver": {},
 
 	// ---- 适配器子包：单向依赖核心域（plugin 不得反向 import 适配器）----
-	"argus/internal/plugin/adapter_acpx":    {"argus/internal/dispatch", "argus/internal/plugin"},
-	"argus/internal/plugin/adapter_builtin": {"argus/internal/dispatch", "argus/internal/plugin"},
-	"argus/internal/plugin/adapter_cli":     {"argus/internal/plugin"},
-	"argus/internal/plugin/adapter_remote":  {"argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_acpx":    {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_builtin": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_cli":     {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_remote":  {"github.com/yi-nology/argus/internal/plugin"},
 }
 
 // TestLayering 分层白名单守卫。
@@ -160,7 +160,7 @@ func TestLayering(t *testing.T) {
 			continue
 		}
 		for imp := range imports {
-			if !strings.HasPrefix(imp, "argus/internal/") {
+			if !strings.HasPrefix(imp, "github.com/yi-nology/argus/internal/") {
 				continue
 			}
 			ok := false
@@ -184,10 +184,10 @@ func TestLayering(t *testing.T) {
 // 依赖意味着装配职责泄漏，装配图不再单点可见。
 func TestBootstrapNotImported(t *testing.T) {
 	for pkg, imports := range deps {
-		if pkg == "argus/internal/bootstrap" {
+		if pkg == "github.com/yi-nology/argus/internal/bootstrap" {
 			continue
 		}
-		if imports["argus/internal/bootstrap"] {
+		if imports["github.com/yi-nology/argus/internal/bootstrap"] {
 			t.Errorf("%s → argus/internal/bootstrap：组合根被反向依赖（装配职责泄漏）", pkg)
 		}
 	}
@@ -196,14 +196,14 @@ func TestBootstrapNotImported(t *testing.T) {
 // docAllowlist 包文档检查的暂缓名单（原因必填）。
 //   - domain：并行会话迁移刚建包，doc 待其提交后补（v3.62.0 时在途，勿代写）。
 var docAllowlist = map[string]string{
-	"argus/internal/domain": "迁移在途，收尾批次补 doc 后移除本条",
+	"github.com/yi-nology/argus/internal/domain": "迁移在途，收尾批次补 doc 后移除本条",
 }
 
 // TestPackageDocs 包文档完整性：包级 doc comment 是架构可读性的第一道门——
 // 职责、层级、边界写在 go doc 第一屏。
 func TestPackageDocs(t *testing.T) {
 	out, err := exec.Command("go", "list", "-f", `{{.ImportPath}}|{{.Doc}}`,
-		"argus/internal/...").Output()
+		"github.com/yi-nology/argus/internal/...").Output()
 	if err != nil {
 		t.Fatalf("go list 失败: %v", err)
 	}

@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // unverifiableRatioThreshold unverifiable 占比判定阈值（过半 = 大面积不可判定）。

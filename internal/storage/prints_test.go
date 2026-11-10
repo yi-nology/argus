@@ -7,7 +7,7 @@ import (
 
 	akseverity "github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // suppress → restore 全往返 + 负控（不存在前缀 / 前缀歧义）。

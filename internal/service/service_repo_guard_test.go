@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // TestRepoAllowlist 外部入口仓库白名单语义（v3.134.0）：空=不限/精确/通配/拒绝。

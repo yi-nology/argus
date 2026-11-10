@@ -4,7 +4,7 @@
 // 签名时此处编译期暴露。
 package dispatch
 
-import "argus/internal/plugin"
+import "github.com/yi-nology/argus/internal/plugin"
 
 var (
 	// ReportBestOfN best-of-N 采样结果分布（full/partial）。

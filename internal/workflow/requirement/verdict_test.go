@@ -7,7 +7,7 @@ import (
 
 	"github.com/oagentkit/textx/reportutil"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // acSpec 构造 R1/R3 用例数据：每个 acStatus 生成一条 AC 与对应 check。

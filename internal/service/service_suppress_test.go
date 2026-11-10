@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/config"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // TestSuppressFindingScoped_Gate scope 二次判定的 fail-closed 语义：

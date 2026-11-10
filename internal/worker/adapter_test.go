@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 func openTestStore(t *testing.T) *storage.Store {

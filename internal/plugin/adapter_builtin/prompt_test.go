@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // v3.52.0：跨轮一致性段只在 ArtifactPrevFindings 存在时出现，并回指路径纪律。

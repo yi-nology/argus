@@ -17,8 +17,8 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 
-	"argus/internal/gitdeepen"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/gitdeepen"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 const version = "0.1.0"

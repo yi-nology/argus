@@ -12,12 +12,12 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	api "argus/biz/model/api"
-	"argus/internal/commentcmd"
-	"argus/internal/domain"
-	"argus/internal/obs"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	api "github.com/yi-nology/argus/biz/model/api"
+	"github.com/yi-nology/argus/internal/commentcmd"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // ---------- webhook（POST /webhook/:platform）----------

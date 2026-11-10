@@ -8,7 +8,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // v3.84.0：CodeSearchDir 非空时 R3/R4 工具表挂 search_code，空时不挂

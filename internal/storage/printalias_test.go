@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // 真实案例夹具（2026-10-09，argus-validate#2 db.go:9 硬编码密钥）：人工抑制后

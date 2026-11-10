@@ -12,10 +12,10 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
-	"argus/internal/domain"
-	"argus/internal/storage"
-	"argus/internal/worker"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/worker"
 )
 
 // TestExecutePanicToFailedTerminal Execute 层端到端：SDK/Poster 全 nil 的裸

@@ -11,7 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/llm"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ---------- R3.5 报告反思测试（reflection.Refine 的 Argus 侧协议） ----------

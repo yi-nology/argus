@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/semsearch"
+	"github.com/yi-nology/argus/internal/semsearch"
 )
 
 // TestSearchSem_Guards 未启用/空参守卫（不触网络；nil 底座与关开关同型）。

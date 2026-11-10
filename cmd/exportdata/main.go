@@ -33,9 +33,9 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
-	"argus/internal/learning"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 type exportRow struct {

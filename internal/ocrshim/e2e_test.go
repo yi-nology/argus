@@ -13,8 +13,8 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/pkg/shellx"
 
-	"argus/internal/plugin"
-	"argus/internal/plugin/adapter_remote"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin/adapter_remote"
 )
 
 // 假 OCR：把收到的 argv 与 OPENAI_API_KEY 写探针文件，stdout 打新 schema JSON。

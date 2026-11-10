@@ -19,8 +19,8 @@ import (
 	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
 
-	"argus/internal/gitdeepen"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/gitdeepen"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 缺省硬上限：单条 delegate 命令 90s（确定性 git/规则解析，无 LLM 往返，通常秒级）；

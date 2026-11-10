@@ -18,13 +18,13 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/runtime/procx"
 
-	"argus/internal/domain"
-	"argus/internal/fixverifier"
-	"argus/internal/plugin"
-	"argus/internal/reportview"
-	"argus/internal/storage"
-	"argus/internal/workflow/requirement"
-	"argus/internal/writing"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/fixverifier"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/workflow/requirement"
+	"github.com/yi-nology/argus/internal/writing"
 )
 
 // runWriting 写作任务主链：prepareContext 之后由 run 分派进入。

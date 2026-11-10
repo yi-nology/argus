@@ -11,7 +11,7 @@ import (
 
 	"github.com/oagentkit/llm"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // fakeModel 通用假模型：按 system prompt 前缀路由响应。

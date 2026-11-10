@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"argus/internal/domain"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // 信号往返：Posted 累加；Regret/Suppress 压低置信度；Restore 回抬。

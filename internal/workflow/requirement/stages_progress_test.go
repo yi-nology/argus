@@ -3,7 +3,7 @@ package requirement
 import (
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // TestOnStagePersistsProgress onStage 除 SSE 上报外还须把 stage_progress 落库

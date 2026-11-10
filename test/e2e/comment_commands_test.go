@@ -10,8 +10,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/domain"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // setGitHubIssueCommentEvent 预置 GitHub issue_comment 事件（生产 GitHub 形态：

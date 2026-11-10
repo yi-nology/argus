@@ -11,8 +11,8 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/tools/workcopy"
 
-	"argus/internal/obs"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // testgenMaxRunes 输出上限。

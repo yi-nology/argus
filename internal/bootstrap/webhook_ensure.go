@@ -8,9 +8,9 @@ import (
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/config"
-	"argus/internal/obs"
-	"argus/internal/poller"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/poller"
 )
 
 // webhook_ensure.go —— 启动期 webhook 幂等确保（v5.4.1，tech-debt WebhookConfigManager

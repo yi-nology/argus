@@ -10,10 +10,10 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/config"
-	"argus/internal/domain"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // TestInjectImpactViewGates 门控矩阵：关/无池/空纳入均无产物且不 panic。

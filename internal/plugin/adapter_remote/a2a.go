@@ -14,7 +14,7 @@ import (
 
 	"github.com/oekit/kitx/uidgen"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // A2A 任务终态词表（spec: TaskState）。

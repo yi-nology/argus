@@ -9,10 +9,10 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	datacache "github.com/oekit/data/cache"
 
-	argusctx "argus/internal/context"
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // buildPRContext 从平台 API 组装 PR 上下文（CLI 任务此刻才拿到 head SHA）。

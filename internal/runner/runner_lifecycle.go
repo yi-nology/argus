@@ -15,14 +15,14 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/textutil"
 
-	argusctx "argus/internal/context"
-	"argus/internal/learning"
-	"argus/internal/plugin"
-	"argus/internal/poster"
-	"argus/internal/reportview"
-	"argus/internal/sink"
-	"argus/internal/storage"
-	"argus/internal/workflow/requirement"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/poster"
+	"github.com/yi-nology/argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/sink"
+	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
 // repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed

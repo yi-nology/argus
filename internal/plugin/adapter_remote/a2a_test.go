@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // fakeA2A 模拟 A2A server：Agent Card 发现 + message/send 同步完成 + artifacts。

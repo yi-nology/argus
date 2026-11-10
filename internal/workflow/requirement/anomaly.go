@@ -13,8 +13,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	"argus/internal/obs"
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 const (

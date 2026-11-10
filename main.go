@@ -33,14 +33,14 @@ import (
 	oekittracing "github.com/oekit/tracing"
 	gormotel "github.com/oekit/tracing/gormotel"
 
-	hapi "argus/biz/handler/api"
-	rapi "argus/biz/router/api"
-	"argus/internal/bootstrap"
-	"argus/internal/channel/mcpserver"
-	"argus/internal/config"
-	"argus/internal/obs"
-	"argus/internal/service"
-	"argus/internal/storage"
+	hapi "github.com/yi-nology/argus/biz/handler/api"
+	rapi "github.com/yi-nology/argus/biz/router/api"
+	"github.com/yi-nology/argus/internal/bootstrap"
+	"github.com/yi-nology/argus/internal/channel/mcpserver"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/service"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // version 由构建时 -ldflags 注入；开发期回退 dev。

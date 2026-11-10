@@ -7,7 +7,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/poller"
+	"github.com/yi-nology/argus/internal/poller"
 )
 
 // v3.0.1 试点改造回归：轮询兜底任务源——发现 PR、同 SHA 幂等、执行后 last_head_sha 拦截。

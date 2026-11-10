@@ -7,8 +7,8 @@ package runner
 import (
 	"context"
 
-	"argus/internal/reposettings"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/reposettings"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // taskKnobs 单任务生效旋钮（服务侧 repo_settings 覆盖后的合并结果）。

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // writeHistory：OCR 原始 stdout（合法 JSON 原样嵌入）+ 归一化 findings 落盘，

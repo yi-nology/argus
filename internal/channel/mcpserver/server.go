@@ -35,7 +35,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	api "argus/biz/model/api"
+	api "github.com/yi-nology/argus/biz/model/api"
 )
 
 // Core Argus 能力面（由 *service.Service 实现，无 hertz 依赖）。

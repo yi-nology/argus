@@ -20,11 +20,11 @@ import (
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	argusctx "argus/internal/context"
-	"argus/internal/dispatch"
-	"argus/internal/plugin"
-	"argus/internal/reportview"
-	"argus/internal/storage"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reportview"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // Poster 回帖执行器。

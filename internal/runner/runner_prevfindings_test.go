@@ -9,8 +9,8 @@ import (
 
 	"github.com/oekit/logx"
 
-	"argus/internal/plugin"
-	"argus/internal/storage"
+	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // v3.52.0 跨轮一致性：prevFindingsSection 只取 open 且有 file/comment 的指纹，

@@ -14,11 +14,11 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 
-	argusctx "argus/internal/context"
-	"argus/internal/domain"
-	"argus/internal/obs"
-	"argus/internal/progress"
-	"argus/internal/storage"
+	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // Target 一个被 watch 的仓库。

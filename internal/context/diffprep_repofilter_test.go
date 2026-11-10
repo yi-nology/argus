@@ -6,7 +6,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 仓库级过滤（v3.15.0 P0-2）：exclude/include 命中文件不进 Text、保留元信息、

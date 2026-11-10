@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 场景21：best-of-N 同质采样（v3.10.0）——同一插件 reviewN=3，两次采样报同一
