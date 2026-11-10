@@ -48,7 +48,7 @@ type Server struct {
 
 var Version = "1.0"
 `
-	chunks := extractChunks("internal/app/store.go", []byte(src))
+	chunks, _ := extractChunks("internal/app/store.go", []byte(src))
 	if len(chunks) != 3 {
 		t.Fatalf("chunk 数 = %d, want 3（%v）", len(chunks), chunks)
 	}
@@ -69,15 +69,15 @@ var Version = "1.0"
 
 // TestExtractFileChunk 非 Go 文件与坏 Go 文件都降级文件级 chunk；二进制跳过。
 func TestExtractFileChunk(t *testing.T) {
-	md := extractChunks("docs/guide.md", []byte("# 指南\n\n如何处理认证流程。\n"))
+	md, _ := extractChunks("docs/guide.md", []byte("# 指南\n\n如何处理认证流程。\n"))
 	if len(md) != 1 || md[0].Line != 1 || !strings.Contains(md[0].Text, "认证") {
 		t.Errorf("md 文件级 chunk 不符: %+v", md)
 	}
-	bad := extractChunks("broken.go", []byte("package app\nfunc {{{\n"))
+	bad, _ := extractChunks("broken.go", []byte("package app\nfunc {{{\n"))
 	if len(bad) != 1 || bad[0].Symbol != "" {
 		t.Errorf("坏 Go 文件应降级文件级: %+v", bad)
 	}
-	if extractChunks("bin.dat", []byte("AB\x00CD")) != nil {
+	if binChunks, binEdges := extractChunks("bin.dat", []byte("AB\x00CD")); binChunks != nil || binEdges != nil {
 		// bin.dat 不在 codeExts，scanDir 层面就跳过；extractChunks 直喂时
 		// 二进制不该产出可嵌文本
 		t.Log("二进制内容由 scanDir 过滤")

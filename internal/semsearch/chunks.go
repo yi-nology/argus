@@ -1,6 +1,8 @@
 // chunks.go —— 工作副本扫描与 chunk 抽取：Go 走 go/parser 按顶层声明切
 // （路径+行号+源码片段，doc 注释天然在内），其余文本文件按文件级首段切。
-// 排除集与 codesearch 对齐；二进制（512B 窗口含 NUL）跳过。
+// 排除集与 codesearch 对齐；二进制（512B 窗口含 NUL）跳过。Go 解析顺带抽
+// 符号调用边（v5.9.0，FuncDecl 体 CallExpr 赤名抽取，图面见 graph.go）——
+// chunk 与边共用同一次 AST 解析，图增强检索零额外解析成本。
 package semsearch
 
 import (
@@ -103,28 +105,40 @@ func scanDir(dir string) ([]scannedFile, error) {
 	return out, nil
 }
 
-// extractChunks 单文件 → chunk 列表：Go 按顶层声明（含 doc 注释），其余按
-// 文件级首段。Go 解析失败降级文件级 chunk（语法坏文件也有路径与文本可检索）。
-func extractChunks(rel string, content []byte) []Chunk {
-	if strings.HasSuffix(rel, ".go") {
-		if chunks := goDeclChunks(rel, content); len(chunks) > 0 {
-			return chunks
-		}
-	}
-	return []Chunk{fileChunk(rel, content)}
+// symEdge 原始调用边（Refresh 中间产物）：caller 是 FuncDecl 全名（Recv.Name
+// 或 Name，与 chunk.Symbol 同键），callee 是调用位限定名原文（"fmt.Println"
+// / "t.M" / "F"）——到仓库符号表的解析与剪枝在 Refresh 收尾统一做（graph.go）。
+type symEdge struct {
+	caller string
+	callee string
 }
 
-// goDeclChunks Go 文件按顶层声明切 chunk：文本 = 「rel:起始行\n」+ 从 doc 注释
-// （如有）到声明结束的源码片段——路径、签名、注释一并进 embedding 输入，
-// 这是「结构化摘要」路线的落地：不嵌裸代码，嵌可读的声明上下文。
-func goDeclChunks(rel string, content []byte) []Chunk {
+// extractChunks 单文件 → (chunk 列表, 调用边)。Go 按顶层声明（含 doc 注释）
+// 切并顺带抽边，其余按文件级首段（无边）。Go 解析失败降级文件级 chunk（语法
+// 坏文件也有路径与文本可检索，且无边）。
+func extractChunks(rel string, content []byte) ([]Chunk, []symEdge) {
+	if strings.HasSuffix(rel, ".go") {
+		if chunks, edges := goDeclChunks(rel, content); len(chunks) > 0 {
+			return chunks, edges
+		}
+	}
+	return []Chunk{fileChunk(rel, content)}, nil
+}
+
+// goDeclChunks Go 文件按顶层声明切 chunk 并顺带抽调用边（v5.9.0，同一次解析
+// 双产出）：文本 = 「rel:起始行\n」+ 从 doc 注释（如有）到声明结束的源码片段
+// ——路径、签名、注释一并进 embedding 输入，这是「结构化摘要」路线的落地；
+// 边 = FuncDecl 体 CallExpr 赤名抽取——闭包体归外层函数（随其执行），顶层
+// var 初始化器里的 FuncLit 归包级 init、不归属函数符号，不抽。
+func goDeclChunks(rel string, content []byte) ([]Chunk, []symEdge) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, content, parser.ParseComments)
 	if err != nil || f == nil {
-		return nil
+		return nil, nil
 	}
 	src := content
 	var chunks []Chunk
+	var edges []symEdge
 	for _, decl := range f.Decls {
 		startPos := decl.Pos()
 		symbol := declSymbol(decl)
@@ -147,7 +161,39 @@ func goDeclChunks(rel string, content []byte) []Chunk {
 			Text:   rel + ":" + itoa(start.Line) + "\n" + clipText(text),
 		})
 	}
-	return chunks
+	// 调用边抽取（与 chunk 同一次解析的副产品）：FuncDecl 体 CallExpr 赤名。
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		caller := declSymbol(fd)
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if q := calleeQual(call.Fun); q != "" {
+					edges = append(edges, symEdge{caller: caller, callee: q})
+				}
+			}
+			return true
+		})
+	}
+	return chunks, edges
+}
+
+// calleeQual 调用位限定名（赤名抽取，词法级边界与 codeintel/get_callers 同款
+// 声明：无类型信息，接口分派/动态派发不可见）：F() → "F"；pkg.F()/x.M() →
+// "pkg.F"/"x.M"（包限定与变量限定不可分——解析阶段按末段归一到仓库符号表，
+// 见 graph.go）；链式/字面量/类型转换形态不抽。
+func calleeQual(fun ast.Expr) string {
+	switch f := fun.(type) {
+	case *ast.Ident:
+		return f.Name
+	case *ast.SelectorExpr:
+		if id, ok := f.X.(*ast.Ident); ok {
+			return id.Name + "." + f.Sel.Name
+		}
+	}
+	return ""
 }
 
 // declSymbol 顶层声明名（FuncDecl 名 / GenDecl 首个 spec 名；匿名结构取类型名）。

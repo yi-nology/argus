@@ -9,7 +9,9 @@
 //	get_task_stages / list_findings / get_suggestion  副驾只读三件（v3.15.0）
 //	search_code                          PR 工作副本受控检索（v3.122.0）
 //	search_knowledge                     知识库语义检索（v3.125.0，R3/R4 同源）
-//	search_sem                           工作副本语义检索（v3.126.0，embedding opt-in）
+//	search_sem                           工作副本语义检索（v3.126.0，embedding opt-in；命中附调用方/被调邻接——v5.9.0 图增强）
+//	get_trace                            工作副本符号图调用链查询（v5.9.0，数据面=semsearch 符号邻接图）
+//	get_symbol_context                   工作副本符号邻接上下文（v5.9.0，数据面=semsearch 符号邻接图）
 //	review_diff_async                    本地 diff 异步预审任务（v3.123.0，提交方轮询闭环）
 //	fix_finding                          沙箱修复（v3.89.0，写侧）
 //	suppress_finding                     误报抑制（v3.128.0，写侧，admin scope 门）
@@ -220,6 +222,7 @@ func New(core Core, version string) *server.MCPServer {
 	NewCapabilityTool(s, core) // v3.129.0：core 实现 CapabilityFace 时注册（能力面一次看清）
 	NewRestorerTool(s, core)   // v3.131.0：core 实现 FindingRestorer（admin scope 门，suppress 反向）时注册
 	NewHistorianTool(s, core)  // v3.138.0：core 实现 FindingHistorian（本仓意见账本检索）时注册
+	NewGraphTools(s, core)     // v5.9.0：core 实现 GraphTracer/SymbolContexter（semsearch 图面）时注册 get_trace/get_symbol_context
 	if cs, ok := core.(CodeSearcher); ok {
 		s.AddTool(searchCodeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "pattern")

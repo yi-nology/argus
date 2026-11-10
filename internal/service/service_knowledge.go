@@ -118,3 +118,22 @@ func (s *Service) SearchFindingsHistory(ctx context.Context, platform, owner, re
 	}
 	return plugin.DataFence("search_findings 检索结果（数据）", b.String()), nil
 }
+
+// Trace 两符号间调用链（v5.9.0，MCP get_trace 数据面）：委派 qa.Engine（工作
+// 副本目录解析、守卫与渲染单源——SearchSem 同模式）。仓库白名单门同 SearchSem；
+// 不可达返回提示文本非 error（正常查询结果），语义细节在 qa.Engine 单源。
+func (s *Service) Trace(ctx context.Context, platform, owner, repo, number, from, to string) (string, error) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
+		return "", errors.New(errRepoDenied)
+	}
+	return s.qa().Trace(ctx, platform, owner, repo, number, from, to)
+}
+
+// SymContext 单符号图上下文（v5.9.0，MCP get_symbol_context 数据面）：委派
+// qa.Engine（工作副本目录解析、守卫与渲染单源——SearchSem 同模式）。
+func (s *Service) SymContext(ctx context.Context, platform, owner, repo, number, symbol string) (string, error) {
+	if !s.repoAllowedFor(ctx, platform, owner, repo) {
+		return "", errors.New(errRepoDenied)
+	}
+	return s.qa().SymContext(ctx, platform, owner, repo, number, symbol)
+}

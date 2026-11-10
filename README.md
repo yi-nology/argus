@@ -182,7 +182,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十一工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十三工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -371,7 +371,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
 | `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.122.0）|
 | `search_knowledge` | 知识库语义检索：规范/历史审查结论/误报判例，与 R3/R4 的 search_knowledge 同源（未配知识源时报错，v3.125.0）|
-| `search_sem` | PR 工作副本语义检索：按意图/自然语言找代码，补词法正则答不了的「哪里处理认证」（ARGUS_SEMSEARCH+ARGUS_EMBEDDING_* 双门，缺省关，v3.126.0）|
+| `search_sem` | PR 工作副本语义检索：按意图/自然语言找代码，补词法正则答不了的「哪里处理认证」；命中附调用方/被调邻接行（ARGUS_SEMSEARCH+ARGUS_EMBEDDING_* 双门，缺省关，v3.126.0）|
+| `get_trace` | 符号图调用链查询：from→to 是否可达及途经函数（semsearch 符号邻接图，词法级边——同名按裸名合并，非编译期精确调用图；与 search_sem 同门控，v5.9.0）|
+| `get_symbol_context` | 符号图邻接查询：某符号的直接调用方/被调列表（semsearch 符号邻接图，词法级边；与 search_sem 同门控，v5.9.0）|
 | `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；工具常驻注册，服务未配 ARGUS_FIX_AGENT 时调用报错，v3.89.0）|
 | `suppress_finding` | 误报抑制（fp 短码；重措辞复现由宽松近重复级吸收，回流知识库+学习环；需 admin 档 token，scope 透传二次判定，v3.128.0/v3.130.0）|
 | `restore_finding` | 恢复误抑制意见（suppress 反向，与评论 restore fp: 同源；需 admin 档 token，v3.131.0）|
@@ -440,7 +442,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
 | `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
-| `ARGUS_SEMSEARCH` | false | search_sem 语义检索开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
+| `ARGUS_SEMSEARCH` | false | search_sem/get_trace/get_symbol_context 语义检索与符号图开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
 | `ARGUS_REPO_ALLOWLIST` | 空=不限 | 外部入口仓库白名单（v3.134.0，`platform:owner/repo` 逗号分隔，支持 `/*` 通配）|
 | `ARGUS_API_RATE_RPM` | 120 | 每 token 调用速率上限（v3.135.0，每分钟；0=关）|
 | `ARGUS_AUDIT_WEBHOOK_URL` | 空 | 审计事件外送端点（v3.137.0，SIEM 对接；audit.event JSON POST，旁路失败只告警）|
@@ -605,7 +607,7 @@ internal/
   poster/                      行内评论 + 总结评论三级降级 + staleness 门控
   poller/                      轮询兜底任务源（租约选主门控, v3.3）
   reportview/                  报告渲染（上文示例的出处）
-  channel/mcpserver/           Argus as MCP Server（/mcp 二十一工具）
+  channel/mcpserver/           Argus as MCP Server（/mcp 二十三工具）
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
@@ -639,7 +641,7 @@ L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/
 ## 十、当前边界
 
 **已落地**（v3.1–v3.4，细节见 [CHANGELOG.md](CHANGELOG.md)）：remote 插件协议子集（a2a/mcp）、
-cli delegate 模式、MCP Server 工具面（含 ask_argus，当前 21 工具见 §3）、SSE 进度流、IM 推送（octopus）、
+cli delegate 模式、MCP Server 工具面（含 ask_argus，当前 23 工具见 §3）、SSE 进度流、IM 推送（octopus）、
 1M 上下文窗口单一基准、GitHub App 认证、acpx 编码 agent 插件、成本记账（任务级+月度仓库用量）、
 多副本横向扩展（租约选主+实例隔离）、Q&A ReAct + 多轮会话、分阶段模型路由（StageRouter）、
 Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共识。

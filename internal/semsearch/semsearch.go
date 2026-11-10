@@ -1,7 +1,10 @@
 // Package semsearch 工作副本语义检索底座（v3.126.0，ARGUS_SEMSEARCH opt-in）：
 // 把工作副本的 Go 顶层声明/文本文件抽成结构化摘要 chunk → embedding → 进程内
 // 余弦检索，补 search_code（词法正则）答不了的「按意图找代码」面（哪里处理
-// 认证/哪里刷新 session token——代码里未必有查询词）。
+// 认证/哪里刷新 session token——代码里未必有查询词）。v5.9.0 增图面：search
+// 命中自动附调用方/被调邻接（SymRef），另提供 Path 两符号最短调用链与
+// SymbolContext 单符号上下文两个图查询——调用边自产自 chunk 同一次 AST 解析
+// （见 chunks.go/graph.go）。
 //
 // 行业坐标（2026-10 调研）：审查是异步、准确率优先、延迟不敏感的任务，预索引
 // 在审查场景的价值高于编码助手场景（Greptile 全库图/Ellipsis 向量+历史 PR 索引
@@ -40,16 +43,18 @@ type Chunk struct {
 
 // Hit 单条语义命中。
 type Hit struct {
-	Path   string  `json:"path"`
-	Line   int     `json:"line"`
-	Symbol string  `json:"symbol,omitempty"`
-	Score  float32 `json:"score"`
-	Text   string  `json:"text"`
+	Path      string   `json:"path"`
+	Line      int      `json:"line"`
+	Symbol    string   `json:"symbol,omitempty"`
+	Score     float32  `json:"score"`
+	Text      string   `json:"text"`
+	Neighbors []SymRef `json:"neighbors,omitempty"` // 图邻接（v5.9.0，Symbol 非空时自动附）
 }
 
-// fileIndex 单文件的 chunk 与向量（指纹不变即整文件复用，增量刷新的粒度）。
+// fileIndex 单文件的 chunk、调用边与向量（指纹不变即整文件复用，增量刷新的粒度）。
 type fileIndex struct {
 	chunks []Chunk
+	edges  []symEdge // 调用边（v5.9.0，与 chunks 同一次 AST 解析的副产品）
 	vecs   [][]float32
 	fp     fileFP
 }
@@ -65,9 +70,10 @@ type fileFP struct {
 type Index struct {
 	embedder Embedder
 
-	mu             sync.Mutex            // 护 files/paths/truncated（Refresh 与 Search 并发）
+	mu             sync.Mutex            // 护 files/paths/sym/truncated（Refresh 与 Search 并发）
 	files          map[string]*fileIndex // key: 仓库相对路径
 	paths          []string              // 排序路径快照（Search 确定序遍历）
+	sym            *symGraph             // 符号邻接图（Refresh 收尾重建，nil=未构建；v5.9.0 图面）
 	maxFiles       int                   // 文件数上限（默认 maxDefaultFiles，测试可调低）
 	maxTotalChunks int                   // 全库 chunk 上限（embedding 成本闸）
 	truncated      bool                  // 触达任一上限即置位（调用方可透出告警）
@@ -110,6 +116,41 @@ func (m *Manager) Search(ctx context.Context, dir, query string, topK int, minSc
 		return nil, err
 	}
 	return ix.Search(ctx, query, topK, minScore)
+}
+
+// Trace 两符号间最短调用链（v5.9.0，get_trace 数据面底座）：增量刷新后在符号
+// 邻接图上 BFS（无向，≤graphHopsDefault 跳）。首次对未建索引目录调用会付冷建
+// 索引成本（embedding 一次性，增量零）；不可达或任一端不在符号表返回 ok=false。
+func (m *Manager) Trace(ctx context.Context, dir, from, to string) ([]SymRef, bool, error) {
+	m.mu.Lock()
+	ix, ok := m.idx[dir]
+	if !ok {
+		ix = NewIndex(m.embedder)
+		m.idx[dir] = ix
+	}
+	m.mu.Unlock()
+	if err := ix.Refresh(ctx, dir); err != nil {
+		return nil, false, err
+	}
+	chain, found := ix.Path(from, to, graphHopsDefault)
+	return chain, found, nil
+}
+
+// SymbolContext 单符号图上下文（v5.9.0）：定义位置 + 调用方 + 被调（同名多候选
+// 合并邻接）。索引模式与 Search/Trace 相同：目录缺则冷建，Refresh 失败原样上抛。
+func (m *Manager) SymbolContext(ctx context.Context, dir, symbol string) (self SymRef, in, out []SymRef, ok bool, err error) {
+	m.mu.Lock()
+	ix, cached := m.idx[dir]
+	if !cached {
+		ix = NewIndex(m.embedder)
+		m.idx[dir] = ix
+	}
+	m.mu.Unlock()
+	if err = ix.Refresh(ctx, dir); err != nil {
+		return
+	}
+	self, in, out, ok = ix.SymbolContext(symbol)
+	return
 }
 
 // Size 索引内 chunk 总数（观测面）。
@@ -156,6 +197,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		rel    string
 		fp     fileFP
 		chunks []Chunk
+		edges  []symEdge // 与 chunks 同一次解析的调用边（v5.9.0 图面）
 	}
 	var todo []pending
 	total := 0
@@ -166,7 +208,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		if old, ok := ix.files[f.rel]; ok && old.fp == f.fp {
 			continue
 		}
-		chunks := extractChunks(f.rel, f.content)
+		chunks, edges := extractChunks(f.rel, f.content)
 		if len(chunks) > maxFileChunks {
 			chunks = chunks[:maxFileChunks]
 		}
@@ -180,7 +222,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 			ix.truncated = true
 		}
 		total += len(chunks)
-		todo = append(todo, pending{rel: f.rel, fp: f.fp, chunks: chunks})
+		todo = append(todo, pending{rel: f.rel, fp: f.fp, chunks: chunks, edges: edges})
 	}
 	for rel := range ix.files {
 		if !live[rel] {
@@ -188,6 +230,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		}
 	}
 	ix.rebuildPathsLocked() // 删除/预算截断都可能改变文件集，快照恒重建（此前仅在重嵌路径重建，todo 空时删除残留）
+	ix.rebuildGraphLocked() // v5.9.0：图面与符号集同源，删除/预算截断同样要重建
 	if len(todo) == 0 {
 		return nil
 	}
@@ -207,7 +250,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 	}
 	pos := 0
 	for _, p := range todo {
-		fi := &fileIndex{fp: p.fp}
+		fi := &fileIndex{fp: p.fp, edges: p.edges}
 		for _, c := range p.chunks {
 			fi.chunks = append(fi.chunks, c)
 			fi.vecs = append(fi.vecs, vecs[pos])
@@ -216,6 +259,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		ix.files[p.rel] = fi
 	}
 	ix.rebuildPathsLocked()
+	ix.rebuildGraphLocked() // v5.9.0：重嵌落地后按新符号集重建图面
 	return nil
 }
 
@@ -268,6 +312,11 @@ func (ix *Index) Search(ctx context.Context, query string, topK int, minScore fl
 	}
 	out := make([]Hit, 0, len(hits))
 	for _, h := range hits {
+		// v5.9.0 图面：Symbol 非空的命中附调用方/被调邻接（sym 为 nil 跳过——
+		// 图随 Refresh 重建，Refresh 成功后不会为 nil，防御留底）。
+		if h.h.Symbol != "" && ix.sym != nil {
+			h.h.Neighbors = ix.sym.neighborsOf(h.h.Symbol)
+		}
 		out = append(out, h.h)
 	}
 	return out, nil
