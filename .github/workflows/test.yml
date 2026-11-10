@@ -51,6 +51,38 @@ jobs:
       - name: Architecture guards
         run: make arch
 
+  # 生产方言（v6.1.7）：43 k8s 自 v5.4.8 起在役 PostgreSQL——矩阵必须覆盖。
+  # 镜像与生产同款 postgres:16-alpine；DSN 接线 ARGUS_TEST_PG_DSN。
+  test-postgres:
+    name: Tests (PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: argus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        env:
+          ARGUS_TEST_PG_DSN: "postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable"
+        run: make test
+
   test-mysql:
     name: Tests (MySQL)
     runs-on: ubuntu-latest

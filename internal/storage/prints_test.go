@@ -356,7 +356,7 @@ func TestMigratePrintAliasPRScope(t *testing.T) {
 	if err := s.db.Exec(`DROP TABLE print_aliases`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.Exec(`CREATE TABLE print_aliases (alias_fp varchar(64) PRIMARY KEY, print_fp varchar(64), updated_at datetime)`).Error; err != nil {
+	if err := s.db.Exec(`CREATE TABLE print_aliases (alias_fp varchar(64) PRIMARY KEY, print_fp varchar(64), updated_at timestamp)`).Error; err != nil {
 		t.Fatal(err)
 	}
 	// 规范行：同指纹 Fx 在 PR 7 与 PR 8 各一条；孤儿别名指向的 Gx 不存在

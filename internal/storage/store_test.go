@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"net/url"
+
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/jackc/pgx/v5/stdlib" // pg 测试管理面（sql.Open("pgx")）
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,11 +19,20 @@ import (
 	"github.com/yi-nology/argus/internal/domain"
 )
 
+// testDBCache 同测试名复用同一测试库（fencing 跨实例测试同测试内多次
+// openTestStore 要打同一库——每调用建新库会撞名/拆台，pg 矩阵实锤）。
+var testDBCache = map[string]string{}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "test.db")
 	if mysqlDSN := os.Getenv("ARGUS_TEST_MYSQL_DSN"); mysqlDSN != "" {
 		dsn = setupTestMySQL(t, mysqlDSN)
+	}
+	// pg 分支（v6.1.7）：生产方言是 PostgreSQL（43 k8s 自 v5.4.8），此前测试矩阵
+	// 只接 MySQL——生产方言零覆盖。与 setupTestMySQL 同款独立库+幂等清建。
+	if pgDSN := os.Getenv("ARGUS_TEST_PG_DSN"); pgDSN != "" {
+		dsn = setupTestPG(t, pgDSN)
 	}
 	s, err := Open(dsn)
 	if err != nil {
@@ -36,6 +48,9 @@ func openTestStore(t *testing.T) *Store {
 // The dbname portion is used as a prefix; a unique suffix is appended per test.
 func setupTestMySQL(t *testing.T, baseDSN string) string {
 	t.Helper()
+	if dsn, ok := testDBCache[t.Name()]; ok {
+		return dsn
+	}
 	// Extract the database name from the DSN to use as a prefix.
 	// DSN format: user:pass@tcp(host:port)/dbname?params
 	dbName := "argus_test"
@@ -88,7 +103,59 @@ func setupTestMySQL(t *testing.T, baseDSN string) string {
 	// Return a DSN pointing at the new test database.
 	// Replace the database name in the original DSN.
 	testDSN := strings.Replace(baseDSN, dbName, testDB, 1)
+	testDBCache[t.Name()] = testDSN
 	return testDSN
+}
+
+// setupTestPG 从 base DSN 建隔离测试库（与 setupTestMySQL 同构）：库名前缀+
+// 测试名 sanitize+64 截断，DROP IF EXISTS 幂等（截断撞名/残留重跑兜底）。
+// base DSN 形如 postgres://user:pass@host:port/dbname?sslmode=disable——
+// 库名段作前缀；管理连接改指系统库 postgres。
+func setupTestPG(t *testing.T, baseDSN string) string {
+	t.Helper()
+	if dsn, ok := testDBCache[t.Name()]; ok {
+		return dsn
+	}
+	u, err := url.Parse(baseDSN)
+	if err != nil {
+		t.Fatalf("setupTestPG: 解析 DSN: %v", err)
+	}
+	dbName := strings.TrimPrefix(u.Path, "/")
+	if dbName == "" {
+		dbName = "argus_test"
+	}
+	safe := strings.NewReplacer("/", "_", " ", "_", "-", "_", ".", "_").Replace(t.Name())
+	// 全小写：pg 裸标识符折叠小写、带引号 DDL 保持大小写——统一小写后两态归一，
+	// 残留库/折叠库/DSN 连接名恒一致（pg 矩阵实弹两轮撞名实锤）。
+	testDB := strings.ToLower(fmt.Sprintf("%s_%s", dbName, safe))
+	if len(testDB) > 63 { // pg 标识符上限 63，比 MySQL 64 再收一格
+		testDB = testDB[:63]
+	}
+	adminDSN := *u
+	adminDSN.Path = "/postgres"
+	admin, err := sql.Open("pgx", adminDSN.String())
+	if err != nil {
+		t.Fatalf("setupTestPG: open admin: %v", err)
+	}
+	if err := admin.Ping(); err != nil {
+		t.Fatalf("setupTestPG: admin ping: %v", err)
+	}
+	// 幂等：先清再建（pg CREATE DATABASE 不幂等，且不能在事务内）。
+	// 双引号钉住大小写：pg 裸标识符折叠小写，而 DSN 连接库名保持原大小写——
+	// 不加引号建出小写库、连不上原名库（pg 本地实弹 FATAL 3D000 实锤）。
+	_, _ = admin.Exec(`DROP DATABASE IF EXISTS "` + testDB + `"`)
+	if _, err = admin.Exec(`CREATE DATABASE "` + testDB + `" ENCODING 'utf8'`); err != nil {
+		t.Fatalf("setupTestPG: create db %q: %v", testDB, err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(`DROP DATABASE IF EXISTS "` + testDB + `"`)
+		_ = admin.Close()
+	})
+	testDSN := *u
+	testDSN.Path = "/" + testDB
+	out := testDSN.String()
+	testDBCache[t.Name()] = out
+	return out
 }
 
 func mkTask(id string, eventID *string, headSHA string) *Task {

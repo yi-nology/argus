@@ -347,8 +347,10 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 	matched := false
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []FindingPrint
+		// number 列是 text：绑参走 Itoa（pgx 严格类型拒 int→text 隐式转换——
+		// pg 矩阵实锤 encode args[3]；MySQL/sqlite 宽松转换掩盖过此错位）。
 		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print LIKE ?",
-			platform, owner, repo, number, prefix+"%").Find(&rows).Error; err != nil {
+			platform, owner, repo, strconv.Itoa(number), prefix+"%").Find(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
@@ -356,14 +358,14 @@ func (s *Store) RestorePrint(ctx context.Context, platform, owner, repo string, 
 			// 别名表已 PR 域化（v3.9.2），直接按本 PR 过滤。
 			var aliases []PrintAlias
 			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND alias_fp LIKE ?",
-				platform, owner, repo, number, prefix+"%").Find(&aliases).Error; err != nil {
+				platform, owner, repo, strconv.Itoa(number), prefix+"%").Find(&aliases).Error; err != nil {
 				return err
 			}
 			if len(aliases) != 1 {
 				return nil // 无匹配或歧义：不猜
 			}
 			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-				platform, owner, repo, number, aliases[0].PrintFP).Find(&rows).Error; err != nil {
+				platform, owner, repo, strconv.Itoa(number), aliases[0].PrintFP).Find(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) != 1 {
