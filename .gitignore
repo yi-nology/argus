@@ -75,3 +75,7 @@ eval/results/
 .video_agent/
 video/
 /argus-*.png
+
+# 本地构建产物（迁移工具/发布二进制）
+/dbcopy
+/bin/
