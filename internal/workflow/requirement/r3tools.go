@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -49,6 +50,7 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 	if err != nil {
 		return nil, "", err
 	}
+	searchSem := w.r3SemSearchTool()
 
 	// ---- 优先级表：三层决策约束（指引/排序/限制），见 oagentkit/toolgate/toolprior ----
 	table := toolprior.NewTable()
@@ -86,6 +88,10 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 	if getSymCtx != nil {
 		table.Add(toolprior.Entry{Tool: getSymCtx, Priority: toolprior.PriorityCore,
 			When: "查符号定义+调用方+被调全景（消歧后，比 get_callers 全）", Cost: "low"})
+	}
+	if searchSem != nil {
+		table.Add(toolprior.Entry{Tool: searchSem, Priority: toolprior.PriorityCore,
+			When: "按意图/自然语言找代码（跨文件语义线索，grep 答不了的哪里处理 X）时使用", Cost: "low"})
 	}
 	if st := w.r3SearchTool(); st != nil {
 		table.Add(toolprior.Entry{Tool: st, Priority: toolprior.PriorityCore,
@@ -262,6 +268,17 @@ func (w *Workflow) r3CodeGraphTools() (getSymbol, getRefs, getCallers, getPoly t
 const (
 	graphRelCalls    = "calls"     // 本步调用下一步
 	graphRelCalledBy = "called_by" // 本步被下一步调用（无向 BFS 逆向步）
+	graphRelCaller   = "caller"    // 邻接面：调用方（search_sem 命中附）
+	graphRelCallee   = "callee"    // 邻接面：被调（search_sem 命中附）
+)
+
+// search_sem 审查面的入参钳制与渲染预算（qa.SearchSem MCP 面同值手写单点，
+// 改此须同步两处；工具描述「缺省 5、最大 10」与本值同源）。
+const (
+	graphSemDefaultTopK = 5
+	graphSemMaxTopK     = 10
+	graphSemHitTextCap  = 600 // 单条命中摘要渲染截断（rune）
+	graphSemAdjCap      = 3   // 命中邻接单侧封顶（调用方 3 + 被调 3，合计 ≤6）
 )
 
 // graphTraceHops get_trace 跳数（与 semsearch graphHopsDefault 同值手写，改此须同步）。
@@ -386,6 +403,117 @@ func renderGraphNeighbors(refs []semsearch.SymRef) string {
 		}
 	}
 	return strings.Join(parts, "、")
+}
+
+// ---------- search_sem 语义检索工具（v6.1.0） ----------
+
+// semSearchIn search_sem 入参（TopK 缺省 5、上界 10，执行侧钳制）。
+type semSearchIn struct {
+	Query string `json:"query" jsonschema:"description=意图/自然语言查询（如 哪里处理认证 哪里刷新 session token）"`
+	TopK  int    `json:"topK,omitempty" jsonschema:"description=返回条数上限（缺省 5，最大 10）"`
+}
+
+// r3SemSearchTool search_sem 语义检索工具（v6.1.0，审查 ReAct 面）：按意图/
+// 自然语言找代码——结构化摘要 embedding + 进程内余弦 + 命中附调用邻接，补
+// search_code（词法正则）答不了的「哪里处理 X」类问题（代码里未必含查询词）。
+// 挂载条件 w.Graph 非 nil 且 Searchable()（embedder 随 ARGUS_SEMSEARCH opt-in
+// 门注入，纯图模式只挂 get_trace/get_symbol_context 不挂本工具——挂出必然报
+// 「语义检索未启用」的死工具没有意义）。与 MCP 面 search_sem（qa.SearchSem
+// 数据面）同名不冲突：不同执行面，本工具直接查任务已建好的 Workflow.Graph。
+// 渲染与错误语义仿 qa.SearchSem：无命中返回提示文本非 error（正常查询结果），
+// 检索失败 error 上抛（环境面故障）。
+func (w *Workflow) r3SemSearchTool() tool.BaseTool {
+	if w.Graph == nil || !w.Graph.Searchable() {
+		return nil
+	}
+	st, err := utils.InferTool("search_sem",
+		"审查面语义检索：按意图/自然语言找代码（词法 search_code 答不了的『哪里处理 X』——代码里未必含查询词）。命中是摘要线索引用，须 get_file 核实后再下判定；符号命中附调用邻接（调用方/被调）。返回按相似度降序的 file:line+符号+摘要列表。",
+		func(ctx context.Context, in *semSearchIn) (*symOut, error) {
+			query := strings.TrimSpace(in.Query)
+			if query == "" {
+				return &symOut{Result: "query 不能为空"}, nil
+			}
+			topK := in.TopK
+			if topK <= 0 {
+				topK = graphSemDefaultTopK
+			}
+			if topK > graphSemMaxTopK {
+				topK = graphSemMaxTopK
+			}
+			hits, err := w.Graph.Search(ctx, query, topK, 0)
+			if err != nil {
+				return nil, err // 检索失败（环境面故障）上抛，与无命中（正常结果）区分
+			}
+			if len(hits) == 0 {
+				return &symOut{Result: "语义检索无命中（可换更具体的意图描述，或改用 search_code 正则检索）"}, nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "search_sem（query=%s）命中 %d 条，按相似度降序——命中是摘要线索，引用前须 get_file 核实：\n", query, len(hits))
+			for i, h := range hits {
+				text := h.Text
+				if rc := utf8.RuneCountInString(text); rc > graphSemHitTextCap {
+					var t string
+					t, _ = textutil.TruncRunes(text, graphSemHitTextCap)
+					text = t + "…"
+				}
+				symbol := ""
+				if h.Symbol != "" {
+					symbol = " " + h.Symbol
+				}
+				fmt.Fprintf(&b, "\n[%d] %s:%d%s score=%.3f\n%s\n", i+1, h.Path, h.Line, symbol, h.Score, text)
+				// 图增强命中（Symbol 非空底座自动附邻接）：调用方/被调分组渲染，
+				// 单侧封顶 graphSemAdjCap（邻接 SymRef 无 loc，只显符号名）。
+				if h.Symbol != "" && len(h.Neighbors) > 0 {
+					if seg := renderSemAdjacency(h.Neighbors, graphSemAdjCap); seg != "" {
+						fmt.Fprintf(&b, "邻接：%s\n", seg)
+					}
+				}
+			}
+			return &symOut{Result: DataFence("search_sem 检索结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+		})
+	if err != nil {
+		w.Log.Warn("argus.r3.search_sem_tool_build_failed", "error", err.Error())
+		return nil
+	}
+	return st
+}
+
+// renderSemAdjacency search_sem 命中邻接单行渲染（qa.renderSemNeighbors 同款
+// 视觉的 requirement 包内单点）：按 Rel 分「调用方/被调」两组各取前 limit 个，
+// 组内顿号连接、组间分号连接——`调用方 A、B；被调 C`；邻接 SymRef 无定义位置
+// （neighborsOf 不带 loc），只显符号名；空组省略，两组皆空返回空串。
+func renderSemAdjacency(ns []semsearch.SymRef, limit int) string {
+	segment := func(label string, refs []semsearch.SymRef) string {
+		if len(refs) == 0 {
+			return ""
+		}
+		parts := make([]string, 0, len(refs))
+		for _, r := range refs {
+			parts = append(parts, r.Symbol)
+		}
+		return label + " " + strings.Join(parts, "、")
+	}
+	var callers, callees []semsearch.SymRef
+	for _, r := range ns {
+		switch r.Rel {
+		case graphRelCaller:
+			if len(callers) < limit {
+				callers = append(callers, r)
+			}
+		case graphRelCallee:
+			if len(callees) < limit {
+				callees = append(callees, r)
+			}
+		}
+	}
+	a, b := segment("调用方", callers), segment("被调", callees)
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "；" + b
 }
 
 // r3SearchTool search_code 全文检索工具（v3.84.0）：工作副本上的受控正则搜索，

@@ -166,6 +166,32 @@
 - **fake provider 收口降级结论**（v5.4.4 遗留候选，评估后不做）：五处 fake（branchFake/noteFake/hookFake/hangingProvider/e2e fakeProvider）方法集各异且多处带状态记账，强统一进共享包（如 test/sdkt）的间接成本 > ~100 行去重收益；e2e fakeProvider 巨型有状态单点本就应保留。**仅测试 import 不入 arch TestLayering 扫描面**（go list .Imports 只含生产 import）——门禁无障碍是事实，但价值判断仍为不划算。勿重探。
 - **webhook 准入链拆包评估结论**：service_webhook.go 312 行耦合面窄（Store/SDK/Cfg/obs/Audit），拆出需接口化 8 依赖——成本 > 收益，留 service 门面（webhook 主链路本就是 service 核心职责）。勿重探。
 
+## v5.4.6 上游追平批（2026-11-04）
+
+- **go-git-platform v0.101.0→v0.106.0（11 提交）**：**#32（gitlab note 事件族缺口）
+  已随上游 v0.101.1 修复**（Create/Update 双路补 note/comment/issue_comment 含
+  别名与显式 false 语义，带线测）——argus v5.4.1 所提 issue 闭环，GitLab 评论
+  命令链路 SDK 面完整覆盖；另收编 govulncheck 归零（x/crypto 修复版+x/net v0.62）、
+  CR 指派人写面（Assignees 七平台）、CI 失败诊断三平台、部署/模板建仓/Fork 同步、
+  注册表面接 oekit SafeMap；连带 gitlab client-go v3.43/go-gitcode v0.14。零代码适配。
+- **webhookEvents[gitlab] 补 note 词**（merge_request+note）：ensure 建出的
+  GitLab webhook 完整覆盖评论事件；词表钉子测试防回归（漏掉它=GitLab 评论链路
+  静默不通）。
+- **生产闭环**（部署后动作）：om-gitlab 存量 webhook 的 note_events 开关经
+  GitLab API 勾选——长期遗留（v3.5.x 时代起 pending）至此清偿。
+
+## v5.5.x→v6.1.0 图谱与图面大版本批（2026-11-07~10，压缩记账）
+
+- **v5.5.2** security 429 根治（真根因=租户桶 10rpm 自撞+韧性 env 在无降级分支被静默丢弃；RETRIES/BASE/RATE 接线+ITER 翻倍；实弹 security ReAct 零降级）。
+- **v5.6.x** 预算门（用户拍板 budget=5M）+ 非 Go 词法图层+探索器 + share 免登 + 仓库级代码地图（hz 路径段不跨 /）+ 演进批（py/js 图层/caller 边预算/地图 HEAD 新鲜度）+ **v5.6.4 funcdiff 扩 shell/py（BodyHash）+ repo map 匿名开放失守热修（教训=新增路由部署后必补匿名探针）** + 图谱互跳。
+- **v5.7.x** 图谱五连（侧栏融合/fdcard/图例/共变面板/table 紫色）+ 上游提票两轮 49 枚全落地 + v5.7.1 报告降噪。
+- **v5.8.x** 图谱深化四连（FuncDiff 一等节点三色/包聚合详情/findings 挂图（节点徽标+侧栏意见）/演化对比（vs 上一轮+fp 复制 fix 指令）/惯犯文件热力（prints 跨 MR 意见史））；**v5.8.1 CrashLoop 3h+ 事故复盘：curl 拉取无执行位+ctr 同 tag kubelet 不重解析+循环/人工竞争——部署链固化 swap-deploy.sh（COPY --chmod+镜像内探针+全程断言）**；v5.8.2 后 43 迁移至 k3s 双副本在役（迁移哨兵+租约单飞+TryAcquire 降噪）。
+- **v5.9.0**（e009739）语义检索图增强：chunk 同次解析抽调用边+Refresh 重建符号邻接图；search_sem 命中附「调用方/被调」邻接行；新增 MCP get_trace（≤4 跳 BFS 调用链）+ get_symbol_context（定义+callers+callees，同名合并显式透出）；21→23 工具，文档契约面同步。GitNexus 只借设计不引代码（PolyForm Noncommercial 不可商用）。
+- **v5.10.0**（1c90714）真调用边翻案落地：档一节点身份迁 dir 限定键（dir.Recv.Base）+import 表/同接收者兄弟方法消歧（裸调用同目录优先=Go 语义正解）；档二 EdgeAugmenter 钩子（FNV 签名门控+失败闩 per Index）+internal/goedges（go/packages typeutil.Callee 精确边，接口分派解到接口方法声明交存在性过滤丢弃=宁缺勿假边）；ARGUS_GRAPH_PRECISE opt-in（43 部署前提=Go 模块依赖通路实弹验证）。纠正认知：**tree-sitter 对 Go 买不到真调用边（语法级=go/parser 同级），真调用边唯一路径=go/types**。
+- **v5.11.0**（4e26641）图面进审查管线：semsearch 纯图模式（NewIndex(nil) 合法，图查询零 embedding 依赖）；runner 双索引互不阻断；R3/R4 挂 get_trace/get_symbol_context。审查面告别同名混入。
+- **v6.0.0**（5036ecc，tag 已推）影响面 L2 图优先逐符号回退（Stats.CallerSource 四档：graph_precise/graph_lexical/codeintel/mixed）；发布说明 docs/releases/v6.0.0.md；同名假边在四消费面（MCP/审查管线/影响面图/数据底座）全根治。发布物：arm64 二进制已构建，215 不通未上传 argus-bin，VPN 恢复后 VERSION=v6.0.0 swap-deploy.sh 一条命令。
+- **v6.1.0**（本批）R3 search_sem：语义检索进审查面——runner 建图索引随 ARGUS_SEMSEARCH 门注入 embedder（未开保持纯图零成本），Index.Searchable() 观测面，R3/R4 挂 search_sem 工具（topK 钳 5/10、600 rune 截断、命中附调用邻接行、无命中提示文本非 error）。图演五连至此收官：外部 AI（MCP）/审查 agent（图工具+语义检索）/影响面图/数据底座四面全覆盖。
+
 ## 剩余较大文件（420~560 行，内聚面已单一）
 
 - `runner/runner.go` 554：核心编排（Execute/run 管线），再拆只剩把 run 四步提指针，负收益。

@@ -132,11 +132,13 @@ type Workflow struct {
 	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
 	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
 	CodeGraph *codeintel.Index
-	// Graph 消歧符号图（v5.11.0，纯图模式；nil=未启用）：runner injectCodeGraph
-	// 在工作副本上以 semsearch.NewIndex(nil) 建好后注入——图查询零 embedding
-	// 依赖（无 ARGUS_EMBEDDING_* 部署同样可用，不被绑架），r3Tools/R4
-	// ReviewTools 挂 get_trace/get_symbol_context；影响面与 get_callers 词法面
-	// 互补（与 CodeGraph 独立判空，互不绑定）。
+	// Graph 消歧符号图（v5.11.0；nil=未启用）：runner injectCodeGraph 在工作副本
+	// 上以 semsearch.NewIndex 建好后注入——缺省纯图模式（nil embedder，图查询零
+	// embedding 依赖，无 ARGUS_EMBEDDING_* 部署同样可用，不被绑架）；v6.1.0 起
+	// ARGUS_SEMSEARCH 就绪时注入 embedder（Searchable()=true），r3Tools/R4
+	// ReviewTools 挂 get_trace/get_symbol_context（非 nil 即挂）与 search_sem
+	// （Searchable 才挂）；影响面与 get_callers 词法面互补（与 CodeGraph 独立
+	// 判空，互不绑定）。
 	Graph *semsearch.Index
 	// CodeSearchDir 工作副本根路径（v3.84.0：runner 就绪后注入；非空时 r3Tools/R4
 	// ReviewTools 挂 search_code 全文检索工具，覆盖符号索引到不了的词法线索）。

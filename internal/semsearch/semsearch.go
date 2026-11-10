@@ -228,6 +228,16 @@ func (ix *Index) Precise() bool {
 	return ix.precise
 }
 
+// Searchable 索引是否可语义检索（v6.1.0）：embedder 非 nil 即 true——纯图模式
+// （NewIndex(nil)）图面可用但 Search 在单源拦截报错，消费方（审查管线挂
+// search_sem 前的挂载判定）据此避免挂出必然报错的死工具。与 Index.Search 的
+// embedder 判断同源（embedder 构造期定型，读锁防御未来可能的运行期注入）。
+func (ix *Index) Searchable() bool {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.embedder != nil
+}
+
 // Refresh 扫描目录并增量刷新索引：新文件/指纹变更的文件重新抽 chunk 并批量
 // 向量化，消失的文件整组剔除。单文件扫描失败跳过（与 codesearch 同宽容度）；
 // embedding 失败原样上抛（调用方决定降级文案）。embedder 为 nil（纯图模式）

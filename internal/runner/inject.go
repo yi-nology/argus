@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
@@ -153,8 +154,11 @@ func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext,
 // 工具；触达符号（diff hunk 行区间与符号定义的交集）渲染为提示词 section 注入
 // Artifacts。v5.11.0：同工作副本目录再建消歧符号图（semsearch 纯图模式，
 // Workflow.Graph 供挂 get_trace/get_symbol_context——图查询零 embedding 依赖，
-// 无 ARGUS_EMBEDDING_* 部署同样可用）。codeintel 索引与图索引互不阻断，
-// 各自失败告警降级，不阻断审查。索引纯内存，建完即释放工作副本。
+// 无 ARGUS_EMBEDDING_* 部署同样可用）。v6.1.0：ARGUS_SEMSEARCH +
+// ARGUS_EMBEDDING_BASE_URL 就绪时给图索引注入 embedder——search_sem 进审查
+// 管线随既有 opt-in 门（部署显式开的才付每任务 embedding 成本），未开保持
+// 纯图模式。codeintel 索引与图索引互不阻断，各自失败告警降级，不阻断审查。
+// 索引纯内存，建完即释放工作副本。
 func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, ptask *plugin.Task, wf *requirement.Workflow) {
 	if !r.Cfg.Codegraph || r.WC == nil {
@@ -180,15 +184,23 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 		}
 		r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
 	}
-	// v5.11.0：消歧符号图（纯图模式，nil embedder）——Refresh 照常扫文件抽
-	// chunk/边/建图；失败告警降级（不阻断，与上方 codeintel 互不影响）。
-	gx := semsearch.NewIndex(nil)
+	// v5.11.0：消歧符号图——Refresh 照常扫文件抽 chunk/边/建图；失败告警降级
+	//（不阻断，与上方 codeintel 互不影响）。v6.1.0：embedder 随 ARGUS_SEMSEARCH
+	// opt-in 门注入（assemble.go 同款判定），未开即纯图模式（nil）。
+	var gx *semsearch.Index
+	if r.Cfg.SemSearch && r.Cfg.EmbeddingBaseURL != "" {
+		gx = semsearch.NewIndex(rag.NewOpenAIEmbedder(
+			r.Cfg.EmbeddingBaseURL, r.Cfg.EmbeddingAPIKey, r.Cfg.EmbeddingModel, r.Cfg.EmbeddingDim))
+	} else {
+		gx = semsearch.NewIndex(nil)
+	}
 	if gerr := gx.Refresh(ctx, dir); gerr != nil {
-		r.Log.Warn("argus.codegraph.graph_failed", "error", logredact.Redact(gerr.Error()))
+		r.Log.Warn("argus.codegraph.graph_failed", "error", logredact.Redact(gerr.Error()),
+			"searchable", gx.Searchable())
 		return
 	}
 	wf.Graph = gx
-	r.Log.Info("argus.codegraph.graph_ready", "chunks", gx.Size())
+	r.Log.Info("argus.codegraph.graph_ready", "chunks", gx.Size(), "searchable", gx.Searchable())
 }
 
 // injectImpactView 影响面快照前置（v3.183.0）：分层管线（文件/import 闭包/
