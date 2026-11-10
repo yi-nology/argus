@@ -222,3 +222,43 @@ func TestTotalChunkBudget(t *testing.T) {
 		t.Errorf("Size = %d, want 15（预算硬顶）", got)
 	}
 }
+
+// TestScanDirSkipsExcludedNotAbort 排除目录只跳过、不中止整棵树（v6.1.1 热修
+// 回归钉子：SkipAll 曾使 vendor/testdata/.git 之后的全部文件不被索引——真实
+// 仓库必有此类目录，search_sem 静默失效一个月；fixture 须含真实仓库形态）。
+func TestScanDirSkipsExcludedNotAbort(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 走序关键：alpha.go 在 vendor（词序）之前、zeta.md 在其后——旧 SkipAll
+	// 行为下 zeta.md 永不被扫到，vendor 之后全部丢失。
+	write("alpha.go", "package app\n\nfunc Alpha() {}\n")
+	write("vendor/x/y.go", "package x\n\nfunc OnlyInVendor() {}\n")
+	write("testdata/case.json", "{}\n")
+	write("zeta.md", "# 指南\n")
+	files, err := scanDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.rel] = true
+	}
+	for _, want := range []string{"alpha.go", "zeta.md"} {
+		if !got[want] {
+			t.Errorf("排除目录后的文件应被扫描到: %s（got %v）", want, got)
+		}
+	}
+	for _, banned := range []string{"vendor/x/y.go", "testdata/case.json"} {
+		if got[banned] {
+			t.Errorf("排除目录内容不应入索引: %s", banned)
+		}
+	}
+}

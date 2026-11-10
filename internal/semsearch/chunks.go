@@ -63,7 +63,11 @@ func scanDir(dir string) ([]scannedFile, error) {
 		}
 		if d.IsDir() {
 			if excludedDirs[d.Name()] && path != dir {
-				return filepath.SkipAll
+				// 只跳该目录（v6.1.1 热修：此前 SkipAll 中止整棵树——真实仓库
+				// 必有 vendor/testdata/.git 之类，索引恒空 → search_sem 在所有
+				// 真实仓库上静默失效；codesearch 用 SkipDir 故 search_code 一直
+				// 正常。单测 fixture 是裸 TempDir 未复现，产线实弹抓现形）。
+				return filepath.SkipDir
 			}
 			return nil
 		}
