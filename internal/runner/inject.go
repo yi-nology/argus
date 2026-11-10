@@ -228,6 +228,7 @@ func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin
 		HunkRanges:   diffx.HunkLines(diff.Text),
 		DiffText:     diff.Text,
 		Index:        idx,
+		Graph:        wf.Graph, // v6.0.0：消歧符号图优先解析 L2 调用方（nil = 走既有 codeintel 词法路径）
 		MaxCommits:   r.Cfg.ImpactCoupling,
 		BaseRef:      impactBaseRef(pr),
 		InsecureTLS:  r.Cfg.Platforms[pr.Platform].SkipTLS,

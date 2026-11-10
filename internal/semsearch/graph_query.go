@@ -86,7 +86,9 @@ func (g *symGraph) stepRel(u, v string) string {
 // SymbolContext 单符号图上下文：定义位置 + 调用方 + 被调 + 同名候选数（cands，
 // v5.10.0——键迁移后多候选=同 bare 名跨目录，同目录同名已被 NodeKey 消歧）。
 // 多候选合并邻接（词法级裸名匹配的既定边界，见 graph.go 文档），self 取路径
-// 序首个候选；候选为空（符号不在图内）返回 ok=false（cands=0）。
+// 序首个候选；in/out 各项带定义位置（v6.0.0 起，loc 缺失填空串——与 Path 输出
+// 同语义，消费方按 Path 非空判位）；候选为空（符号不在图内）返回 ok=false
+// （cands=0）。
 func (ix *Index) SymbolContext(symbol string) (self SymRef, in, out []SymRef, cands int, ok bool) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
@@ -127,10 +129,14 @@ func (ix *Index) SymbolContext(symbol string) (self SymRef, in, out []SymRef, ca
 		callees = callees[:graphCalleesCap]
 	}
 	for _, u := range callers {
-		in = append(in, SymRef{Symbol: u, Rel: relCaller})
+		r := g.refAt(u) // v6.0.0 补定义位置（loc 缺失——预算截断挤出的边残留——填空串）
+		r.Rel = relCaller
+		in = append(in, r)
 	}
 	for _, v := range callees {
-		out = append(out, SymRef{Symbol: v, Rel: relCallee})
+		r := g.refAt(v)
+		r.Rel = relCallee
+		out = append(out, r)
 	}
 	return
 }

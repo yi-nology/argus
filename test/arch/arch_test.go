@@ -69,7 +69,9 @@ var layering = map[string][]string{
 	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁红至今）
 	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）
 	// v5.8.2 惯犯热力：ViewOpts.History 用 storage.FindingFileHistory 聚合结果类型
-	"argus/internal/impactview": {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/storage"},
+	// v6.0.0 L2 调用方升级：消歧符号图优先解析调用方（semsearch.NodeKey 键契约
+	// + SymbolContext 邻接；纯底座消费，方向与 goedges 同款）
+	"argus/internal/impactview": {"argus/internal/gitdeepen", "argus/internal/plugin", "argus/internal/semsearch", "argus/internal/storage"},
 	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
 	"argus/internal/reposettings": {},
 

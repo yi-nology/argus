@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"argus/internal/semsearch"
+
 	"github.com/oagentkit/textx/codeintel"
 )
 
@@ -22,6 +24,7 @@ type Input struct {
 	HunkRanges   map[string][][2]int // 文件 → 改动行区间（L2 触达符号依据）
 	DiffText     string              // 清洗后 diff 文本（签名变更近似判定）
 	Index        *codeintel.Index    // 工作副本符号索引（nil = 跳过 L2；runner 复用 codegraph 已建索引）
+	Graph        *semsearch.Index    // 消歧符号图（v6.0.0，nil = 走既有 codeintel 词法路径；runner 复用 codegraph 已建图）
 	MaxCommits   int                 // P2 共变扫描深度（0 = DefaultCommits；负 = 关闭）
 	BaseRef      string              // 函数级 diff 的 base 参照（如 origin/main；空 = 跳过该层）
 	InsecureTLS  bool                // funcdiff deepen fetch 的 TLS 跳过校验（与平台克隆同环境）
@@ -78,10 +81,11 @@ func Build(ctx context.Context, in Input) *Snapshot {
 	}
 	affected := buildAffectedPackages(s, ws, s.Changed)
 
-	// ---- L2 符号层：触达符号 → 精化调用位 ----
-	syms := collectSymbols(in.Index, in.HunkRanges)
+	// ---- L2 符号层：触达符号 → 精化调用位（v6.0.0 图优先、逐符号回退） ----
+	syms := collectSymbols(in.Index, in.Graph, in.HunkRanges)
 	s.Stats.Symbols = len(syms)
 	callTotal := appendSymbolNodes(s, syms)
+	noteCallerSource(s, syms, in.Graph)
 
 	// ---- P2 共变：git log 历史共现（预算内才做） ----
 	commits := in.MaxCommits

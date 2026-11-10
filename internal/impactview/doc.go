@@ -6,7 +6,8 @@
 //
 //	L0 文件层  变更文件 → 同包聚合（零成本，任何仓库可用）
 //	L1 包层    Go import 反向闭包：谁依赖了改动的包（parser.ImportsOnly 扫描）
-//	L2 符号层  变更触达符号 → 调用方（codeintel token 级调用位 + AST 封闭函数精化）
+//	L2 符号层  变更触达符号 → 调用方（v6.0.0 消歧符号图优先、逐符号回退
+//	           codeintel token 级调用位 + AST 封闭函数精化）
 //	L3 测试面  受影响包目录下的 *_test.go 定位
 //	P2 共变    git log 历史共变（change coupling，频率阈值过滤）
 //

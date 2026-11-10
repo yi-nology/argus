@@ -242,7 +242,9 @@ func Beta() {
 	if !strings.Contains(scMulti, "同名候选 2 处，邻接已合并") {
 		t.Errorf("裸名 New 两候选应出合并行:\n%s", scMulti)
 	}
-	if !strings.Contains(scMulti, "被调（≤8）：admin.Init、svc.Boot") {
+	// v6.0.0：SymbolContext in/out 带定义位置（渲染「符号 (file:line)」——
+	// renderGraphNeighbors 既定视觉，此前 loc 恒缺省只显符号名）。
+	if !strings.Contains(scMulti, "被调（≤8）：admin.Init (admin/admin.go:7)、svc.Boot (svc/helper.go:7)") {
 		t.Errorf("多候选邻接应合并被调:\n%s", scMulti)
 	}
 	// 未解析：提示文本非 error。

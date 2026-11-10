@@ -31,6 +31,14 @@ const (
 	RiskHigh   = "high"
 )
 
+// 调用方来源档位（Stats.CallerSource，v6.0.0）。
+const (
+	CallerSrcGraphPrecise = "graph_precise" // 全部经消歧符号图，且索引处精确边模式（类型解析级）
+	CallerSrcGraphLexical = "graph_lexical" // 全部经消歧符号图（词法邻接）
+	CallerSrcCodeintel    = "codeintel"     // 全部回退 codeintel 词法调用位
+	CallerSrcMixed        = "mixed"         // 图与词法回退混合
+)
+
 // Snapshot 影响面快照（JSON 序列化面；渲染函数消费同一结构）。
 // 边方向契约：From=变更源（改动文件/符号/包），To=受影响方。coupled 除外
 // （方向对称，From 恒为改动文件）。
@@ -90,14 +98,15 @@ type Couple struct {
 
 // Stats 构建期统计（可观测面）。
 type Stats struct {
-	GoFiles   int   `json:"go_files"`             // import 图扫描到的 Go 文件数
-	Packages  int   `json:"packages"`             // 仓库内含 Go 文件的目录数
-	Symbols   int   `json:"symbols,omitempty"`    // 触达符号数（L2）
-	CallSites int   `json:"call_sites"`           // 调用方命中数（L2，词法+AST 合并后）
-	Commits   int   `json:"commits,omitempty"`    // 共变扫描的 commit 数（P2）
-	FuncDiffs int   `json:"func_diffs,omitempty"` // 函数级 diff 条数（v3.185.0）
-	Truncated bool  `json:"truncated,omitempty"`  // 任一层触发封顶截断
-	TookMS    int64 `json:"took_ms"`
+	GoFiles      int    `json:"go_files"`                // import 图扫描到的 Go 文件数
+	Packages     int    `json:"packages"`                // 仓库内含 Go 文件的目录数
+	Symbols      int    `json:"symbols,omitempty"`       // 触达符号数（L2）
+	CallSites    int    `json:"call_sites"`              // 调用方命中数（L2，词法+AST 合并后）
+	CallerSource string `json:"caller_source,omitempty"` // 调用方来源档位（v6.0.0：graph_precise|graph_lexical|codeintel|mixed）
+	Commits      int    `json:"commits,omitempty"`       // 共变扫描的 commit 数（P2）
+	FuncDiffs    int    `json:"func_diffs,omitempty"`    // 函数级 diff 条数（v3.185.0）
+	Truncated    bool   `json:"truncated,omitempty"`     // 任一层触发封顶截断
+	TookMS       int64  `json:"took_ms"`
 }
 
 // 容量封顶（防巨型仓库/巨型 PR 把快照与渲染吃爆；触发即记 Notes+Truncated）。
