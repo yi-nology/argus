@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: argus-pg-backup
+  namespace: argus
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: argus-pg-backup
+  namespace: argus
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: argus-pg-backup
+        spec:
+          nodeSelector:
+            kubernetes.io/hostname: ubuntu-2404-k3s-master01
+          restartPolicy: Never
+          containers:
+          - name: backup
+            image: postgres:16-alpine
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argus-pg
+                  key: POSTGRES_PASSWORD
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              set -e
+              BACKUP_DIR=/backup
+              STAMP=$(date +%Y%m%d-%H%M%S)
+              pg_dump -h argus-pg -U argus -d argus -Fc -f "$BACKUP_DIR/argus-$STAMP.dump"
+              echo "backup written: argus-$STAMP.dump ($(du -h "$BACKUP_DIR/argus-$STAMP.dump" | cut -f1))"
+              # 循环保留最近 7 份
+              ls -1t "$BACKUP_DIR"/argus-*.dump 2>/dev/null | tail -n +8 | xargs -r rm -f
+              ls -lh "$BACKUP_DIR"
+            volumeMounts:
+            - name: backup
+              mountPath: /backup
+          volumes:
+          - name: backup
+            persistentVolumeClaim:
+              claimName: argus-pg-backup

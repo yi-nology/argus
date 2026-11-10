@@ -1,0 +1,7 @@
+# OCR 层：alibaba/open-code-review v1.13.6 linux-arm64（sha256=d6ff0735…上游 release 校验通过）
+# 叠加在现役 argus 镜像上；plugins.yaml 的 ocr 插件以 cli 形态调 /opt/argus/bin/ocr
+FROM argus:v5.4.6-arm64
+USER root
+COPY ocr /opt/argus/bin/ocr
+RUN chmod 755 /opt/argus/bin/ocr
+USER 1000:1000

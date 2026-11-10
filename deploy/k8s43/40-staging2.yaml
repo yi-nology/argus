@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: argus-stage2
+  namespace: argus
+  labels:
+    app: argus-stage
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ubuntu-2404-k3s-master01
+  restartPolicy: Never
+  containers:
+  - name: stage
+    image: argus:v5.4.6-arm64
+    imagePullPolicy: IfNotPresent
+    command: ["/bin/tar", "-xzf", "/in/argus-data.tgz", "-C", "/data"]
+    volumeMounts:
+    - name: data
+      mountPath: /data
+    - name: intmp
+      mountPath: /in
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: argus-data
+  - name: intmp
+    hostPath:
+      path: /tmp
+      type: Directory

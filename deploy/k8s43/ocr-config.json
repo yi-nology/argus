@@ -1,0 +1,12 @@
+{
+  "provider": "bailian",
+  "providers": {},
+  "custom_providers": {
+    "bailian": {
+      "url": "http://llm-gateway.example.com:9080/v1",
+      "protocol": "openai",
+      "api_key": "sk-REPLACE-WITH-YOUR-GATEWAY-KEY"
+    }
+  },
+  "llm": {}
+}
