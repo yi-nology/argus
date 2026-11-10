@@ -24,20 +24,20 @@ require (
 	github.com/oagentkit/toolgate v0.15.3
 	github.com/oagentkit/tools v0.13.4
 	github.com/oekit/bootstrap v0.6.16
-	github.com/oekit/concurrency v0.30.0
-	github.com/oekit/core v0.13.4
+	github.com/oekit/concurrency v0.31.2
+	github.com/oekit/core v0.13.6
 	github.com/oekit/data v0.20.7
 	github.com/oekit/hertz v0.10.7
 	github.com/oekit/kitx v0.4.3
-	github.com/oekit/logx v0.8.11
+	github.com/oekit/logx v0.9.1
 	github.com/oekit/metrics v0.1.17
 	github.com/oekit/middleware v0.13.15
-	github.com/oekit/pkg v0.38.0
+	github.com/oekit/pkg v0.41.1
 	github.com/oekit/tracing v0.3.7
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.27.0
 	github.com/yi-nology/agent-memory v0.10.0
-	github.com/yi-nology/go-git-platform v0.121.0
+	github.com/yi-nology/go-git-platform v0.124.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0
