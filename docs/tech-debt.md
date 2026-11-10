@@ -192,6 +192,13 @@
 - **v6.0.0**（5036ecc，tag 已推）影响面 L2 图优先逐符号回退（Stats.CallerSource 四档：graph_precise/graph_lexical/codeintel/mixed）；发布说明 docs/releases/v6.0.0.md；同名假边在四消费面（MCP/审查管线/影响面图/数据底座）全根治。发布物：arm64 二进制已构建，215 不通未上传 argus-bin，VPN 恢复后 VERSION=v6.0.0 swap-deploy.sh 一条命令。
 - **v6.1.0**（本批）R3 search_sem：语义检索进审查面——runner 建图索引随 ARGUS_SEMSEARCH 门注入 embedder（未开保持纯图零成本），Index.Searchable() 观测面，R3/R4 挂 search_sem 工具（topK 钳 5/10、600 rune 截断、命中附调用邻接行、无命中提示文本非 error）。图演五连至此收官：外部 AI（MCP）/审查 agent（图工具+语义检索）/影响面图/数据底座四面全覆盖。
 
+## harness v0.27.1 深度简化复核（2026-11-11，收编面已饱和勿重探）
+
+- agent-harness v0.27.0→v0.27.1（issue #53-#59 七修，argus 全部不受影响）；全仓对照复核「真重叠 5 处全收敛」（v5.0.0 结论）**在 v0.27.1 下仍成立**，可净删面≈0（详细逐函数对照表在 /tmp/harness-simplify-report.md 会话存档）。
+- **不做三项（勿重探）**：①spill 读/清侧 → harness spill.List/ReadPage/Prune——读语义不同（get_detail 全文 vs 分页）清理语义不同（目录 mtime 7 天 vs 文件 TTL），净删 30 行不抵改写风险；②DrainComments → harness drain.Drain——语义相反（harness 超时 CancelAll 强杀，argus 刻意「超时放行不杀」与 worker 两阶段停机同哲学），适配器净增 30 行；③任务去重/单飞 ↔ harness pending——映射错位（pending 是反问/消歧挂起态载体，argus 无此域）。
+- **存疑一项（等上游）**：ptc 诊断渲染 ~25 行（describePtcFailure/describePos）↔ harness 未导出的 describePosition/suggestionsFor——已提上游 issue「feat(ptc): 导出 Result.Describe() 诊断渲染原语」（P3），导出后回收。
+- harness ptc 侧未用能力（Signature/Discoverer/Stages/SubprocessProvider）=能力扩展方向非简化对象。
+
 ## 剩余较大文件（420~560 行，内聚面已单一）
 
 - `runner/runner.go` 554：核心编排（Execute/run 管线），再拆只剩把 run 四步提指针，负收益。
