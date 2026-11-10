@@ -1,4 +1,5 @@
 // runner_prctx.go —— PR 上下文构建面：PRContext/diff 增量/仓库配置与审查指引（RepoGuide）。
+
 package runner
 
 import (

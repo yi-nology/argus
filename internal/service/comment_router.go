@@ -15,6 +15,7 @@
 //     LLM 分类只裁不确定的歧义文本（成本纪律）；
 //   - MinConfidence 之下的 review 视为 ask——误触发重审的代价远高于多答一句；
 //   - 分类模型（ARGUS_ROUTER_MODEL）用快模型即可，一次 GenerateJSON 调用。
+
 package service
 
 import (

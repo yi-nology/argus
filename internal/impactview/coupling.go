@@ -2,6 +2,7 @@
 // 扫工作副本 git log 的文件共现，找「总是和改动文件一起被改」的隐性耦合——
 // import 图到不了的逻辑依赖（同改同挂）。procx 执行 git（与 workcopy deepen
 // 同原语），stderr 经 logredact 脱敏；任何失败静默降级（耦合是增强维度）。
+
 package impactview
 
 import (

@@ -2,6 +2,7 @@
 // 与状态词表（v6.2.0 自 store.go 拆出：store.go 只留 Store 生命周期与装配面）。
 // 操作面按域归位：tasks→store_task.go，finding_prints→prints/printalias.go，
 // review_targets→reviewtarget.go。
+
 package storage
 
 import "time"

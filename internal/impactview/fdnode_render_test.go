@@ -19,7 +19,7 @@ func TestRenderHTMLFuncDiffNodes(t *testing.T) {
 			{File: "other/ghost.go", Name: "G", Status: FuncAdded}, // 所在文件不在改动集→不合成
 		},
 	}
-	html := RenderHTML(s, "t1")
+	html := RenderHTMLFull(s, "t1", ViewOpts{})
 	if !strings.Contains(html, `kind-funcdiff`) {
 		t.Fatal("主图应含 funcdiff 节点")
 	}
@@ -36,7 +36,8 @@ func TestRenderHTMLFuncDiffNodes(t *testing.T) {
 	if len(s.Nodes) != 1 || len(s.Edges) != 0 {
 		t.Fatalf("入参 snapshot 不应被修改: nodes=%d edges=%d", len(s.Nodes), len(s.Edges))
 	}
-	if m := RenderMermaid(s); m != "" && strings.Contains(m, "fd:a.go:F") {
+	m, _ := RenderMermaidWithStats(s)
+	if m != "" && strings.Contains(m, "fd:a.go:F") {
 		t.Fatal("mermaid 不应含合成 fd 节点")
 	}
 }
@@ -50,7 +51,7 @@ func TestRenderHTMLFindingsOverlay(t *testing.T) {
 		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针解引用", FP: "071298e9abcd"},
 		{File: "other/b.go", Line: 2, Severity: "low", Comment: "未检查错误"},
 	}
-	html := RenderHTMLWithFindings(s, "t1", fs)
+	html := RenderHTMLFull(s, "t1", ViewOpts{Findings: fs})
 	if !strings.Contains(html, `impact-findings`) {
 		t.Fatal("findings 数据块应嵌入")
 	}
@@ -61,7 +62,7 @@ func TestRenderHTMLFindingsOverlay(t *testing.T) {
 		t.Fatal("意见文本应入 JSON")
 	}
 	// 无 findings:整块省略
-	if html2 := RenderHTML(s, "t1"); strings.Contains(html2, `<script type="application/json" id="impact-findings">`) {
+	if html2 := RenderHTMLFull(s, "t1", ViewOpts{}); strings.Contains(html2, `<script type="application/json" id="impact-findings">`) {
 		t.Fatal("无 findings 不应有数据块")
 	}
 }

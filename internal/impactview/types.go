@@ -1,6 +1,7 @@
 // types.go —— 影响面快照的数据契约。Snapshot JSON 落 tasks.artifacts_json
 // （artifact 键 impact_view），是 MCP get_impact / API / HTML 三出口的共同
 // 数据面；改字段只加不改（消费方按字段名取值，缺字段零值安全）。
+
 package impactview
 
 import "time"

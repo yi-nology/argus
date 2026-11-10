@@ -7,6 +7,7 @@
 // v3.164.0：POST 收编 pkg/httpjson 单源（与 sink 同一条外送线）——顺修一处
 // 实缺陷：旧手写路径不检查响应状态码，SIEM 端 5xx = 审计事件静默丢且无告警；
 // 现非 2xx 计入 forward_failed 留痕（重试 1 次吸收瞬态）。
+
 package service
 
 import (

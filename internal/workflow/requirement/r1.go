@@ -1,4 +1,5 @@
 // r1.go —— R1 需求解析面：PR 描述/issue 分段摘要 + guardrails（AC 上限/截断/歧义收敛）。
+
 package requirement
 
 import (

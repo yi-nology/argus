@@ -25,18 +25,18 @@
   ┌──▼────────▼─────────▼────────▼────────▼───────────────▼──────────┐
   │ L3 能力层                                                        │
   │  workflow/requirement(R1-R5 编排)   poster(回帖)   qa(问答)      │
-  │  argusctx(sdkctx/ctxfit/diffprep)    storage(持久化,gorm)         │
+  │  argusctx(sdkctx*/diffprep/githubapp)  storage(持久化,gorm)       │
   │  reportview(渲染) toolpool(mcp) sastscan sink notify progress    │
-  │  ocrdeleg/ocrshim/gitdeepen(OCR 链) health(体检) poller          │
+  │  ocrdeleg/ocrshim/gitdeepen(OCR 链) health(体检) memorykernel    │
   └──┬───────────────────────────────────────────────────────────────┘
      │
   ┌──▼───────────────────────────────────────────────────────────────┐
   │ L4 核心域  plugin                                                 │  契约单源：Task/Outcome/Registry/
-  │  + domain(域类型) learning(学习模型) memory(记忆)                 │  Hook* 词表/manifest 全在这里
+  │  + domain(域类型) learning(学习模型)                             │  Hook* 词表/manifest 全在这里
   └──┬───────────────────────────────────────────────────────────────┘
      │
   ┌──▼───────────────────────────────────────────────────────────────┐
-  │ L0 纯底座  config(配置) obs(指标)            │  零业务依赖
+  │ L0 纯底座  config(配置) obs(指标)            │  横切件：config→learning、obs→plugin（钩子接线）
   └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,21 +44,38 @@
 
 | 层 | 包 | 允许的 internal 依赖 | 禁止 |
 |---|---|---|---|
-| L0 纯底座 | learning / memory / progress / gitdeepen | （无） | 一切业务包 |
+| L0 纯底座 | codesearch / semsearch / learning / progress / gitdeepen / reposettings | （无） | 一切业务包 |
+| L0 纯底座 | goedges | semsearch（NodeKey 键契约单源） | 其余 |
+| 影响面 | impactview | gitdeepen, plugin, semsearch, storage | 编排/入口（包装接线在 runner） |
 | 域类型 | domain | learning | — |
-| L4 核心域 | plugin | domain, learning | runner/service/poster/workflow…（一切上层） |
-| 横切 | config | learning | 业务包（obs 例外见下） |
+| 引擎面 | dispatch | domain, learning, plugin | runner/service/poster/workflow…（一切上层） |
+| L4 核心域 | plugin | domain | runner/service/poster/workflow…（一切上层） |
+| 横切 | config | learning | 业务包 |
 | 横切 | obs | plugin（钩子接线：指标实现注入 `plugin.Hook*`，L4 无 prometheus 依赖） | 其余 |
+| 横切 | notify | notify/octopus, obs | 业务包 |
+| 自有协议 | notify/octopus | （无） | 一切 |
 | L3 能力 | storage | domain, learning | plugin/runner/service…（数据层不反向依赖域） |
-| L3 能力 | reportview | plugin | 其余（纯渲染，无 IO） |
-| L3 能力 | argusctx | config, obs, plugin | runner/service/workflow/storage… |
-| L3 能力 | poster / qa / dream / poller / ocrdeleg / ocrshim / toolpool / sastscan / sink / worker / health / notify | 见白名单 | 编排层互依 |
-| L2 编排 | workflow/requirement | argusctx, obs, plugin, toolpool | runner/service/storage/poster |
-| L2 编排 | runner | 能力层全集 | service/bootstrap/channel |
-| L2 编排 | service | config/argusctx/health/memory/obs/plugin/progress/qa/storage | runner/workflow/poster/bootstrap |
+| L3 能力 | reportview | dispatch, plugin | 其余（纯渲染，无 IO） |
+| L3 能力 | argusctx | config, plugin | runner/service/workflow/storage… |
+| L3 能力 | qa | codesearch, argusctx, plugin, semsearch, storage | 编排层互依 |
+| L3 能力 | dream | learning, memorykernel, plugin, storage | 编排层互依 |
+| L3 能力 | poster | argusctx, dispatch, plugin, reportview, storage | 编排层互依 |
+| L3 能力 | poller | argusctx, domain, obs, progress, storage | 编排层互依 |
+| L3 能力 | worker | storage | 编排层互依 |
+| L3 能力 | health | learning | 编排层互依 |
+| L3 能力 | toolpool / sink | plugin | 编排层互依 |
+| L3 能力 | sastscan | dispatch, plugin | 编排层互依 |
+| L3 能力 | ocrdeleg | gitdeepen, plugin | 编排层互依 |
+| L3 能力 | ocrshim | gitdeepen, plugin, plugin/adapter_cli | 编排层互依 |
+| L3 能力 | fixverifier | plugin | 编排层互依 |
+| L3 能力 | commentcmd / memorykernel / writing | （无） | 编排层互依 |
+| L2 编排 | workflow/requirement | codesearch, argusctx, dispatch, domain, obs, plugin, semsearch, toolpool | runner/service/storage/poster |
+| L2 编排 | runner | 能力层全集（config, argusctx, dispatch, domain, fixverifier, impactview, learning, memorykernel, notify, ocrdeleg, plugin, poster, progress, reposettings, reportview, sastscan, semsearch, sink, storage, toolpool, workflow/requirement, writing） | service/bootstrap/channel |
+| L2 编排 | service | commentcmd, domain, config, argusctx, health, dispatch, impactview, memorykernel, obs, plugin, progress, qa, reposettings, semsearch, storage, writing | runner/workflow/poster/bootstrap |
 | L1 组合根 | bootstrap | 一切 | **被任何包 import** |
 | 入口适配 | channel/mcpserver | （无，零 internal 依赖） | service/runner（靠 Core/Copilot/ReviewQA 消费侧窄接口注入） |
-| 适配器 | plugin/adapter_{acpx,builtin,cli,remote} | plugin | 反向依赖 |
+| 适配器 | plugin/adapter_{acpx,builtin} | dispatch, plugin | 反向依赖（plugin 不得 import 适配器） |
+| 适配器 | plugin/adapter_{cli,remote} | plugin | 反向依赖（plugin 不得 import 适配器） |
 
 **变更流程**：新增/调整任何 internal 依赖 → 必须先改 `test/arch` 白名单并跑 `make arch`
 → CHANGELOG 记档 → 同步本表。测试失败即"架构变更未显式化"。

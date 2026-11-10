@@ -1,6 +1,7 @@
 // dialect.go —— SQL 方言单源（v6.2.0 收敛）：Dialect 枚举 + DSN 路由的
 // dialector 工厂 + 跨方言错误翻译。此前方言判定三源并存（Store.sqlite/
 // Store.mysql 双 bool + isSQLite(tx Dialector.Name())），分支面漂移无从察觉。
+
 package storage
 
 import (

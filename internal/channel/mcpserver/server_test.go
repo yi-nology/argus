@@ -11,14 +11,14 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 )
 
 // ---------- 测试替身（消费侧窄接口 Core/ReviewQA/Copilot 的最小实现） ----------
 
 // fakeCore 实现 Core；可选实现 ReviewQA/Copilot 由嵌入与否决定。
 type fakeCore struct {
-	createResp  *api.CreateTaskResponse
+	createResp  *argus.CreateTaskResponse
 	createCode  int
 	createCalls int
 	createKind  string
@@ -27,26 +27,26 @@ type fakeCore struct {
 	statuses []string
 	getCalls int
 	getCode  int
-	getResp  *api.GetTaskResponse
+	getResp  *argus.GetTaskResponse
 
-	agents *api.ListAgentsResponse
+	agents *argus.ListAgentsResponse
 
-	tasks       *api.ListTasksResponse
+	tasks       *argus.ListTasksResponse
 	tasksCode   int
 	tasksStatus string
 	tasksLimit  int
 }
 
-func (f *fakeCore) CreateTaskDirect(_ context.Context, kind, _, _, _, _ string, _ map[string]string) (*api.CreateTaskResponse, int) {
+func (f *fakeCore) CreateTaskDirect(_ context.Context, kind, _, _, _, _ string, _ map[string]string) (*argus.CreateTaskResponse, int) {
 	f.createCalls++
 	f.createKind = kind
 	if f.createResp == nil {
-		return &api.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, http.StatusOK
+		return &argus.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, http.StatusOK
 	}
 	return f.createResp, f.createCode
 }
 
-func (f *fakeCore) GetTask(_ context.Context, _ string) (*api.GetTaskResponse, int) {
+func (f *fakeCore) GetTask(_ context.Context, _ string) (*argus.GetTaskResponse, int) {
 	f.getCalls++
 	code := f.getCode
 	if code == 0 {
@@ -59,23 +59,23 @@ func (f *fakeCore) GetTask(_ context.Context, _ string) (*api.GetTaskResponse, i
 		return f.getResp, code
 	}
 	if len(f.statuses) == 0 {
-		return &api.GetTaskResponse{TaskId: "t-1", Status: "queued"}, code
+		return &argus.GetTaskResponse{TaskId: "t-1", Status: "queued"}, code
 	}
 	st := f.statuses[0]
 	if len(f.statuses) > 1 {
 		f.statuses = f.statuses[1:]
 	}
-	return &api.GetTaskResponse{TaskId: "t-1", Status: st}, code
+	return &argus.GetTaskResponse{TaskId: "t-1", Status: st}, code
 }
 
-func (f *fakeCore) ListAgents(_ context.Context, _, _, _ string) *api.ListAgentsResponse {
+func (f *fakeCore) ListAgents(_ context.Context, _, _, _ string) *argus.ListAgentsResponse {
 	if f.agents != nil {
 		return f.agents
 	}
-	return &api.ListAgentsResponse{Agents: []*api.AgentManifestDTO{{Name: "correctness"}}}
+	return &argus.ListAgentsResponse{Agents: []*argus.AgentManifestDTO{{Name: "correctness"}}}
 }
 
-func (f *fakeCore) ListTasks(_ context.Context, status string, limit int) (*api.ListTasksResponse, int) {
+func (f *fakeCore) ListTasks(_ context.Context, status string, limit int) (*argus.ListTasksResponse, int) {
 	f.tasksStatus, f.tasksLimit = status, limit
 	if f.tasksCode != 0 {
 		return nil, f.tasksCode
@@ -83,7 +83,7 @@ func (f *fakeCore) ListTasks(_ context.Context, status string, limit int) (*api.
 	if f.tasks != nil {
 		return f.tasks, http.StatusOK
 	}
-	return &api.ListTasksResponse{Tasks: []*api.TaskSummary{}}, http.StatusOK
+	return &argus.ListTasksResponse{Tasks: []*argus.TaskSummary{}}, http.StatusOK
 }
 
 // fakeQA 实现 ReviewQA。
@@ -301,8 +301,8 @@ func TestNew_RepoConfigTool(t *testing.T) {
 // ---------- list_agents / get_report ----------
 
 func TestListAgents_JSON(t *testing.T) {
-	core := &fakeCore{agents: &api.ListAgentsResponse{
-		Agents: []*api.AgentManifestDTO{{Name: "security", Kind: api.AgentKind_BUILTIN}},
+	core := &fakeCore{agents: &argus.ListAgentsResponse{
+		Agents: []*argus.AgentManifestDTO{{Name: "security", Kind: argus.AgentKind_BUILTIN}},
 	}}
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "list_agents", map[string]any{
@@ -317,7 +317,7 @@ func TestListAgents_JSON(t *testing.T) {
 }
 
 func TestGetReport_FieldsAndFailure(t *testing.T) {
-	core := &fakeCore{getResp: &api.GetTaskResponse{
+	core := &fakeCore{getResp: &argus.GetTaskResponse{
 		TaskId: "t-9", Status: "done",
 		Verdict:    strPtr("request_changes"),
 		Report:     strPtr("# 报告正文"),
@@ -361,7 +361,7 @@ func TestRunReview_MissingArgs(t *testing.T) {
 }
 
 func TestRunReview_CreateFail(t *testing.T) {
-	core := &fakeCore{createResp: &api.CreateTaskResponse{}, createCode: http.StatusBadRequest}
+	core := &fakeCore{createResp: &argus.CreateTaskResponse{}, createCode: http.StatusBadRequest}
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "review_pr", map[string]any{
 		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
@@ -373,7 +373,7 @@ func TestRunReview_CreateFail(t *testing.T) {
 }
 
 func TestRunReview_NoWaitReturnsTask(t *testing.T) {
-	core := &fakeCore{createResp: &api.CreateTaskResponse{TaskId: "t-42", Status: "queued"}, createCode: http.StatusOK}
+	core := &fakeCore{createResp: &argus.CreateTaskResponse{TaskId: "t-42", Status: "queued"}, createCode: http.StatusOK}
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "review_pr", map[string]any{
 		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
@@ -404,8 +404,8 @@ func TestRunReview_WaitTerminalStates(t *testing.T) {
 
 	// done → renderTerminalTask(noteField=verdict)
 	core := &fakeCore{
-		createResp: &api.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK,
-		getResp: &api.GetTaskResponse{TaskId: "t-1", Status: "done", Verdict: &verdict, Report: &report},
+		createResp: &argus.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK,
+		getResp: &argus.GetTaskResponse{TaskId: "t-1", Status: "done", Verdict: &verdict, Report: &report},
 	}
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "review_pr", map[string]any{
@@ -425,7 +425,7 @@ func TestRunReview_WaitTerminalStates(t *testing.T) {
 	}
 
 	// stale → 带 note
-	core.getResp = &api.GetTaskResponse{TaskId: "t-1", Status: "stale", Verdict: &verdict, Report: &report}
+	core.getResp = &argus.GetTaskResponse{TaskId: "t-1", Status: "stale", Verdict: &verdict, Report: &report}
 	text, isErr = callTool(t, srv, "review_pr", map[string]any{
 		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
 		"wait": true, "timeout_seconds": 5.0,
@@ -439,7 +439,7 @@ func TestRunReview_WaitTerminalStates(t *testing.T) {
 
 	// failed → isError + reason
 	reason := "模型超时"
-	core.getResp = &api.GetTaskResponse{TaskId: "t-1", Status: "failed", FailReason: &reason}
+	core.getResp = &argus.GetTaskResponse{TaskId: "t-1", Status: "failed", FailReason: &reason}
 	text, isErr = callTool(t, srv, "review_pr", map[string]any{
 		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7",
 		"wait": true, "timeout_seconds": 5.0,
@@ -452,8 +452,8 @@ func TestRunReview_WaitTerminalStates(t *testing.T) {
 func TestRunReview_WaitTimeout(t *testing.T) {
 	// 首查即非终态 + timeout 极小 → deadline 后返回超时提示（非 isError）
 	core := &fakeCore{
-		createResp: &api.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK,
-		getResp: &api.GetTaskResponse{TaskId: "t-1", Status: "running"},
+		createResp: &argus.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK,
+		getResp: &argus.GetTaskResponse{TaskId: "t-1", Status: "running"},
 	}
 	srv := New(core, "v-test")
 	start := time.Now()
@@ -484,7 +484,7 @@ func TestMaxWaitTimeoutBounded(t *testing.T) {
 }
 
 func TestRequirementCompliance_FixedKind(t *testing.T) {
-	core := &fakeCore{createResp: &api.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK}
+	core := &fakeCore{createResp: &argus.CreateTaskResponse{TaskId: "t-1", Status: "queued"}, createCode: http.StatusOK}
 	srv := New(core, "v-test")
 	_, isErr := callTool(t, srv, "requirement_compliance", map[string]any{
 		"platform": "gitea", "owner": "acme", "repo": "app", "number": "7", "wait": false,
@@ -633,7 +633,7 @@ func TestCopilotTools(t *testing.T) {
 // ---------- list_tasks / search_code（v3.121.0） ----------
 
 func TestListTasks(t *testing.T) {
-	core := &fakeCore{tasks: &api.ListTasksResponse{Tasks: []*api.TaskSummary{{
+	core := &fakeCore{tasks: &argus.ListTasksResponse{Tasks: []*argus.TaskSummary{{
 		TaskId: "t-9", Status: "done", Kind: "requirement_compliance",
 		Platform: "gitea", Owner: "acme", Repo: "app", Number: "7",
 	}}}}
@@ -732,12 +732,12 @@ func TestArgBool(t *testing.T) {
 // fakeDiffTaskCreator 实现 DiffTaskCreator。
 type fakeDiffTaskCreator struct {
 	fakeCore
-	resp *api.CreateTaskResponse
+	resp *argus.CreateTaskResponse
 	code int
 	diff string
 }
 
-func (f *fakeDiffTaskCreator) CreateDiffTask(_ context.Context, diff string) (*api.CreateTaskResponse, int) {
+func (f *fakeDiffTaskCreator) CreateDiffTask(_ context.Context, diff string) (*argus.CreateTaskResponse, int) {
 	f.diff = diff
 	if f.code != 0 {
 		return nil, f.code
@@ -745,7 +745,7 @@ func (f *fakeDiffTaskCreator) CreateDiffTask(_ context.Context, diff string) (*a
 	if f.resp != nil {
 		return f.resp, http.StatusOK
 	}
-	return &api.CreateTaskResponse{TaskId: "t-diff-1", Status: "pending"}, http.StatusOK
+	return &argus.CreateTaskResponse{TaskId: "t-diff-1", Status: "pending"}, http.StatusOK
 }
 
 func TestReviewDiffAsync(t *testing.T) {
@@ -801,7 +801,7 @@ func TestArgString(t *testing.T) {
 func TestRenderTerminalTask_NoteFields(t *testing.T) {
 	verdict := "comment"
 	report := "body"
-	tr := &api.GetTaskResponse{TaskId: "t", Status: "done", Verdict: &verdict, Report: &report}
+	tr := &argus.GetTaskResponse{TaskId: "t", Status: "done", Verdict: &verdict, Report: &report}
 
 	res := renderTerminalTask(context.Background(), &fakeCore{}, tr, "verdict")
 	text := extractText(t, res)
@@ -870,7 +870,7 @@ func TestBridgeWriter_WriteHeaderOnce(t *testing.T) {
 
 // pollReviewTask 的 ctx 取消路径：长轮询 + cancel → 「调用方取消」。
 func TestPollReviewTask_ContextCancel(t *testing.T) {
-	core := &fakeCore{getResp: &api.GetTaskResponse{TaskId: "t-1", Status: "running"}}
+	core := &fakeCore{getResp: &argus.GetTaskResponse{TaskId: "t-1", Status: "running"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(20 * time.Millisecond)
@@ -891,7 +891,7 @@ func TestPollReviewTask_ContextCancel(t *testing.T) {
 func TestRunReview_CreateErrorStatus(t *testing.T) {
 	core := &fakeCore{createResp: nil, createCode: http.StatusInternalServerError}
 	// createResp 为 nil 时 fake 返回默认成功——改用显式失败。
-	core.createResp = &api.CreateTaskResponse{}
+	core.createResp = &argus.CreateTaskResponse{}
 	core.createCode = http.StatusInternalServerError
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "review_pr", map[string]any{
@@ -1102,7 +1102,7 @@ func TestGetReport_StagesDecorated(t *testing.T) {
 			{"stage": "R4", "done": false},
 		},
 	}, stagesOK: true}
-	core.getResp = &api.GetTaskResponse{TaskId: "t-9", Status: "running"}
+	core.getResp = &argus.GetTaskResponse{TaskId: "t-9", Status: "running"}
 	srv := New(core, "v-test")
 	text, isErr := callTool(t, srv, "get_report", map[string]any{"task_id": "t-9"})
 	if isErr {
@@ -1120,7 +1120,7 @@ func TestGetReport_StagesDecorated(t *testing.T) {
 	}
 
 	// core 不实现 Copilot（纯 fakeCore）→ 无 stages 字段但输出如常。
-	srv2 := New(&fakeCore{getResp: &api.GetTaskResponse{TaskId: "t-1", Status: "running"}}, "v-test")
+	srv2 := New(&fakeCore{getResp: &argus.GetTaskResponse{TaskId: "t-1", Status: "running"}}, "v-test")
 	text2, _ := callTool(t, srv2, "get_report", map[string]any{"task_id": "t-1"})
 	var view2 map[string]any
 	_ = json.Unmarshal([]byte(text2), &view2)

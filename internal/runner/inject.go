@@ -1,6 +1,7 @@
 // inject.go —— 任务前置注入器（OCR delegate / SAST / CodeGraph）与 diff 辅助。
 // 与 runner 主编排（Execute/run/finalize）分离：注入器只读工作副本并往
 // Task.Artifacts / Workflow 写产物，失败一律告警降级、不阻断审查。
+
 package runner
 
 import (

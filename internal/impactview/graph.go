@@ -2,6 +2,7 @@
 // 目录级 import 图，反向闭包推导受影响包。目录=包的映射经 go.mod module 路径
 // 前缀换算（import path 剥前缀即仓库相对目录；/vN 后缀剥离）。无 go.mod 的
 // 仓库 L1 整层降级（记 Notes，不阻断）。
+
 package impactview
 
 import (

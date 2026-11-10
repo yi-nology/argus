@@ -5,6 +5,7 @@
 // 测试桩即此形态）不再被剥，Unmarshal 报"空输入"。本 helper 在各消费点
 // 前统一规范化：非行首 fence 开栏（```后跟语言标记+换行）前补换行——
 // 行内 code span（```x``` 无换行）不受影响，行首 fence 原样通过。
+
 package plugin
 
 import "regexp"

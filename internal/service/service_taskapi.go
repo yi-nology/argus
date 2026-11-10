@@ -1,4 +1,5 @@
 // service_taskapi.go —— TaskAPI/Agent 可观测面：任务创建/清单/围栏抑制/报告读取/agent 清单/MCP 副驾数据面。
+
 package service
 
 import (
@@ -9,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
@@ -19,7 +20,7 @@ import (
 )
 
 // CreateTask CLI/其他系统手动提交审查任务（🔒）。与 webhook 任务同语义（§5.1 规则 5）。
-func (s *Service) CreateTask(ctx context.Context, req *api.CreateTaskRequest) (*api.CreateTaskResponse, int) {
+func (s *Service) CreateTask(ctx context.Context, req *argus.CreateTaskRequest) (*argus.CreateTaskResponse, int) {
 	kind, err := kindFromIDL(req.Kind)
 	if err != nil {
 		return nil, http.StatusBadRequest
@@ -37,7 +38,7 @@ const diffTaskMaxBytes = 48 * 1024
 // 无 PR 语义——platform 记 local、四元组空，diff 文本存 artifacts（ArtifactDiffInput），
 // runner 按 kind 在 prepareContext 之前分派单轮写作执行体，报告落库供提交方
 // get_report 轮询，不回帖。不做 PR 维去重：每次提交都是显式意图，各自独立任务。
-func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*api.CreateTaskResponse, int) {
+func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*argus.CreateTaskResponse, int) {
 	if s.LLM == nil {
 		return nil, http.StatusServiceUnavailable
 	}
@@ -49,17 +50,17 @@ func (s *Service) CreateDiffTask(ctx context.Context, diff string) (*api.CreateT
 	task.ArtifactsJSON = string(artifacts)
 	task.Priority = 10 // 人类在等（提交方拿着 task_id 轮询）
 	if err := s.Store.CreateTask(ctx, task); err != nil {
-		s.log().Error("argus.api.diff_task_create_failed", "error", err.Error())
+		s.log().Error("argus.argus.diff_task_create_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	s.publishCreated(task)
-	s.log().Info("argus.api.diff_task_created", "task", task.ID, "bytes", len(diff))
-	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
+	s.log().Info("argus.argus.diff_task_created", "task", task.ID, "bytes", len(diff))
+	return &argus.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
 }
 
 // CreateTaskDirect 核心建任务（kind 为字符串词表），供 handler 与 MCP server 共用。
 func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, repo, number string,
-	artifacts map[string]string) (*api.CreateTaskResponse, int) {
+	artifacts map[string]string) (*argus.CreateTaskResponse, int) {
 	// kind 白名单走 plugin 词表注册表单源（domain/taskkind.go canonical）。
 	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, http.StatusForbidden // ARGUS_REPO_ALLOWLIST 白名单（v3.134.0）
@@ -99,18 +100,18 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 	task.Priority = 10
 	existing, created, err := s.Store.CreateTaskDirectIfIdle(ctx, task)
 	if err != nil {
-		s.log().Error("argus.api.task_create_failed", "error", err.Error())
+		s.log().Error("argus.argus.task_create_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	if !created {
 		// 同 PR 已有在飞任务：幂等返回既有任务，不再叠加一份重复审查（token 白烧）。
-		s.log().Info("argus.api.task_create_deduped", "existing", existing.ID,
+		s.log().Info("argus.argus.task_create_deduped", "existing", existing.ID,
 			"status", existing.Status, "pr", owner+"/"+repo+"#"+number)
-		return &api.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status, Duplicated: ptrx.Of(true)}, http.StatusOK
+		return &argus.CreateTaskResponse{TaskId: existing.ID, Status: existing.Status, Duplicated: ptrx.Of(true)}, http.StatusOK
 	}
 	s.publishCreated(task)
 
-	s.log().Info("argus.api.task_created", "task", task.ID, "kind", kind,
+	s.log().Info("argus.argus.task_created", "task", task.ID, "kind", kind,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number)
 	if tfp := TokenFPFromContext(ctx); tfp != "" {
 		// 外部 API 建任务取证（v3.137.0）：哪条 token 建的什么任务——webhook/
@@ -119,11 +120,11 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 			"platform", platform, "owner", owner, "repo", repo, "number", number,
 			"token_fp", tfp)
 	}
-	return &api.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
+	return &argus.CreateTaskResponse{TaskId: task.ID, Status: task.Status}, http.StatusOK
 }
 
 // ListTasks 任务列表（🔒）：status 过滤 + limit 收口，created_at 倒序。
-func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api.ListTasksResponse, int) {
+func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*argus.ListTasksResponse, int) {
 	switch status {
 	case "", storage.StatusPending, storage.StatusRunning, storage.StatusDone,
 		storage.StatusFailed, storage.StatusStale:
@@ -132,17 +133,17 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 	}
 	tasks, err := s.Store.ListTasks(ctx, status, limit)
 	if err != nil {
-		s.log().Error("argus.api.list_tasks_failed", "error", err.Error())
+		s.log().Error("argus.argus.list_tasks_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	// 预分配空切片：nil 会被序列化成 "tasks":null，与 IDL required list 语义不符
-	resp := &api.ListTasksResponse{Tasks: []*api.TaskSummary{}}
+	resp := &argus.ListTasksResponse{Tasks: []*argus.TaskSummary{}}
 	for i := range tasks {
 		t := &tasks[i]
 		if !s.taskListable(ctx, t.Platform, t.Owner, t.Repo) {
 			continue // 数据可见性隔离（v3.140.0）：域外任务不进清单（含 local 元数据）
 		}
-		item := &api.TaskSummary{
+		item := &argus.TaskSummary{
 			TaskId:    t.ID,
 			Status:    t.Status,
 			Kind:      t.Kind,
@@ -166,7 +167,7 @@ func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*api
 // SuppressFinding 误报反馈（🔒，设计 §3.3 反馈通道最小入口）：
 // 服务端按 Merger 同一指纹函数计算（file + 规范化评论文本哈希，行号不入指纹），
 // 置 suppressed 后每轮报告自动剔除该意见。下一轮审查起生效（总结评论不即时重渲）。
-func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingRequest) (*api.SuppressFindingResponse, int) {
+func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindingRequest) (*argus.SuppressFindingResponse, int) {
 	platform, _, ok := s.requirePlatform(req.Platform)
 	if !ok {
 		return nil, http.StatusBadRequest
@@ -199,7 +200,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		// 整条评论原文）只会把学习环账本记到垃圾键上。
 		rec, found := s.Store.ResolvePrintRecord(ctx, platform, req.Owner, req.Repo, req.Number, str(req.Fingerprint))
 		if !found {
-			return &api.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
+			return &argus.SuppressFindingResponse{Matched: false, Fingerprint: str(req.Fingerprint)}, http.StatusOK
 		}
 		fp = rec.Print
 		pluginName = rec.Plugin
@@ -214,7 +215,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		var err2 error
 		if fp, matched, err2 = s.Store.SuppressPrintNear(ctx, platform, req.Owner, req.Repo, req.Number,
 			file, comment, time.Now()); err2 != nil {
-			s.log().Error("argus.api.suppress_near_failed", "error", err2.Error())
+			s.log().Error("argus.argus.suppress_near_failed", "error", err2.Error())
 			return nil, http.StatusInternalServerError
 		}
 		suppressDone = true
@@ -232,7 +233,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 		matched, err = s.Store.SuppressPrint(ctx, platform, req.Owner, req.Repo, req.Number,
 			fp, ledgerFinding, time.Now())
 		if err != nil {
-			s.log().Error("argus.api.suppress_failed", "error", err.Error())
+			s.log().Error("argus.argus.suppress_failed", "error", err.Error())
 			return nil, http.StatusInternalServerError
 		}
 	}
@@ -251,13 +252,13 @@ func (s *Service) SuppressFinding(ctx context.Context, req *api.SuppressFindingR
 			s.log().Warn("argus.regret.pattern_suppress_failed", "error", err.Error())
 		}
 	}
-	s.log().Info("argus.api.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
+	s.log().Info("argus.argus.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", file, "matched", matched, "fp", fp[:8])
 	s.Audit.Log(auditFindingSuppress,
 		"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
 		"file", file, "fingerprint", fp[:8], "matched", matched,
 		"token_fp", TokenFPFromContext(ctx))
-	return &api.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
+	return &argus.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
 // publishCreated 广播 task.created（nil Bus 安全）。
@@ -306,7 +307,7 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 }
 
 // GetReportByRef 按 head SHA 查最近一次成功报告（GET /reports/:ref；🔒，v3.1）。
-func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskResponse, int) {
+func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTaskResponse, int) {
 	if ref == "" {
 		return nil, http.StatusBadRequest
 	}
@@ -317,7 +318,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 		}
 		return nil, http.StatusInternalServerError
 	}
-	return &api.GetTaskResponse{
+	return &argus.GetTaskResponse{
 		TaskId:  task.ID,
 		Status:  task.Status,
 		Verdict: strPtr(task.Verdict),
@@ -326,7 +327,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*api.GetTaskR
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。
-func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskResponse, int) {
+func (s *Service) GetTask(ctx context.Context, taskID string) (*argus.GetTaskResponse, int) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -337,7 +338,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskRespo
 	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
 		return nil, http.StatusForbidden // 数据可见性隔离（v3.140.0）：token 仓库域外任务
 	}
-	resp := &api.GetTaskResponse{
+	resp := &argus.GetTaskResponse{
 		TaskId: task.ID,
 		Status: task.Status,
 	}
@@ -353,7 +354,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*api.GetTaskRespo
 	if findings, ok := taskFindings(task.ResultJSON); ok {
 		for _, f := range findings {
 			by := f.By
-			resp.Findings = append(resp.Findings, &api.Finding{
+			resp.Findings = append(resp.Findings, &argus.Finding{
 				File:     f.File,
 				Line:     clampInt32(f.Line),
 				Severity: f.Severity,

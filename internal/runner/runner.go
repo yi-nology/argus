@@ -1,6 +1,6 @@
-// Package runner 任务执行编排（§10.4 worker 的执行体）：
-// 拉起任务 → 组装上下文（PR/diff）→ 调 workflow（R1→R5 或 R4+R5）→ poster 回帖。
-// 错误处置遵循 §10.2 矩阵：上下文/LLM 失败 → task=failed（不在 PR 评论，避免平台故障刷屏用户）。
+// runner.go —— 任务执行主面：Execute/run/finalize 主流程与失败收口
+// （包文档见 doc.go；错误矩阵 §10.2 实现在 runner_lifecycle.go）。
+
 package runner
 
 import (

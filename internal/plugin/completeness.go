@@ -1,6 +1,7 @@
 // completeness.go —— 完备性裁判契约（v3.11.0，G4）。
 // 类型放 plugin（契约层）：WorkflowOutput 携带 Completeness 贯穿 runner/渲染层；
 // 判定逻辑在 workflow/requirement（纯确定性，读运行时事实，不调模型）。
+
 package plugin
 
 // 完备性检查项词表（报告/指标对齐用）。

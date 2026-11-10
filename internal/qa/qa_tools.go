@@ -1,4 +1,5 @@
 // qa_tools.go —— Q&A 工具装配面：diff/file/similar/search_code 工具集 + 工作副本目录管理。
+
 package qa
 
 import (

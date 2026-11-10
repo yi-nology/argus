@@ -12,6 +12,7 @@
 //   - 反思是逐轮统计性判断，不写 suppress（持久抑制必须来自人工反馈，防自动化误杀）；
 //   - 任何失败（模型错误/输出不可解析）保留原 findings——审查不因反思故障而失败；
 //   - 默认关闭（ARGUS_REFLECTION_ROUNDS=0），开启后每任务多 2~2N 次模型调用。
+
 package requirement
 
 import (

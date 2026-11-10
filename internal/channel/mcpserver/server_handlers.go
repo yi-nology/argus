@@ -11,7 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 )
 
 // ---------- 工具执行 ----------
@@ -94,7 +94,7 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 
 // renderTerminalTask done/stale 终态的结构化输出（verdict/report 必带，note 按态
 // 填写；阶段进度与 get_report 同装饰）。
-func renderTerminalTask(ctx context.Context, core Core, t *api.GetTaskResponse, noteField string) *mcp.CallToolResult {
+func renderTerminalTask(ctx context.Context, core Core, t *argus.GetTaskResponse, noteField string) *mcp.CallToolResult {
 	out := taskView(t)
 	decorateStages(ctx, core, out, t.TaskId)
 	if noteField == "note" {
@@ -131,7 +131,7 @@ func requireArgs(req mcp.CallToolRequest, keys ...string) ([]string, *mcp.CallTo
 // taskView GetTaskResponse → 工具输出投影单源（get_report 与 pollReviewTask
 // 终态渲染共用）：task_id/status 恒带，verdict/report/fail_reason 非空才带；
 // 终态任务 FailReason 恒空，故对轮询渲染输出无形变。
-func taskView(t *api.GetTaskResponse) map[string]any {
+func taskView(t *argus.GetTaskResponse) map[string]any {
 	out := map[string]any{"task_id": t.TaskId, "status": t.Status}
 	if t.Verdict != nil {
 		out["verdict"] = *t.Verdict

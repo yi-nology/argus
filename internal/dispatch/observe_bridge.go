@@ -2,6 +2,7 @@
 // hooks.go/observe.go 观测面留驻 internal/plugin（契约消费方 workflow 与引擎
 // 共享同一观测出口）；引擎经函数值别名零改动引用。签名即契约：改上游函数
 // 签名时此处编译期暴露。
+
 package dispatch
 
 import "github.com/yi-nology/argus/internal/plugin"

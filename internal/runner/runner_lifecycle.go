@@ -3,6 +3,7 @@
 // prepareContext（PR 上下文/stale 判定）→ buildPluginTask（任务组装+注入）→
 // recordRegret（学习环记账）→ finalizeAndAnnounce（终态/播报）；repoBudgetGate
 // （仓库月度预算闸）与 handleRunFailure（失败终态）为 Execute 的旁路。
+
 package runner
 
 import (

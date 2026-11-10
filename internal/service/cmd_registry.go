@@ -8,6 +8,7 @@
 //   - status/进度：最近一轮审查状态与结论（免节流）；
 //   - 烧预算指令门控（ARGUS_COMMENT_GATE）：review/recheck/fix/testgen 仅协作者
 //     可触发，防公开仓路人评论白烧审查预算；问答/查询/误报反馈类不受门控。
+
 package service
 
 import (

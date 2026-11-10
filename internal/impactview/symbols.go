@@ -11,6 +11,7 @@
 //
 // 边界（上游同款声明）：不做 SSA 类型推断，接口分派/动态派发不可见，词法级
 // 邻接仍按边抽取规则解析（qualified 同目录精确、var 限定降裸名回退）。
+
 package impactview
 
 import (

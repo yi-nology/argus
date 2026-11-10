@@ -1,4 +1,5 @@
 // service_auth.go —— API 鉴权面：ARGUS_API_TOKENS 多 token 三档 scope + Bearer 中间件（fail-closed）。
+
 package service
 
 import (

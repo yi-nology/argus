@@ -1,4 +1,5 @@
 // dispatcher_run.go —— fan-out 执行面：预算/熔断双门 + best-of-N 采样 + 单次执行的并发 machinery（Run 本体为熔断配对 B 类裁定项，仅文件归置不拆函数）。
+
 package dispatch
 
 import (

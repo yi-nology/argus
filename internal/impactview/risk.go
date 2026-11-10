@@ -1,6 +1,7 @@
 // risk.go —— 确定性风险评分：分数与理由一并落快照（可复现、可解释），LLM
 // 只做语义描述不参与打分。启发式阈值刻意保守（宁可 medium 不虚 high），
 // 加分面见 scoreRisk 内注释。
+
 package impactview
 
 import (

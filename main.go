@@ -33,8 +33,8 @@ import (
 	oekittracing "github.com/oekit/tracing"
 	gormotel "github.com/oekit/tracing/gormotel"
 
-	hapi "github.com/yi-nology/argus/biz/handler/api"
-	rapi "github.com/yi-nology/argus/biz/router/api"
+	hapi "github.com/yi-nology/argus/biz/handler/argus"
+	rapi "github.com/yi-nology/argus/biz/router/argus"
 	"github.com/yi-nology/argus/internal/bootstrap"
 	"github.com/yi-nology/argus/internal/channel/mcpserver"
 	"github.com/yi-nology/argus/internal/config"

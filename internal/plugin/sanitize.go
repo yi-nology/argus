@@ -1,4 +1,5 @@
 // sanitize.go —— 落盘文件名安全化（OCR 留档/dream 导出共用）。
+
 package plugin
 
 import "github.com/oagentkit/textx/textutil"

@@ -12,7 +12,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
@@ -34,8 +34,8 @@ const (
 
 // whResp webhook 回执构造工厂（Status 词表单源 + Reason 统一指针化；带
 // EventId/TaskId 等附加字段的调用方在拿到回执后补字段）。
-func whResp(status, reason string) *api.WebhookResponse {
-	return &api.WebhookResponse{Status: status, Reason: strPtr(reason)}
+func whResp(status, reason string) *argus.WebhookResponse {
+	return &argus.WebhookResponse{Status: status, Reason: strPtr(reason)}
 }
 
 // 事件类型白名单（§5.1 规则 1）。SDK 各后端在投递前都会过 provider.NormalizeCRAction
@@ -57,7 +57,7 @@ var crEventWhitelist = map[string]string{
 // Webhook webhook 入口。v3.58.0 拆分为准入防线（webhookAdmission）→ 事件分流
 // （installation/comment/CR）→ CR 过滤链（webhookCRFilter）→ 建任务去重
 // （webhookCreateTask）。§5.1 过滤规则顺序即安全语义，不得重排。
-func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform string) (*api.WebhookResponse, int) {
+func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform string) (*argus.WebhookResponse, int) {
 	ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
 	if !ok {
 		return resp, status
@@ -100,7 +100,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 	}
 
 	// §5.1 规则 1-3：事件白名单 / bot 自审 / draft 与异常事件防御
-	skipped := func(reason, why string) (*api.WebhookResponse, int) {
+	skipped := func(reason, why string) (*argus.WebhookResponse, int) {
 		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
 		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
 		obs.IncrWebhookSkipped(reason)
@@ -119,7 +119,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 // secret fail-closed → Content-Length 预检 → 签名校验+事件解析 → 幂等预查。
 // ok=false 时 resp/status 即最终响应。
 func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, platform string) (
-	ev *provider.NormalizedEvent, delivery string, resp *api.WebhookResponse, status int, ok bool) {
+	ev *provider.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
 	platform, pcfg, ok := s.requirePlatform(platform)
 	if !ok {
 		return nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
@@ -179,7 +179,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 	if delivery != "" {
 		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
 			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
-			return nil, delivery, &api.WebhookResponse{
+			return nil, delivery, &argus.WebhookResponse{
 				Status:  "duplicate",
 				Reason:  strPtr("重复投递，命中既有任务"),
 				EventId: strPtr(delivery),
@@ -195,7 +195,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 // 信息的异常事件防御性跳过（长跑服务不 panic）。ok=false 时 resp/status 即
 // skipped 响应。
 func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
-	skipped func(reason, why string) (*api.WebhookResponse, int)) (*api.WebhookResponse, int, bool) {
+	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
 	if _, ok := crEventWhitelist[ev.Type]; !ok {
 		r, st := skipped("event_type", "事件类型不在白名单: "+ev.Type)
 		return r, st, false
@@ -217,7 +217,7 @@ func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
 
 // dupResp 幂等去重回执模板（v3.109.0，此前 4 处近逐字）：duplicate 状态 +
 // 原因文案，existingID 非空时回填指向既有任务（store 回查失败时不指幻影 ID）。
-func dupResp(reason, existingID, delivery string) (*api.WebhookResponse, int) {
+func dupResp(reason, existingID, delivery string) (*argus.WebhookResponse, int) {
 	resp := whResp(whDuplicate, reason)
 	resp.EventId = strPtr(delivery)
 	if existingID != "" {
@@ -230,7 +230,7 @@ func dupResp(reason, existingID, delivery string) (*api.WebhookResponse, int) {
 // 并落库：规则 4 同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/
 // TOCTOU）→ 去重分支透出 → 审计 + SSE 发布。
 func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
-	delivery, platform string) (*api.WebhookResponse, int) {
+	delivery, platform string) (*argus.WebhookResponse, int) {
 	if delivery == "" {
 		s.log().Warn("argus.webhook.delivery_header_missing",
 			"platform", platform, "event", "幂等键缺失，本次投递不做幂等（event_id=NULL）")
@@ -268,7 +268,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
-	return &api.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
+	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }
 
 // pipelineCreateTask CI 失败事件 → ci_analysis 任务（写作面归因）。
@@ -276,7 +276,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 // SHA 只有一个终态，重复投递靠 event_id 幂等兜底）。Number 可空——无 MR 的
 // push pipeline 归因产物只落库不评论。
 func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
-	delivery, platform string) (*api.WebhookResponse, int) {
+	delivery, platform string) (*argus.WebhookResponse, int) {
 	number := ""
 	if ev.CR != nil {
 		number = ev.CR.Number
@@ -308,5 +308,5 @@ func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.Normalize
 	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
-	return &api.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
+	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
 }

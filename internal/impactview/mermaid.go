@@ -1,6 +1,7 @@
 // mermaid.go —— 影响面/函数级图 diff 的 mermaid 渲染面（v5.1.0 自 render.go
 // 拆出：图语法面被 e2e 快照与模型提示词双重消费，文本面只服务评论/报告，
 // 生命周期不同步）。全部纯函数，不触 IO。
+
 package impactview
 
 import (
@@ -9,14 +10,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-// RenderMermaid 渲染 mermaid flowchart 源（LR 分层：改动居左，影响向右）。
-// 节点超 MaxMermaidNodes 先聚合（symbol/test → 所属 file，file → 所属 package），
-// 源超 MaxMermaidRunes 二次聚合后仍超则返回空串（调用方降级 RenderList）。
-func RenderMermaid(s *Snapshot) string {
-	src, _ := RenderMermaidWithStats(s)
-	return src
-}
 
 // 评论图 caller 边预算（v5.6.3）：词法图层后单 MR 的 sym→file caller 边可轻易
 // 破 40 条（deploy-sql 实弹 45 条，逼近 MaxMermaidRunes 截断线），评论图职责是
@@ -50,7 +43,11 @@ func trimCallerEdgesForComment(edges []Edge) ([]Edge, int) {
 	return out, trimmed
 }
 
-// RenderMermaidWithStats 同 RenderMermaid，额外返回被剪 caller 边数（图注用）。
+// RenderMermaidWithStats 渲染 mermaid flowchart 源（LR 分层：改动居左，影响向右），
+// 额外返回被剪 caller 边数（图注用）。节点超 MaxMermaidNodes 先聚合（symbol/test
+// → 所属 file，file → 所属 package），源超 MaxMermaidRunes 二次聚合后仍超则返回
+// 空串（调用方降级 RenderList）。（v6.2.x 架构卫生批 B：原 RenderMermaid 薄壳
+// 生产零消费已销，测试直走本入口。）
 func RenderMermaidWithStats(s *Snapshot) (string, int) {
 	if s == nil || len(s.Nodes) == 0 {
 		return "", 0

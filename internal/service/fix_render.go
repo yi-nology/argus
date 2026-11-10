@@ -1,6 +1,7 @@
 // fix_render.go —— @argus fix 的 prompt 组装、回帖渲染与采集/解析助手（v3.167.0
 // 自 fix.go 拆出；零逻辑变更）：buildFixPrompt/renderFixReply + gitDiffCapped
 // （procx 采集）+ parseFixEnvelope（jsonrepair 兜底解析）+ 路径/截断助手。
+
 package service
 
 import (

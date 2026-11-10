@@ -1,4 +1,5 @@
 // r3tools.go —— R3/R4 工具装配面：内置工具 + 仓库工具 + CodeGraph + 检索 + 外部工具注册与排序。
+
 package requirement
 
 import (

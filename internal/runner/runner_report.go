@@ -1,4 +1,5 @@
 // runner_report.go —— 报告产物与公告面：buildReport/ResultPayload/终态回帖/进度发布/start marker/审查提示注入。
+
 package runner
 
 import (

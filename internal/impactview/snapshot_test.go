@@ -260,7 +260,7 @@ func TestRenderMermaid(t *testing.T) {
 		Dir: dir, ChangedFiles: []string{"pkga/a.go"},
 		HunkRanges: changedOf("pkga/a.go"), Index: idx, MaxCommits: -1,
 	})
-	src := RenderMermaid(s)
+	src, _ := RenderMermaidWithStats(s)
 	if src == "" {
 		t.Fatal("mermaid 为空")
 	}
@@ -287,7 +287,7 @@ func TestRenderMermaidAggregation(t *testing.T) {
 		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindFile, Label: id})
 		s.Edges = append(s.Edges, Edge{From: "file:a.go", To: id, Rel: RelCaller})
 	}
-	src := RenderMermaid(s)
+	src, _ := RenderMermaidWithStats(s)
 	if runeLen(src) > MaxMermaidRunes || strings.Count(src, "\n  n") > MaxMermaidNodes {
 		t.Fatalf("聚合失败: len=%d", runeLen(src))
 	}
@@ -380,7 +380,7 @@ func TestRenderHTML(t *testing.T) {
 		Dir: dir, ChangedFiles: []string{"pkga/a.go"},
 		HunkRanges: changedOf("pkga/a.go"), Index: idx, MaxCommits: -1,
 	})
-	page := RenderHTML(s, "task-1")
+	page := RenderHTMLFull(s, "task-1", ViewOpts{})
 	if page == "" || !strings.HasPrefix(page, "<!DOCTYPE html>") {
 		t.Fatal("HTML 形态不对")
 	}
@@ -398,12 +398,12 @@ func TestRenderHTML(t *testing.T) {
 		t.Fatal("页头缺任务标识")
 	}
 	// 空 taskID 页头省略
-	page2 := RenderHTML(s, "")
+	page2 := RenderHTMLFull(s, "", ViewOpts{})
 	if strings.Contains(page2, "任务 </span>") {
 		t.Fatal("空任务标识应省略页头段")
 	}
 	// 空快照 → 空串
-	if RenderHTML(&Snapshot{}, "t") != "" {
+	if RenderHTMLFull(&Snapshot{}, "t", ViewOpts{}) != "" {
 		t.Fatal("空快照应返回空串")
 	}
 }
@@ -497,7 +497,7 @@ func TestMermaidDropsIsolatedSymbols(t *testing.T) {
 		Edge{From: "file:a/a.go", To: "sym:a/a.go:Func", Rel: RelCaller},
 		Edge{From: "sym:a/a.go:Func", To: "file:b/b.go", Rel: RelCaller},
 	)
-	src := RenderMermaid(s)
+	src, _ := RenderMermaidWithStats(s)
 	if strings.Contains(src, "SomeType") || strings.Contains(src, "MaxConst") {
 		t.Fatalf("孤立符号未摘除:\n%s", src)
 	}
@@ -510,7 +510,8 @@ func TestMermaidDropsIsolatedSymbols(t *testing.T) {
 	// 全孤立退化：只剩无边的符号 → 空图（报告段自动省略/降级列表）
 	empty := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"},
 		Nodes: []Node{{ID: "sym:a.go:X", Kind: KindSymbol, Label: "X", Changed: true}}}
-	if RenderMermaid(empty) != "" {
+	emptySrc, _ := RenderMermaidWithStats(empty)
+	if emptySrc != "" {
 		t.Fatal("全孤立应返回空图")
 	}
 }
@@ -526,8 +527,8 @@ func TestRenderMermaidPure(t *testing.T) {
 		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindPackage, Label: id})
 		s.Edges = append(s.Edges, Edge{From: "file:a/a.go", To: id, Rel: RelImport})
 	}
-	first := RenderMermaid(s)
-	second := RenderMermaid(s)
+	first, _ := RenderMermaidWithStats(s)
+	second, _ := RenderMermaidWithStats(s)
 	if first != second {
 		t.Fatal("渲染非纯：二次调用输出漂移")
 	}
@@ -553,7 +554,7 @@ func TestRenderHTMLViewPrune(t *testing.T) {
 		Edge{From: "file:a/a.go", To: "sym:a/a.go:Func", Rel: RelCaller},
 		Edge{From: "sym:a/a.go:Func", To: "file:b/b.go", Rel: RelCaller},
 	)
-	page := RenderHTML(s, "t")
+	page := RenderHTMLFull(s, "t", ViewOpts{})
 	// 只断 SVG 部分——内嵌 JSON 是全量快照（MCP/面板数据面），含孤立节点属预期
 	svgStart := strings.Index(page, "<svg")
 	svgEnd := strings.Index(page, "</svg>")

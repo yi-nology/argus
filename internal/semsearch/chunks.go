@@ -5,6 +5,7 @@
 // 节点键=NodeKey 契约，图面见 graph.go）——chunk 与边共用同一次 AST 解析，
 // 图增强检索零额外解析成本。go.mod 的 module 声明经 modulePathOf 读取，是
 // import 路径剥前缀定位仓库目录的输入。
+
 package semsearch
 
 import (

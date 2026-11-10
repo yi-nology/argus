@@ -4,6 +4,7 @@
 // 出 patch → 沙箱内确定性验证（ARGUS_FIX_VERIFY_CMD，复用 testgen 的包装
 // 命令纪律：argus 自身永不直接执行待审代码，隔离责任在包装命令侧）→ 回帖
 // diff。修复成立与否由确定性验证判定，不由 agent 自评；本命令不自动 push。
+
 package service
 
 import (

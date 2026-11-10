@@ -1,5 +1,5 @@
-// Package service handler 的薄实现层：绑定请求 → 调编排 → 统一响应壳 {code,data,message,trace_id}。
-// webhook 同步路径实现 §5.1 全部过滤规则 + §5.2 幂等；异步执行交给 worker pool（§10.4 DB 即队列）。
+// service.go —— 门面核心：Server 结构、统一响应壳与主路由接线（包文档见 doc.go）。
+
 package service
 
 import (
@@ -22,7 +22,7 @@ import (
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/container"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -209,7 +209,7 @@ func (s *Service) requirePlatform(platform string) (string, *config.PlatformConf
 // 记录安装信息到日志（安装 ID、账号、仓库列表），不建审查任务。
 // SDK 的 ParseWebhookEvent 对 installation 事件只填充 Type + RawPayload，
 // 需要从原始 payload 提取结构化信息。
-func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery string) *api.WebhookResponse {
+func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery string) *argus.WebhookResponse {
 	var payload struct {
 		Action       string `json:"action"`
 		Installation struct {
@@ -227,7 +227,7 @@ func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery
 	}
 	if err := json.Unmarshal(ev.RawPayload, &payload); err != nil {
 		s.log().Warn("argus.installation.parse_failed", "error", err.Error())
-		return &api.WebhookResponse{Status: "skipped", Reason: strPtr("installation 事件解析失败"), EventId: strPtr(delivery)}
+		return &argus.WebhookResponse{Status: "skipped", Reason: strPtr("installation 事件解析失败"), EventId: strPtr(delivery)}
 	}
 
 	repoNames := make([]string, 0, len(payload.Repositories))
@@ -250,7 +250,7 @@ func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery
 		"account", payload.Installation.Account.Login,
 		"repos", repoNames,
 	)
-	return &api.WebhookResponse{
+	return &argus.WebhookResponse{
 		Status:  "accepted",
 		Reason:  strPtr("installation event logged"),
 		EventId: strPtr(delivery),
@@ -362,7 +362,7 @@ func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo strin
 	}
 	rows, err := s.Store.StatsOverview(ctx, time.Now().AddDate(0, 0, -days), platform, owner, repo)
 	if err != nil {
-		s.log().Error("argus.api.stats_failed", "error", err.Error())
+		s.log().Error("argus.argus.stats_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
 	var totals struct {

@@ -1,8 +1,5 @@
-// Package qa PR 评论问答引擎（@argus ask）：ReAct 优先（agentrun + 审查工具表，
-// 模型能自查 diff/文件/知识库）+ 多轮会话；ReAct 失败自动落回单轮直调。
-// v3.5.6 自 service 拆出——门面层不再持有 LLM 编排逻辑；Engine 无自有状态
-// （会话历史在 Store，节流与 delivery 幂等留在 service 评论路由层），
-// 字段全为共享引用，可按调用临时构造。
+// qa.go —— 问答引擎主面：Engine 构造与 ask 主流程（包文档见 doc.go）。
+
 package qa
 
 import (

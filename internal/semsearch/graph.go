@@ -19,6 +19,7 @@
 // 同索引共存，Refresh 重建 chunk/向量与图两个面；v5.11.0 起向量可缺省
 // （NewIndex(nil) 纯图模式）——图面零 embedding 依赖，Search 在 Index.Search
 // 单源拦截报错。
+
 package semsearch
 
 import (

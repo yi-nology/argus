@@ -1,6 +1,7 @@
 // health.go —— G5 健康报告查询面（v3.13.0）：GET /reports/health 的 service 层。
 // 与周期 IM 推送（main.go health-report ticker）同数据源：按需拉取飞轮状态，
 // 供报告页/副驾类消费方轮询；无写操作，Bearer 门控由路由装配层挂。
+
 package service
 
 import (

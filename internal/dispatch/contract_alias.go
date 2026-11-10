@@ -2,6 +2,7 @@
 // 契约类型留驻 internal/plugin（全仓公共面），引擎经本别名组引用——
 // 门体内未限定符的历史写法零改动。别名与被代理类型同一（Go 类型别名语义），
 // 跨包传递无装箱无转换。
+
 package dispatch
 
 import "github.com/yi-nology/argus/internal/plugin"

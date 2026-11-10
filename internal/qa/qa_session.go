@@ -1,5 +1,6 @@
 // qa_session.go —— QA 会话历史的加载与乐观锁落库（v3.158.1 自 Answer 抽出，
 // 逻辑逐字保留：读失败留痕/坏 JSON 降级/CAS 冲突重放/摘要滞后一轮语义）。
+
 package qa
 
 import (

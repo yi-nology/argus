@@ -2,6 +2,7 @@
 // 默认的单次加载与合并。Execute 入口读一次（主键点查，失败降级全局默认——
 // 配置面故障不阻断审查，与 loadRepoConfig 同纪律），三个生效值随任务体显式
 // 传递（Runner 是共享实例，禁止挂实例字段）。
+
 package runner
 
 import (

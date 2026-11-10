@@ -1,4 +1,5 @@
 // compliance.go —— R3 合规判定面：CheckCompliance（ReAct agent）+ 指令构造 + 降级报告 + 运行器。
+
 package requirement
 
 import (

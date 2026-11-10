@@ -1,6 +1,7 @@
 // service_knowledge.go —— 知识库检索面（v3.125.0）：把 R3/R4 审查面同源的
 // search_knowledge 数据面暴露给 MCP（行业对标 Greptile custom context / 知识库
 // 检索工具——外部 agent 回答「团队规范/历史结论/这条以前怎么裁」的入口）。
+
 package service
 
 import (

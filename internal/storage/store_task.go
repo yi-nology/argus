@@ -1,4 +1,5 @@
 // store_task.go —— tasks 表操作面：创建/认领/围栏收尾/状态迁移/清单查询。
+
 package storage
 
 import (

@@ -15,6 +15,7 @@
 //     比 agentkit 缺省 3 收紧一档；
 //   - 收敛的发现按成员归属构造独立 Outcome 进 Merger——指纹去重/抑制过滤/
 //     跨轮合并全部复用既有管线，共识成员不参与分歧标注（互看后无盲审分歧）。
+
 package dispatch
 
 import (

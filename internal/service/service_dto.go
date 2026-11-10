@@ -1,4 +1,5 @@
 // service_dto.go —— IDL DTO 转换与输入校验小件：kind/protocol 映射、指针助手、平台路径白名单、artifacts 解码。
+
 package service
 
 import (
@@ -7,7 +8,7 @@ import (
 
 	"fmt"
 
-	api "github.com/yi-nology/argus/biz/model/api"
+	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 
@@ -28,16 +29,16 @@ func strPtrOrEmpty(s string) *string {
 
 // kindIDLTable IDL 枚举 → 内部 kind 词表的映射注册表（canonical 词表见
 // domain/taskkind.go，经 plugin re-export）。新增任务类型时在此补一行映射。
-var kindIDLTable = map[api.TaskKind]string{
-	api.TaskKind_REQUIREMENT_COMPLIANCE: domain.TaskKindRequirementCompliance,
-	api.TaskKind_CODE_REVIEW:            domain.TaskKindCodeReview,
-	api.TaskKind_VISUAL_CHECK:           domain.TaskKindVisualCheck,
-	api.TaskKind_DESCRIBE:               domain.TaskKindDescribe,
-	api.TaskKind_CHANGELOG:              domain.TaskKindChangelog,
-	api.TaskKind_CI_ANALYSIS:            domain.TaskKindCIAnalysis,
+var kindIDLTable = map[argus.TaskKind]string{
+	argus.TaskKind_REQUIREMENT_COMPLIANCE: domain.TaskKindRequirementCompliance,
+	argus.TaskKind_CODE_REVIEW:            domain.TaskKindCodeReview,
+	argus.TaskKind_VISUAL_CHECK:           domain.TaskKindVisualCheck,
+	argus.TaskKind_DESCRIBE:               domain.TaskKindDescribe,
+	argus.TaskKind_CHANGELOG:              domain.TaskKindChangelog,
+	argus.TaskKind_CI_ANALYSIS:            domain.TaskKindCIAnalysis,
 }
 
-func kindFromIDL(k api.TaskKind) (string, error) {
+func kindFromIDL(k argus.TaskKind) (string, error) {
 	kind, ok := kindIDLTable[k]
 	if !ok {
 		return "", fmt.Errorf("未知任务类型 %d", int(k))
@@ -58,25 +59,25 @@ func taskFindings(resultJSON string) ([]plugin.Finding, bool) {
 	return payload.Findings, true
 }
 
-func kindToIDL(k plugin.Kind) api.AgentKind {
+func kindToIDL(k plugin.Kind) argus.AgentKind {
 	switch k {
 	case plugin.KindCLI:
-		return api.AgentKind_CLI
+		return argus.AgentKind_CLI
 	case plugin.KindRemote:
-		return api.AgentKind_REMOTE
+		return argus.AgentKind_REMOTE
 	default:
-		return api.AgentKind_BUILTIN
+		return argus.AgentKind_BUILTIN
 	}
 }
 
-func protocolToIDL(p plugin.Protocol) api.AgentProtocol {
+func protocolToIDL(p plugin.Protocol) argus.AgentProtocol {
 	switch p {
 	case plugin.ProtocolA2A:
-		return api.AgentProtocol_A2A
+		return argus.AgentProtocol_A2A
 	case plugin.ProtocolMCP:
-		return api.AgentProtocol_MCP
+		return argus.AgentProtocol_MCP
 	default:
-		return api.AgentProtocol_NONE
+		return argus.AgentProtocol_NONE
 	}
 }
 

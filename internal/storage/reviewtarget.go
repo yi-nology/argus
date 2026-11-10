@@ -2,6 +2,7 @@
 // store.go 迁入，全表操作单文件）。Upsert 的语义是">0 才写"（防 GORM 零值
 // 误覆盖），而"总结评论已被删除"需要显式清零缓存定位（poster ① 级 404 自愈，
 // 深挖修复）——传 0 复用 Upsert 是 no-op，清不掉（ClearReviewTargetComment）。
+
 package storage
 
 import (
