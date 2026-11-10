@@ -173,7 +173,13 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 		event = "APPROVE"
 	}
 	reviewAnchor := "\n\n<!-- argus:review task_id=" + rep.TaskID + " head=" + rep.HeadSHA + " verdict=" + verdict + " -->"
-	reviewBody := "Argus 审查结论：" + rep.VerdictText + "\n\n完整报告见总结评论（该评论随每次同步更新）。" + reviewAnchor
+	// v6.1.5 结论 TL;DR 先行：VerdictText 行后插入结论摘要区（分级计数 + 重点关注
+	// top3，无意见退化为单行），用户在评审事件上先看结论再看总结评论详报。
+	// inlineCount 取本次评审实附的行内评论数（主路径与 COMMENT 降级路径一致；末级
+	// 「无行内兜底」路径评审未带行内意见，计数与事实的偏差随该降级日志可查——
+	// body 在投递前构造，不做回改）。
+	reviewBody := "Argus 审查结论：" + rep.VerdictText + "\n\n" +
+		reviewTLDR(rep, len(comments)) + "\n\n完整报告见总结评论（该评论随每次同步更新）。" + reviewAnchor
 	// 评审幂等锚点：任务模型 at-least-once（崩溃/硬取消落在发评审与落终态之间 → 重跑），
 	// 重跑会再发一条完整评审（行内评论重复）。锚点只写不查等于没有——发前按 task_id 查一次；
 	// 查询失败不阻断正常路径（宁多查一次 API，不因兜底接口缺失丢评审）。
@@ -254,6 +260,63 @@ func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep report
 		return postedInline
 	}
 	return 0
+}
+
+// reviewTLDRMaxTop TL;DR「重点关注」最多列出的意见条数（severity 降序取顶）。
+const reviewTLDRMaxTop = 3
+
+// reviewTLDRSummaryRunes 单条重点摘要的 rune 上限（首行截取后再截断）。
+const reviewTLDRSummaryRunes = 80
+
+// reviewTLDR 评审 body 的结论摘要区（v6.1.5「结论 TL;DR 先行」）：有意见时给
+// 分级计数 + 重点关注（severity 降序、同级别按报告序，最多 3 条，file:line +
+// Comment 首行截 ~80 rune）；无意见退化为单行「✅ 未发现问题」。只消费
+// reportview.Report 既有字段，纯函数独立可测。
+func reviewTLDR(rep reportview.Report, inlineCount int) string {
+	if len(rep.Findings) == 0 {
+		return "✅ 未发现问题"
+	}
+	bySev := map[string]int{}
+	for _, f := range rep.Findings {
+		bySev[f.Severity]++
+	}
+	var b strings.Builder
+	b.WriteString("意见：")
+	// 计数行按 design §3.3 三档词表固定展示；critical（textx#20 四档预留，当前
+	// 管线不产出）非零时前置列出，保证「共 N 条」与分档之和恒一致（防御性）。
+	if n := bySev[reportutil.Critical]; n > 0 {
+		fmt.Fprintf(&b, "critical %d · ", n)
+	}
+	fmt.Fprintf(&b, "high %d · medium %d · low %d（共 %d 条，行内已标注 %d 条）",
+		bySev[plugin.SeverityHigh], bySev[plugin.SeverityMedium], bySev[plugin.SeverityLow],
+		len(rep.Findings), inlineCount)
+	// 重点关注：排序纪律与 prepareInline 一致（Rank 降序 + SliceStable 保报告序）。
+	// 摘要是不可信模型文本，经 fence.EscapeUntrusted 注入中和后展示。
+	top := append([]plugin.Finding(nil), rep.Findings...)
+	sort.SliceStable(top, func(i, j int) bool {
+		return reportutil.Rank(top[i].Severity) > reportutil.Rank(top[j].Severity)
+	})
+	if len(top) > reviewTLDRMaxTop {
+		top = top[:reviewTLDRMaxTop]
+	}
+	b.WriteString("\n重点关注：")
+	for _, f := range top {
+		fmt.Fprintf(&b, "\n• [%s] ", strings.ToUpper(f.Severity))
+		if f.File != "" {
+			fmt.Fprintf(&b, "%s:%d ", fence.EscapeUntrusted(f.File), f.Line)
+		}
+		b.WriteString(fence.EscapeUntrusted(textutil.TruncEllipsis(
+			tldrFirstLine(f.Comment), reviewTLDRSummaryRunes)))
+	}
+	return b.String()
+}
+
+// tldrFirstLine 摘要首行截取（\n / \r\n 均按行终止，去尾空白）。
+func tldrFirstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }
 
 // postSummary 三级降级定位总结评论。

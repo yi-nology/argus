@@ -170,8 +170,18 @@ func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *p
 	wf.ExternalToolCallLimit = r.Cfg.ExternalToolCallLimit
 	// 仓库级评审规范（v3.38.0）：.argus/REVIEW.md @ head，R3/R4 注入
 	wf.RepoGuide = r.RepoGuideFor(ctx, task.Platform, task.Owner, task.Repo, task.HeadSHA)
-	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示
-	wf.OnStage = func(stage string) { r.publishStage(task, stage) }
+	// 阶段进度事件（v3.40.0）：R1/R2/R3/R35 进入时发 task.stage，SSE 消费者可展示。
+	// v6.1.5 执行期进度可见化：同一回调里把 start marker 原地更新为带阶段进度条的
+	// 「审查中」文案——onStage 每阶段回调恰好一次且 setStartMarker 扫锚点原地更新，
+	// 天然节流；完成/失败三态收口（runner_lifecycle.go / writing.go）随后整体覆盖
+	// marker，进度版只服务执行期。ctx 直接沿用 wireWorkflow 的任务级 ctx：onStage
+	// 由 workflow 在 wf.Run(ctx,…) 的同一请求生命周期内同步回调（requirement.onStage），
+	// ctx 必然存活，无须 context.Background()——任务取消时更新随之中止（更新失败
+	// 仅 Warn，不阻断审查主链路，纪律由 setStartMarker 既有实现保证）。
+	wf.OnStage = func(stage string) {
+		r.publishStage(task, stage)
+		r.setStartMarker(ctx, task, startMarkerProgressBody(task.ID, stage))
+	}
 	// 详情存档目录（v5.0.0 spill 收编）：超限工具全文落盘任务目录，get_detail 跨
 	// checkpoint 复活/重启取回不失效；顺带 best-effort 清理 7 天前过期任务目录。
 	wf.SpillDir = filepath.Join(r.Cfg.WorkRoot, "spill", task.ID)

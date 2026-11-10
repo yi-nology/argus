@@ -177,6 +177,63 @@ func (r *Runner) publishStage(task *storage.Task, stage string) {
 	})
 }
 
+// stageCNNames 执行期进度条的阶段中文名（v6.1.5）。键一律引用 plugin.Layer*
+// 常量（词表单一出处 plugin/hooks.go StageTimeline），覆盖审查管线全部阶段
+// R1–R5；子阶段（R1a）经 stageSlot 前缀回退归到主阶段槽位。
+var stageCNNames = map[string]string{
+	plugin.LayerR1:  "需求解析",
+	plugin.LayerR2:  "变更理解",
+	plugin.LayerR3:  "完成度判定",
+	plugin.LayerR35: "报告反思",
+	plugin.LayerR4:  "专家插件",
+	plugin.LayerR5:  "终审裁决",
+}
+
+// stageSlot stage 在 StageTimeline 中的槽位：精确匹配优先；未命中回退前缀匹配
+// （与 llm.StageRouter 同语义——LayerR1 前缀命中 LayerR1A 子阶段），最长前缀胜出。
+// 词表外（含空串）返回 -1。
+func stageSlot(stage string) int {
+	for i, s := range plugin.StageTimeline {
+		if s == stage {
+			return i
+		}
+	}
+	best := -1
+	for i, s := range plugin.StageTimeline {
+		if strings.HasPrefix(stage, s) && (best < 0 || len(s) > len(plugin.StageTimeline[best])) {
+			best = i
+		}
+	}
+	return best
+}
+
+// stageProgressBar 执行期阶段进度条（v6.1.5）：已过 ✅、当前 ⏳、未到显式
+// 「未开始」，顺序即 plugin.StageTimeline 规范序。current 不在词表时全部按
+// 「未开始」展示（保守：宁可不声称进度，也不错报完成）。纯函数，独立可测。
+func stageProgressBar(current string) string {
+	cur := stageSlot(current)
+	parts := make([]string, 0, len(plugin.StageTimeline))
+	for i, s := range plugin.StageTimeline {
+		switch {
+		case i == cur:
+			parts = append(parts, fmt.Sprintf("%s %s ⏳", s, stageCNNames[s]))
+		case cur >= 0 && i < cur:
+			parts = append(parts, fmt.Sprintf("%s %s ✅", s, stageCNNames[s]))
+		default:
+			parts = append(parts, fmt.Sprintf("%s %s 未开始", s, stageCNNames[s]))
+		}
+	}
+	return "进度：" + strings.Join(parts, " · ")
+}
+
+// startMarkerProgressBody 执行期 start marker 文案（v6.1.5）：「审查中」+ 阶段
+// 进度条 + 幂等锚点。锚点格式与 postStartMarker 初版及三态收口一致，setStartMarker
+// 扫锚点原地更新的定位逻辑复用同一条锚点线。
+func startMarkerProgressBody(taskID, stage string) string {
+	return fmt.Sprintf("🔍 Argus 审查中…\n\n%s\n\n<!-- argus:start task_id=%s -->",
+		stageProgressBar(stage), taskID)
+}
+
 // postStartMarker 审查开始时在 MR 上留一条"审查中"评论，便于用户感知进度。
 // 失败不阻塞审查流程（仅告警）。
 // 幂等复用（v3.8.0）：先找最近的 start-marker 评论，存在则原地更新其 task_id
