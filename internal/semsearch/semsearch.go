@@ -6,7 +6,10 @@
 // SymbolContext 单符号上下文两个图查询——调用边自产自 chunk 同一次 AST 解析
 // （见 chunks.go/graph.go）。v5.10.0：节点键迁移 NodeKey 契约（dir 限定消歧
 // 跨包同名），EdgeAugmenter 精确边注入钩子（档一接口，实现方经 WithEdges
-// 注入，成功应用后精确边替换词法邻接、Manager.Precise 透出模式）。
+// 注入，成功应用后精确边替换词法邻接、Manager.Precise 透出模式）。v5.11.0：
+// embedder 允许 nil（纯图模式）——图查询（Path/SymbolContext/命中邻接）零
+// embedding 依赖，Search/Manager.Search 在 Index.Search 单源拦截报错；审查
+// 管线以 NewIndex(nil) 接图，不被 ARGUS_EMBEDDING_* 绑架。
 //
 // 行业坐标（2026-10 调研）：审查是异步、准确率优先、延迟不敏感的任务，预索引
 // 在审查场景的价值高于编码助手场景（Greptile 全库图/Ellipsis 向量+历史 PR 索引
@@ -68,7 +71,8 @@ type fileFP struct {
 }
 
 // Index 一个工作副本目录的语义索引（进程内存驻留；工作副本生命周期由池侧
-// TTL 管理，本包不做目录清理）。
+// TTL 管理，本包不做目录清理）。embedder 为 nil 即纯图模式（v5.11.0）：图面
+// 可用，Search 拦截报错。
 type Index struct {
 	embedder Embedder
 
@@ -91,7 +95,10 @@ type Index struct {
 	precise   bool
 }
 
-// NewIndex 构建空索引（Refresh 前检索返回空）。
+// NewIndex 构建空索引（Refresh 前检索返回空）。e 允许 nil（v5.11.0 纯图模式）：
+// Refresh 照常扫文件抽 chunk/边/建图，仅跳过向量化（vecs 置 nil）；Search
+// （含 Manager.Search——经 Index.Search 到达同一拦截，单源）返回「语义检索
+// 未启用」error，图查询 Path/SymbolContext/Size/Truncated 不受影响。
 func NewIndex(e Embedder) *Index {
 	return &Index{
 		embedder:       e,
@@ -120,7 +127,8 @@ func WithEdges(a EdgeAugmenter) Option {
 	return func(m *Manager) { m.aug = a }
 }
 
-// NewManager 构建管理器（opts 按序应用）。
+// NewManager 构建管理器（opts 按序应用）。e 允许 nil（v5.11.0）=纯图 Manager：
+// 所建 Index 同为纯图模式（图查询可用、Search 报错）。
 func NewManager(e Embedder, opts ...Option) *Manager {
 	m := &Manager{embedder: e, idx: map[string]*Index{}}
 	for _, o := range opts {
@@ -210,10 +218,22 @@ func (ix *Index) Truncated() bool {
 	return ix.truncated
 }
 
+// Precise 索引是否处于精确边模式（v5.11.0 导出直建 Index 的读面；Manager.Precise
+// 是同判的目录入口）：最近一次 Refresh 成功应用 EdgeAugmenter 精确边为 true；
+// false=纯词法/augmenter 未配置/失败闩降级。图工具据此注明「词法级边」或
+// 「类型解析级边（go/types）」。
+func (ix *Index) Precise() bool {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.precise
+}
+
 // Refresh 扫描目录并增量刷新索引：新文件/指纹变更的文件重新抽 chunk 并批量
 // 向量化，消失的文件整组剔除。单文件扫描失败跳过（与 codesearch 同宽容度）；
-// embedding 失败原样上抛（调用方决定降级文案）。收尾顺带跑精确边钩子
-// （applyAugLocked：签名变了才拉边，成功应用即精确模式）。
+// embedding 失败原样上抛（调用方决定降级文案）。embedder 为 nil（纯图模式）
+// 时跳过向量化——chunk/边照常落地（vecs 置 nil），图面与 Size/Truncated 语义
+// 不变。收尾顺带跑精确边钩子（applyAugLocked：签名变了才拉边，成功应用即
+// 精确模式）。
 func (ix *Index) Refresh(ctx context.Context, dir string) error {
 	found, err := scanDir(dir)
 	if err != nil {
@@ -276,6 +296,18 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 	if len(todo) == 0 {
 		return nil
 	}
+	// 纯图模式（v5.11.0）：embedder 未注入——跳过向量化，chunk/边照常落地
+	//（vecs 置 nil），图随 rebuildGraphLocked 照建；Search 面在 Index.Search
+	// 单源拦截（Manager.Search 复用该判断）。
+	if ix.embedder == nil {
+		for _, p := range todo {
+			ix.files[p.rel] = &fileIndex{fp: p.fp, chunks: p.chunks, edges: p.edges}
+		}
+		ix.rebuildPathsLocked()
+		ix.applyAugLocked(ctx, dir, found)
+		ix.rebuildGraphLocked()
+		return nil
+	}
 	// 批量向量化（一次 Embed 调用摊薄 HTTP 往返）。
 	var texts []string
 	for _, p := range todo {
@@ -316,8 +348,12 @@ func (ix *Index) rebuildPathsLocked() {
 }
 
 // Search 按 query 向量对全库 chunk 余弦打分，取相似度降序 topK（minScore>0 时
-// 过滤低分命中）。
+// 过滤低分命中）。纯图模式（embedder nil，v5.11.0）返回「语义检索未启用」
+// error——Manager.Search 经本方法到达同一判断，拦截单源在此（Manager 层不重复）。
 func (ix *Index) Search(ctx context.Context, query string, topK int, minScore float32) ([]Hit, error) {
+	if ix.embedder == nil {
+		return nil, fmt.Errorf("语义检索未启用（未配置 embedding）")
+	}
 	qv, err := ix.embedder.Embed(ctx, []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("query 向量化失败: %w", err)

@@ -134,7 +134,10 @@ gitleaks 全程 `--redact` 且密钥原文绝不进意见。
 
 变更含 Go 文件且工作副本可用时，审查 agent 额外获得 `get_symbol`（定义/签名定位）与
 `get_references`（跨文件调用方/使用点）两个工具，并自动注入「本次变更触达的符号」入口
-清单（纯 go/parser 确定性索引，零 LLM；非 Go 变更自动跳过）。
+清单（纯 go/parser 确定性索引，零 LLM；非 Go 变更自动跳过）。v5.11.0 起另有消歧符号图两件：
+`get_trace`（两符号间 ≤4 跳调用链，改动传导/上游来源核查）与 `get_symbol_context`（单符号
+定义+调用方+被调全景，同名候选合并时显式透出）——纯图模式零 embedding 依赖，默认词法级边，
+部署启用 `ARGUS_GRAPH_PRECISE` 时为 go/types 类型解析级边。
 
 ### 5.4 testgen 沙箱验证（v3.22.0，默认关）
 

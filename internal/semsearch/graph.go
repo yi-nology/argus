@@ -16,7 +16,9 @@
 //
 // 边界（与 codeintel/get_callers 同款声明）：词法级边，接口分派/动态派发/
 // 方法值不可见；同名符号多候选合并邻接——引用前须 get_file 核实。向量与图
-// 同索引共存，Refresh 重建 chunk/向量与图两个面。
+// 同索引共存，Refresh 重建 chunk/向量与图两个面；v5.11.0 起向量可缺省
+// （NewIndex(nil) 纯图模式）——图面零 embedding 依赖，Search 在 Index.Search
+// 单源拦截报错。
 package semsearch
 
 import (

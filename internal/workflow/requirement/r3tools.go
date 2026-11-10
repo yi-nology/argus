@@ -16,6 +16,7 @@ import (
 
 	"argus/internal/codesearch"
 	"argus/internal/plugin"
+	"argus/internal/semsearch"
 )
 
 // r3Tools R3 的工具表（每个任务构造一次，闭包绑定任务上下文）。
@@ -41,6 +42,10 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 		return nil, "", err
 	}
 	getSymbol, getRefs, getCallers, getPoly, err := w.r3CodeGraphTools()
+	if err != nil {
+		return nil, "", err
+	}
+	getTrace, getSymCtx, err := w.r3GraphTools()
 	if err != nil {
 		return nil, "", err
 	}
@@ -73,6 +78,14 @@ func (w *Workflow) r3Tools(ctx context.Context, task plugin.Task,
 	if getPoly != nil {
 		table.Add(toolprior.Entry{Tool: getPoly, Priority: toolprior.PriorityCore,
 			When: "diff 涉及 Python/JS/TS 函数且需核实定义/参数时使用", Cost: "low"})
+	}
+	if getTrace != nil {
+		table.Add(toolprior.Entry{Tool: getTrace, Priority: toolprior.PriorityCore,
+			When: "查两符号间调用链路（改动如何传导/上游从哪进来）", Cost: "low"})
+	}
+	if getSymCtx != nil {
+		table.Add(toolprior.Entry{Tool: getSymCtx, Priority: toolprior.PriorityCore,
+			When: "查符号定义+调用方+被调全景（消歧后，比 get_callers 全）", Cost: "low"})
 	}
 	if st := w.r3SearchTool(); st != nil {
 		table.Add(toolprior.Entry{Tool: st, Priority: toolprior.PriorityCore,
@@ -242,6 +255,139 @@ func (w *Workflow) r3CodeGraphTools() (getSymbol, getRefs, getCallers, getPoly t
 	return getSymbol, getRefs, getCallers, getPoly, nil
 }
 
+// ---------- 消歧符号图工具（v5.11.0 纯图模式） ----------
+
+// 图边向词表（semsearch.SymRef.Rel；semsearch 不导出关系词表，与 qa 包同款
+// 手写单点，改 semsearch 词表须同步两处）。
+const (
+	graphRelCalls    = "calls"     // 本步调用下一步
+	graphRelCalledBy = "called_by" // 本步被下一步调用（无向 BFS 逆向步）
+)
+
+// graphTraceHops get_trace 跳数（与 semsearch graphHopsDefault 同值手写，改此须同步）。
+const graphTraceHops = 4
+
+// graphNeighborCap get_symbol_context 调用方/被调单侧文案上限（底座
+// graphCallersCap/graphCalleesCap 同值——底座已封顶，此处只管渲染文案）。
+const graphNeighborCap = 8
+
+// graphEdgeNote 图面边界措辞随精确边模式切换（precise=Index.Precise()）：
+// ARGUS_GRAPH_PRECISE 部署开启且成功应用精确边时为 go/types 类型解析级
+// （接口分派/方法值不可见），否则词法级。get_trace/get_symbol_context 提示共用
+// （qa.edgeQualityNote 同款措辞的 requirement 包内单点）。
+func graphEdgeNote(precise bool) string {
+	if precise {
+		return "类型解析级边（go/types；接口分派/方法值不可见）"
+	}
+	return "词法级边（接口分派/方法值不可见）"
+}
+
+// r3GraphTools 消歧符号图工具对（v5.11.0 纯图模式）：get_trace 两符号最短调用
+// 链 + get_symbol_context 单符号全景。w.Graph 为 nil（图索引未注入：codegraph
+// 关闭/工作副本不可用/图构建失败降级）时返回 nil（不进表）——与 CodeGraph
+// 四件套独立判空互不绑定；降级文案为提示文本非 error（查无结果是正常查询结果）。
+func (w *Workflow) r3GraphTools() (getTrace, getSymCtx tool.BaseTool, err error) {
+	if w.Graph == nil {
+		return nil, nil, nil
+	}
+	getTrace, err = utils.InferTool("get_trace",
+		"查询两个 Go 符号间的最短调用链（无向 BFS，≤4 跳）——改动如何传导到下游、上游从哪里进来。返回逐跳链，每步带 file:line。",
+		func(ctx context.Context, in *traceIn) (*symOut, error) {
+			if w.Graph == nil {
+				return &symOut{Result: "符号图未注入（本次审查不可用图查询，改用 get_callers/get_references）"}, nil
+			}
+			from, to := strings.TrimSpace(in.From), strings.TrimSpace(in.To)
+			if from == "" || to == "" {
+				return &symOut{Result: "from/to 均不能为空"}, nil
+			}
+			chain, found := w.Graph.Path(from, to, graphTraceHops)
+			if !found {
+				// 不可达/符号不在图内是正常查询结果：提示文本非 error，注明边界。
+				return &symOut{Result: fmt.Sprintf(
+					"未找到 %s → %s 的 ≤%d 跳调用链（%s，可改用 get_callers 查调用形态）",
+					from, to, graphTraceHops, graphEdgeNote(w.Graph.Precise()))}, nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "get_trace（%s → %s）≤%d 跳最短调用链，%s，引用前须 get_file 核实：\n",
+				from, to, graphTraceHops, graphEdgeNote(w.Graph.Precise()))
+			for i, r := range chain {
+				if i > 0 {
+					switch r.Rel {
+					case graphRelCalls:
+						b.WriteString("—calls→ ")
+					case graphRelCalledBy:
+						b.WriteString("—called_by→ ")
+					}
+				}
+				if r.Path != "" {
+					fmt.Fprintf(&b, "%s (%s:%d)\n", r.Symbol, r.Path, r.Line)
+				} else {
+					fmt.Fprintf(&b, "%s\n", r.Symbol)
+				}
+			}
+			return &symOut{Result: DataFence("get_trace 调用链（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+	getSymCtx, err = utils.InferTool("get_symbol_context",
+		"查询 Go 符号定义位置、调用方与被调全景（消歧符号图，比 get_callers 全；同名多候选合并邻接）。返回 定义 file:line + 调用方/被调列表。",
+		func(ctx context.Context, in *symIn) (*symOut, error) {
+			if w.Graph == nil {
+				return &symOut{Result: "符号图未注入（本次审查不可用图查询，改用 get_callers/get_references）"}, nil
+			}
+			name := strings.TrimSpace(in.Name)
+			if name == "" {
+				return &symOut{Result: "name 不能为空"}, nil
+			}
+			self, callers, callees, cands, ok := w.Graph.SymbolContext(name)
+			if !ok {
+				// 未解析到符号是正常查询结果：提示文本非 error。
+				return &symOut{Result: fmt.Sprintf("未在符号图内解析到符号 %q（裸名或 dir.Recv.Name 全名均可）", name)}, nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "get_symbol_context（symbol=%s）\n", name)
+			if self.Path != "" {
+				fmt.Fprintf(&b, "定义：%s (%s:%d)\n", self.Symbol, self.Path, self.Line)
+			} else {
+				fmt.Fprintf(&b, "定义：%s\n", self.Symbol)
+			}
+			// 候选数 >1 即邻接为同名合并，提示引用前逐候选核实（v5.10.0 同款语义）。
+			if cands > 1 {
+				fmt.Fprintf(&b, "同名候选 %d 处，邻接已合并（引用前须逐候选核实）\n", cands)
+			}
+			fmt.Fprintf(&b, "%s，引用前须 get_file 核实\n", graphEdgeNote(w.Graph.Precise()))
+			if seg := renderGraphNeighbors(callers); seg != "" {
+				fmt.Fprintf(&b, "调用方（≤%d）：%s\n", graphNeighborCap, seg)
+			}
+			if seg := renderGraphNeighbors(callees); seg != "" {
+				fmt.Fprintf(&b, "被调（≤%d）：%s\n", graphNeighborCap, seg)
+			}
+			return &symOut{Result: DataFence("get_symbol_context 图上下文（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+	return getTrace, getSymCtx, nil
+}
+
+// renderGraphNeighbors 图邻接单行渲染（get_symbol_context 调用方/被调用）：有
+// 定义位置带 (file:line)，无位置（预算截断挤出 loc 的边残留）只显符号；「、」分隔。
+func renderGraphNeighbors(refs []semsearch.SymRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r.Path != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s:%d)", r.Symbol, r.Path, r.Line))
+		} else {
+			parts = append(parts, r.Symbol)
+		}
+	}
+	return strings.Join(parts, "、")
+}
+
 // r3SearchTool search_code 全文检索工具（v3.84.0）：工作副本上的受控正则搜索，
 // 覆盖符号索引到不了的词法线索（字符串/配置/非 Go 代码）。未注入工作副本路径
 // （功能关闭/无工作副本池/无纳入文件）时返回 nil（不进表）。
@@ -370,6 +516,11 @@ type getDetailIn struct {
 
 type symIn struct {
 	Name string `json:"name" jsonschema:"description=符号名（函数/方法/类型/变量名）"`
+}
+
+type traceIn struct {
+	From string `json:"from" jsonschema:"description=起始符号名（裸名或 dir.Recv.Name 全名）"`
+	To   string `json:"to" jsonschema:"description=目标符号名（裸名或 dir.Recv.Name 全名）"`
 }
 
 type symOut struct {

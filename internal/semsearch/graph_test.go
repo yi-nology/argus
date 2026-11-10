@@ -13,6 +13,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -665,5 +666,78 @@ func TestManagerWithEdges(t *testing.T) {
 	}
 	if m2.Precise(failDir) {
 		t.Error("augmenter 失败后 Precise 应为 false（降级词法）")
+	}
+}
+
+// TestGraphOnlyMode 纯图模式（v5.11.0）：NewIndex(nil) 合法——Refresh 照常扫
+// 文件抽 chunk/边/建图（Path/SymbolContext 正常、Size 照常、vecs 置 nil）、
+// Search/Manager.Search 报「语义检索未启用」（Index.Search 单源拦截）、Precise
+// 反映 augmenter 结果（nil augmenter 恒 false）。审查管线（runner→requirement）
+// 用本形态接图：图查询零 embedding 依赖，不被 ARGUS_EMBEDDING_* 绑架。
+func TestGraphOnlyMode(t *testing.T) {
+	dir := graphFixture(t)
+	ix := NewIndex(nil)
+	ctx := context.Background()
+	if err := ix.Refresh(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	// 图查询正常：Path 最短链与 SymbolContext 同 embedder 模式。
+	chain, ok := ix.Path("Alpha", "Delta", graphHopsDefault)
+	if !ok {
+		t.Fatal("纯图模式 Alpha→Delta 应可达")
+	}
+	assertChain(t, chain,
+		[]string{"Alpha", "Beta", "Gamma", "Delta"},
+		[]string{"", relCalls, relCalls, relCalls})
+	self, in, out, cands, ok := ix.SymbolContext("Beta")
+	if !ok || cands != 1 {
+		t.Fatalf("纯图模式 SymbolContext: ok=%v cands=%d", ok, cands)
+	}
+	if self.Symbol != "Beta" || self.Path != "a.go" || self.Line != 9 {
+		t.Errorf("self = %+v, want Beta a.go:9", self)
+	}
+	if len(in) != 1 || in[0].Symbol != "Alpha" || in[0].Rel != relCaller ||
+		len(out) != 2 || out[0].Symbol != "Gamma" || out[1].Symbol != "util.Gamma" {
+		t.Errorf("in=%+v out=%+v", in, out)
+	}
+	// embedding 步确实跳过：落地 fileIndex 的 vecs 置 nil；Size/Truncated 照常。
+	ix.mu.Lock()
+	vecsNil := ix.files["a.go"] != nil && ix.files["a.go"].vecs == nil
+	ix.mu.Unlock()
+	if !vecsNil {
+		t.Error("纯图模式 vecs 应置 nil（embedding 步跳过）")
+	}
+	if ix.Size() == 0 {
+		t.Error("Size 照常（chunk 照常落地）")
+	}
+	if ix.Truncated() {
+		t.Error("小夹具不应触达上限")
+	}
+	// Search 拦截（Index 直用）与 Manager 路径（经 Index.Search 同一拦截单源）。
+	if _, err := ix.Search(ctx, "db", 3, 0); err == nil || !strings.Contains(err.Error(), "语义检索未启用") {
+		t.Errorf("纯图模式 Search 应报「语义检索未启用」, got %v", err)
+	}
+	m := NewManager(nil)
+	if _, err := m.Search(ctx, dir, "db", 3, 0); err == nil || !strings.Contains(err.Error(), "语义检索未启用") {
+		t.Errorf("纯图 Manager.Search 应同款报错, got %v", err)
+	}
+	// Manager 图查询面照常（Trace/SymbolContext 不碰 embedder）。
+	if _, found, err := m.Trace(ctx, dir, "Alpha", "Gamma"); err != nil || !found {
+		t.Errorf("纯图 Manager.Trace: found=%v err=%v", found, err)
+	}
+	// Precise 读面：nil augmenter 恒 false；注入 augmenter 成功后 true。
+	if ix.Precise() {
+		t.Error("nil augmenter 时 Index.Precise 应为 false")
+	}
+	if m.Precise(dir) {
+		t.Error("nil augmenter 时 Manager.Precise 应为 false")
+	}
+	aug := &stubAugmenter{edges: [][2]string{{"util.Gamma", "Delta"}}}
+	m2 := NewManager(nil, WithEdges(aug))
+	if _, _, err := m2.Trace(ctx, dir, "Alpha", "Gamma"); err != nil {
+		t.Fatal(err)
+	}
+	if !m2.Precise(dir) {
+		t.Error("精确边应用后 Manager.Precise 应为 true（纯图模式同款判定）")
 	}
 }

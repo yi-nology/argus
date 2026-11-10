@@ -109,7 +109,10 @@ var layering = map[string][]string{
 	"argus/internal/workflow/requirement": {
 		"argus/internal/codesearch", "argus/internal/context", "argus/internal/domain",
 		"argus/internal/dispatch",
-		"argus/internal/obs", "argus/internal/plugin", "argus/internal/toolpool",
+		"argus/internal/obs", "argus/internal/plugin",
+		// v5.11.0：图面进审查管线——Workflow.Graph 字段与 get_trace/
+		// get_symbol_context 工具渲染消费 semsearch（SymRef/Index.Precise）。
+		"argus/internal/semsearch", "argus/internal/toolpool",
 	},
 	"argus/internal/runner": {
 		"argus/internal/domain", "argus/internal/config", "argus/internal/context",
@@ -118,7 +121,8 @@ var layering = map[string][]string{
 		"argus/internal/memorykernel",
 		"argus/internal/notify", "argus/internal/ocrdeleg", "argus/internal/plugin",
 		"argus/internal/poster", "argus/internal/progress", "argus/internal/reposettings", "argus/internal/reportview",
-		"argus/internal/sastscan", "argus/internal/sink", "argus/internal/storage",
+		// v5.11.0：injectCodeGraph 同工作副本再建消歧符号图（semsearch 纯图模式）。
+		"argus/internal/sastscan", "argus/internal/semsearch", "argus/internal/sink", "argus/internal/storage",
 		"argus/internal/toolpool", "argus/internal/workflow/requirement", "argus/internal/writing",
 	},
 	"argus/internal/service": {

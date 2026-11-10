@@ -19,6 +19,7 @@ import (
 	"argus/internal/dispatch"
 	"argus/internal/domain"
 	"argus/internal/plugin"
+	"argus/internal/semsearch"
 	"argus/internal/toolpool"
 
 	"github.com/oagentkit/textx/codeintel"
@@ -131,6 +132,12 @@ type Workflow struct {
 	// CodeGraph Go 符号索引（v3.15.0 P0-1：runner 工作副本上建好后注入；
 	// 非 nil 时 r3Tools/R4 ReviewTools 挂 get_symbol/get_references 工具）。
 	CodeGraph *codeintel.Index
+	// Graph 消歧符号图（v5.11.0，纯图模式；nil=未启用）：runner injectCodeGraph
+	// 在工作副本上以 semsearch.NewIndex(nil) 建好后注入——图查询零 embedding
+	// 依赖（无 ARGUS_EMBEDDING_* 部署同样可用，不被绑架），r3Tools/R4
+	// ReviewTools 挂 get_trace/get_symbol_context；影响面与 get_callers 词法面
+	// 互补（与 CodeGraph 独立判空，互不绑定）。
+	Graph *semsearch.Index
 	// CodeSearchDir 工作副本根路径（v3.84.0：runner 就绪后注入；非空时 r3Tools/R4
 	// ReviewTools 挂 search_code 全文检索工具，覆盖符号索引到不了的词法线索）。
 	// 池语义：注入只记路径不持引用，目录由 workcopy TTL 兜底存活；工具侧读不到
