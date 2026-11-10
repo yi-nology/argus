@@ -12,29 +12,29 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/mark3labs/mcp-go v1.5.0
-	github.com/oagentkit/agent v0.14.5
-	github.com/oagentkit/guardx v0.23.4
-	github.com/oagentkit/llm v0.21.5
-	github.com/oagentkit/mcpkit v0.12.4
-	github.com/oagentkit/obs v0.9.13
-	github.com/oagentkit/queue v0.10.4
-	github.com/oagentkit/rag v0.11.4
-	github.com/oagentkit/runtime v0.12.4
-	github.com/oagentkit/skillkit v0.10.2
-	github.com/oagentkit/textx v0.10.4
-	github.com/oagentkit/toolgate v0.15.3
-	github.com/oagentkit/tools v0.13.4
-	github.com/oekit/bootstrap v0.6.16
-	github.com/oekit/concurrency v0.31.2
-	github.com/oekit/core v0.13.6
-	github.com/oekit/data v0.20.7
-	github.com/oekit/hertz v0.10.7
-	github.com/oekit/kitx v0.4.3
-	github.com/oekit/logx v0.9.1
-	github.com/oekit/metrics v0.1.17
-	github.com/oekit/middleware v0.13.15
-	github.com/oekit/pkg v0.41.1
-	github.com/oekit/tracing v0.3.7
+	github.com/oagentkit/agent v0.14.8
+	github.com/oagentkit/guardx v0.24.1
+	github.com/oagentkit/llm v0.21.8
+	github.com/oagentkit/mcpkit v0.12.8
+	github.com/oagentkit/obs v0.9.15
+	github.com/oagentkit/queue v0.11.1
+	github.com/oagentkit/rag v0.11.7
+	github.com/oagentkit/runtime v0.12.6
+	github.com/oagentkit/skillkit v0.10.4
+	github.com/oagentkit/textx v0.10.7
+	github.com/oagentkit/toolgate v0.17.0
+	github.com/oagentkit/tools v0.14.3
+	github.com/oekit/bootstrap v0.7.5
+	github.com/oekit/concurrency v0.32.0
+	github.com/oekit/core v0.14.0
+	github.com/oekit/data v0.20.11
+	github.com/oekit/hertz v0.11.4
+	github.com/oekit/kitx v0.6.2
+	github.com/oekit/logx v0.9.2
+	github.com/oekit/metrics v0.2.3
+	github.com/oekit/middleware v0.16.2
+	github.com/oekit/pkg v0.42.0
+	github.com/oekit/tracing v0.3.10
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-harness v0.27.1
 	github.com/yi-nology/agent-memory v0.10.0
@@ -140,8 +140,8 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oekit/gormx v0.11.7 // indirect
-	github.com/oekit/registry v0.5.9 // indirect
+	github.com/oekit/gormx v0.11.11 // indirect
+	github.com/oekit/registry v0.5.14 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
