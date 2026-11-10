@@ -115,7 +115,26 @@ func TestBuildRepoMapIsolatedDirs(t *testing.T) {
 	if !got["pkg:isolated"] {
 		t.Errorf("孤岛子包节点应入图: %v", got)
 	}
-	if len(snap.Edges) != 0 {
-		t.Errorf("无依赖边仓 edges 应为空: %v", snap.Edges)
+	// v6.1.4 小仓文件级展开：文件节点 + contains 边 + Detail 导出符号清单。
+	if !got["file:validator.go"] {
+		t.Errorf("小仓文件节点应入图: %v", got)
+	}
+	hasContains := false
+	for _, e := range snap.Edges {
+		if e.Rel == RelContains && e.From == "pkg:." && e.To == "file:validator.go" {
+			hasContains = true
+		}
+	}
+	if !hasContains {
+		t.Errorf("根目录→validator.go contains 边缺失: %v", snap.Edges)
+	}
+	var validator *Node
+	for i := range snap.Nodes {
+		if snap.Nodes[i].ID == "file:validator.go" {
+			validator = &snap.Nodes[i]
+		}
+	}
+	if validator == nil || !strings.Contains(validator.Detail, "Validate()") {
+		t.Errorf("文件节点 Detail 应带导出符号清单: %+v", validator)
 	}
 }

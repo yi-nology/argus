@@ -8,6 +8,10 @@
 package impactview
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -17,8 +21,10 @@ import (
 
 // 封顶：整仓图按"地形图"定位，超限截断+注明，不做无限展开。
 const (
-	MaxMapDirs  = 300  // 目录节点上限
-	MaxMapEdges = 1500 // 目录依赖边上限
+	MaxMapDirs     = 300  // 目录节点上限
+	MaxMapEdges    = 1500 // 目录依赖边上限
+	mapFileNodeCap = 24   // v6.1.4 小仓文件级展开的 Go 文件上限（超限不展开）
+	mapExportCap   = 5    // 文件节点 Detail 导出符号清单上限
 )
 
 // BuildRepoMap 扫描工作副本产出整仓目录依赖图。永不报错：失败面由 Notes
@@ -128,6 +134,82 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 						addDir(relDir(r))
 					}
 				}
+			}
+		}
+	}
+
+	// ---- v6.1.4 小仓文件级展开：目录节点 ≤3 且 Go 文件 ≤24 的仓，文件节点入图
+	//（单包仓从「一个孤点」变成「包+文件+contains 边」的可用地图；文件节点
+	// Detail=导出符号清单 cap5——评审者点开单包仓分享页能看到仓库真实内容）。
+	// 大仓不展开：目录级才是它的地形图，文件级会爆炸。排除集与 scanWorkspace
+	// 同款（.git/vendor/node_modules/.zcode）。
+	if len(s.Nodes) > 0 && len(s.Nodes) <= 3 {
+		var goFiles []string
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != dir {
+					switch d.Name() {
+					case ".git", "vendor", "node_modules", ".zcode":
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}
+			if !d.Type().IsRegular() || !strings.HasSuffix(d.Name(), ".go") {
+				return nil
+			}
+			rel, rerr := filepath.Rel(dir, path)
+			if rerr != nil {
+				return nil
+			}
+			goFiles = append(goFiles, rel)
+			if len(goFiles) > mapFileNodeCap {
+				return filepath.SkipAll // cap-abort（合法用法：超限即止）
+			}
+			return nil
+		})
+		sort.Strings(goFiles)
+		if len(goFiles) > 0 && len(goFiles) <= mapFileNodeCap {
+			fset := token.NewFileSet()
+			for _, rel := range goFiles {
+				pkgDir := relDir(rel)
+				var detail string
+				if f, perr := parser.ParseFile(fset, filepath.Join(dir, filepath.FromSlash(rel)), nil, 0); perr == nil {
+					var exports []string
+					for _, decl := range f.Decls {
+						switch dd := decl.(type) {
+						case *ast.FuncDecl:
+							if dd.Recv == nil && dd.Name.IsExported() {
+								exports = append(exports, dd.Name.Name+"()")
+							}
+						case *ast.GenDecl:
+							for _, spec := range dd.Specs {
+								switch ss := spec.(type) {
+								case *ast.TypeSpec:
+									if ss.Name.IsExported() {
+										exports = append(exports, ss.Name.Name)
+									}
+								case *ast.ValueSpec:
+									for _, nm := range ss.Names {
+										if nm.IsExported() {
+											exports = append(exports, nm.Name)
+										}
+									}
+								}
+							}
+						}
+					}
+					if len(exports) > mapExportCap {
+						exports = exports[:mapExportCap]
+					}
+					detail = strings.Join(exports, " ")
+				}
+				addDir(pkgDir)
+				s.Nodes = append(s.Nodes, Node{ID: "file:" + rel, Kind: KindFile, Label: filepath.Base(rel), Detail: detail})
+				s.Edges = append(s.Edges, Edge{From: "pkg:" + pkgDir, To: "file:" + rel, Rel: RelContains})
 			}
 		}
 	}

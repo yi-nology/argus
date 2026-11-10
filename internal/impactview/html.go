@@ -43,6 +43,9 @@ type ViewOpts struct {
 	Compare  *ImpactCompare // 同 MR 上一轮快照的集合差(nil=无对比面)
 	// History 文件意见历史档案(v5.8.2 惯犯文件热力;key=file 相对路径)
 	History map[string]storage.FindingFileHistory
+	// RepoMode 仓库地图页模式(v6.1.4):图例措辞切换(「受影响文件/波及」是
+	// 影响面语境;地图页节点=包/文件,边=依赖关系词)。
+	RepoMode bool
 }
 
 // RenderHTMLWithCompare 影响面视图 + findings + 演化对比摘要（v5.8.1）。
@@ -58,7 +61,7 @@ func RenderHTMLFull(s *Snapshot, taskID string, opts ViewOpts) string {
 // RenderRepoHTML 仓库级代码地图页（v5.6.2）：同一渲染面，页头换标题与
 // 仓库标识；空图返回空串。
 func RenderRepoHTML(s *Snapshot, repoLabel string) string {
-	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel), ViewOpts{})
+	return renderImpactHTML(s, "", "Argus 仓库代码地图", html.EscapeString(repoLabel), ViewOpts{RepoMode: true})
 }
 
 func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpts) string {
@@ -73,9 +76,14 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpt
 	dataStr := strings.ReplaceAll(string(data), "</", `<\/`) // script 内闭合防线
 	vn, vi, ve := viewGraph(vs)
 	pos, w, h := layoutSVG(vn, ve)
+	legendNodes, legendEdges := impactLegend(), impactLegendEdges()
+	if opts.RepoMode {
+		legendNodes, legendEdges = repoLegend(), repoLegendEdges()
+	}
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
 		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings)), w, h,
-		findingsJSON(opts.Findings), compareSummary(opts.Compare), historyJSON(opts.History))
+		findingsJSON(opts.Findings), compareSummary(opts.Compare), historyJSON(opts.History),
+		legendNodes, legendEdges)
 }
 
 // maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
@@ -327,7 +335,27 @@ func truncateRunes(s string, max int) string {
 
 // htmlTemplate 单文件 HTML（内联样式与脚本，零外链）。title/headLabel 支撑
 // 影响面与仓库地图双页头（v5.6.2）。
-func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary, historyJSON string) string {
+// impactLegend/impactLegendEdges 影响面页图例（v3.183.0 原文，v6.1.4 参数化
+// 以支持地图页分语境）。
+func impactLegend() string {
+	return `<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件`
+}
+
+func impactLegendEdges() string {
+	return `import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变`
+}
+
+// repoLegend/repoLegendEdges 仓库地图页图例（v6.1.4）：无「改动/波及」语境，
+// 文件节点=仓库自有文件（Detail=导出符号清单）。
+func repoLegend() string {
+	return `<span class="lgd lgd-pkg"></span>包（目录）<span class="lgd lgd-file"></span>文件（Detail=导出符号）`
+}
+
+func repoLegendEdges() string {
+	return `import=跨包依赖 · contains=包含（目录→文件，仅小仓展开） · source=脚本装载 · lineage=表血缘`
+}
+
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary, historyJSON, legendNodes, legendEdges string) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
@@ -402,8 +430,8 @@ summary{cursor:pointer;color:#334155}
 </div>
 ` + cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
 <details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
-节点：<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件<br>
-边：import=波及依赖包 · caller=波及调用方 · source=波及装载方 · lineage=表血缘 · test_of=需跑测试 · coupled=历史共变<br>
+节点：` + legendNodes + `<br>
+边：` + legendEdges + `<br>
 徽标：文件节点右上角红点数字=该文件审查意见数（点节点看意见摘要+历史档案）。
 历史：点选文件节点的「历史档案」= 跨 MR 意见史与人工抑制计数（误报倾向参考）。交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
 </div></details>
