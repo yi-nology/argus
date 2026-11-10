@@ -3,6 +3,17 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.2.0（2026-11-11，结构重构：storage 方言收敛批 + internal/context 改名）
+
+代码结构评估后的一轮定向清理（目录结构本身经评估健康不动：arch 守卫+storage 按域拆分维持现状）。除两处标注的行为面外均为零行为变化重构。
+
+- **Dialect 方言单源收敛**（internal/storage/dialect.go）：方言判定从三源并存（`Store.sqlite`/`Store.mysql` 双 bool + `isSQLite(tx Dialector.Name())`）收敛为单一 `Dialect` 枚举（sqlite/mysql/postgres）+ `isSQLite()/isMySQL()` 方法——写门/FOR UPDATE 分支/迁移 DDL 分流全看一个字段，分支面漂移无从掩盖。
+- **isDuplicateKeyErr 归位并补 PostgreSQL 23505**：跨方言唯一冲突判定自 samesha_guard.go 迁入 dialect.go（它是方言关注点不是 samesha 专属）；⚠️ 行为修复——此前只认 MySQL 1062 + SQLite 文案，生产方言 pg（v5.4.8 起）撞唯一键被当普通错误上抛：MarkCommentDelivery 幂等命中误报失败、CreateTaskForWebhook/CreateTaskDirectIfIdle 的 duplicate 回退分支在 pg 上永不触发。现按 `*pgconn.PgError Code=23505` 判定 + "duplicate key value violates" 字符串兜底（类型被中间层抹掉的形态）。
+- **GetTaskByEventID 补 ErrNotFound 哨兵**：此前裸透 `gorm.ErrRecordNotFound`，违反本包自定契约「ORM 错误语义不出 storage 包」；两个消费点（service_webhook 幂等预查、CreateTaskForWebhook 冲突回查）均按非 nil 即未命中处理，行为不变。新增 TestGetTaskByEventIDNotFound 钉契约。
+- **writeLock/defer writeUnlock 30 处收编 withWrite**：取锁与 defer 解锁闭合进 `withWrite(fn)`——「忘 defer 解锁 → SQLite 写锁永久持有」从人肉纪律问题变成语法上不可能。多返回值站点以具名结果在闭包内赋值；锁覆盖范围零变化（收编前 30/30 配对全对，纯结构加固）。
+- **store.go 拆分**：模型定义（Task/FindingPrint/ReviewTarget + 状态词表）拆出 models.go；GetReviewTarget/UpsertReviewTarget 归位 reviewtarget.go（全表操作单文件）；store.go 407→254 行，只剩 Store 生命周期与包级小工具。
+- **internal/context → internal/argusctx 改名**：包名与 stdlib `context` 撞名，全仓 11 个导入方被迫写 `argusctx` 别名——包名改为 argusctx 后别名税清零（import 直用包名）。波及 17 个 go 文件 + arch 白名单 + ARCHITECTURE.md 四处包名引用；历史 CHANGELOG 条目不改写。
+
 ## v5.4.4（2026-11-04，结构重构：评论指令词法层剥出）
 
 - **新包 internal/commentcmd**：@bot 评论指令「长什么样」从 service 门面（service_comment/cmd_registry/cmdparse/recheck/describe/testgen/changelog/fix/comment_router 九文件 ~500 行）剥出成纯函数包——指令目录单源（cmdCatalog：help 渲染/门控判定/冷却提示共用一张表）、词边界与 fp 短码解析、mention 词法（句中/句尾触发/引用行豁免/词边界防误命中）、各指令解析器（review/recheck/fix/describe/changelog/testgen/suppress/restore）、webhook 评论事件形态折叠（IsCommentEvent/ParseCommentMeta，canonical comment.created 与旧词表 issue_comment/cr.note 归一）。纯函数零依赖——「指令长什么样」与「指令怎么执行」分层，词法面可独立单测（三个词法测试文件随迁）。service 门面瘦身为纯执行体（dispatch*/handle*）。arch 白名单登记 service→commentcmd 边。

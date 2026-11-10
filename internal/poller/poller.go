@@ -14,7 +14,7 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/progress"

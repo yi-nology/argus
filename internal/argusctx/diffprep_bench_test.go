@@ -1,4 +1,4 @@
-package context
+package argusctx
 
 // 热路径基准（v3.25.1）：Prepare 是每 PR 必经的大文本装配点（rune 截断/噪声
 // 过滤/总量预算都在这里），基准立尺给后续优化提供可复现口径。

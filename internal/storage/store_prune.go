@@ -11,57 +11,57 @@ import (
 // （done/failed/stale；pending/running 不动）。分批删除（每批 500）——
 // 单条大 DELETE 会长事务占住 SQLite 单写连接，队头阻塞心跳（深挖修复）。
 // 返回删除行数。
-func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	var total int64
-	for {
-		var batch []string
-		if err := s.db.WithContext(ctx).Model(&Task{}).
-			Where("status IN ? AND created_at < ?", []string{StatusDone, StatusFailed, StatusStale}, cutoff).
-			Limit(500).Pluck("id", &batch).Error; err != nil {
-			return total, err
+func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (total int64, err error) {
+	err = s.withWrite(func() error {
+		for {
+			var batch []string
+			if err := s.db.WithContext(ctx).Model(&Task{}).
+				Where("status IN ? AND created_at < ?", []string{StatusDone, StatusFailed, StatusStale}, cutoff).
+				Limit(500).Pluck("id", &batch).Error; err != nil {
+				return err
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&Task{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(batch) < 500 {
+				return nil
+			}
 		}
-		if len(batch) == 0 {
-			return total, nil
-		}
-		res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&Task{})
-		total += res.RowsAffected
-		if res.Error != nil {
-			return total, res.Error
-		}
-		if len(batch) < 500 {
-			return total, nil
-		}
-	}
+	})
+	return total, err
 }
 
 // PruneQASessions 会话保留策略：updated_at 早于 cutoff 的问答会话清理（深挖修复：
 // qa_sessions 此前永不清理，history_json 持续追加单调膨胀）。分批删除（每批 500，
 // 与 PruneTasks 同理：单条大 DELETE 长事务占住 SQLite 单写连接，v3.9.1 补齐）。
 // 返回删除行数。
-func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	var total int64
-	for {
-		var batch []string
-		if err := s.db.WithContext(ctx).Model(&QASession{}).
-			Where("updated_at < ?", cutoff).Limit(500).Pluck("session_key", &batch).Error; err != nil {
-			return total, err
+func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (total int64, err error) {
+	err = s.withWrite(func() error {
+		for {
+			var batch []string
+			if err := s.db.WithContext(ctx).Model(&QASession{}).
+				Where("updated_at < ?", cutoff).Limit(500).Pluck("session_key", &batch).Error; err != nil {
+				return err
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			res := s.db.WithContext(ctx).Where("session_key IN ?", batch).Delete(&QASession{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(batch) < 500 {
+				return nil
+			}
 		}
-		if len(batch) == 0 {
-			return total, nil
-		}
-		res := s.db.WithContext(ctx).Where("session_key IN ?", batch).Delete(&QASession{})
-		total += res.RowsAffected
-		if res.Error != nil {
-			return total, res.Error
-		}
-		if len(batch) < 500 {
-			return total, nil
-		}
-	}
+	})
+	return total, err
 }
 
 // PruneStalePrints 指纹保留策略：LastSeenAt 早于 cutoff 的指纹清理（深挖修复：
@@ -70,32 +70,32 @@ func (s *Store) PruneQASessions(ctx context.Context, cutoff time.Time) (int64, e
 // 状态随行删除，同型意见若真复发会以 open 新行参与——保留期给足即可）。
 // v3.8.0：随行清理指向已删指纹的孤儿别名（print_aliases 此前无限增长）。
 // v3.9.1：分批删除（每批 500），别名清理跟随本批指纹。
-func (s *Store) PruneStalePrints(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	var total int64
-	for {
-		var batch []string
-		if err := s.db.WithContext(ctx).Model(&FindingPrint{}).
-			Where("last_seen_at < ?", cutoff).Limit(500).Pluck("print", &batch).Error; err != nil {
-			return total, err
+func (s *Store) PruneStalePrints(ctx context.Context, cutoff time.Time) (total int64, err error) {
+	err = s.withWrite(func() error {
+		for {
+			var batch []string
+			if err := s.db.WithContext(ctx).Model(&FindingPrint{}).
+				Where("last_seen_at < ?", cutoff).Limit(500).Pluck("print", &batch).Error; err != nil {
+				return err
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			res := s.db.WithContext(ctx).Where("print IN ?", batch).Delete(&FindingPrint{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if err := s.db.WithContext(ctx).
+				Where("print_fp IN ?", batch).Delete(&PrintAlias{}).Error; err != nil {
+				return err
+			}
+			if len(batch) < 500 {
+				return nil
+			}
 		}
-		if len(batch) == 0 {
-			return total, nil
-		}
-		res := s.db.WithContext(ctx).Where("print IN ?", batch).Delete(&FindingPrint{})
-		total += res.RowsAffected
-		if res.Error != nil {
-			return total, res.Error
-		}
-		if err := s.db.WithContext(ctx).
-			Where("print_fp IN ?", batch).Delete(&PrintAlias{}).Error; err != nil {
-			return total, err
-		}
-		if len(batch) < 500 {
-			return total, nil
-		}
-	}
+	})
+	return total, err
 }
 
 // RepoTokenUsage 仓库维度 token 用量聚合（月度预算/用量报表，§5 v3.1）。

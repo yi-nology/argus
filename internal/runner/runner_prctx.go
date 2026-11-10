@@ -9,7 +9,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	datacache "github.com/oekit/data/cache"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"

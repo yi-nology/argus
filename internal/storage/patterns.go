@@ -66,50 +66,50 @@ func (s *Store) bumpPattern(ctx context.Context, platform, owner, repo, pluginNa
 	key := learning.PatternKey(pluginName, f.Comment)
 	text := learning.PatternSample(f.Comment)
 
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row PatternSignal
-		err := tx.Where("platform = ? AND owner = ? AND repo = ? AND plugin = ? AND pattern_key = ?",
-			platform, owner, repo, pluginName, key).First(&row).Error
-		if err == gorm.ErrRecordNotFound {
-			row = PatternSignal{
-				Platform: platform, Owner: owner, Repo: repo,
-				Plugin: pluginName, Pattern: key, PatternText: text,
-				FirstSeenAt: at, LastSeenAt: at,
-			}
-			switch column {
-			case "posted":
-				row.Posted = 1
-			case "regret":
-				row.Regret = 1
-			case "suppress":
-				row.Suppress = 1
-			case "restore":
-				row.Restore = 1
-			default:
-				return nil
-			}
-			return tx.Create(&row).Error
-		}
-		if err != nil {
-			return err
-		}
-		if text != "" && row.PatternText == "" {
-			row.PatternText = text
-		}
-		row.LastSeenAt = at
-		return tx.Model(&row).Updates(map[string]any{
-			column:       gorm.Expr(column + " + 1"),
-			"updated_at": at,
-			"pattern_text": func() string {
-				if row.PatternText != "" {
-					return row.PatternText
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var row PatternSignal
+			err := tx.Where("platform = ? AND owner = ? AND repo = ? AND plugin = ? AND pattern_key = ?",
+				platform, owner, repo, pluginName, key).First(&row).Error
+			if err == gorm.ErrRecordNotFound {
+				row = PatternSignal{
+					Platform: platform, Owner: owner, Repo: repo,
+					Plugin: pluginName, Pattern: key, PatternText: text,
+					FirstSeenAt: at, LastSeenAt: at,
 				}
-				return text
-			}(),
-			"last_seen_at": at,
-		}).Error
+				switch column {
+				case "posted":
+					row.Posted = 1
+				case "regret":
+					row.Regret = 1
+				case "suppress":
+					row.Suppress = 1
+				case "restore":
+					row.Restore = 1
+				default:
+					return nil
+				}
+				return tx.Create(&row).Error
+			}
+			if err != nil {
+				return err
+			}
+			if text != "" && row.PatternText == "" {
+				row.PatternText = text
+			}
+			row.LastSeenAt = at
+			return tx.Model(&row).Updates(map[string]any{
+				column:       gorm.Expr(column + " + 1"),
+				"updated_at": at,
+				"pattern_text": func() string {
+					if row.PatternText != "" {
+						return row.PatternText
+					}
+					return text
+				}(),
+				"last_seen_at": at,
+			}).Error
+		})
 	})
 }
 
@@ -223,30 +223,30 @@ func (s *Store) MergePatternInto(ctx context.Context, platform, owner, repo stri
 	if keepID == 0 || dupID == 0 || keepID == dupID {
 		return nil
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var keep, dup PatternSignal
-		if err := tx.Where("id = ? AND platform = ? AND owner = ? AND repo = ?",
-			keepID, platform, owner, repo).First(&keep).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("id = ? AND platform = ? AND owner = ? AND repo = ?",
-			dupID, platform, owner, repo).First(&dup).Error; err != nil {
-			return err
-		}
-		if err := tx.Model(&keep).Updates(map[string]any{
-			"posted":        gorm.Expr("posted + ?", dup.Posted),
-			"regret":        gorm.Expr("regret + ?", dup.Regret),
-			"suppress":      gorm.Expr("suppress + ?", dup.Suppress),
-			"restore":       gorm.Expr("restore + ?", dup.Restore),
-			"last_seen_at":  laterTime(keep.LastSeenAt, dup.LastSeenAt),
-			"first_seen_at": earlierTime(keep.FirstSeenAt, dup.FirstSeenAt),
-			"updated_at":    at,
-		}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&dup).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var keep, dup PatternSignal
+			if err := tx.Where("id = ? AND platform = ? AND owner = ? AND repo = ?",
+				keepID, platform, owner, repo).First(&keep).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id = ? AND platform = ? AND owner = ? AND repo = ?",
+				dupID, platform, owner, repo).First(&dup).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&keep).Updates(map[string]any{
+				"posted":        gorm.Expr("posted + ?", dup.Posted),
+				"regret":        gorm.Expr("regret + ?", dup.Regret),
+				"suppress":      gorm.Expr("suppress + ?", dup.Suppress),
+				"restore":       gorm.Expr("restore + ?", dup.Restore),
+				"last_seen_at":  laterTime(keep.LastSeenAt, dup.LastSeenAt),
+				"first_seen_at": earlierTime(keep.FirstSeenAt, dup.FirstSeenAt),
+				"updated_at":    at,
+			}).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&dup).Error
+		})
 	})
 }
 
@@ -269,28 +269,28 @@ func earlierTime(a, b time.Time) time.Time {
 // 删除 LastSeenAt 早于 cutoff 的行——语义与 PruneStalePrints 同源：长期未复现
 // 的模式遗忘后最坏效果是"同型意见重新从头计数"，不会误杀（MinSamples 门槛
 // 保护小样本消费）。分批删除（每批 500，长事务占住 SQLite 单写连接）。
-func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (int64, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	var total int64
-	for {
-		var batch []uint
-		if err := s.db.WithContext(ctx).Model(&PatternSignal{}).
-			Where("last_seen_at < ?", cutoff).Limit(500).Pluck("id", &batch).Error; err != nil {
-			return total, err
+func (s *Store) PruneStalePatterns(ctx context.Context, cutoff time.Time) (total int64, err error) {
+	err = s.withWrite(func() error {
+		for {
+			var batch []uint
+			if err := s.db.WithContext(ctx).Model(&PatternSignal{}).
+				Where("last_seen_at < ?", cutoff).Limit(500).Pluck("id", &batch).Error; err != nil {
+				return err
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&PatternSignal{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(batch) < 500 {
+				return nil
+			}
 		}
-		if len(batch) == 0 {
-			return total, nil
-		}
-		res := s.db.WithContext(ctx).Where("id IN ?", batch).Delete(&PatternSignal{})
-		total += res.RowsAffected
-		if res.Error != nil {
-			return total, res.Error
-		}
-		if len(batch) < 500 {
-			return total, nil
-		}
-	}
+	})
+	return total, err
 }
 
 // 编译期：*Store 实现 domain.PatternStore。

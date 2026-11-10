@@ -15,7 +15,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/textutil"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/learning"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poster"

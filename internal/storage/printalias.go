@@ -207,42 +207,42 @@ func linesClose(a, b int) bool { return absDiff(a, b) <= 2 }
 // 未命中则以 line=0 的 v2 指纹预插 suppressed 行（matched=false）——真实意见
 // 下轮入库时会经近重复层并回该行，抑制随之生效。
 func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, number, file, comment string, at time.Time) (fp string, matched bool, err error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []FindingPrint
-		q := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file = ?", platform, owner, repo, number, file)
-		var best *FindingPrint
-		if err := q.Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
-			return err
-		}
-		for i := range rows {
-			if commentNear(rows[i].Comment, comment) && (best == nil || rows[i].TimesSeen > best.TimesSeen) {
-				best = &rows[i]
+	err = s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var rows []FindingPrint
+			q := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file = ?", platform, owner, repo, number, file)
+			var best *FindingPrint
+			if err := q.Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
+				return err
 			}
-		}
-		if best != nil {
-			best.Status = PrintSuppressed
-			best.LastSeenAt = at
-			matched = true
-			fp = best.Print
-			if err := tx.Save(best).Error; err != nil {
+			for i := range rows {
+				if commentNear(rows[i].Comment, comment) && (best == nil || rows[i].TimesSeen > best.TimesSeen) {
+					best = &rows[i]
+				}
+			}
+			if best != nil {
+				best.Status = PrintSuppressed
+				best.LastSeenAt = at
+				matched = true
+				fp = best.Print
+				if err := tx.Save(best).Error; err != nil {
+					return err
+				}
+				return suppressFamily(tx, platform, owner, repo, number, at)
+			}
+			fp = domain.Fingerprint(file, comment, 0)
+			p := FindingPrint{
+				Platform: platform, Owner: owner, Repo: repo, Number: number,
+				Print: fp,
+				File:  file, Comment: comment, Status: PrintSuppressed,
+				FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
+				FirstSeenAt: at, LastSeenAt: at,
+			}
+			if err := tx.Create(&p).Error; err != nil {
 				return err
 			}
 			return suppressFamily(tx, platform, owner, repo, number, at)
-		}
-		fp = domain.Fingerprint(file, comment, 0)
-		p := FindingPrint{
-			Platform: platform, Owner: owner, Repo: repo, Number: number,
-			Print: fp,
-			File:  file, Comment: comment, Status: PrintSuppressed,
-			FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
-			FirstSeenAt: at, LastSeenAt: at,
-		}
-		if err := tx.Create(&p).Error; err != nil {
-			return err
-		}
-		return suppressFamily(tx, platform, owner, repo, number, at)
+		})
 	})
 	return fp, matched, err
 }
@@ -440,11 +440,11 @@ func (s *Store) migratePrintFingerprintsV2(ctx context.Context) (migrated int, e
 // 语句全部为内联字面量，无运行期插值——迁移 DDL 不含任何用户输入。
 func (s *Store) migratePrintAliasPRScope(ctx context.Context) (int, error) {
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if s.sqlite {
+		if s.isSQLite() {
 			if err := tx.Exec(`CREATE TABLE "print_aliases_new" ("platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" datetime, PRIMARY KEY ("platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
 				return err
 			}
-		} else if s.mysql {
+		} else if s.isMySQL() {
 			// MySQL 反引号表名与引号列名在 Go 源码里无需转义
 			if err := tx.Exec("CREATE TABLE `print_aliases_new` (`platform` varchar(16) NOT NULL, `owner` varchar(128) NOT NULL, `repo` varchar(128) NOT NULL, `number` varchar(16) NOT NULL, `alias_fp` varchar(64) NOT NULL, `print_fp` varchar(64) DEFAULT NULL, `updated_at` datetime(3) DEFAULT NULL, PRIMARY KEY (`platform`, `owner`, `repo`, `number`, `alias_fp`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4").Error; err != nil {
 				return err

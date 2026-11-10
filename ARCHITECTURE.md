@@ -25,7 +25,7 @@
   ┌──▼────────▼─────────▼────────▼────────▼───────────────▼──────────┐
   │ L3 能力层                                                        │
   │  workflow/requirement(R1-R5 编排)   poster(回帖)   qa(问答)      │
-  │  context(sdkctx/ctxfit/diffprep)    storage(持久化,gorm)         │
+  │  argusctx(sdkctx/ctxfit/diffprep)    storage(持久化,gorm)         │
   │  reportview(渲染) toolpool(mcp) sastscan sink notify progress    │
   │  ocrdeleg/ocrshim/gitdeepen(OCR 链) health(体检) poller          │
   └──┬───────────────────────────────────────────────────────────────┘
@@ -51,11 +51,11 @@
 | 横切 | obs | plugin（钩子接线：指标实现注入 `plugin.Hook*`，L4 无 prometheus 依赖） | 其余 |
 | L3 能力 | storage | domain, learning | plugin/runner/service…（数据层不反向依赖域） |
 | L3 能力 | reportview | plugin | 其余（纯渲染，无 IO） |
-| L3 能力 | context | config, obs, plugin | runner/service/workflow/storage… |
+| L3 能力 | argusctx | config, obs, plugin | runner/service/workflow/storage… |
 | L3 能力 | poster / qa / dream / poller / ocrdeleg / ocrshim / toolpool / sastscan / sink / worker / health / notify | 见白名单 | 编排层互依 |
-| L2 编排 | workflow/requirement | context, obs, plugin, toolpool | runner/service/storage/poster |
+| L2 编排 | workflow/requirement | argusctx, obs, plugin, toolpool | runner/service/storage/poster |
 | L2 编排 | runner | 能力层全集 | service/bootstrap/channel |
-| L2 编排 | service | config/context/health/memory/obs/plugin/progress/qa/storage | runner/workflow/poster/bootstrap |
+| L2 编排 | service | config/argusctx/health/memory/obs/plugin/progress/qa/storage | runner/workflow/poster/bootstrap |
 | L1 组合根 | bootstrap | 一切 | **被任何包 import** |
 | 入口适配 | channel/mcpserver | （无，零 internal 依赖） | service/runner（靠 Core/Copilot/ReviewQA 消费侧窄接口注入） |
 | 适配器 | plugin/adapter_{acpx,builtin,cli,remote} | plugin | 反向依赖 |

@@ -11,7 +11,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
 )

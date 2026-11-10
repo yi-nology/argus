@@ -7,7 +7,7 @@ import (
 	"context"
 	"strings"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 

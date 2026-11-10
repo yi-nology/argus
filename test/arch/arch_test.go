@@ -99,17 +99,17 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/storage":    {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning"},
 	"github.com/yi-nology/argus/internal/worker":     {"github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/health":     {"github.com/yi-nology/argus/internal/learning"},
-	"github.com/yi-nology/argus/internal/context":    {"github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/qa":         {"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/argusctx":   {"github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/qa":         {"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/dream":      {"github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
-	"github.com/yi-nology/argus/internal/poster":     {"github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/reportview", "github.com/yi-nology/argus/internal/storage"},
-	"github.com/yi-nology/argus/internal/poller":     {"github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/poster":     {"github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/reportview", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/poller":     {"github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/ocrdeleg":   {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/ocrshim":    {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/plugin/adapter_cli"},
 
 	// ---- 编排层：依赖能力层，禁跨编排互依 ----
 	"github.com/yi-nology/argus/internal/workflow/requirement": {
-		"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/domain",
+		"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/domain",
 		"github.com/yi-nology/argus/internal/dispatch",
 		"github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin",
 		// v5.11.0：图面进审查管线——Workflow.Graph 字段与 get_trace/
@@ -117,7 +117,7 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
 	},
 	"github.com/yi-nology/argus/internal/runner": {
-		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/context",
+		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx",
 		"github.com/yi-nology/argus/internal/dispatch",
 		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",
 		"github.com/yi-nology/argus/internal/memorykernel",
@@ -130,7 +130,7 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/service": {
 		// v5.4.4：评论指令词法层剥出（目录/解析/词表纯函数单源，执行体仍在本包）。
 		"github.com/yi-nology/argus/internal/commentcmd",
-		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/context", "github.com/yi-nology/argus/internal/health",
+		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/health",
 		"github.com/yi-nology/argus/internal/dispatch",
 		"github.com/yi-nology/argus/internal/impactview",
 		"github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/obs",

@@ -57,24 +57,25 @@ func (s *Store) UpsertPrints(ctx context.Context, platform, owner, repo, number,
 	if len(items) == 0 {
 		return out
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	for i, it := range items {
-		it := it
-		var prior *domain.PrintState
-		var suppressed bool
-		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			p, sup, terr := upsertPrintTx(tx, platform, owner, repo, number, it.FP, it.Finding, taskID, at)
-			prior, suppressed = p, sup
-			return terr
-		})
-		out[i] = domain.PrintUpsertResult{Prior: prior, Suppressed: suppressed, Err: err}
-	}
+	_ = s.withWrite(func() error {
+		for i, it := range items {
+			it := it
+			var prior *domain.PrintState
+			var suppressed bool
+			err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				p, sup, terr := s.upsertPrintTx(tx, platform, owner, repo, number, it.FP, it.Finding, taskID, at)
+				prior, suppressed = p, sup
+				return terr
+			})
+			out[i] = domain.PrintUpsertResult{Prior: prior, Suppressed: suppressed, Err: err}
+		}
+		return nil
+	})
 	return out
 }
 
 // upsertPrintTx 单条入库事务体（调用方持有 writeMu）。返回入库前状态与抑制标记。
-func upsertPrintTx(tx *gorm.DB, platform, owner, repo, number, fingerprint string,
+func (s *Store) upsertPrintTx(tx *gorm.DB, platform, owner, repo, number, fingerprint string,
 	f domain.Finding, taskID string, at time.Time) (prior *domain.PrintState, suppressed bool, err error) {
 	fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
 	var p FindingPrint
@@ -82,9 +83,9 @@ func upsertPrintTx(tx *gorm.DB, platform, owner, repo, number, fingerprint strin
 	pQ := tx.Where(
 		"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
 		platform, owner, repo, number, fingerprint)
-	// MySQL 下 FOR UPDATE：多副本共库时防止并发轮次的"读-改-全列回写"
+	// MySQL/pg 下 FOR UPDATE：多副本共库时防止并发轮次的"读-改-全列回写"
 	// 互相覆盖（抑制状态/TimesSeen 丢失）；SQLite 单写串行无需锁（v3.8.0）。
-	if !isSQLite(tx) {
+	if !s.isSQLite() {
 		pQ = pQ.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 	err = pQ.First(&p).Error
@@ -159,13 +160,6 @@ func printStateOf(p *FindingPrint) *domain.PrintState {
 	}
 }
 
-// isSQLite 事务是否跑在 SQLite 上（FOR UPDATE 仅 MySQL 需要）。
-// 取自连接方言名；gorm 会话上的 Dialector 名称稳定可判。
-func isSQLite(tx *gorm.DB) bool {
-	name := tx.Dialector.Name()
-	return name == "sqlite" || name == "sqlite3"
-}
-
 var _ domain.PrintStore = (*Store)(nil)
 
 // SuppressPrint 误报反馈（§3.3 反馈通道最小入口，v3.0.1）：
@@ -174,40 +168,40 @@ var _ domain.PrintStore = (*Store)(nil)
 // 之后每轮 Merger 自动剔除该意见。
 func (s *Store) SuppressPrint(ctx context.Context, platform, owner, repo, number, fingerprint string,
 	f domain.Finding, at time.Time) (matched bool, err error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
-		var p FindingPrint
-		err := tx.Where(
-			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-			platform, owner, repo, number, fingerprint).First(&p).Error
-		if err == nil {
-			matched = true
-			p.Status = PrintSuppressed
-			p.LastSeenAt = at
-			if f.File != "" {
-				p.File, p.Line, p.Severity, p.Comment = f.File, f.Line, f.Severity, f.Comment
+	err = s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
+			var p FindingPrint
+			err := tx.Where(
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+				platform, owner, repo, number, fingerprint).First(&p).Error
+			if err == nil {
+				matched = true
+				p.Status = PrintSuppressed
+				p.LastSeenAt = at
+				if f.File != "" {
+					p.File, p.Line, p.Severity, p.Comment = f.File, f.Line, f.Severity, f.Comment
+				}
+				if err := tx.Save(&p).Error; err != nil {
+					return err
+				}
+				return suppressFamily(tx, platform, owner, repo, number, at)
 			}
-			if err := tx.Save(&p).Error; err != nil {
+			if err != gorm.ErrRecordNotFound {
+				return err
+			}
+			p = FindingPrint{
+				Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
+				File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
+				Status:      PrintSuppressed,
+				FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
+				FirstSeenAt: at, LastSeenAt: at,
+			}
+			if err := tx.Create(&p).Error; err != nil {
 				return err
 			}
 			return suppressFamily(tx, platform, owner, repo, number, at)
-		}
-		if err != gorm.ErrRecordNotFound {
-			return err
-		}
-		p = FindingPrint{
-			Platform: platform, Owner: owner, Repo: repo, Number: number, Print: fingerprint,
-			File: f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
-			Status:      PrintSuppressed,
-			FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
-			FirstSeenAt: at, LastSeenAt: at,
-		}
-		if err := tx.Create(&p).Error; err != nil {
-			return err
-		}
-		return suppressFamily(tx, platform, owner, repo, number, at)
+		})
 	})
 	return matched, err
 }
@@ -303,34 +297,34 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 // 近重复层永不回收、v2 迁移还会因同 PR 多条空行重算出同一常量指纹而撞唯一索引）。
 // 指纹先经别名解析：剔除的可能以别名身份在库。
 func (s *Store) RecordPrintRegret(ctx context.Context, platform, owner, repo, number, fingerprint string, f domain.Finding) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
-		var p FindingPrint
-		err := tx.Where(
-			"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
-			platform, owner, repo, number, fingerprint).First(&p).Error
-		if err != nil {
-			if err != gorm.ErrRecordNotFound {
-				return err
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			fingerprint = resolveAliasFP(tx, platform, owner, repo, number, fingerprint)
+			var p FindingPrint
+			err := tx.Where(
+				"platform = ? AND owner = ? AND repo = ? AND number = ? AND print = ?",
+				platform, owner, repo, number, fingerprint).First(&p).Error
+			if err != nil {
+				if err != gorm.ErrRecordNotFound {
+					return err
+				}
+				now := time.Now()
+				return tx.Create(&FindingPrint{
+					Platform: platform, Owner: owner, Repo: repo, Number: number,
+					Print: fingerprint,
+					File:  f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
+					Plugin:      learning.FirstBy(f.By),
+					Status:      PrintOpen,
+					RegretCount: 1,
+					FirstTaskID: "reflect", LastTaskID: "reflect", TimesSeen: 0,
+					FirstSeenAt: now, LastSeenAt: now,
+				}).Error
 			}
-			now := time.Now()
-			return tx.Create(&FindingPrint{
-				Platform: platform, Owner: owner, Repo: repo, Number: number,
-				Print: fingerprint,
-				File:  f.File, Line: f.Line, Severity: f.Severity, Comment: f.Comment,
-				Plugin:      learning.FirstBy(f.By),
-				Status:      PrintOpen,
-				RegretCount: 1,
-				FirstTaskID: "reflect", LastTaskID: "reflect", TimesSeen: 0,
-				FirstSeenAt: now, LastSeenAt: now,
+			return tx.Model(&p).Updates(map[string]any{
+				"regret_count": gorm.Expr("regret_count + 1"),
+				"updated_at":   time.Now(),
 			}).Error
-		}
-		return tx.Model(&p).Updates(map[string]any{
-			"regret_count": gorm.Expr("regret_count + 1"),
-			"updated_at":   time.Now(),
-		}).Error
+		})
 	})
 }
 

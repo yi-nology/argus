@@ -1,7 +1,7 @@
-// reviewtarget.go —— review_targets 的补充操作。
-// 与 UpsertReviewTarget 分离的原因：Upsert 的语义是">0 才写"（防 GORM 零值误覆盖），
-// 而"总结评论已被删除"需要显式清零缓存定位（poster ① 级 404 自愈，深挖修复）——
-// 传 0 复用 Upsert 是 no-op，清不掉。
+// reviewtarget.go —— review_targets 表操作面（v6.2.0 归位：Get/Upsert 自
+// store.go 迁入，全表操作单文件）。Upsert 的语义是">0 才写"（防 GORM 零值
+// 误覆盖），而"总结评论已被删除"需要显式清零缓存定位（poster ① 级 404 自愈，
+// 深挖修复）——传 0 复用 Upsert 是 no-op，清不掉（ClearReviewTargetComment）。
 package storage
 
 import (
@@ -17,11 +17,11 @@ import (
 // ClearReviewTargetComment 显式清零 last_summary_comment_id（评论 404 后调用），
 // head SHA 不动（同 SHA 去重语义保留）。行不存在视为已清除。
 func (s *Store) ClearReviewTargetComment(ctx context.Context, platform, owner, repo, number string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
-		return wherePR(tx.Model(&ReviewTarget{}), platform, owner, repo, number).
-			Update("last_summary_comment_id", 0).Error
+	return s.withWrite(func() error {
+		return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
+			return wherePR(tx.Model(&ReviewTarget{}), platform, owner, repo, number).
+				Update("last_summary_comment_id", 0).Error
+		})
 	})
 }
 
@@ -35,36 +35,36 @@ func (s *Store) AppendReviewTargetComment(ctx context.Context, platform, owner, 
 	if id <= 0 {
 		return nil
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
-		var t ReviewTarget
-		err := wherePR(tx, platform, owner, repo, number).First(&t).Error
-		if err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
+	return s.withWrite(func() error {
+		return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
+			var t ReviewTarget
+			err := wherePR(tx, platform, owner, repo, number).First(&t).Error
+			if err != nil {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				t = ReviewTarget{Platform: platform, Owner: owner, Repo: repo, Number: number}
+			}
+			var ids []int64
+			if t.KnownCommentIDs != "" {
+				_ = json.Unmarshal([]byte(t.KnownCommentIDs), &ids)
+			}
+			for _, e := range ids {
+				if e == id {
+					return nil
+				}
+			}
+			ids = append(ids, id)
+			if len(ids) > knownCommentIDsCap {
+				ids = ids[len(ids)-knownCommentIDsCap:]
+			}
+			b, err := json.Marshal(ids)
+			if err != nil {
 				return err
 			}
-			t = ReviewTarget{Platform: platform, Owner: owner, Repo: repo, Number: number}
-		}
-		var ids []int64
-		if t.KnownCommentIDs != "" {
-			_ = json.Unmarshal([]byte(t.KnownCommentIDs), &ids)
-		}
-		for _, e := range ids {
-			if e == id {
-				return nil
-			}
-		}
-		ids = append(ids, id)
-		if len(ids) > knownCommentIDsCap {
-			ids = ids[len(ids)-knownCommentIDsCap:]
-		}
-		b, err := json.Marshal(ids)
-		if err != nil {
-			return err
-		}
-		t.KnownCommentIDs = string(b)
-		return tx.Save(&t).Error
+			t.KnownCommentIDs = string(b)
+			return tx.Save(&t).Error
+		})
 	})
 }
 
@@ -90,4 +90,41 @@ func (s *Store) KnownReviewTargetComments(ctx context.Context, platform, owner, 
 		ids[i], ids[j] = ids[j], ids[i]
 	}
 	return ids, nil
+}
+
+// GetReviewTarget 查询（不存在返回 nil,nil）。
+func (s *Store) GetReviewTarget(ctx context.Context, platform, owner, repo, number string) (*ReviewTarget, error) {
+	var t ReviewTarget
+	err := wherePR(s.quietDB().WithContext(ctx), platform, owner, repo, number).First(&t).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
+}
+
+// UpsertReviewTarget 回帖成功后更新定位（staleness 不读它，五轮评审定案）。
+func (s *Store) UpsertReviewTarget(ctx context.Context, platform, owner, repo, number string,
+	summaryCommentID int64, headSHA string) error {
+	return s.withWrite(func() error {
+		return gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
+			var t ReviewTarget
+			err := wherePR(tx, platform, owner, repo, number).First(&t).Error
+			if err != nil {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				t = ReviewTarget{Platform: platform, Owner: owner, Repo: repo, Number: number}
+			}
+			if summaryCommentID > 0 {
+				t.LastSummaryCommentID = summaryCommentID
+			}
+			if headSHA != "" {
+				t.LastHeadSHA = headSHA
+			}
+			return tx.Save(&t).Error
+		})
+	})
 }

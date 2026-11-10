@@ -42,7 +42,7 @@ func TestSameSHAGuard(t *testing.T) {
 	// 方言分支（CI MySQL 矩阵实锤）：部分唯一索引是 SQLite 专有，MySQL 分支
 	// EnsureSameSHAGuard 恒 (true, nil) 占位（samesha_guard.go:34 设计在案），
 	// 无索引可撞——MySQL 下断言占位语义，跨实例约束不在其契约面。
-	if s.sqlite {
+	if s.isSQLite() {
 		err = s.db.Create(mk("task-c", "evt-c", StatusRunning)).Error
 		if !isDuplicateKeyErr(err) {
 			t.Fatalf("同 SHA 第二条在飞应撞唯一索引: %v", err)

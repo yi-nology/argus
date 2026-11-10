@@ -15,7 +15,7 @@ import (
 
 	"github.com/oekit/logx"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"

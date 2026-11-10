@@ -18,14 +18,16 @@ import (
 // （§10.4：崩溃任务否则静默丢失）。staleAfter 取心跳间隔的 ≥3 倍：
 // 只有 heartbeat_at 已死（或遗留的 NULL 心跳旧行）才重置——多副本共库时，
 // 一个实例滚动重启不会把其他存活实例正在执行的任务也重置（那会双执行、双回帖）。
-func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Duration) (int64, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	cutoff := time.Now().Add(-staleAfter)
-	res := s.db.WithContext(ctx).Model(&Task{}).
-		Where("status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)", StatusRunning, cutoff).
-		Update("status", StatusPending)
-	return res.RowsAffected, res.Error
+func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Duration) (n int64, err error) {
+	err = s.withWrite(func() error {
+		cutoff := time.Now().Add(-staleAfter)
+		res := s.db.WithContext(ctx).Model(&Task{}).
+			Where("status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)", StatusRunning, cutoff).
+			Update("status", StatusPending)
+		n = res.RowsAffected
+		return res.Error
+	})
+	return n, err
 }
 
 // TouchRunningHeartbeats 续本实例全部 running 任务的心跳（worker 池周期调用）。
@@ -35,11 +37,11 @@ func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 		// 本实例任务被 reaper 反复重置重跑（装配纪律：main 先赋 RunnerID 再启动 worker）。
 		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Model(&Task{}).
-		Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID).
-		Update("heartbeat_at", time.Now()).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).
+			Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID).
+			Update("heartbeat_at", time.Now()).Error
+	})
 }
 
 // GetTask 按 ID 查询。无此任务返回 ErrNotFound 哨兵。
@@ -55,11 +57,16 @@ func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 	return &t, nil
 }
 
-// GetTaskByEventID webhook 幂等查询：命中 = 平台重发。
+// GetTaskByEventID webhook 幂等查询：命中 = 平台重发。无此任务返回 ErrNotFound
+// 哨兵（v6.2.0 补契约：此前裸透 gorm.ErrRecordNotFound，违反"ORM 错误语义
+// 不出 storage 包"——两个消费点均按非 nil 即未命中处理，行为不变）。
 func (s *Store) GetTaskByEventID(ctx context.Context, eventID string) (*Task, error) {
 	var t Task
 	err := s.quietDB().WithContext(ctx).Where("event_id = ?", eventID).First(&t).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &t, nil
@@ -67,9 +74,9 @@ func (s *Store) GetTaskByEventID(ctx context.Context, eventID string) (*Task, er
 
 // CreateTask 新建任务（CLI/TaskAPI 提交；无幂等键）。
 func (s *Store) CreateTask(ctx context.Context, t *Task) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Create(t).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Create(t).Error
+	})
 }
 
 // NewTask 建任务工厂（v3.109.0）：ID/Status/CreatedAt 三个不变量此前在
@@ -100,76 +107,80 @@ const (
 // CreateTaskForWebhook 同步完成"同 SHA 去重检查 + 落库"（同一事务，§5.1 规则 4 的 TOCTOU 防线）。
 // 返回 dupReason 非空表示命中去重（Dup* 词表），existingID 给出可指向的任务。
 func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, existingID string, err error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	txErr := gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
-		// 规则 4a：review_targets.last_head_sha == 本次 head。
-		// MySQL 下对 target 行 FOR UPDATE：同 PR 的并发建任务事务在此串行化，
-		// 封多副本租约过期窗口的 TOCTOU（深挖 P0；SQLite 单写串行无需锁）。
-		// 首审 PR 的 target 行尚不存在、无锚可锁——残余竞窗仅影响 PR 首审，可接受。
-		var target ReviewTarget
-		targetQ := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number)
-		if !s.sqlite {
-			targetQ = targetQ.Clauses(clause.Locking{Strength: "UPDATE"})
+	err = s.withWrite(func() error {
+		txErr := gormx.InTransactionContext(ctx, s.db, func(tx *gorm.DB) error {
+			// 规则 4a：review_targets.last_head_sha == 本次 head。
+			// MySQL 下对 target 行 FOR UPDATE：同 PR 的并发建任务事务在此串行化，
+			// 封多副本租约过期窗口的 TOCTOU（深挖 P0；SQLite 单写串行无需锁）。
+			// 首审 PR 的 target 行尚不存在、无锚可锁——残余竞窗仅影响 PR 首审，可接受。
+			var target ReviewTarget
+			targetQ := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number)
+			if !s.isSQLite() {
+				targetQ = targetQ.Clauses(clause.Locking{Strength: "UPDATE"})
+			}
+			err := targetQ.First(&target).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err // 瞬时 DB 错误不能静默跳过去重检查
+			}
+			// 同 SHA 去重只对审查类任务生效（domain.IsReviewKind：写作面/ci_analysis
+			// 不写也不继承 LastHeadSHA，误挡会丢 CI 归因任务）。
+			if err == nil && domain.IsReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
+				dupReason = DupLastHeadSHA
+				return nil
+			}
+			// 规则 4b：存在同 head_sha 的 pending/running 任务（防 in-flight 竞态）
+			var cnt int64
+			err = tx.Model(&Task{}).
+				Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA, []string{StatusPending, StatusRunning}).
+				Count(&cnt).Error
+			if err != nil {
+				return err
+			}
+			if cnt > 0 {
+				dupReason = DupInFlight
+				var existing Task
+				_ = tx.Select("id").Where(
+					"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
+					[]string{StatusPending, StatusRunning}).First(&existing).Error
+				existingID = existing.ID
+				return nil
+			}
+			return tx.Create(t).Error
+		})
+		if txErr != nil {
+			// event_id 唯一冲突（同 delivery 并发重发：幂等预查与落库之间存在窗口）——
+			// 回查既有任务按幂等重复处理，避免以 500 暴露（GitHub 对连续 500 会禁用 webhook）。
+			if t.EventID != nil {
+				if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
+					dupReason, existingID = DupEventID, exist.ID
+					return nil
+				}
+			}
+			// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
+			// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
+			if isDuplicateKeyErr(txErr) {
+				var existing Task
+				if e := s.quietDB().WithContext(ctx).Where(
+					"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
+					[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
+					dupReason, existingID = DupInFlight, existing.ID
+					return nil
+				}
+				if e := s.quietDB().WithContext(ctx).Where(
+					"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA).Order("created_at DESC").First(&existing).Error; e == nil {
+					dupReason, existingID = DupLastHeadSHA, existing.ID
+					return nil
+				}
+			}
+			return txErr
 		}
-		err := targetQ.First(&target).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err // 瞬时 DB 错误不能静默跳过去重检查
-		}
-		// 同 SHA 去重只对审查类任务生效（domain.IsReviewKind：写作面/ci_analysis
-		// 不写也不继承 LastHeadSHA，误挡会丢 CI 归因任务）。
-		if err == nil && domain.IsReviewKind(t.Kind) && target.LastHeadSHA != "" && target.LastHeadSHA == t.HeadSHA {
-			dupReason = DupLastHeadSHA
-			return nil
-		}
-		// 规则 4b：存在同 head_sha 的 pending/running 任务（防 in-flight 竞态）
-		var cnt int64
-		err = tx.Model(&Task{}).
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA, []string{StatusPending, StatusRunning}).
-			Count(&cnt).Error
-		if err != nil {
-			return err
-		}
-		if cnt > 0 {
-			dupReason = DupInFlight
-			var existing Task
-			_ = tx.Select("id").Where(
-				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
-				[]string{StatusPending, StatusRunning}).First(&existing).Error
-			existingID = existing.ID
-			return nil
-		}
-		return tx.Create(t).Error
+		return nil
 	})
-	if txErr != nil {
-		// event_id 唯一冲突（同 delivery 并发重发：幂等预查与落库之间存在窗口）——
-		// 回查既有任务按幂等重复处理，避免以 500 暴露（GitHub 对连续 500 会禁用 webhook）。
-		if t.EventID != nil {
-			if exist, e := s.GetTaskByEventID(ctx, *t.EventID); e == nil && exist != nil {
-				return DupEventID, exist.ID, nil
-			}
-		}
-		// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
-		// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
-		if isDuplicateKeyErr(txErr) {
-			var existing Task
-			if e := s.quietDB().WithContext(ctx).Where(
-				"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
-				[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
-				return DupInFlight, existing.ID, nil
-			}
-			if e := s.quietDB().WithContext(ctx).Where(
-				"platform = ? AND owner = ? AND repo = ? AND number = ? AND head_sha = ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA).Order("created_at DESC").First(&existing).Error; e == nil {
-				return DupLastHeadSHA, existing.ID, nil
-			}
-		}
-		return "", "", txErr
-	}
-	return dupReason, existingID, nil
+	return dupReason, existingID, err
 }
 
 // CreateTaskDirectIfIdle TaskAPI 直接触发路径的幂等建任务：同 platform/owner/repo/number
@@ -177,58 +188,59 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 // 与 CreateTaskForWebhook 的 in_flight 去重语义对齐，防手工触发与轮询/webhook 竞态双审。
 // done 任务不拦——手工强制重审是 TaskAPI 的合法用途。
 func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *Task, created bool, err error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	txErr := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// MySQL 下先对 review_targets 行 FOR UPDATE：与 CreateTaskForWebhook 同一
-		// 串行化锚点——此前 count-then-insert 无锁，跨副本可双建任务双烧 LLM
-		//（v3.8.0 修复）。首审无锚行时残余竞窗由下方 duplicate 回查兜底。
-		if !s.sqlite {
-			var anchor ReviewTarget
-			aq := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number).
-				Clauses(clause.Locking{Strength: "UPDATE"}).First(&anchor)
-			if aq.Error != nil && !errors.Is(aq.Error, gorm.ErrRecordNotFound) {
-				return aq.Error
+	err = s.withWrite(func() error {
+		txErr := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			// MySQL/pg 下先对 review_targets 行 FOR UPDATE：与 CreateTaskForWebhook 同一
+			// 串行化锚点——此前 count-then-insert 无锁，跨副本可双建任务双烧 LLM
+			//（v3.8.0 修复）。首审无锚行时残余竞窗由下方 duplicate 回查兜底。
+			if !s.isSQLite() {
+				var anchor ReviewTarget
+				aq := wherePR(tx, t.Platform, t.Owner, t.Repo, t.Number).
+					Clauses(clause.Locking{Strength: "UPDATE"}).First(&anchor)
+				if aq.Error != nil && !errors.Is(aq.Error, gorm.ErrRecordNotFound) {
+					return aq.Error
+				}
 			}
-		}
-		var cnt int64
-		if err := tx.Model(&Task{}).
-			Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
-			Count(&cnt).Error; err != nil {
-			return err
-		}
-		if cnt > 0 {
-			existing = &Task{}
-			if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
-				t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
-				Order("created_at DESC, id DESC").First(existing).Error; err != nil {
+			var cnt int64
+			if err := tx.Model(&Task{}).
+				Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
+				Count(&cnt).Error; err != nil {
 				return err
 			}
-			return nil
-		}
-		if err := tx.Create(t).Error; err != nil {
-			// SQLite 并发窗口撞 samesha 部分唯一索引 → 回查 in-flight 任务返回
-			// 幂等语义；此前直接上抛 500，rerun 评论回帖"处理失败"（v3.8.0 修复）。
-			if isDuplicateKeyErr(err) {
+			if cnt > 0 {
 				existing = &Task{}
-				if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+				if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
 					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
-					Order("created_at DESC, id DESC").First(existing).Error; qerr != nil {
-					return err // 回查也失败：暴露原始错误
+					Order("created_at DESC, id DESC").First(existing).Error; err != nil {
+					return err
 				}
-				created = false
 				return nil
 			}
-			return err
+			if err := tx.Create(t).Error; err != nil {
+				// SQLite 并发窗口撞 samesha 部分唯一索引 → 回查 in-flight 任务返回
+				// 幂等语义；此前直接上抛 500，rerun 评论回帖"处理失败"（v3.8.0 修复）。
+				if isDuplicateKeyErr(err) {
+					existing = &Task{}
+					if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+						t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
+						Order("created_at DESC, id DESC").First(existing).Error; qerr != nil {
+						return err // 回查也失败：暴露原始错误
+					}
+					created = false
+					return nil
+				}
+				return err
+			}
+			created = true
+			return nil
+		})
+		if txErr != nil {
+			existing, created = nil, false
 		}
-		created = true
-		return nil
+		return txErr
 	})
-	if txErr != nil {
-		return nil, false, txErr
-	}
-	return existing, created, nil
+	return existing, created, err
 }
 
 // ClaimNextPending worker 原子抢占一个 pending 任务（pending→running）。
@@ -237,41 +249,41 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 // 两步条件更新（单写模型下无竞争）。抢锁失败少量重试而非直接报"无任务"——
 // 此前败者直接 ok=false，worker 睡 500ms，队列有任务也空转（深挖修复）。
 func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	const maxAttempts = 3
 	var claimed *Task
-	err := s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for attempt := 0; attempt < maxAttempts; attempt++ {
-			var t Task
-			// 优先级队列（v3.40.0）：人类在等的任务（评论重审/API 手工）先于
-			// poller 批量；同优先级保持 FIFO
-			q := tx.Where("status = ?", StatusPending).Order("priority DESC, created_at ASC, id ASC")
-			if !s.sqlite {
-				q = q.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
+	err := s.withWrite(func() error {
+		const maxAttempts = 3
+		return s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				var t Task
+				// 优先级队列（v3.40.0）：人类在等的任务（评论重审/API 手工）先于
+				// poller 批量；同优先级保持 FIFO
+				q := tx.Where("status = ?", StatusPending).Order("priority DESC, created_at ASC, id ASC")
+				if !s.isSQLite() {
+					q = q.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
+				}
+				err := q.First(&t).Error
+				if err != nil {
+					return err // gorm.ErrRecordNotFound → 无任务
+				}
+				now := time.Now()
+				res := tx.Model(&Task{}).Where("id = ? AND status = ?", t.ID, StatusPending).
+					Updates(map[string]any{"status": StatusRunning, "started_at": &now,
+						"runner_id": s.RunnerID, "heartbeat_at": now})
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected == 0 {
+					continue // 被并发抢走：重试取下一条（SKIP LOCKED 下基本不发生）
+				}
+				t.Status = StatusRunning
+				t.StartedAt = &now
+				t.RunnerID = s.RunnerID
+				t.HeartbeatAt = &now
+				claimed = &t
+				return nil
 			}
-			err := q.First(&t).Error
-			if err != nil {
-				return err // gorm.ErrRecordNotFound → 无任务
-			}
-			now := time.Now()
-			res := tx.Model(&Task{}).Where("id = ? AND status = ?", t.ID, StatusPending).
-				Updates(map[string]any{"status": StatusRunning, "started_at": &now,
-					"runner_id": s.RunnerID, "heartbeat_at": now})
-			if res.Error != nil {
-				return res.Error
-			}
-			if res.RowsAffected == 0 {
-				continue // 被并发抢走：重试取下一条（SKIP LOCKED 下基本不发生）
-			}
-			t.Status = StatusRunning
-			t.StartedAt = &now
-			t.RunnerID = s.RunnerID
-			t.HeartbeatAt = &now
-			claimed = &t
-			return nil
-		}
-		return gorm.ErrRecordNotFound
+			return gorm.ErrRecordNotFound
+		})
 	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -306,83 +318,87 @@ func (s *Store) FinishTask(ctx context.Context, id, status, verdict, report, res
 // 例外：RunnerID 未装配（单测桩）时只校验 status。
 func (s *Store) FinishTaskFenced(ctx context.Context, id, status, verdict, report, resultJSON, failReason string,
 	tokensUsed int, summaryCommentID int64) (fenced bool, err error) {
-	s.writeLock()
-	defer s.writeUnlock()
-	now := time.Now()
-	updates := map[string]any{
-		"status":      status,
-		"verdict":     verdict,
-		"report":      report,
-		"result_json": resultJSON,
-		"fail_reason": failReason,
-		"tokens_used": tokensUsed,
-		"finished_at": &now,
-	}
-	if summaryCommentID > 0 {
-		updates["summary_comment_id"] = summaryCommentID
-	}
-	if status == StatusFailed {
-		// failed 退避（v3.8.0）：attempt+1，指数退避（5m×3^n，封顶 1h）后由
-		// ResetFailedForRetry 重置重试；成功/stale 路径不动 attempt。
-		var cur Task
-		if err := s.db.WithContext(ctx).Select("attempt").Where("id = ?", id).First(&cur).Error; err == nil {
-			updates["attempt"] = cur.Attempt + 1
-			nr := now.Add(retryBackoff(5*time.Minute, cur.Attempt+1))
-			updates["next_retry_at"] = &nr
+	err = s.withWrite(func() error {
+		now := time.Now()
+		updates := map[string]any{
+			"status":      status,
+			"verdict":     verdict,
+			"report":      report,
+			"result_json": resultJSON,
+			"fail_reason": failReason,
+			"tokens_used": tokensUsed,
+			"finished_at": &now,
 		}
-	}
-	// 例外：RunnerID 未装配（单测桩直接 CreateTask(pending)→finish 的合成路径）
-	// 时跳过 fencing——生产装配流程 main 必然先赋 RunnerID 再启动 worker。
-	q := s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id)
-	if s.RunnerID != "" {
-		q = q.Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID)
-	}
-	res := q.Updates(updates)
-	if res.Error != nil {
-		return false, res.Error
-	}
-	return res.RowsAffected == 0, nil
+		if summaryCommentID > 0 {
+			updates["summary_comment_id"] = summaryCommentID
+		}
+		if status == StatusFailed {
+			// failed 退避（v3.8.0）：attempt+1，指数退避（5m×3^n，封顶 1h）后由
+			// ResetFailedForRetry 重置重试；成功/stale 路径不动 attempt。
+			var cur Task
+			if err := s.db.WithContext(ctx).Select("attempt").Where("id = ?", id).First(&cur).Error; err == nil {
+				updates["attempt"] = cur.Attempt + 1
+				nr := now.Add(retryBackoff(5*time.Minute, cur.Attempt+1))
+				updates["next_retry_at"] = &nr
+			}
+		}
+		// 例外：RunnerID 未装配（单测桩直接 CreateTask(pending)→finish 的合成路径）
+		// 时跳过 fencing——生产装配流程 main 必然先赋 RunnerID 再启动 worker。
+		q := s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id)
+		if s.RunnerID != "" {
+			q = q.Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID)
+		}
+		res := q.Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		fenced = res.RowsAffected == 0
+		return nil
+	})
+	return fenced, err
 }
 
 // ResetFailedForRetry failed 任务的到期重试（v3.8.0）：failed 且 attempt < maxRetries
 // 且退避到期的任务重置回 pending（attempt 保留，防循环）。maxRetries<=0 = 禁用。
 // 重启不重置 failed——只有此入口（或 TaskAPI 手工重审）能复活失败任务。
-func (s *Store) ResetFailedForRetry(ctx context.Context, maxRetries int, now time.Time) (int64, error) {
+func (s *Store) ResetFailedForRetry(ctx context.Context, maxRetries int, now time.Time) (n int64, err error) {
 	if maxRetries <= 0 {
 		return 0, nil
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	res := s.db.WithContext(ctx).Model(&Task{}).
-		Where("status = ? AND attempt < ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?",
-			StatusFailed, maxRetries, now).
-		Update("status", StatusPending)
-	return res.RowsAffected, res.Error
+	err = s.withWrite(func() error {
+		res := s.db.WithContext(ctx).Model(&Task{}).
+			Where("status = ? AND attempt < ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?",
+				StatusFailed, maxRetries, now).
+			Update("status", StatusPending)
+		n = res.RowsAffected
+		return res.Error
+	})
+	return n, err
 }
 
 // SetTaskHeadSHA 回填 CLI 任务的 head SHA（执行期从平台获取）。
 func (s *Store) SetTaskHeadSHA(ctx context.Context, id, sha string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-		Update("head_sha", sha).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			Update("head_sha", sha).Error
+	})
 }
 
 // SetTaskDebug 留存阶段调试产物（ARGUS_DEBUG=1）。
 func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-		Update("debug_json", debugJSON).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			Update("debug_json", debugJSON).Error
+	})
 }
 
 // MarkReviewPosted 完整评审发成功落标记（v3.36.0）：重跑任务据此跳过
 // ListReviews 平台锚点查询（总结评论更新不受影响，照常执行）。
 func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-		Update("review_posted", true).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			Update("review_posted", true).Error
+	})
 }
 
 // MergeTaskStageArtifacts 合并写入任务阶段产物 checkpoint（v3.12.0 G2 断点续审）。
@@ -391,28 +407,28 @@ func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
 // 重跑），不可阻塞主流程。v3.185.3：同 MergeTaskArtifacts 补 "null" 钳制
 // （Unmarshal("null") 成功且置 nil map,后续赋值 panic 的同型隐患）。
 func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch map[string]string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	var row Task
-	if err := s.db.WithContext(ctx).Select("stage_artifacts").Where("id = ?", id).First(&row).Error; err != nil {
-		return err
-	}
-	cur := map[string]string{}
-	if row.StageArtifacts != "" {
-		_ = json.Unmarshal([]byte(row.StageArtifacts), &cur)
-	}
-	if cur == nil {
-		cur = map[string]string{}
-	}
-	for k, v := range patch {
-		cur[k] = v
-	}
-	b, err := json.Marshal(cur)
-	if err != nil {
-		return err
-	}
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-		Update("stage_artifacts", string(b)).Error
+	return s.withWrite(func() error {
+		var row Task
+		if err := s.db.WithContext(ctx).Select("stage_artifacts").Where("id = ?", id).First(&row).Error; err != nil {
+			return err
+		}
+		cur := map[string]string{}
+		if row.StageArtifacts != "" {
+			_ = json.Unmarshal([]byte(row.StageArtifacts), &cur)
+		}
+		if cur == nil {
+			cur = map[string]string{}
+		}
+		for k, v := range patch {
+			cur[k] = v
+		}
+		b, err := json.Marshal(cur)
+		if err != nil {
+			return err
+		}
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			Update("stage_artifacts", string(b)).Error
+	})
 }
 
 // MergeTaskArtifacts 合并写入任务 artifacts_json（v3.183.0）：影响面快照在
@@ -423,29 +439,29 @@ func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch ma
 // 序列化产物），Unmarshal("null") 成功且把 cur 置 nil——原实现直接 cur[k]=v
 // panic（live 实弹炸出，任务卡死 running）；同型隐患顺修 stage 版。
 func (s *Store) MergeTaskArtifacts(ctx context.Context, id string, patch map[string]string) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	var row Task
-	if err := s.db.WithContext(ctx).Select("artifacts_json").Where("id = ?", id).First(&row).Error; err != nil {
-		return err
-	}
-	cur := map[string]string{}
-	if row.ArtifactsJSON != "" {
-		// "null"/坏 JSON 均可能把 cur 反序列化成 nil——统一在下文钳回空表
-		_ = json.Unmarshal([]byte(row.ArtifactsJSON), &cur)
-	}
-	if cur == nil {
-		cur = map[string]string{}
-	}
-	for k, v := range patch {
-		cur[k] = v
-	}
-	b, err := json.Marshal(cur)
-	if err != nil {
-		return err
-	}
-	return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-		Update("artifacts_json", string(b)).Error
+	return s.withWrite(func() error {
+		var row Task
+		if err := s.db.WithContext(ctx).Select("artifacts_json").Where("id = ?", id).First(&row).Error; err != nil {
+			return err
+		}
+		cur := map[string]string{}
+		if row.ArtifactsJSON != "" {
+			// "null"/坏 JSON 均可能把 cur 反序列化成 nil——统一在下文钳回空表
+			_ = json.Unmarshal([]byte(row.ArtifactsJSON), &cur)
+		}
+		if cur == nil {
+			cur = map[string]string{}
+		}
+		for k, v := range patch {
+			cur[k] = v
+		}
+		b, err := json.Marshal(cur)
+		if err != nil {
+			return err
+		}
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			Update("artifacts_json", string(b)).Error
+	})
 }
 
 // HasNewerNonFailedTask staleness 单条件判定（§10.2 五轮评审修正）：

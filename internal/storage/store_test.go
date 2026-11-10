@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	_ "github.com/jackc/pgx/v5/stdlib" // pg 测试管理面（sql.Open("pgx")）
 	"os"
@@ -184,6 +185,19 @@ func TestEventIdempotency(t *testing.T) {
 	// 再次插入同 event_id（绕过业务检查直接 create）应违反唯一约束
 	if err := s.CreateTask(ctx, mkTask("t2", &delivery, "sha-b")); err == nil {
 		t.Fatal("同 event_id 第二次插入应被唯一索引拒绝")
+	}
+}
+
+// 契约：无此 event_id 返回 ErrNotFound 哨兵（v6.2.0：此前裸透 gorm 错误，
+// 违反"ORM 错误语义不出 storage 包"）。
+func TestGetTaskByEventIDNotFound(t *testing.T) {
+	s := openTestStore(t)
+	got, err := s.GetTaskByEventID(context.Background(), "d-nope")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("未命中应返回 ErrNotFound，got err=%v got=%+v", err, got)
+	}
+	if got != nil {
+		t.Fatalf("未命中不应返回任务行: %+v", got)
 	}
 }
 

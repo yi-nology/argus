@@ -8,8 +8,8 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
-	argusctx "github.com/yi-nology/argus/internal/context"
 )
 
 // ---------- 单轮写作命令模板测试（v3.110.0 describe/testgen 骨架单源） ----------

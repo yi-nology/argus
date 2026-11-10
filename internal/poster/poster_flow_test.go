@@ -13,7 +13,7 @@ import (
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
 
-	argusctx "github.com/yi-nology/argus/internal/context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"

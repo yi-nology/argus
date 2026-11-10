@@ -10,13 +10,6 @@
 //     行 FOR UPDATE 串行化（跨实例互斥；首审 PR 无锚行的残余竞窗可接受）。
 package storage
 
-import (
-	"errors"
-	"strings"
-
-	"github.com/go-sql-driver/mysql"
-)
-
 // sameSHAIndex 旧版部分唯一索引名（v3.74.2 前不含 kind）——升级时删除。
 const sameSHAIndex = "idx_tasks_same_sha_live"
 
@@ -31,7 +24,7 @@ const sameSHAIndexV2 = "idx_tasks_same_sha_live_v2"
 // 会按"历史在飞重复"的 hint 清数据、永远无效）。MySQL 恒返回 (true, nil)
 // （防线在事务锁，见文件头注释）。
 func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
-	if !s.sqlite {
+	if !s.isSQLite() {
 		return true, nil
 	}
 	// v3.74.2 索引升级：v1（不含 kind）删除，重建 v2（含 kind）。DROP 幂等，
@@ -54,17 +47,4 @@ func (s *Store) EnsureSameSHAGuard() (active bool, err error) {
 		return false, nil
 	}
 	return false, cerr
-}
-
-// isDuplicateKeyErr 跨方言唯一/主键冲突判定：MySQL errno 1062；
-// SQLite（glebarez/modernc）"UNIQUE constraint failed: ..."。
-func isDuplicateKeyErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	var me *mysql.MySQLError
-	if errors.As(err, &me) && me.Number == 1062 {
-		return true
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "unique constraint failed")
 }

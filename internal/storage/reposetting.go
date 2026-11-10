@@ -48,23 +48,23 @@ func (s *Store) UpsertRepoSetting(ctx context.Context, row *RepoSetting) error {
 	if row == nil || row.Platform == "" || row.Owner == "" || row.Repo == "" {
 		return errors.New("storage: UpsertRepoSetting 缺主键")
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var cur RepoSetting
-		err := tx.Where("platform = ? AND owner = ? AND repo = ?",
-			row.Platform, row.Owner, row.Repo).First(&cur).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(row).Error
-		}
-		if err != nil {
-			return err
-		}
-		return tx.Model(&cur).Updates(map[string]any{
-			"settings_json": row.SettingsJSON,
-			"updated_by":    row.UpdatedBy,
-			"updated_at":    row.UpdatedAt,
-		}).Error
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var cur RepoSetting
+			err := tx.Where("platform = ? AND owner = ? AND repo = ?",
+				row.Platform, row.Owner, row.Repo).First(&cur).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return tx.Create(row).Error
+			}
+			if err != nil {
+				return err
+			}
+			return tx.Model(&cur).Updates(map[string]any{
+				"settings_json": row.SettingsJSON,
+				"updated_by":    row.UpdatedBy,
+				"updated_at":    row.UpdatedAt,
+			}).Error
+		})
 	})
 }
 
@@ -73,11 +73,14 @@ func (s *Store) DeleteRepoSetting(ctx context.Context, platform, owner, repo str
 	if platform == "" || owner == "" || repo == "" {
 		return false, errors.New("storage: DeleteRepoSetting 缺 platform/owner/repo")
 	}
-	s.writeLock()
-	defer s.writeUnlock()
-	res := s.db.WithContext(ctx).Where(
-		"platform = ? AND owner = ? AND repo = ?", platform, owner, repo).Delete(&RepoSetting{})
-	return res.RowsAffected > 0, res.Error
+	var deleted bool
+	err := s.withWrite(func() error {
+		res := s.db.WithContext(ctx).Where(
+			"platform = ? AND owner = ? AND repo = ?", platform, owner, repo).Delete(&RepoSetting{})
+		deleted = res.RowsAffected > 0
+		return res.Error
+	})
+	return deleted, err
 }
 
 // ListRepoSettings 全量按仓配置（platform/owner/repo 字典序，观测面确定性）。

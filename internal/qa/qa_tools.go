@@ -16,8 +16,8 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/codesearch"
-	argusctx "github.com/yi-nology/argus/internal/context"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/semsearch"
 )
