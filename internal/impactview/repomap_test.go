@@ -84,3 +84,38 @@ func TestRepoMapEmptyRepoNote(t *testing.T) {
 		t.Fatalf("纯文档仓应空图+注明: nodes=%d notes=%v", len(s.Nodes), s.Notes)
 	}
 }
+
+// TestBuildRepoMapIsolatedDirs 孤岛目录兜底（v6.1.3 回归钉子）：单包仓/无跨包
+// import 的仓此前零节点 → 分享页 502「无可视化节点（空图）」——每个被审查的
+// 单包仓都产出死链分享页。有文件的目录必须入图。
+func TestBuildRepoMapIsolatedDirs(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+	write("go.mod", "module demo\n\ngo 1.24\n")
+	// 单包仓：全在根，零 import 边。
+	write("validator.go", "package demo\n\nfunc Validate() {}\n")
+	write("helper.go", "package demo\n\nfunc Helper() {}\n")
+	// 孤岛子包：有文件但无任何 import。
+	write("isolated/a.go", "package isolated\n\nfunc A() {}\n")
+	snap := BuildRepoMap(root, 30*time.Second)
+	if len(snap.Nodes) == 0 {
+		t.Fatalf("有 Go 文件的仓不应空图，notes=%v", snap.Notes)
+	}
+	got := map[string]bool{}
+	for _, n := range snap.Nodes {
+		got[n.ID] = true
+	}
+	if !got["pkg:."] {
+		t.Errorf("根目录节点（pkg:.）应入图: %v", got)
+	}
+	if !got["pkg:isolated"] {
+		t.Errorf("孤岛子包节点应入图: %v", got)
+	}
+	if len(snap.Edges) != 0 {
+		t.Errorf("无依赖边仓 edges 应为空: %v", snap.Edges)
+	}
+}

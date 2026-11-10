@@ -82,6 +82,25 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 				}
 			}
 		}
+		// v6.1.3 孤岛目录兜底：有 Go 文件但零依赖边的目录也入图——单包仓/无跨包
+		// import 的仓此前整图空 → 分享页 502「无可视化节点（空图）」（每个被审查
+		// 的单包仓都产出死链分享页）。cap 感知触顶记截断。
+		for d := range ws.fileCount {
+			if len(s.Nodes) >= MaxMapDirs {
+				truncated = true
+				s.Notes = append(s.Notes, "目录超封顶，孤岛目录未全量入图")
+				break
+			}
+			addDir(d)
+		}
+		for d := range ws.testFiles {
+			if len(s.Nodes) >= MaxMapDirs {
+				truncated = true
+				s.Notes = append(s.Notes, "目录超封顶，孤岛目录未全量入图")
+				break
+			}
+			addDir(d)
+		}
 	}
 
 	// ---- shell source（文件对→目录对聚合） ----
