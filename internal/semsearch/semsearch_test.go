@@ -32,8 +32,8 @@ func (s *stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 
 func (s *stubEmbedder) Dim() int { return len(stubVocab) }
 
-// TestExtractGoChunks Go 文件按顶层声明切：doc 注释进文本、方法名带接收者、
-// 行号是声明真实行。
+// TestExtractGoChunks Go 文件按顶层声明切：doc 注释进文本、方法名带接收者
+// （v5.10.0 节点键=NodeKey 契约，dir 限定）、行号是声明真实行。
 func TestExtractGoChunks(t *testing.T) {
 	src := `package app
 
@@ -48,12 +48,12 @@ type Server struct {
 
 var Version = "1.0"
 `
-	chunks, _ := extractChunks("internal/app/store.go", []byte(src))
+	chunks, _ := extractChunks("internal/app/store.go", []byte(src), "argus")
 	if len(chunks) != 3 {
 		t.Fatalf("chunk 数 = %d, want 3（%v）", len(chunks), chunks)
 	}
-	if chunks[0].Symbol != "Store.GetUser" || chunks[0].Line != 3 {
-		// chunk 从 doc 注释行起算（注释随文本进 embedding 输入）。
+	if chunks[0].Symbol != "internal/app.Store.GetUser" || chunks[0].Line != 3 {
+		// chunk 从 doc 注释行起算（注释随文本进 embedding 输入）；符号键 dir 限定。
 		t.Errorf("方法 chunk: %+v", chunks[0])
 	}
 	if !strings.Contains(chunks[0].Text, "Repo 从 DB 读用户") {
@@ -62,22 +62,22 @@ var Version = "1.0"
 	if !strings.HasPrefix(chunks[0].Text, "internal/app/store.go:3\n") {
 		t.Errorf("文本应以路径:行开头:\n%s", chunks[0].Text)
 	}
-	if chunks[1].Symbol != "Server" || chunks[2].Symbol != "Version" {
+	if chunks[1].Symbol != "internal/app.Server" || chunks[2].Symbol != "internal/app.Version" {
 		t.Errorf("声明名不符: %q %q", chunks[1].Symbol, chunks[2].Symbol)
 	}
 }
 
 // TestExtractFileChunk 非 Go 文件与坏 Go 文件都降级文件级 chunk；二进制跳过。
 func TestExtractFileChunk(t *testing.T) {
-	md, _ := extractChunks("docs/guide.md", []byte("# 指南\n\n如何处理认证流程。\n"))
+	md, _ := extractChunks("docs/guide.md", []byte("# 指南\n\n如何处理认证流程。\n"), "")
 	if len(md) != 1 || md[0].Line != 1 || !strings.Contains(md[0].Text, "认证") {
 		t.Errorf("md 文件级 chunk 不符: %+v", md)
 	}
-	bad, _ := extractChunks("broken.go", []byte("package app\nfunc {{{\n"))
+	bad, _ := extractChunks("broken.go", []byte("package app\nfunc {{{\n"), "")
 	if len(bad) != 1 || bad[0].Symbol != "" {
 		t.Errorf("坏 Go 文件应降级文件级: %+v", bad)
 	}
-	if binChunks, binEdges := extractChunks("bin.dat", []byte("AB\x00CD")); binChunks != nil || binEdges != nil {
+	if binChunks, binEdges := extractChunks("bin.dat", []byte("AB\x00CD"), ""); binChunks != nil || binEdges != nil {
 		// bin.dat 不在 codeExts，scanDir 层面就跳过；extractChunks 直喂时
 		// 二进制不该产出可嵌文本
 		t.Log("二进制内容由 scanDir 过滤")

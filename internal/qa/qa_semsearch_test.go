@@ -73,3 +73,15 @@ func TestTrace_SymContext_Guards(t *testing.T) {
 		t.Errorf("底座 nil SymContext 应报未启用，got %v", err)
 	}
 }
+
+// TestEdgeQualityNote 图面边界措辞随精确边模式切换（v5.10.0）：precise=go/types
+// 类型解析级（接口分派不可见），否则维持词法级；get_trace/get_symbol_context
+// 围栏与提示文本共用。
+func TestEdgeQualityNote(t *testing.T) {
+	if got, want := edgeQualityNote(true), "类型解析级边（go/types；接口分派不可见）"; got != want {
+		t.Errorf("precise=true 措辞不符 = %q, want %q", got, want)
+	}
+	if got, want := edgeQualityNote(false), "词法级边"; got != want {
+		t.Errorf("precise=false 措辞不符 = %q, want %q", got, want)
+	}
+}

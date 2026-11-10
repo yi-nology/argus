@@ -356,6 +356,16 @@ func (e *Engine) SearchSem(ctx context.Context, platform, owner, repo, number, q
 	return plugin.DataFence("search_sem 检索结果（数据）", b.String()), nil
 }
 
+// edgeQualityNote 图面边界措辞随精确边模式切换（v5.10.0）：ARGUS_GRAPH_PRECISE
+// 部署开启且该目录索引成功应用精确边时为 go/types 类型解析级（接口分派仍不可
+// 见），否则维持词法级。get_trace/get_symbol_context 围栏与提示文本共用。
+func edgeQualityNote(precise bool) string {
+	if precise {
+		return "类型解析级边（go/types；接口分派不可见）"
+	}
+	return "词法级边"
+}
+
 // Trace 两符号间调用链（v5.9.0，MCP get_trace 数据面）：与 search_sem 同底座
 // （semsearch.Manager.Trace——符号邻接图无向 BFS 最短链），目录解析复用
 // workcopyDir。守卫与错误语义同 SearchSem：未启用/工作副本不可用返回 error
@@ -377,10 +387,10 @@ func (e *Engine) Trace(ctx context.Context, platform, owner, repo, number, from,
 		return "", fmt.Errorf("调用链查询失败: %w", err)
 	}
 	if !found {
-		return fmt.Sprintf("未找到 %s → %s 的 ≤%d 跳调用链（词法级边：接口分派/方法值/跨仓调用不可见，可改用 search_code 查调用形态）", from, to, traceHops), nil
+		return fmt.Sprintf("未找到 %s → %s 的 ≤%d 跳调用链（%s：接口分派不可见，可改用 search_code 查调用形态）", from, to, traceHops, edgeQualityNote(e.SemSearch.Precise(dir))), nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "get_trace（%s → %s）≤%d 跳最短调用链，词法级边引用前须 get_file 核实：\n", from, to, traceHops)
+	fmt.Fprintf(&b, "get_trace（%s → %s）≤%d 跳最短调用链，%s引用前须 get_file 核实：\n", from, to, traceHops, edgeQualityNote(e.SemSearch.Precise(dir)))
 	for i, r := range chain {
 		if i > 0 {
 			switch r.Rel {
@@ -400,8 +410,9 @@ func (e *Engine) Trace(ctx context.Context, platform, owner, repo, number, from,
 }
 
 // SymContext 单符号图上下文（v5.9.0，MCP get_symbol_context 数据面）：定义位置 +
-// 直接调用方 + 被调（同名多候选合并邻接）。守卫/目录解析/错误语义同 SearchSem
-// 与 Trace；未解析到符号返回提示文本非 error。
+// 直接调用方 + 被调（同名多候选合并邻接；v5.10.0 键迁移后多候选=同 bare 名跨
+// 目录，候选数一并透出）。守卫/目录解析/错误语义同 SearchSem 与 Trace；未解析
+// 到符号返回提示文本非 error。
 func (e *Engine) SymContext(ctx context.Context, platform, owner, repo, number, symbol string) (string, error) {
 	if e.SemSearch == nil || !e.SemSearchOn {
 		return "", fmt.Errorf("get_symbol_context 未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）")
@@ -414,7 +425,7 @@ func (e *Engine) SymContext(ctx context.Context, platform, owner, repo, number, 
 	if !ok {
 		return "", fmt.Errorf("工作副本不可用（冷克隆超时或失败），可稍后重试或改用 search_code/get_file")
 	}
-	self, in, out, found, err := e.SemSearch.SymbolContext(ctx, dir, symbol)
+	self, in, out, cands, found, err := e.SemSearch.SymbolContext(ctx, dir, symbol)
 	if err != nil {
 		return "", fmt.Errorf("符号上下文查询失败: %w", err)
 	}
@@ -428,6 +439,12 @@ func (e *Engine) SymContext(ctx context.Context, platform, owner, repo, number, 
 	} else {
 		fmt.Fprintf(&b, "定义：%s\n", self.Symbol)
 	}
+	// v5.10.0：候选数 >1 即邻接为跨目录同名合并，提示引用前逐候选核实。
+	if cands > 1 {
+		fmt.Fprintf(&b, "同名候选 %d 处，邻接已合并（引用前须逐候选核实）\n", cands)
+	}
+	// v5.10.0：边界声明随精确边模式动态化（get_trace 围栏首行同款）。
+	fmt.Fprintf(&b, "%s，引用前须 get_file 核实\n", edgeQualityNote(e.SemSearch.Precise(dir)))
 	// 单组列表过 renderSemNeighbors 只会出该组标签，剥去避免与行标签重复。
 	if seg := renderSemNeighbors(in, symContextCap); seg != "" {
 		fmt.Fprintf(&b, "调用方（≤%d）：%s\n", symContextCap, strings.TrimPrefix(seg, "调用方 "))

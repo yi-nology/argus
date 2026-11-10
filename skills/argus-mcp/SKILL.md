@@ -49,8 +49,8 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `search_knowledge` | 知识库语义检索（规范/历史结论/误报判例） | query | top_k 可选（缺省 5 上界 10）；与 R3/R4 审查面同源；未配知识源时报错 |
 | `fix_finding` | 单条意见沙箱修复 | platform/owner/repo/number/fp | 绝不 push；未配 `ARGUS_FIX_AGENT` 时报错 |
 | `search_sem` | 工作副本语义检索（按意图找代码） | platform/owner/repo/number/query | top_k 可选；`ARGUS_SEMSEARCH`+`ARGUS_EMBEDDING_*` 双门，未启用时报错 |
-| `get_trace` | 符号图调用链查询（from→to 可达性与路径） | platform/owner/repo/number/from/to | `ARGUS_SEMSEARCH` 双门+词法级边（同名按裸名合并，非编译期精确调用图）；未启用时报错 |
-| `get_symbol_context` | 符号图邻接查询（某符号的调用方/被调） | platform/owner/repo/number/symbol | `ARGUS_SEMSEARCH` 双门+词法级边（同名按裸名合并）；未启用时报错 |
+| `get_trace` | 符号图调用链查询（from→to 可达性与路径） | platform/owner/repo/number/from/to | `ARGUS_SEMSEARCH` 双门+词法级边（同名按裸名合并，非编译期精确调用图；ARGUS_GRAPH_PRECISE 开=类型解析级边）；未启用时报错 |
+| `get_symbol_context` | 符号图邻接查询（某符号的调用方/被调） | platform/owner/repo/number/symbol | `ARGUS_SEMSEARCH` 双门+词法级边（同名按裸名合并；ARGUS_GRAPH_PRECISE 开=类型解析级边）；未启用时报错 |
 | `suppress_finding` | 误报抑制（fp 短码） | platform/owner/repo/number/fp | **需 admin 档 token**（scope 透传二次判定，ci 档报权限错）；回流知识库+学习环；重措辞复现由宽松级吸收（详见 tools.md 耐久性边界） |
 | `restore_finding` | 恢复误抑制意见（suppress 反向） | platform/owner/repo/number/fp | **需 admin 档 token**；抑制错了用它撤销，下一轮起重新可见 |
 | `get_capabilities` | 能力面快照（部署开了什么） | 无 | 纯读零副作用；调受限工具前先看这里 |

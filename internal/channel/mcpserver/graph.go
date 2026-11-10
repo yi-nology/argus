@@ -59,7 +59,7 @@ func NewGraphTools(s *server.MCPServer, core Core) {
 
 func traceTool() mcp.Tool {
 	return mcp.NewTool("get_trace",
-		mcp.WithDescription("在 PR 工作副本符号图上查询两符号间的调用链路（get_trace）：from→to 是否可达及途经函数——核查「改动会不会波及下游/上游从哪里进来」、修复前侦察影响面用；search_sem 命中附的邻接行同源（v5.9.0 图增强）。图为词法级解析（同名符号按裸名合并），非编译期精确调用图——结论是线索，引用前须读代码核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
+		mcp.WithDescription("在 PR 工作副本符号图上查询两符号间的调用链路（get_trace）：from→to 是否可达及途经函数——核查「改动会不会波及下游/上游从哪里进来」、修复前侦察影响面用；search_sem 命中附的邻接行同源（v5.9.0 图增强）。边默认词法级（同名按裸名合并）；部署启用 ARGUS_GRAPH_PRECISE 时为 go/types 类型解析级（接口分派仍不可见）——结论是线索，引用前须读代码核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
 		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
@@ -71,7 +71,7 @@ func traceTool() mcp.Tool {
 
 func symbolContextTool() mcp.Tool {
 	return mcp.NewTool("get_symbol_context",
-		mcp.WithDescription("查询 PR 工作副本内某符号的图上下文（get_symbol_context）：直接调用方与被调邻接列表（词法级边）——评审意见定位「谁会受这次改动影响/这个函数依赖什么」用；search_sem 命中附的邻接行同源（v5.9.0 图增强）。图为词法级解析（同名符号按裸名合并），非编译期精确调用图——结论是线索，引用前须读代码核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
+		mcp.WithDescription("查询 PR 工作副本内某符号的图上下文（get_symbol_context）：直接调用方与被调邻接列表——评审意见定位「谁会受这次改动影响/这个函数依赖什么」用；search_sem 命中附的邻接行同源（v5.9.0 图增强）。边默认词法级（同名按裸名合并）；部署启用 ARGUS_GRAPH_PRECISE 时为 go/types 类型解析级（接口分派仍不可见）——结论是线索，引用前须读代码核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
 		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),

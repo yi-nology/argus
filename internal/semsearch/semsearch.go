@@ -4,7 +4,9 @@
 // 认证/哪里刷新 session token——代码里未必有查询词）。v5.9.0 增图面：search
 // 命中自动附调用方/被调邻接（SymRef），另提供 Path 两符号最短调用链与
 // SymbolContext 单符号上下文两个图查询——调用边自产自 chunk 同一次 AST 解析
-// （见 chunks.go/graph.go）。
+// （见 chunks.go/graph.go）。v5.10.0：节点键迁移 NodeKey 契约（dir 限定消歧
+// 跨包同名），EdgeAugmenter 精确边注入钩子（档一接口，实现方经 WithEdges
+// 注入，成功应用后精确边替换词法邻接、Manager.Precise 透出模式）。
 //
 // 行业坐标（2026-10 调研）：审查是异步、准确率优先、延迟不敏感的任务，预索引
 // 在审查场景的价值高于编码助手场景（Greptile 全库图/Ellipsis 向量+历史 PR 索引
@@ -37,7 +39,7 @@ type Embedder interface {
 type Chunk struct {
 	Path   string // 仓库相对路径
 	Line   int    // 起始行（1-based）
-	Symbol string // Go 顶层声明名（文件级 chunk 为空）
+	Symbol string // Go 顶层声明节点键（NodeKey 契约；文件级 chunk 为空）
 	Text   string // embedding 输入（path:line + 源码片段）
 }
 
@@ -70,13 +72,23 @@ type fileFP struct {
 type Index struct {
 	embedder Embedder
 
-	mu             sync.Mutex            // 护 files/paths/sym/truncated（Refresh 与 Search 并发）
+	mu             sync.Mutex            // 护 files/paths/sym/aug*/precise/truncated（Refresh 与 Search 并发）
 	files          map[string]*fileIndex // key: 仓库相对路径
 	paths          []string              // 排序路径快照（Search 确定序遍历）
 	sym            *symGraph             // 符号邻接图（Refresh 收尾重建，nil=未构建；v5.9.0 图面）
 	maxFiles       int                   // 文件数上限（默认 maxDefaultFiles，测试可调低）
 	maxTotalChunks int                   // 全库 chunk 上限（embedding 成本闸）
 	truncated      bool                  // 触达任一上限即置位（调用方可透出告警）
+
+	// 精确边钩子（v5.10.0）：aug 由 Manager 经 WithEdges 注入（直建 Index 留空
+	// =纯词法）；augSig/augEdges 是成功应用的签名与边缓存；augFailed 失败闩——
+	// 本 Index 生命周期内不再重试（工作副本目录 per head-SHA，新 MR 新 Index
+	// 自动重试）；precise=最近一次 Refresh 成功应用精确边（Manager.Precise 透出）。
+	aug       EdgeAugmenter
+	augSig    uint64
+	augEdges  [][2]string
+	augFailed bool
+	precise   bool
 }
 
 // NewIndex 构建空索引（Refresh 前检索返回空）。
@@ -93,25 +105,63 @@ func NewIndex(e Embedder) *Index {
 // 索引，此后每次检索前按文件指纹增量刷新——只重嵌变更文件的 chunk。
 type Manager struct {
 	embedder Embedder
+	aug      EdgeAugmenter // 精确边注入钩子（WithEdges 注入，透传给所建 Index）
 	mu       sync.Mutex
 	idx      map[string]*Index
 }
 
-// NewManager 构建管理器。
-func NewManager(e Embedder) *Manager {
-	return &Manager{embedder: e, idx: map[string]*Index{}}
+// Option Manager 构建选项（装配侧按需注入可选能力）。
+type Option func(*Manager)
+
+// WithEdges 注入精确边 augmenter（v5.10.0 档一钩子，档二实现方注入）：所建
+// Index 的 Refresh 尾部按文件集签名增量拉取精确调用边，成功应用即替换词法
+// 邻接（Precise(dir)=true）；失败降级词法并置失败闩不再重试。
+func WithEdges(a EdgeAugmenter) Option {
+	return func(m *Manager) { m.aug = a }
+}
+
+// NewManager 构建管理器（opts 按序应用）。
+func NewManager(e Embedder, opts ...Option) *Manager {
+	m := &Manager{embedder: e, idx: map[string]*Index{}}
+	for _, o := range opts {
+		o(m)
+	}
+	return m
+}
+
+// indexFor 目录索引（缺则冷建并透传 aug；调用方先解锁再 Refresh——Refresh
+// 自持 ix.mu）。Search/Trace/SymbolContext 三入口共用。
+func (m *Manager) indexFor(dir string) *Index {
+	m.mu.Lock()
+	ix, ok := m.idx[dir]
+	if !ok {
+		ix = NewIndex(m.embedder)
+		ix.aug = m.aug
+		m.idx[dir] = ix
+	}
+	m.mu.Unlock()
+	return ix
+}
+
+// Precise 目录索引是否处于精确边模式（v5.10.0：该目录索引最近一次 Refresh
+// 成功应用 EdgeAugmenter 精确边；false=纯词法/augmenter 未配置/失败闩降级）。
+// 目录未建索引返回 false。
+func (m *Manager) Precise(dir string) bool {
+	m.mu.Lock()
+	ix, ok := m.idx[dir]
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.precise
 }
 
 // Search 目录语义检索：增量刷新索引后按 query 向量余弦取 topK（minScore 过滤，
 // ≤0 表示不过滤）。检索失败返回 error；无命中返回空切片非 error。
 func (m *Manager) Search(ctx context.Context, dir, query string, topK int, minScore float32) ([]Hit, error) {
-	m.mu.Lock()
-	ix, ok := m.idx[dir]
-	if !ok {
-		ix = NewIndex(m.embedder)
-		m.idx[dir] = ix
-	}
-	m.mu.Unlock()
+	ix := m.indexFor(dir)
 	if err := ix.Refresh(ctx, dir); err != nil {
 		return nil, err
 	}
@@ -122,13 +172,7 @@ func (m *Manager) Search(ctx context.Context, dir, query string, topK int, minSc
 // 邻接图上 BFS（无向，≤graphHopsDefault 跳）。首次对未建索引目录调用会付冷建
 // 索引成本（embedding 一次性，增量零）；不可达或任一端不在符号表返回 ok=false。
 func (m *Manager) Trace(ctx context.Context, dir, from, to string) ([]SymRef, bool, error) {
-	m.mu.Lock()
-	ix, ok := m.idx[dir]
-	if !ok {
-		ix = NewIndex(m.embedder)
-		m.idx[dir] = ix
-	}
-	m.mu.Unlock()
+	ix := m.indexFor(dir)
 	if err := ix.Refresh(ctx, dir); err != nil {
 		return nil, false, err
 	}
@@ -136,20 +180,15 @@ func (m *Manager) Trace(ctx context.Context, dir, from, to string) ([]SymRef, bo
 	return chain, found, nil
 }
 
-// SymbolContext 单符号图上下文（v5.9.0）：定义位置 + 调用方 + 被调（同名多候选
-// 合并邻接）。索引模式与 Search/Trace 相同：目录缺则冷建，Refresh 失败原样上抛。
-func (m *Manager) SymbolContext(ctx context.Context, dir, symbol string) (self SymRef, in, out []SymRef, ok bool, err error) {
-	m.mu.Lock()
-	ix, cached := m.idx[dir]
-	if !cached {
-		ix = NewIndex(m.embedder)
-		m.idx[dir] = ix
-	}
-	m.mu.Unlock()
+// SymbolContext 单符号图上下文（v5.9.0）：定义位置 + 调用方 + 被调 + 同名候选
+// 数（cands，v5.10.0；多候选合并邻接）。索引模式与 Search/Trace 相同：目录缺
+// 则冷建，Refresh 失败原样上抛。
+func (m *Manager) SymbolContext(ctx context.Context, dir, symbol string) (self SymRef, in, out []SymRef, cands int, ok bool, err error) {
+	ix := m.indexFor(dir)
 	if err = ix.Refresh(ctx, dir); err != nil {
 		return
 	}
-	self, in, out, ok = ix.SymbolContext(symbol)
+	self, in, out, cands, ok = ix.SymbolContext(symbol)
 	return
 }
 
@@ -173,12 +212,14 @@ func (ix *Index) Truncated() bool {
 
 // Refresh 扫描目录并增量刷新索引：新文件/指纹变更的文件重新抽 chunk 并批量
 // 向量化，消失的文件整组剔除。单文件扫描失败跳过（与 codesearch 同宽容度）；
-// embedding 失败原样上抛（调用方决定降级文案）。
+// embedding 失败原样上抛（调用方决定降级文案）。收尾顺带跑精确边钩子
+// （applyAugLocked：签名变了才拉边，成功应用即精确模式）。
 func (ix *Index) Refresh(ctx context.Context, dir string) error {
 	found, err := scanDir(dir)
 	if err != nil {
 		return err
 	}
+	modPath := modulePathOf(dir) // go.mod module 声明（import 限定消歧输入；缺失空串降级）
 	scanned := len(found)
 	if scanned > ix.maxFiles {
 		found = found[:ix.maxFiles]
@@ -208,7 +249,7 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		if old, ok := ix.files[f.rel]; ok && old.fp == f.fp {
 			continue
 		}
-		chunks, edges := extractChunks(f.rel, f.content)
+		chunks, edges := extractChunks(f.rel, f.content, modPath)
 		if len(chunks) > maxFileChunks {
 			chunks = chunks[:maxFileChunks]
 		}
@@ -229,8 +270,9 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 			delete(ix.files, rel)
 		}
 	}
-	ix.rebuildPathsLocked() // 删除/预算截断都可能改变文件集，快照恒重建（此前仅在重嵌路径重建，todo 空时删除残留）
-	ix.rebuildGraphLocked() // v5.9.0：图面与符号集同源，删除/预算截断同样要重建
+	ix.rebuildPathsLocked()            // 删除/预算截断都可能改变文件集，快照恒重建（此前仅在重嵌路径重建，todo 空时删除残留）
+	ix.applyAugLocked(ctx, dir, found) // v5.10.0：精确边钩子（签名门控+失败闩，见 graph.go）
+	ix.rebuildGraphLocked()            // v5.9.0：图面与符号集同源，删除/预算截断同样要重建
 	if len(todo) == 0 {
 		return nil
 	}
@@ -259,7 +301,8 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 		ix.files[p.rel] = fi
 	}
 	ix.rebuildPathsLocked()
-	ix.rebuildGraphLocked() // v5.9.0：重嵌落地后按新符号集重建图面
+	ix.applyAugLocked(ctx, dir, found) // v5.10.0：签名未变即零成本沿用既有精确边
+	ix.rebuildGraphLocked()            // v5.9.0：重嵌落地后按新符号集重建图面
 	return nil
 }
 

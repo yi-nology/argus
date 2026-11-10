@@ -60,6 +60,11 @@ var layering = map[string][]string{
 	"argus/internal/learning":   {},
 	"argus/internal/progress":   {},
 	"argus/internal/gitdeepen":  {},
+	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
+	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
+	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配
+	// （bootstrap 不受本表约束），不另立白名单条目。
+	"argus/internal/goedges": {"argus/internal/semsearch"},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
 	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁红至今）
 	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）

@@ -374,6 +374,14 @@ type Config struct {
 	// 由部署方显式开启。
 	SemSearch bool
 
+	// GraphPrecise 精确调用边档（v5.10.0，ARGUS_GRAPH_PRECISE）：search_sem
+	// 符号图邻接/路径面从词法近似升级为 go/types 类型解析级精确边
+	// （internal/goedges 全仓类型解析）。需工作副本可编译+依赖可解析
+	// （vendor/ 或内部 GOPROXY——沙箱/离线环境注意 vendor 完整性），
+	// 不可编译自动降级词法边（per Index 失败闩，不重试）；与 ARGUS_SEMSEARCH
+	// 组合生效——SemSearch 未就绪时本档无消费面（仅启动 warn，不报错）。
+	GraphPrecise bool
+
 	// RelatedRepos 跨仓契约快照（v3.90.0）：允许 .reviewagents.yaml related 段
 	// 生效——审查时拉取关联仓契约文件注入 R4。服务级总门（仓库声明只是必要
 	// 条件）：跨仓读取扩大数据访问面，由部署方显式授权。ARGUS_RELATED_REPOS=1 开。
@@ -457,6 +465,7 @@ func Load() *Config {
 		ImpactView:               envBool("ARGUS_IMPACTVIEW", true),
 		ImpactCoupling:           envInt("ARGUS_IMPACT_COUPLING", 100),
 		SemSearch:                envBool("ARGUS_SEMSEARCH", false),
+		GraphPrecise:             envBool("ARGUS_GRAPH_PRECISE", false),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),

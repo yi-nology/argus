@@ -20,6 +20,7 @@ import (
 	"argus/internal/config"
 	argusctx "argus/internal/context"
 	"argus/internal/dispatch"
+	"argus/internal/goedges"
 	"argus/internal/memorykernel"
 	"argus/internal/notify"
 	"argus/internal/plugin"
@@ -273,11 +274,23 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	// System 由此成为完整对象图；main 只剩 HTTP 接线（SetService/Bearer/路由/停机排水）。
 	// 语义检索底座（v3.126.0）：ARGUS_SEMSEARCH + ARGUS_EMBEDDING_* 双门——
 	// embedding 与知识库共用一套配置；未就绪留 nil，search_sem 运行期报未启用。
+	// 精确调用边档（v5.10.0）：ARGUS_GRAPH_PRECISE 开启时注入 go/types 精确
+	// 边抽取器（goedges，EdgeAugmenter 档二实现）——工作副本不可编译时
+	// semsearch 侧失败闩自动降级词法边，装配侧无感。
 	var semMgr *semsearch.Manager
 	if cfg.SemSearch && cfg.EmbeddingBaseURL != "" {
+		var semOpts []semsearch.Option
+		if cfg.GraphPrecise {
+			semOpts = append(semOpts, semsearch.WithEdges(goedges.New()))
+		}
 		semMgr = semsearch.NewManager(rag.NewOpenAIEmbedder(
-			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim))
-		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
+			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim),
+			semOpts...)
+		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim,
+			"precise", cfg.GraphPrecise)
+	} else if cfg.GraphPrecise {
+		log.Warn("argus.boot.graph_precise_unused",
+			"reason", "ARGUS_SEMSEARCH/ARGUS_EMBEDDING_BASE_URL 未就绪——精确边无消费面")
 	}
 	// 评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：agent-memory 底座——
 	// 落库前强制脱敏 + 召回注入防伪（MemoryBand）+ 事实证据链闭合。打开失败降级

@@ -372,7 +372,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.122.0）|
 | `search_knowledge` | 知识库语义检索：规范/历史审查结论/误报判例，与 R3/R4 的 search_knowledge 同源（未配知识源时报错，v3.125.0）|
 | `search_sem` | PR 工作副本语义检索：按意图/自然语言找代码，补词法正则答不了的「哪里处理认证」；命中附调用方/被调邻接行（ARGUS_SEMSEARCH+ARGUS_EMBEDDING_* 双门，缺省关，v3.126.0）|
-| `get_trace` | 符号图调用链查询：from→to 是否可达及途经函数（semsearch 符号邻接图，词法级边——同名按裸名合并，非编译期精确调用图；与 search_sem 同门控，v5.9.0）|
+| `get_trace` | 符号图调用链查询：from→to 是否可达及途经函数（semsearch 符号邻接图；边默认词法级（同名按裸名合并），部署启用 ARGUS_GRAPH_PRECISE 时为 go/types 类型解析级（接口分派仍不可见）——结论是线索，引用前须读代码核实；与 search_sem 同门控，v5.9.0）|
 | `get_symbol_context` | 符号图邻接查询：某符号的直接调用方/被调列表（semsearch 符号邻接图，词法级边；与 search_sem 同门控，v5.9.0）|
 | `fix_finding` | 按 PR+短码同步执行沙箱修复（agent 出 patch+确定性验证，回 diff；绝不 push；工具常驻注册，服务未配 ARGUS_FIX_AGENT 时调用报错，v3.89.0）|
 | `suppress_finding` | 误报抑制（fp 短码；重措辞复现由宽松近重复级吸收，回流知识库+学习环；需 admin 档 token，scope 透传二次判定，v3.128.0/v3.130.0）|

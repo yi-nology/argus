@@ -1,6 +1,7 @@
-// graph_query.go —— 符号邻接图的查询面（v5.9.0）：命中附邻接、单符号上下文、
-// 两符号最短调用链。图由 Refresh 收尾恒重建（graph.go），查询只读且持 ix.mu；
-// 容量封顶与关系词表同在 graph.go，此处不重复定义。
+// graph_query.go —— 符号邻接图的查询面（v5.9.0 起；v5.10.0 键迁移为 NodeKey
+// 契约，SymbolContext 增候选数）：命中附邻接、单符号上下文、两符号最短调用链。
+// 图由 Refresh 收尾恒重建（graph.go），查询只读且持 ix.mu；容量封顶与关系词表
+// 同在 graph.go，此处不重复定义。
 package semsearch
 
 import "sort"
@@ -82,26 +83,28 @@ func (g *symGraph) stepRel(u, v string) string {
 	return relCalledBy
 }
 
-// SymbolContext 单符号图上下文：定义位置 + 调用方 + 被调。同名多候选合并邻接
-// （词法级裸名匹配的既定边界，见 graph.go 文档），self 取路径序首个候选；候选
-// 为空（符号不在图内）返回 ok=false。
-func (ix *Index) SymbolContext(symbol string) (self SymRef, in, out []SymRef, ok bool) {
+// SymbolContext 单符号图上下文：定义位置 + 调用方 + 被调 + 同名候选数（cands，
+// v5.10.0——键迁移后多候选=同 bare 名跨目录，同目录同名已被 NodeKey 消歧）。
+// 多候选合并邻接（词法级裸名匹配的既定边界，见 graph.go 文档），self 取路径
+// 序首个候选；候选为空（符号不在图内）返回 ok=false（cands=0）。
+func (ix *Index) SymbolContext(symbol string) (self SymRef, in, out []SymRef, cands int, ok bool) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	g := ix.sym
 	if g == nil {
 		return
 	}
-	cands := g.resolve(symbol)
-	if len(cands) == 0 {
+	found := g.resolve(symbol)
+	cands = len(found)
+	if cands == 0 {
 		return
 	}
 	ok = true
-	self = g.refAt(cands[0])
+	self = g.refAt(found[0])
 	// 多候选邻接合并去重（与 candidates 排序同款：升序去重后按容量封顶）。
 	var callers, callees []string
 	seenIn, seenOut := map[string]bool{}, map[string]bool{}
-	for _, c := range cands {
+	for _, c := range found {
 		for _, u := range g.radj[c] {
 			if !seenIn[u] {
 				seenIn[u] = true
