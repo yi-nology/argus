@@ -21,7 +21,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
-	"github.com/yi-nology/agent-harness/budget"
+	"github.com/yi-nology/goagent-kernel/budget"
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/plugin"

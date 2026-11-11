@@ -90,7 +90,7 @@ const (
 // ref 由模型提供（不可信），取回面以此挡路径注入——不满足形态直接按「无此 ref」处理。
 var spillRefRe = regexp.MustCompile(`^d[1-9][0-9]*$`)
 
-// stashDetail 超限全文落盘存档（v5.0.0 收编 agent-harness/spill 语义：磁盘面取代
+// stashDetail 超限全文落盘存档（v5.0.0 收编 harness spill 语义（今 goagent-kernel）：磁盘面取代
 // v3.39.0 进程内 map——checkpoint 复活/进程重启后 get_detail 不再落空；会话隔离 =
 // 任务 ID 目录，职责分工与 spill 一致：存档/取回判定单源，文案与工具壳归宿主）。
 // 写失败返回空串（stashOverflowAt 退纯截断，不阻塞工具输出主链路）。

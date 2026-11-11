@@ -20,7 +20,7 @@ package requirement
 import (
 	"encoding/json"
 
-	"github.com/yi-nology/agent-harness/checkpoint"
+	"github.com/yi-nology/goagent-kernel/checkpoint"
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"

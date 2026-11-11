@@ -1,4 +1,4 @@
-// budget.go —— QA 会话历史的 token 预算压实（v3.152.0，agent-harness/budget 接入）。
+// budget.go —— QA 会话历史的 token 预算压实（v3.152.0，goagent-kernel/budget 接入（原 agent-harness，module 已更名））。
 //
 // 既有窗口是轮数制（maxTurns=6 verbatim + 滚动摘要）：轮次长短方差大，
 // 6 轮长问答可吹爆上下文而 20 轮短问答仍富余。本文件在不动既有轮数路径的
@@ -21,7 +21,7 @@ import (
 	"strconv"
 
 	"github.com/oagentkit/textx/compact"
-	"github.com/yi-nology/agent-harness/budget"
+	"github.com/yi-nology/goagent-kernel/budget"
 
 	"github.com/yi-nology/argus/internal/storage"
 )

@@ -1,4 +1,4 @@
-// ptc.go —— QA 程序化工具编排（v3.158.0，agent-harness/ptc 接入，ARGUS_QA_PTC opt-in）。
+// ptc.go —— QA 程序化工具编排（v3.158.0，goagent-kernel/ptc 接入（原 agent-harness，module 已更名），ARGUS_QA_PTC opt-in）。
 //
 // 形态：ask 的 ReAct 证据采集面（≤8 轮往返、每轮全量工具结果过模型面）塌缩为
 // 「1 轮程序合成 + 进程内 goja 执行 + 1 轮作答」——模型写一段 JS 循环调
@@ -34,8 +34,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/yi-nology/agent-harness/ptc"
-	"github.com/yi-nology/agent-harness/toolname"
+	"github.com/yi-nology/goagent-kernel/ptc"
+	"github.com/yi-nology/goagent-kernel/toolname"
 
 	"github.com/oagentkit/llm"
 

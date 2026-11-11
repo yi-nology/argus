@@ -74,7 +74,7 @@ type Workflow struct {
 	// 转义预处理，stages 注入侧带对冲句。
 	RepoGuide string
 
-	// 详情存档目录（v5.0.0 收编 agent-harness/spill 语义，取代 v3.39.0 进程内 map）：
+	// 详情存档目录（v5.0.0 收编 harness spill 语义（今 goagent-kernel），取代 v3.39.0 进程内 map）：
 	// 超限工具全文落盘 <WorkRoot>/spill/<taskID>/，get_detail 取回——checkpoint 复活/
 	// 进程重启后 ref 不再失效（旧 map 版重启即失）。runner wireWorkflow 每任务注入；
 	// 空 = 两级化退纯截断（无取回指引）。
