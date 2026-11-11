@@ -14,13 +14,13 @@ export default defineUserConfig({
     // rc.137 无 dark 默认分支（bootstrap 只读 localStorage+系统偏好）：无用户
     // 选择时预设 data-theme=dark（脚本须排在 theme bootstrap 之前不被覆盖，
     // 用户显式选择 light 时 bootstrap 会覆盖回来）
-    ['script', {}, "(function(){if(localStorage.getItem('vuepress-color-scheme')===null){localStorage.setItem('vuepress-color-scheme','dark');document.documentElement.dataset.theme='dark'}})()"],
+    ['script', {}, "(function(){localStorage.setItem('vuepress-color-scheme','dark');var e=document.documentElement;e.dataset.theme='dark';new MutationObserver(function(){if(e.dataset.theme!=='dark')e.dataset.theme='dark'}).observe(e,{attributes:true,attributeFilter:['data-theme']})})()"],
     ['link', { rel: 'icon', type: 'image/svg+xml', href: 'favicon.svg' }],
     ['meta', { name: 'theme-color', content: '#2563eb' }],
   ],
   theme: defaultTheme({
     colorMode: 'dark',
-    colorModeSwitch: true,
+    colorModeSwitch: false,
     navbar: [
       { text: '能力', link: '/' },
       { text: '部署', link: '/guide.html' },
