@@ -10,6 +10,10 @@
 // （ErrorKind/行号/模型侧修复建议——USAGE §3.4：诊断面就是给模型读的）重试
 // 一次；预算/墙钟类失败不重试（方案太重，同型重试只再烧一遍预算），直接回退。
 //
+// v6.3.1 诊断渲染收编：诊断文本改由 harness ptc.Result.Describe() 单源渲染
+// （位置/建议/归因链摘要与分类口径同源，宿主不再手写同族渲染），本侧只保留
+// 「失败是否值得回喂重试」的策略面（programFixable）。
+//
 // 接入纪律（harness USAGE §3.4）与 argus 裁定：
 //   - Options.Stages 留 nil：harness 的 invoke.Stage 判定环属其编排域；argus 的
 //     qa 工具面在构造期已收口（进程内白名单工具 + 工作副本只读 + 检索预算），
@@ -112,31 +116,6 @@ func programFixable(res ptc.Result) bool {
 	return false
 }
 
-// describePtcFailure 面向模型的诊断文本（harness 诊断面的回喂投影）。
-func describePtcFailure(res ptc.Result) string {
-	var b strings.Builder
-	if res.OK {
-		b.WriteString("程序没有 return 任何值（return 语句缺失）。\n")
-	} else {
-		fmt.Fprintf(&b, "错误类别: %s\n错误: %s\n", res.ErrorKind, res.Error)
-		if res.Location.Valid() {
-			fmt.Fprintf(&b, "位置: %s\n", describePos(res.Location))
-		}
-	}
-	if len(res.Suggestions) > 0 {
-		b.WriteString("修复建议:\n")
-		for _, s := range res.Suggestions {
-			b.WriteString("- " + s + "\n")
-		}
-	}
-	return b.String()
-}
-
-// describePos 诊断位置转文本（1-based 行列）。
-func describePos(p ptc.Position) string {
-	return fmt.Sprintf("第 %d 行第 %d 列", p.Line, p.Column)
-}
-
 // ptcAsk 程序化取证路径。返回 (answer, handled, err)：handled=false 表示程序面
 // 未成立（合成失败/执行失败/空产出），调用方回退 ReAct——不把 ptc 失败当问答失败。
 func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, bool, error) {
@@ -171,7 +150,7 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 				"kind", res.ErrorKind, "error", res.Error, "calls", res.Calls, "effect", "回退 ReAct")
 			return "", false, nil
 		}
-		feedback := describePtcFailure(res)
+		feedback := res.Describe() // 诊断渲染单源收编 harness（Describe 含位置/建议/归因链摘要）
 		fixed, rerr := e.generateProgram(ctx, sys, question, feedback+"\n上一版程序（有错，请修复后重新完整输出）：\n"+prog+"\n")
 		if rerr != nil || fixed == "" || fixed == prog {
 			e.log().Warn("argus.qa.ptc_repair_gave_up", "pr", prRef, "kind", res.ErrorKind, "effect", "回退 ReAct")
