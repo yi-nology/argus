@@ -69,6 +69,13 @@
   「评论指令交互」（消 3+2 网格缺口）+ 画廊改 CSS columns 瀑布流（消行间高低差）+
   编辑式排版（编号小节 01-06、左对齐标题+右侧导语、删大写眉标/徽章 tagline）+
   navbar 重复 GitHub 链接去重。
+- **架构页 + 全站关系图（同日续六）**：新增 architecture.html——四库关系分层图
+  （go-git-platform 接入层/oekit 底座层/oagentkit 能力层/goagent-kernel 内核层 →
+  Argus 审查领域层，含消费面标注与「向下对接」外部带）+ 四库定位对照表 + 一次
+  审查数据流图（9 步×库归属色标，②⑧ 段标注不走 LLM）+ L0–L5 分层堆叠图 + 切分
+  理由；全站补图：首页技术底座迷你生态条（链架构页）、guide 生产拓扑图、vs 形态
+  定位象限图（SaaS↔自托管 × 评论↔需求级，含竞品散点）。纯 CSS 图套件零新依赖
+  （diagram/arch-map/eco-grid/flow-row/layer-stack/quadrant/topo 七组件）。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 
