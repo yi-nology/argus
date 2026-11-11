@@ -27,33 +27,45 @@ actions:
 <div><div class="num">100%</div><div class="lbl">开源 · 内网可离线</div></div>
 </div>
 
+<div class="shot">
+<div class="shot-inner">
+<div class="shot-bar"><span></span><span></span><span></span><em>argus-bot · 真实审查回帖</em></div>
+<img src="./img/tldr-production.png" alt="Argus 真实审查回帖：TL;DR 结论先行">
+</div>
+</div>
+
 <div class="eyebrow">CAPABILITIES</div>
 
 ## 核心能力
 
 <div class="hl-grid">
 <div class="hl-card">
-<h3>📋 需求复核</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg></div>
+<h3>需求复核</h3>
 <p>把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable——堵 scope creep 与「声称完成但没做」。</p>
 <span class="tagline">R1 · AC 清单化</span>
 </div>
 <div class="hl-card">
-<h3>🎯 影响面视图</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+<h3>影响面视图</h3>
 <p>blast radius 一图看清：import 闭包、调用方、测试面、函数级图 diff（Go/shell/Python/Rust/JS/TS）、跨轮演化对比、审查意见挂图。</p>
 <span class="tagline">MCP get_impact · 交互 HTML</span>
 </div>
 <div class="hl-card">
-<h3>🔬 消歧符号图</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.8 10.5 16M16.2 7.8 13.5 16M8.5 6h7"/></svg></div>
+<h3>消歧符号图</h3>
 <p>目录限定键根治同名假边；get_trace 查两符号调用链、get_symbol_context 看定义+调用方全景；可选 go/types 类型解析级边。</p>
 <span class="tagline">纯图模式 · 零 embedding 依赖</span>
 </div>
 <div class="hl-card">
-<h3>🌐 多语言仓库</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></svg></div>
+<h3>多语言仓库</h3>
 <p>Go/Python/JS/TS/shell/SQL/Rust/Java/C++ 全进审查；符号图、影响面、函数级 diff 分层覆盖，能力×语言矩阵见 README。</p>
 <span class="tagline">langcap 单一事实源</span>
 </div>
 <div class="hl-card">
-<h3>💬 MR 上的体验</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.9A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg></div>
+<h3>MR 上的体验</h3>
 <p>执行期进度条原地滚动；完成后 TL;DR 结论先行 + 完整报告置底；行内意见带 suggestion 一键应用。</p>
 <span class="tagline">真实回帖 · 不刷屏</span>
 </div>
@@ -96,32 +108,38 @@ actions:
 
 <div class="hl-grid">
 <div class="hl-card">
-<h3>📋 不只看代码，还看「做没做完」</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg></div>
+<h3>不只看代码，还看「做没做完」</h3>
 <p>业界审查 bot 都在找 bug；Argus 先把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable——需求复核 + 代码审查双轨，堵 scope creep 与「声称完成但没做」。</p>
 <span class="tagline">独有能力 · R1 需求解析</span>
 </div>
 <div class="hl-card">
-<h3>⚖️ 裁决是真值表，不是模型心情</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M7 21h10M5 7l-3 7h6zM19 7l-3 7h6zM5 7h14M8 7l4-4 4 4"/></svg></div>
+<h3>裁决是真值表，不是模型心情</h3>
 <p>APPROVE / COMMENT / REQUEST_CHANGES 由确定性 Go 真值表按序短路产出（R5），可解释、可复现；路由、裁决、合并不走 LLM——同一份 diff 两次审查结论一致。</p>
 <span class="tagline">确定性优先 · 架构铁律</span>
 </div>
 <div class="hl-card">
-<h3>🤖 多 agent 编队 + 反思自纠</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.6A5.5 5.5 0 0 1 21 20"/></svg></div>
+<h3>多 agent 编队 + 反思自纠</h3>
 <p>安全/正确性/需求多专家并发互盲审查，黑板共识标注交叉分歧；R3.5 报告反思轮批判→修订，剔除误报嫌疑——不是「一问一答」，是有证据链的流水线。</p>
 <span class="tagline">编队共识 · 业界罕见</span>
 </div>
 <div class="hl-card">
-<h3>🎯 blast radius 一图看清</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+<h3>blast radius 一图看清</h3>
 <p>改动影响面视图：import 反向闭包、调用方、测试面、历史共变、函数级图 diff——审查意见挂图、mermaid 直贴 MR、交互 HTML 可分享。评审者不用自己脑补影响范围。</p>
 <span class="tagline">影响面四出口 · MCP get_impact</span>
 </div>
 <div class="hl-card">
-<h3>🛡️ 内网可离线 · 数据不出门</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5.5V11c0 5 3.4 9 8 10.5 4.6-1.5 8-5.5 8-10.5V5.5z"/><path d="m8.8 11.8 2.2 2.2 4-4"/></svg></div>
+<h3>内网可离线 · 数据不出门</h3>
 <p>单二进制 + Docker/k3s 自托管，LLM 走任意 OpenAI 兼容网关（含内网网关）；代码、报告、记忆全在你自己的存储里。Apache-2.0，可商用可改可集成。</p>
 <span class="tagline">私有部署 · 合规友好</span>
 </div>
 <div class="hl-card">
-<h3>📏 自带评测体系的审查 bot</h3>
+<div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16v-5M12 16V7M16 16v-8M20 16v-3"/></svg></div>
+<h3>自带评测体系的审查 bot</h3>
 <p>68+ golden 用例（需求复核/评论交互/编队语义/多语言）常驻 CI 门禁 + 定时真实模型评测——审查质量有回归防线，不是「感觉变好了」。业界几乎没人给 review bot 做这件事。</p>
 <span class="tagline">eval-in-CI · 隐性资产</span>
 </div>
