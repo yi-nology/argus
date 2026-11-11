@@ -4,7 +4,7 @@
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
 > 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
 
-当前版本 **v6.3.0**（版本口径以 origin/main 提交历史为准，CHANGELOG 记至 v3.69.0；依赖以 `go.mod` 为准）。
+当前版本 **v6.6.0**（版本口径以 origin/main 提交历史与 CHANGELOG 为准；依赖以 `go.mod` 为准）。
 真实 Forgejo/GitLab 双平台完整生命周期试点验证通过，生产环境 k3s 常驻在役（多仓库 webhook+poller 双任务源、
 R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
 开源镜像：https://github.com/yi-nology/argus（脱敏快照）。架构深读见
@@ -626,7 +626,9 @@ internal/
     └ adapter_remote/          a2a/mcp 远端插件（v3.1 实装协议子集）
   workflow/requirement/        R1 需求解析 / R2 变更理解 / R3 完成度 / R3.5 反思(可选, v3.4)
                                / R4 委派 / R5 真值表
-  context/                     diffprep(diff 清洗+RawDiff 回填) + sdkctx + workcopy(浅克隆沙箱, 按实例隔离)
+  argusctx/                    diffprep(diff 清洗+RawDiff 回填) + sdkctx（v6.2.0 前名 context/，stdlib 撞名改名）
+  langcap/                     语言能力矩阵单一事实源（v6.6.0：图层/funcdiff/semsearch 参与面+描述口径）
+  impactview/                  改动影响面（分层管线 + 函数级图 diff + mermaid/HTML/MCP/prompt 四出口）
   storage/                     GORM：tasks(幂等/去重/心跳/staleness) + finding_prints
                                + review_targets + qa_sessions(v3.3) + leader_leases(v3.3)
   service/                     门面 API + 评论意图路由(v3.4) + Q&A ReAct(v3.3)
@@ -656,7 +658,7 @@ L1 形态   PR Bot ｜ CLI/TaskAPI ｜ MCP/A2A Server
 L2 门面   TaskAPI——webhook/轮询/CLI 最终都变成 tasks 表里的一行
 L3 编排   requirement-compliance workflow（R1→R5，确定性 Go 代码）
 L4 插拔   Registry → Dispatcher → Merger   ←—— 核心扩展点
-L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/RAG/工具池
+L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL/PostgreSQL ｜ skill/RAG/工具池
 ```
 
 两条铁律：**形态是 L1 适配器，agent 是 L4 插件**（加接入方式不动核心，加审查 agent 不动形态）；
@@ -678,7 +680,7 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 - 路由/裁决/合并走 LLM：确定性优先的原则不变。
 
 **剩余待办/已知边界**：
-- 生产升级部署验证（生产现运行 v3.0.x，仓库 HEAD 已 v5.1.x）；
+- 生产部署追踪：43 k3s 双副本在役 v6.5.0（2026-11-11 换芯，`deploy/k8s43/swap-deploy.sh` 链），HEAD v6.6.0 待部署窗口；
 - 编队共识上限 2 轮（比 oagentkit 缺省 3 收紧）；
 - remote 插件仅实装协议子集（a2a/mcp 的审查调用面），完整 agent 间互操作待需求驱动。
 

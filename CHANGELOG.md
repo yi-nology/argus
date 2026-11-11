@@ -20,7 +20,7 @@
   `.spec.tsx`/`.test.mjs`/`.test.cjs`/`_test.sh`/`_test.bash` 入无需求类路径。
 - **契约面补 get_repo_map**（v5.6.2 已注册 MCP 工具但 README §3 工具表/SKILL.md 速查/
   tools.md 三处契约文档全部漏载）：三处补条目，工具计数 23→24（README 三处+SKILL.md
-  两处+index.html）。
+  两处+index.html+ide-mcp 两处）。
 - **文档矩阵统一**：README §5.5 重写为「多语言支持与语言能力矩阵」（能力×语言精度档
   一览，含已知缺口：shell 无 get_poly_symbol 词法表=textx 上游面、JS/TS 图层刻意不做
   函数级调用边）；§5.3「非 Go 变更自动跳过」限定语修正（跳过的只是 Go 符号注入段）；
@@ -30,6 +30,11 @@
   RelImport，此前混标）；图层注记「shell source / 函数调用 / SQL 表血缘」过时措辞修正。
 - 架构面：langcap 入册（L0 零依赖；semsearch/impactview/workflow·requirement 白名单
   增边），ARCHITECTURE.md/deep-dive 同步。
+- **文档追平批（同日续）**：docs/ide-mcp.md 工具面 21→24（补 get_trace/get_symbol_context/
+  get_repo_map，此前第四处契约漏载）；README 版本行 v6.3.0→v6.6.0、目录导览 context→
+  argusctx（v6.2.0 改名欠账）+langcap·impactview 入册、「生产现运行 v3.0.x」过时边界订正、
+  设计骨架存储面补 PostgreSQL；docs/releases/ 补 v6.5.0·v6.6.0 发布说明；宣传页补多语言
+  能力卡。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 
