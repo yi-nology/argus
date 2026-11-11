@@ -171,9 +171,9 @@ func TestEnsureMigrationAppliedFencing(t *testing.T) {
 	sa := open("pod-a")
 	sb := open("pod-b")
 
-	old := migrationRenewalInterval
-	migrationRenewalInterval = 30 * time.Millisecond
-	t.Cleanup(func() { migrationRenewalInterval = old })
+	old := migrationRenewalInterval.Load()
+	migrationRenewalInterval.Store(int64(30 * time.Millisecond))
+	t.Cleanup(func() { migrationRenewalInterval.Store(old) })
 
 	const ver = "p1_fencing_probe"
 	key := "schema_migration:" + ver

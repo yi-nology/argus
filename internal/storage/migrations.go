@@ -35,9 +35,12 @@ const migrationLockTTL = 5 * time.Minute
 // schema DDL 与数据回写迁移共用 leader_leases 机制，key 域区分。
 const automigrateLeaseKey = "schema_migration:automigrate"
 
-// migrationRenewalInterval 迁移租约续约间隔（缺省 TTL/10）。包级 var：fencing
-// 注入测试缩短到毫秒级（生产恒缺省值，Open 无入口覆盖）。
-var migrationRenewalInterval = migrationLockTTL / 10
+// migrationRenewalInterval 迁移租约续约间隔（缺省 TTL/10）。atomic：fencing 注入
+// 测试缩短到毫秒级——续约环 goroutine 的读与测试 cleanup 的恢复写之间无 happens-before
+// 边（-race 实锤），普通包级 var 是内存模型违规。
+var migrationRenewalInterval atomic.Int64
+
+func init() { migrationRenewalInterval.Store(int64(migrationLockTTL / 10)) }
 
 // acquireMigrationLease 抢迁移租约，阻塞至持有或超时（P0-04，#5）：拿不到 =
 // 他副本正在迁移（多副本并发首启），让位轮询等待——AutoMigrate 无 marker 可等，
@@ -136,7 +139,7 @@ func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn f
 	defer fcancel()
 	var leaseLost atomic.Bool
 	async.GoSafe(func() {
-		t := time.NewTicker(migrationRenewalInterval)
+		t := time.NewTicker(time.Duration(migrationRenewalInterval.Load()))
 		defer t.Stop()
 		for {
 			select {
