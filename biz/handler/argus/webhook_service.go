@@ -6,8 +6,6 @@ import (
 	"context"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	mw "github.com/oekit/middleware"
 )
 
 // Receive 平台 webhook 入口：body 为平台原生 JSON 透传给 SDK 解析（签名校验需原始字节，
@@ -19,9 +17,5 @@ func Receive(ctx context.Context, c *app.RequestContext) {
 	}
 	platform := c.Param("platform")
 	resp, status := Svc.Webhook(ctx, c, platform)
-	if status != consts.StatusOK {
-		mw.ErrorResp(c, status, resp.Status)
-		return
-	}
-	mw.SuccessRespMsg(c, resp, resp.Status)
+	replyMsg(c, status, resp, resp.Status, resp.Status)
 }

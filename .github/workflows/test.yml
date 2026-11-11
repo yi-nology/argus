@@ -23,6 +23,29 @@ jobs:
 
   # 静态门禁（企业级 CI 必过项）：vet + staticcheck + gofmt 三合一走 make lint，
   # 命令单源在 Makefile；钉版本安装，规则与本地 `make lint` 完全一致。
+  # IDL 漂移门禁（v6.3.0）：钉版 hz 再生成 + git diff 断言 biz/ 生成物与
+  # idl/*.thrift 同步——「生成物手改失真」类（TaskKind 枚举手改前科）永久关闭。
+  idl-drift:
+    name: IDL drift (generated code in sync)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install hz (pinned v0.9.8)
+        run: GOFLAGS= go install github.com/cloudwego/hertz/cmd/hz@v0.9.8
+
+      - name: Regenerate & assert no drift
+        run: |
+          make idl-gen
+          git diff --exit-code -- biz/ .hz || {
+            echo "::error::IDL 生成物与 idl/*.thrift 不同步：请本地跑 make idl-gen 并提交生成物";
+            exit 1;
+          }
+
   lint:
     name: Lint (vet + staticcheck + gofmt)
     runs-on: ubuntu-latest

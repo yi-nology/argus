@@ -28,6 +28,21 @@ type Store struct {
 	dialect Dialect // 方言单源（v6.2.0）：写门/行锁/迁移 DDL 分流全看它
 	// RunnerID 本实例标识（Open 后由 main 赋值；claim/心跳用它归属 running 任务）
 	RunnerID string
+	// fallbackID 迁移锁 holder 的兜底身份（评估 P0 修复）：RunnerID 未装配
+	//（测试/工具直连）时进程内惰性生成唯一 ID。holder 相同会让 TryAcquire 的
+	// `holder = ? OR expires_at < ?` 条件互相"续约"抢锁（双实例并发首启同跑迁移）。
+	fallbackOnce sync.Once
+	fallbackID   string
+}
+
+// instanceID 本实例唯一身份：RunnerID 优先，未装配时惰性生成进程内唯一 ID
+// （同进程多 Store 实例也能区分 holder）。
+func (s *Store) instanceID() string {
+	if s.RunnerID != "" {
+		return s.RunnerID
+	}
+	s.fallbackOnce.Do(func() { s.fallbackID = "fallback-" + uuid.NewString()[:16] })
+	return s.fallbackID
 }
 
 // isSQLite/isMySQL 方言判定（全包唯一出处——此前 Store.sqlite/Store.mysql 双

@@ -3,6 +3,49 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.3.0（2026-11-11，外部技术评估修复批 + IDL 深度收敛收官）
+
+外部评估（GitHub main 快照，综合 7.6/10）提出的问题逐项处置：
+
+- **P0 多副本迁移锁失效（真并发缺陷，评估静态推导实锤）**：`ensureMigrationApplied` 的
+  租约 holder 全实例相同（`"schema_migration:"+version`），TryAcquire 的
+  `holder = ? OR expires_at < ?` 条件让后启动实例直接把锁"续约"抢走——双实例并发首启
+  同跑重建型迁移（DROP+CREATE 互相踩）。修复三面：① lease key 固定、holder =
+  `instanceID()+":migration:"+version`（RunnerID 未装配时进程内惰性 uuid 兜底，同进程
+  多 Store 也可区分）；② 抢锁失败不再静默返回 0（旧语义让调用方误以为已应用带病服务），
+  改为让位轮询等 marker（2s 间隔，上界 TTL+2min），超时 fail-closed 拒绝启动；
+  ③ 执行期每 TTL/10 续约，兜长迁移超租期被第三实例闯入。新增
+  TestEnsureMigrationAppliedConcurrent 双 Store 并发回归（fn 恰好一次，-race 绿）。
+- **P1 完备性裁判缺省翻转 annotate→demote**（评估：部分插件失败时 annotate 仍可
+  APPROVE 放行合并）：ARGUS_COMPLETENESS_POLICY 缺省与未知值回退均改 demote
+  （fail-closed，拼错配置从严不误放）；显式 annotate 可回退旧行为。e2e 栈直构 runner
+  不经过 config，不受影响。
+- **P1 LICENSE 补齐**：仓库根新增 Apache-2.0 LICENSE（与开源仓 yi-nology/argus 同许可证，
+  此前内部主仓缺失，GitHub 无法识别授权条款）。
+- **P2 架构门禁盲区修复**：TestLayering 对白名单外包直接 `continue`（新包零约束逃逸），
+  翻转后未归类包必须显式声明分层位置（bootstrap 组合根例外——由
+  TestBootstrapNotImported 单独守卫）。当前 42 包全部归类。
+- **P2 SECURITY.md 口径**：`master` → `main`（默认分支实况）；design.md §5 IDL 段重写
+  （拆分形态 + make idl-gen + 双门禁）。
+
+IDL 深度收敛收官（v6.3.0 重构批收尾，与 b07f883 同版本）：
+
+- **handler 响应壳收敛**：重复三段式（status!=200→ErrorResp→SuccessRespMsg）收敛为
+  respond.go 单源（bind/reply/replyMsg，文件名不在 hz *_service.go 命名空间、hz 不触碰）；
+  task/repo_settings/webhook/finding_feedback 六处直线尾应用。
+- **Makefile idl-gen + CI idl-drift job**：hz update 幂等性实测收敛——hz 每次 update
+  机械重写 handler import（stub 视角可能悬空），idl-gen 内联 goimports 收敛为函数体
+  真实依赖，连续两次生成内容 hash 一致；CI 钉版 hz v0.9.8 再生成 + git diff --exit-code
+  biz/+.hz，「生成物手改失真」类永久关闭。
+- **依赖配套修复（并行升级批收编）**：oekit/pkg v0.44.0 升级后 oekit/data
+  v0.20.11 的 cache/shell.go re-export 悬空（`src.Option` undefined，上游配套
+  错配）——全部 build/vet 门禁挂死；补升 oekit/data v0.21.0（连带 gormx v0.11.13）
+  修复，本轮 10 项上游升级（eino/agent/llm/textx/concurrency/pkg/harness/memory/
+  go-git-platform 等）在本仓消费面无 BREAKING 命中（39 包全绿背书）。
+- **e2e auth 覆盖探针**：test/e2e/authz_probe_test.go 正则解析 idl/*.thrift 路由清单
+  （单源），无 token 打全部 17 条 🔒 路由断言 401（白名单仅 /webhook/* 平台签名面）——
+  v5.6.2 repo-map 匿名失守类事故从此是 CI 门禁而非部署后人工探针。
+
 ## v6.2.0（2026-11-11，结构重构：storage 方言收敛批 + internal/context 改名）
 
 代码结构评估后的一轮定向清理（目录结构本身经评估健康不动：arch 守卫+storage 按域拆分维持现状）。除两处标注的行为面外均为零行为变化重构。

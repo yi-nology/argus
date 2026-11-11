@@ -129,18 +129,19 @@ func TestProgramFixable(t *testing.T) {
 	}
 }
 
-func TestDescribePtcFailure(t *testing.T) {
-	// OK-but-null：诊断文本须点明缺 return（模型侧可行动）
-	s := describePtcFailure(ptc.Result{OK: true, Value: "null"})
+func TestPtcFailureDescribe(t *testing.T) {
+	// 诊断渲染收编 harness Result.Describe()（harness #68）后仍须保语义：
+	// OK-but-null 须点明缺 return（模型侧可行动）
+	s := ptc.Result{OK: true, Value: "null"}.Describe()
 	if !strings.Contains(s, "return") {
 		t.Fatalf("null 诊断应点明缺 return：%q", s)
 	}
 	// 带位置与建议的失败：位置行列 + 建议逐条可读
-	s2 := describePtcFailure(ptc.Result{
+	s2 := ptc.Result{
 		ErrorKind: "syntax", Error: "Unexpected token",
 		Location:    ptc.Position{Line: 3, Column: 7},
 		Suggestions: []string{"检查第 3 行的括号配对"},
-	})
+	}.Describe()
 	if !strings.Contains(s2, "第 3 行第 7 列") || !strings.Contains(s2, "检查第 3 行的括号配对") {
 		t.Fatalf("诊断面回喂不完整：%q", s2)
 	}

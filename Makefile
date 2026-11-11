@@ -51,6 +51,13 @@ e2e:
 arch:
 	go test ./test/arch/ -count=1 -v
 
+# IDL 再生成（v6.3.0）：改 idl/*.thrift 后必跑，生成物收编进提交；
+# CI idl-drift job 用同命令 + git diff 断言同步（防生成物手改失真）。
+idl-gen:
+	hz update --idl idl/argus.thrift --module github.com/yi-nology/argus
+	@command -v goimports >/dev/null 2>&1 || GOFLAGS= go install golang.org/x/tools/cmd/goimports@latest
+	goimports -w biz/handler/argus/ # hz 每次 update 机械重写 handler import（stub 视角，可能悬空），goimports 收敛为函数体真实依赖
+
 it:
 	ARGUS_IT=1 go test ./test/e2e/ -run TestIntegration -count=1 -v
 

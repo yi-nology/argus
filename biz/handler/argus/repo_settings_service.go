@@ -24,11 +24,7 @@ func RepoSettingsGet(ctx context.Context, c *app.RequestContext) {
 	}
 	data, status := Svc.RepoSettingsView(ctx,
 		c.Param("platform"), c.Param("owner"), c.Param("repo"))
-	if status != consts.StatusOK {
-		mw.ErrorResp(c, status, viewErr(data))
-		return
-	}
-	mw.SuccessRespMsg(c, data, "ok")
+	replyMsg(c, status, data, "ok", viewErr(data))
 }
 
 // RepoSettingsList 全部按仓配置（观测面）。
@@ -38,11 +34,7 @@ func RepoSettingsList(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	data, status := Svc.ListRepoSettings(ctx)
-	if status != consts.StatusOK {
-		mw.ErrorResp(c, status, "按仓配置查询失败")
-		return
-	}
-	mw.SuccessRespMsg(c, data, "ok")
+	reply(c, status, data, "按仓配置查询失败")
 }
 
 // RepoSettingsPut 写入单仓覆盖（admin 档；body 为 reposettings.Settings JSON）。
@@ -62,11 +54,7 @@ func RepoSettingsPut(ctx context.Context, c *app.RequestContext) {
 	}
 	data, status := Svc.UpsertRepoSettings(ctx,
 		c.Param("platform"), c.Param("owner"), c.Param("repo"), body)
-	if status != consts.StatusOK {
-		mw.ErrorResp(c, status, viewErr(data))
-		return
-	}
-	mw.SuccessRespMsg(c, data, "repo settings updated")
+	replyMsg(c, status, data, "repo settings updated", viewErr(data))
 }
 
 // RepoSettingsDelete 移除单仓覆盖（admin 档；幂等）。
@@ -77,11 +65,7 @@ func RepoSettingsDelete(ctx context.Context, c *app.RequestContext) {
 	}
 	data, status := Svc.DeleteRepoSettings(ctx,
 		c.Param("platform"), c.Param("owner"), c.Param("repo"))
-	if status != consts.StatusOK {
-		mw.ErrorResp(c, status, viewErr(data))
-		return
-	}
-	mw.SuccessRespMsg(c, data, "ok")
+	replyMsg(c, status, data, "ok", viewErr(data))
 }
 
 // viewErr service 返回 map 里携带的错误文案（校验失败时 data 非nil带 error 键）。

@@ -150,9 +150,11 @@ type Config struct {
 	// ⚠️ 不覆盖 requirement R3——其迭代上限走 reactMaxIterations(AC 条数) 派生
 	//（base 12 / 封顶 24，无 env），两套上限互不相干（v3.41.0 注释如实化）。
 	ReactMaxIterations int
-	// CompletenessPolicy 完备性裁判策略（ARGUS_COMPLETENESS_POLICY，v3.11.0 G4）：
-	//   annotate = 缺省，失败项只追加报告降级注记，不改 verdict；
-	//   demote   = 任一完备性检查不过时 APPROVE→COMMENT（rule=R5.C）。
+	// CompletenessPolicy 完备性裁判策略（ARGUS_COMPLETENESS_POLICY，v3.11.0 G4；
+	// 缺省 demote 自 v6.3.0——外部评估 P1：annotate 下部分插件失败仍可 APPROVE，
+	// 合并门禁必须 fail-closed；显式 annotate 可回退旧行为）：
+	//   demote   = 缺省，任一完备性检查不过时 APPROVE→COMMENT（rule=R5.C）；
+	//   annotate = 失败项只追加报告降级注记，不改 verdict（不推荐作合并门禁）。
 	CompletenessPolicy string
 	// CompletenessRetry 受限补审（ARGUS_COMPLETENESS_RETRY，默认关闭）：
 	// 执行失败的插件在剩余预算内重试一次，成功替换原结果（不叠加 findings）。

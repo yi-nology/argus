@@ -174,6 +174,15 @@ func TestLayering(t *testing.T) {
 	for pkg, imports := range deps {
 		allowed, constrained := layering[pkg]
 		if !constrained {
+			// 未归类包必须显式归类（v6.3.0 评估 P2 修复）：此前新包靠
+			// "不在白名单"直接跳过约束——盲区。例外仅 bootstrap：组合根
+			// 由 TestBootstrapNotImported 单独守卫（装配根允许触达一切，
+			// 分层允许集对它无意义）。
+			if pkg == "github.com/yi-nology/argus/internal/bootstrap" {
+				continue
+			}
+			t.Errorf("%s 未在 layering 白名单归类：新包必须显式声明分层位置"+
+				"（允许集可为空 {}，如自有协议子包）", pkg)
 			continue
 		}
 		for imp := range imports {

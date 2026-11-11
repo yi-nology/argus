@@ -186,9 +186,14 @@ R5 汇总裁决  → 确定性真值表（见下），不走 LLM
 
 ## 5. Hertz + IDL 设计（已验证）
 
-IDL 是接口唯一事实来源：`idl/argus.thrift`（已落盘），`hz new/update -module argus -idl idl/argus.thrift`
-生成路由/DTO/handler 壳。**已在本机 hz v0.9.7 + hertz 实际生成并编译通过**（注意：thrift
-namespace 必须写 `namespace go api`，写成 `argus.api` 会与模块名冲突导致 import 错乱）。
+IDL 是接口唯一事实来源（v6.3.0 拆分形态）：`idl/argus.thrift` 为 master（只声明
+service——hz 只为 `--idl` 顶层文件的 service 生成路由，探针实锤），类型按域拆入
+`idl/{task,agents,findings,repo_settings,webhook}.thrift`（每文件显式 `namespace go argus`，
+共享单包；缺 namespace 会按文件名各自成包，域文件必须显式声明）。再生成统一走
+`make idl-gen`（hz update v0.9.8 + goimports 收敛 import——hz 每次 update 机械重写
+handler import 可能悬空，goimports 收敛为函数体真实依赖；幂等已实测）；CI 有
+idl-drift job（再生成 + git diff 断言）与 e2e auth 探针（无 token 打全部 IDL 🔒 路由
+断言 401，路由清单正则解析自 idl/*.thrift 单源）。
 
 路由表（v3.0）：
 

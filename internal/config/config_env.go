@@ -29,14 +29,15 @@ func normalizeEvidenceMode(v string) string {
 }
 
 // normalizeCompletenessPolicy 把 ARGUS_COMPLETENESS_POLICY 归一到 annotate|demote。
-// 未知值回退 annotate（保守：只注明不改 verdict）。词表与 plugin.CompletenessPolicy
+// 未知值回退 demote（v6.3.0 起 fail-closed 从严：外部评估 P1——annotate 下部分
+// 插件失败仍可 APPROVE，作合并门禁必须 demote；拼错配置从严不误放）。词表与 plugin.CompletenessPolicy
 // 常量对齐——此处用字面量避免 config → plugin 依赖边（config 被全仓引用）。
 func normalizeCompletenessPolicy(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "demote":
-		return "demote"
-	default:
+	case "annotate":
 		return "annotate"
+	default:
+		return "demote"
 	}
 }
 

@@ -452,6 +452,7 @@ type stack struct {
 	fake    *fakeProvider
 	llm     *mockLLM
 	mcpBase string
+	baseURL string // auth 探针等直连 HTTP 断言用（v6.3.0）
 	runner  *runner.Runner
 	reg     *dispatch.Registry
 	engine  *server.Hertz
@@ -784,7 +785,8 @@ func newStack(t TestingT, opt stackOpts) *stack {
 
 	return &stack{cfg: cfg, store: store, sdk: sdkCtx, fake: fake, llm: llmMock,
 		runner: runnerRef, reg: reg, engine: h, mcpBase: "http://127.0.0.1:" + hostPort + "/mcp",
-		cancel: cancel}
+		baseURL: "http://127.0.0.1:" + hostPort,
+		cancel:  cancel}
 }
 
 // countTasksByHead 统计某 head 的任务数（poller 幂等断言用）。

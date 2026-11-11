@@ -112,7 +112,7 @@ type Workflow struct {
 	ReflectModel    model.BaseChatModel
 	ReflectEvidence string
 
-	// G4 完备性裁判（v3.11.0）：CompletenessPolicy = annotate（默认，只注明）|
+	// G4 完备性裁判（v3.11.0；默认 demote 自 v6.3.0）：demote（默认，APPROVE→COMMENT）|
 	// demote（任一检查不过时 APPROVE→COMMENT，rule=R5.C）；CompletenessRetry =
 	// 受限补审（失败插件在剩余预算内重试一次，结果替换不叠加）。
 	CompletenessPolicy string
