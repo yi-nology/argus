@@ -1,7 +1,7 @@
 ---
 home: true
 heroText: 给一个 PR，还你一份带证据的审查报告。
-tagline: Argus 读完代码、对照需求、派出多个审查专家，把逐条带 file:line 证据的报告与 APPROVE / COMMENT / REQUEST_CHANGES 结论回帖到 PR 上。
+tagline: 多 agent 编排 · 确定性裁决——逐条带 file:line 证据的审查报告与 APPROVE / COMMENT / REQUEST_CHANGES 结论回帖到 PR。
 actions:
   - text: ⭐ GitHub 仓库
     link: https://github.com/yi-nology/argus
@@ -9,22 +9,6 @@ actions:
   - text: 快速开始
     link: /#quickstart
     type: secondary
-features:
-  - icon: 📋
-    title: 需求复核
-    details: 把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable，堵 scope creep。
-  - icon: 🎯
-    title: 影响面视图
-    details: blast radius 一图看清：import 闭包、调用方、测试面、函数级图 diff（Go/shell/Python/Rust/JS/TS）、跨轮演化对比、审查意见挂图。
-  - icon: 🔬
-    title: 消歧符号图
-    details: 目录限定键根治同名假边；get_trace 查两符号调用链、get_symbol_context 看定义+调用方全景。
-  - icon: 🌐
-    title: 多语言仓库
-    details: Go/Python/JS/TS/shell/SQL/Rust/Java/C++ 全进审查；符号图、影响面、函数级 diff 分层覆盖（能力×语言矩阵见 README）。
-  - icon: 💬
-    title: MR 上的体验
-    details: 执行期进度条原地滚动；完成后 TL;DR 结论先行 + 完整报告置底；行内意见带 suggestion 一键应用。
 ---
 
 <div class="chips" style="justify-content:center; margin-top:-8px">
@@ -43,10 +27,42 @@ features:
 <div><div class="num">100%</div><div class="lbl">开源 · 内网可离线</div></div>
 </div>
 
-## 它怎么审查
+<div class="eyebrow">CAPABILITIES</div>
 
-多 agent 编排，确定性裁决——不是「一问一答」，是一条有反思、有证据链的流水线。
+## 核心能力
 
+<div class="hl-grid">
+<div class="hl-card">
+<h3>📋 需求复核</h3>
+<p>把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable——堵 scope creep 与「声称完成但没做」。</p>
+<span class="tagline">R1 · AC 清单化</span>
+</div>
+<div class="hl-card">
+<h3>🎯 影响面视图</h3>
+<p>blast radius 一图看清：import 闭包、调用方、测试面、函数级图 diff（Go/shell/Python/Rust/JS/TS）、跨轮演化对比、审查意见挂图。</p>
+<span class="tagline">MCP get_impact · 交互 HTML</span>
+</div>
+<div class="hl-card">
+<h3>🔬 消歧符号图</h3>
+<p>目录限定键根治同名假边；get_trace 查两符号调用链、get_symbol_context 看定义+调用方全景；可选 go/types 类型解析级边。</p>
+<span class="tagline">纯图模式 · 零 embedding 依赖</span>
+</div>
+<div class="hl-card">
+<h3>🌐 多语言仓库</h3>
+<p>Go/Python/JS/TS/shell/SQL/Rust/Java/C++ 全进审查；符号图、影响面、函数级 diff 分层覆盖，能力×语言矩阵见 README。</p>
+<span class="tagline">langcap 单一事实源</span>
+</div>
+<div class="hl-card">
+<h3>💬 MR 上的体验</h3>
+<p>执行期进度条原地滚动；完成后 TL;DR 结论先行 + 完整报告置底；行内意见带 suggestion 一键应用。</p>
+<span class="tagline">真实回帖 · 不刷屏</span>
+</div>
+</div>
+
+<div class="dark-band">
+<div class="eyebrow">PIPELINE</div>
+<h2>它怎么审查</h2>
+<p class="section-sub">多 agent 编排，确定性裁决——不是「一问一答」，是一条有反思、有证据链的流水线。</p>
 <div class="pipeline">
 <div class="step"><div class="no">1</div><b>需求解析</b><small>R1 · AC 清单化</small></div>
 <div class="step"><div class="no">2</div><b>变更理解</b><small>R2 · diff 深读</small></div>
@@ -55,10 +71,13 @@ features:
 <div class="step"><div class="no">5</div><b>专家插件</b><small>R4 · 安全/OCR/…</small></div>
 <div class="step"><div class="no">6</div><b>确定性裁决</b><small>R5 · 结论回帖</small></div>
 </div>
+</div>
+
+<div class="eyebrow">REAL OUTPUT</div>
 
 ## 审查长什么样
 
-结论先行，证据随行——以下全部是**真实回帖截图**（测试仓冒烟 PR 与生产实弹；生产图内部标识已脱敏），markdown 由 GitHub / GitLab 官方渲染器渲染。
+<p class="section-sub">结论先行，证据随行——以下全部是<b>真实回帖截图</b>（测试仓冒烟 PR 与生产实弹；生产图内部标识已脱敏），markdown 由 GitHub / GitLab 官方渲染器渲染。</p>
 
 <div class="gallery">
 <figure><img src="./img/tldr-production.png" alt="TL;DR 先行的审查结论回帖"><figcaption><b>TL;DR 结论先行</b>——结论 + 意见分级计数 + 重点关注 top3，先给判断再给细节（生产实弹）</figcaption></figure>
@@ -70,6 +89,8 @@ features:
 <figure><img src="./img/funcdiff-card.png" alt="函数级图 diff 卡片"><figcaption><b>函数级图 diff</b>——签名变更/函数增删/调用边 ±（自检任务实拍）</figcaption></figure>
 <figure><img src="./img/mermaid-diff.png" alt="mermaid 图 diff 回帖渲染"><figcaption><b>图 diff 回帖</b>——mermaid 直接贴在 MR 评论里渲染</figcaption></figure>
 </div>
+
+<div class="eyebrow">WHY ARGUS</div>
 
 ## 为什么是 Argus
 
@@ -106,12 +127,12 @@ features:
 </div>
 </div>
 
-想知道与 CodeRabbit / PR-Agent / Copilot 的逐项对比？见 [竞品分析](./vs.md)。
+<p class="section-sub">想知道与 CodeRabbit / PR-Agent / Copilot 的逐项对比？见 <a href="./vs.html">竞品分析</a>。</p>
 
-## MCP 原生 · 24 个工具
-
-审查能力全部以 MCP 工具暴露，任意 agent / IDE 直接驱动。
-
+<div class="dark-band">
+<div class="eyebrow">MCP NATIVE</div>
+<h2>MCP 原生 · 24 个工具</h2>
+<p class="section-sub">审查能力全部以 MCP 工具暴露，任意 agent / IDE 直接驱动。</p>
 <div class="chips">
 <div class="grp">审查发起</div>
 <code>review_pr</code><code>requirement_compliance</code><code>review_diff</code><code>review_diff_async</code>
@@ -122,10 +143,13 @@ features:
 <div class="grp">影响与配置</div>
 <code>get_impact</code><code>get_repo_map</code><code>get_repo_config</code><code>get_capabilities</code><code>list_agents</code><code>fix_finding</code><code>suppress_finding</code><code>restore_finding</code>
 </div>
+</div>
+
+<div class="eyebrow">QUICKSTART</div>
 
 <h2 id="quickstart">快速开始</h2>
 
-单二进制，内网可离线运行；配置即环境变量。
+<p class="section-sub">单二进制，内网可离线运行；配置即环境变量。</p>
 
 ```bash
 # 1. 获取（go install 或 Release 二进制）
@@ -145,8 +169,8 @@ export OPENAI_MODEL=your-model
 ./argus serve
 ```
 
-更多部署形态（k3s / Docker / OCR 插件 / 按仓配置 / 语言能力矩阵）见 [README](https://github.com/yi-nology/argus/blob/main/README.md)。
+<p class="section-sub">更多部署形态（k3s / Docker / OCR 插件 / 按仓配置 / 语言能力矩阵）见 <a href="./guide.html">部署文档</a> 与 <a href="https://github.com/yi-nology/argus/blob/main/README.md">仓库 README</a>。</p>
 
----
-
-Argus · [github.com/yi-nology/argus](https://github.com/yi-nology/argus) · Apache License 2.0 · © 2026 yi-nology
+<div class="site-footer">
+Argus · <a href="https://github.com/yi-nology/argus">github.com/yi-nology/argus</a> · Apache License 2.0 · © 2026 yi-nology
+</div>
