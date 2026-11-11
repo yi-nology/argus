@@ -187,11 +187,14 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 			}
 			// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
 			// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
+			// v6.8.0（P1-02，#7）：回查实参补 t.Kind——此前占位符 7 个实参 6 个，
+			// 回查必失败上抛原始 txErr → webhook 回 500（「避免以 500 暴露」防线被
+			// 本 bug 打穿：GitHub 对连续 500 禁用 webhook）。
 			if isDuplicateKeyErr(txErr) {
 				var existing Task
 				if e := s.quietDB().WithContext(ctx).Where(
 					"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
-					t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
 					[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
 					dupReason, existingID = DupInFlight, existing.ID
 					return nil
@@ -245,25 +248,27 @@ func (s *Store) CreateTaskDirectIfIdle(ctx context.Context, t *Task) (existing *
 				return nil
 			}
 			if err := tx.Create(t).Error; err != nil {
-				// SQLite 并发窗口撞 samesha 部分唯一索引 → 回查 in-flight 任务返回
-				// 幂等语义；此前直接上抛 500，rerun 评论回帖"处理失败"（v3.8.0 修复）。
-				if isDuplicateKeyErr(err) {
-					existing = &Task{}
-					if qerr := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
-						t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
-						Order("created_at DESC, id DESC").First(existing).Error; qerr != nil {
-						return err // 回查也失败：暴露原始错误
-					}
-					created = false
-					return nil
-				}
-				return err
+				return err // 撞在飞唯一约束等：回查在事务外做（见下，REPEATABLE READ 快照限制）
 			}
 			created = true
 			return nil
 		})
 		if txErr != nil {
 			existing, created = nil, false
+			// 撞在飞唯一约束（v6.8.0 P1-03 三方言；SQLite 并发窗口撞 samesha 部分索引
+			// 同型，v3.8.0 修过 500 形态）→ 事务外回查 in-flight 任务返回幂等语义。
+			// ⚠️ 回查必须在事务外：MySQL REPEATABLE READ 下事务内快照取自首读，
+			// 并发方在其后提交的行不可见（三方言矩阵实锤 1062 后回查落空）——
+			// quietDB 独立连接读到的是最新提交态。
+			if isDuplicateKeyErr(txErr) {
+				existing = &Task{}
+				if qerr := s.quietDB().WithContext(ctx).
+					Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND status IN ?",
+						t.Platform, t.Owner, t.Repo, t.Number, t.Kind, []string{StatusPending, StatusRunning}).
+					Order("created_at DESC, id DESC").First(existing).Error; qerr == nil {
+					return nil
+				}
+			}
 		}
 		return txErr
 	})

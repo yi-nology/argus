@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -68,7 +69,8 @@ func TestClaimNextPending_Empty(t *testing.T) {
 func TestClaimNextPending_ReturnsTaskIDOnce(t *testing.T) {
 	ctx := context.Background()
 	q := &StoreQueue{Store: openTestStore(t)}
-	task := &storage.Task{ID: storage.NewTaskID(), Status: "pending"}
+	task := &storage.Task{ID: storage.NewTaskID(), Kind: "code_review", Platform: "gitea",
+		Owner: "acme", Repo: "app", Number: storage.NewTaskID()[2:10], Status: "pending"} // v6.8.0 在飞唯一约束(P1-03):各占一号
 	if err := q.Store.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +90,8 @@ func TestClaimNextPending_ReturnsTaskIDOnce(t *testing.T) {
 func TestTouchRunningHeartbeats(t *testing.T) {
 	ctx := context.Background()
 	q := &StoreQueue{Store: openTestStore(t)}
-	task := &storage.Task{ID: storage.NewTaskID(), Status: "pending"}
+	task := &storage.Task{ID: storage.NewTaskID(), Kind: "code_review", Platform: "gitea",
+		Owner: "acme", Repo: "app", Number: storage.NewTaskID()[2:10], Status: "pending"} // v6.8.0 在飞唯一约束(P1-03):各占一号
 	if err := q.Store.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +107,8 @@ func TestTouchRunningHeartbeats(t *testing.T) {
 func TestResetRunningToPending(t *testing.T) {
 	ctx := context.Background()
 	q := &StoreQueue{Store: openTestStore(t)}
-	task := &storage.Task{ID: storage.NewTaskID(), Status: "pending"}
+	task := &storage.Task{ID: storage.NewTaskID(), Kind: "code_review", Platform: "gitea",
+		Owner: "acme", Repo: "app", Number: storage.NewTaskID()[2:10], Status: "pending"} // v6.8.0 在飞唯一约束(P1-03):各占一号
 	if err := q.Store.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
@@ -148,8 +152,11 @@ func hbOf(t *testing.T, q *StoreQueue, id string) time.Time {
 func claimTwo(t *testing.T, q *StoreQueue) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	for _, id := range []string{storage.NewTaskID(), storage.NewTaskID()} {
-		if err := q.Store.CreateTask(ctx, &storage.Task{ID: id, Status: "pending"}); err != nil {
+	for i, id := range []string{storage.NewTaskID(), storage.NewTaskID()} {
+		// v6.8.0 在飞唯一约束（P1-03）：裸任务（空 kind/p/o/r/n）双行 pending 撞
+		// 唯一索引——机制测试各占一号，非去重语义面。
+		if err := q.Store.CreateTask(ctx, &storage.Task{ID: id, Kind: "code_review",
+			Platform: "gitea", Owner: "acme", Repo: "app", Number: fmt.Sprint(i), Status: "pending"}); err != nil {
 			t.Fatal(err)
 		}
 	}

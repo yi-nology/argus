@@ -47,7 +47,9 @@ func TestTouchHeartbeatsForScoped(t *testing.T) {
 	s.RunnerID = "runner-a"
 
 	for _, id := range []string{"ta1", "ta2", "tb1"} {
-		if err := s.CreateTask(ctx, mkTask(id, nil, "")); err != nil {
+		tk := mkTask(id, nil, "")
+		tk.Number = id // v6.8.0 在飞唯一约束（P1-03）：机械测试任务各占一号，非去重语义面
+		if err := s.CreateTask(ctx, tk); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -122,7 +124,9 @@ func TestScopedHeartbeatUnblocksStaleRecovery(t *testing.T) {
 	s := openTestStore(t)
 	s.RunnerID = "runner-a"
 	for _, id := range []string{"alive", "gone"} {
-		if err := s.CreateTask(ctx, mkTask(id, nil, "")); err != nil {
+		tk := mkTask(id, nil, "")
+		tk.Number = id // 同上：机械测试各占一号
+		if err := s.CreateTask(ctx, tk); err != nil {
 			t.Fatal(err)
 		}
 	}

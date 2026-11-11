@@ -176,7 +176,10 @@ func Open(dsn string) (*Store, error) {
 // SQLite 单文件单写者无并发首启问题，直接执行（与 EnsureSameSHAGuard 同理）。
 func (s *Store) migrateSchema(ctx context.Context) error {
 	if s.isSQLite() {
-		return s.autoMigrateAll()
+		if err := s.autoMigrateAll(); err != nil {
+			return err
+		}
+		return s.warnInFlightGuard()
 	}
 	if err := s.ensureLeaseTable(); err != nil {
 		return err
@@ -186,7 +189,25 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 		return err
 	}
 	defer release()
-	return s.autoMigrateAll()
+	if err := s.autoMigrateAll(); err != nil {
+		return err
+	}
+	return s.warnInFlightGuard()
+}
+
+// warnInFlightGuard 在飞唯一防线建立（v6.8.0 P1-03，#8 三方言）+ 告警面：在迁移
+// 租约内执行（建索引/加列是 DDL，多副本必须串行）。失败语义沿 v3.9.1 决策——
+// 真实执行错误与历史在飞重复均只告警不阻断启动（防线退化为事务内检查，数据
+// 收敛后重启自愈）。
+func (s *Store) warnInFlightGuard() error {
+	active, err := s.EnsureInFlightGuard()
+	switch {
+	case err != nil:
+		s.db.Logger.Warn(context.Background(), "argus.boot 在飞唯一防线建立失败（双跑防线退化为事务内检查）: %v", err)
+	case !active:
+		s.db.Logger.Warn(context.Background(), "argus.boot tasks 表存在历史在飞重复，唯一索引未建立；清理重复任务后重启自愈")
+	}
+	return nil
 }
 
 // ensureLeaseTable 租约载体表引导（P0-04）：GORM AutoMigrate 的 check-then-create

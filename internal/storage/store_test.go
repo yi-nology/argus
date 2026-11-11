@@ -257,10 +257,13 @@ func TestNullEventId(t *testing.T) {
 func TestClaimAndReset(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	if err := s.CreateTask(ctx, mkTask("t1", nil, "")); err != nil {
+	t1 := mkTask("t1", nil, "")
+	t2 := mkTask("t2", nil, "")
+	t2.Number = "8" // v6.8.0 在飞唯一约束（P1-03）：认领机制测试各占一号
+	if err := s.CreateTask(ctx, t1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateTask(ctx, mkTask("t2", nil, "")); err != nil {
+	if err := s.CreateTask(ctx, t2); err != nil {
 		t.Fatal(err)
 	}
 	task, ok, err := s.ClaimNextPending(ctx)
@@ -735,7 +738,8 @@ func TestClaimNextPendingPriority(t *testing.T) {
 	ctx := context.Background()
 	mk := func(id string, pri int, offset int) {
 		tk := &Task{ID: id, Kind: "review", Platform: "gitea", Owner: "acme", Repo: "app",
-			Number: "1", Status: StatusPending, Priority: pri,
+			Number: id, // v6.8.0 在飞唯一约束（P1-03）：优先级测试各占一号
+			Status: StatusPending, Priority: pri,
 			CreatedAt: time.Now().Add(time.Duration(offset) * time.Second)}
 		if err := s.CreateTask(ctx, tk); err != nil {
 			t.Fatal(err)
