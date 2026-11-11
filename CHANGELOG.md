@@ -35,6 +35,13 @@
   argusctx（v6.2.0 改名欠账）+langcap·impactview 入册、「生产现运行 v3.0.x」过时边界订正、
   设计骨架存储面补 PostgreSQL；docs/releases/ 补 v6.5.0·v6.6.0 发布说明；宣传页补多语言
   能力卡。
+- **宣传页 VuePress 2 重构（v6.6.0 tag 后追加）**：单页手写 docs/index.html → VuePress 2
+  站点源 web/（vuepress@2.0.0-rc.31 + theme-default@2.0.0-rc.137 + sass，构建期依赖不进
+  运行时；base=/argus/ 对齐 Pages 项目站）。**新增真实回帖截图画廊 8 图**：GitHub/GitLab
+  官方 markdown 渲染器渲染真实评论（smoke PR 行内 [HIGH]+suggestion 一键应用、执行期回执、
+  验收清单报告；43 生产实弹 TL;DR 先行+REQUEST_CHANGES 回执——生产图内部标识模糊脱敏）+
+  影响面/函数级 diff/mermaid 三张实拍工件图；旧 index.html 退役，pages.yml 改 VuePress
+  构建部署（web/** 触发，npm ci+build→upload-pages-artifact）。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 

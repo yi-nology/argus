@@ -1,11 +1,11 @@
 name: Pages
 
-# 宣传页部署：docs/index.html → GitHub Pages（upload-pages-artifact + deploy-pages 标准组合）。
-# 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
+# 宣传页部署：web/（VuePress 2 站点源）构建 → GitHub Pages（upload-pages-artifact +
+# deploy-pages 标准组合）。一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 on:
   push:
     branches: [main]
-    paths: ["docs/index.html"]
+    paths: ["web/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -20,20 +20,28 @@ concurrency:
 
 jobs:
   build:
-    name: build (stage site)
+    name: build (vuepress)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # 只发 docs/index.html 宣传页；docs/ 其余内容是内部文档，不进 Pages
-      - name: Stage site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # 站点源在 web/（README.md=首页，img/=真实回帖截图资产）；docs/ 其余内容是
+      # 内部文档，不进 Pages
+      - name: Build site
+        working-directory: web
         run: |
-          mkdir -p _site
-          cp docs/index.html _site/index.html
+          npm ci
+          npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: web/.vuepress/dist
 
   deploy:
     name: deploy (GitHub Pages)

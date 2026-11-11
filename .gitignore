@@ -79,3 +79,11 @@ video/
 # 本地构建产物（迁移工具/发布二进制）
 /dbcopy
 /bin/
+
+# 宣传页（VuePress 2，web/）：依赖与构建产物不入库（package-lock.json 入库）
+web/node_modules/
+web/.vuepress/.cache/
+web/.vuepress/.temp/
+web/.vuepress/.data/
+web/.vuepress/dist/
+.playwright-mcp/
