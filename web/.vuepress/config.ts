@@ -17,6 +17,9 @@ export default defineUserConfig({
   theme: defaultTheme({
     navbar: [
       { text: '能力', link: '/' },
+      { text: '部署', link: '/guide.html' },
+      { text: '版本规划', link: '/roadmap.html' },
+      { text: '竞品分析', link: '/vs.html' },
       { text: 'README', link: 'https://github.com/yi-nology/argus/blob/main/README.md' },
       { text: 'GitHub', link: 'https://github.com/yi-nology/argus' },
     ],

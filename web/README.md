@@ -34,6 +34,15 @@ features:
 <code>Apache-2.0</code>
 </div>
 
+<div class="stats">
+<div><div class="num">24</div><div class="lbl">MCP 工具</div></div>
+<div><div class="num">7</div><div class="lbl">Git 平台</div></div>
+<div><div class="num">13+</div><div class="lbl">语言覆盖</div></div>
+<div><div class="num">R1–R5</div><div class="lbl">审查流水线</div></div>
+<div><div class="num">68+</div><div class="lbl">golden 评测</div></div>
+<div><div class="num">100%</div><div class="lbl">开源 · 内网可离线</div></div>
+</div>
+
 ## 它怎么审查
 
 多 agent 编排，确定性裁决——不是「一问一答」，是一条有反思、有证据链的流水线。
@@ -61,6 +70,43 @@ features:
 <figure><img src="./img/funcdiff-card.png" alt="函数级图 diff 卡片"><figcaption><b>函数级图 diff</b>——签名变更/函数增删/调用边 ±（自检任务实拍）</figcaption></figure>
 <figure><img src="./img/mermaid-diff.png" alt="mermaid 图 diff 回帖渲染"><figcaption><b>图 diff 回帖</b>——mermaid 直接贴在 MR 评论里渲染</figcaption></figure>
 </div>
+
+## 为什么是 Argus
+
+<div class="hl-grid">
+<div class="hl-card">
+<h3>📋 不只看代码，还看「做没做完」</h3>
+<p>业界审查 bot 都在找 bug；Argus 先把 PR 描述/需求 issue 解析成验收清单，逐条判定 implemented / partial / unverifiable——需求复核 + 代码审查双轨，堵 scope creep 与「声称完成但没做」。</p>
+<span class="tagline">独有能力 · R1 需求解析</span>
+</div>
+<div class="hl-card">
+<h3>⚖️ 裁决是真值表，不是模型心情</h3>
+<p>APPROVE / COMMENT / REQUEST_CHANGES 由确定性 Go 真值表按序短路产出（R5），可解释、可复现；路由、裁决、合并不走 LLM——同一份 diff 两次审查结论一致。</p>
+<span class="tagline">确定性优先 · 架构铁律</span>
+</div>
+<div class="hl-card">
+<h3>🤖 多 agent 编队 + 反思自纠</h3>
+<p>安全/正确性/需求多专家并发互盲审查，黑板共识标注交叉分歧；R3.5 报告反思轮批判→修订，剔除误报嫌疑——不是「一问一答」，是有证据链的流水线。</p>
+<span class="tagline">编队共识 · 业界罕见</span>
+</div>
+<div class="hl-card">
+<h3>🎯 blast radius 一图看清</h3>
+<p>改动影响面视图：import 反向闭包、调用方、测试面、历史共变、函数级图 diff——审查意见挂图、mermaid 直贴 MR、交互 HTML 可分享。评审者不用自己脑补影响范围。</p>
+<span class="tagline">影响面四出口 · MCP get_impact</span>
+</div>
+<div class="hl-card">
+<h3>🛡️ 内网可离线 · 数据不出门</h3>
+<p>单二进制 + Docker/k3s 自托管，LLM 走任意 OpenAI 兼容网关（含内网网关）；代码、报告、记忆全在你自己的存储里。Apache-2.0，可商用可改可集成。</p>
+<span class="tagline">私有部署 · 合规友好</span>
+</div>
+<div class="hl-card">
+<h3>📏 自带评测体系的审查 bot</h3>
+<p>68+ golden 用例（需求复核/评论交互/编队语义/多语言）常驻 CI 门禁 + 定时真实模型评测——审查质量有回归防线，不是「感觉变好了」。业界几乎没人给 review bot 做这件事。</p>
+<span class="tagline">eval-in-CI · 隐性资产</span>
+</div>
+</div>
+
+想知道与 CodeRabbit / PR-Agent / Copilot 的逐项对比？见 [竞品分析](./vs.md)。
 
 ## MCP 原生 · 24 个工具
 

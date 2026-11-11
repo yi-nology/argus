@@ -42,6 +42,14 @@
   验收清单报告；43 生产实弹 TL;DR 先行+REQUEST_CHANGES 回执——生产图内部标识模糊脱敏）+
   影响面/函数级 diff/mermaid 三张实拍工件图；旧 index.html 退役，pages.yml 改 VuePress
   构建部署（web/** 触发，npm ci+build→upload-pages-artifact）。
+- **宣传页内容扩充（同日续二）**：首页酷炫化（渐变数据带 24 工具/7 平台/13+ 语言/R1-R5/
+  68+ golden + 「为什么是 Argus」六大高亮卡）；新增三页——**部署**（go install/Release/
+  GHCR 多架构镜像+docker run/Actions 三段流水线（ci 四门禁+三方言矩阵/image GHCR/pages）/
+  k3s 换芯链）、**版本规划**（v3→v6 里程碑+近期 v6.7+（SQL 审计插件/textx#83/QA
+  DefaultBranch 修复/webhook 直连）+中期 v7.0（修复闭环 auto-push/pre-commit/非 Go 符号级/
+  PRECISE 生产档/趋势报表）+长期愿景，状态标注已拍板/待评估）、**竞品分析**（2026-09~11
+  调研快照：vs CodeRabbit/PR-Agent/Copilot/Agent-CI 形态 18 行能力矩阵+差异化定位+诚实差距，
+  事实源=仓内对标调研存档，未编新事实）。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 
