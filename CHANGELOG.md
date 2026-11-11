@@ -76,6 +76,9 @@
   理由；全站补图：首页技术底座迷你生态条（链架构页）、guide 生产拓扑图、vs 形态
   定位象限图（SaaS↔自托管 × 评论↔需求级，含竞品散点）。纯 CSS 图套件零新依赖
   （diagram/arch-map/eco-grid/flow-row/layer-stack/quadrant/topo 七组件）。
+- **doc 页宽度体系统一（同日续七，用户标注两侧黑洞）**：主题 `--content-width`
+  740px→1120px（宽屏空洞元凶）+ 段落限行宽 880px（表格/图/代码用全列宽）+
+  diagram 去破框（与正文同宽）+ topo 节点 space-between 撑满。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 

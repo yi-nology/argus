@@ -3,6 +3,7 @@
 // 画廊不拉伸。克制：单点渐变、SVG 图标、无大写眉标、无徽章 tagline。
 
 :root {
+  --content-width: 1120px; /* 主题默认 740px，宽屏空洞元凶 */
   --vp-c-accent: #6c7cff;
   --vp-c-accent-bg: #6c7cff;
   --vp-c-accent-hover: #8b98ff;
@@ -51,6 +52,7 @@ body {
   letter-spacing: 0.01em;
 }
 h1, h2, h3, h4 { font-family: inherit; letter-spacing: -0.02em; font-weight: 700; }
+.vp-doc p, .vp-doc li { max-width: 880px; } /* 段落限行宽，表格/图/代码用全列宽 */
 
 /* ================= Navbar ================= */
 .vp-navbar {
@@ -461,9 +463,8 @@ table.vsmatrix td { vertical-align: top; }
 /* ================= 架构图套件（纯 CSS 关系图，零依赖） ================= */
 .diagram {
   position: relative;
-  width: min(1240px, calc(100vw - 96px));
-  margin: 28px 0 28px 50%;
-  transform: translateX(-50%);
+  width: 100%;
+  margin: 28px 0;
   padding: 26px 26px 22px;
   border: 1px solid var(--hairline);
   border-radius: 18px;
@@ -698,9 +699,10 @@ table.vsmatrix td { vertical-align: top; }
 .topo-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 0 20px;
 }
 .topo-node {
   border: 1px solid var(--hairline);
