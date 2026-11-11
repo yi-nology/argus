@@ -6,7 +6,7 @@
 
 当前版本 **v6.3.0**（版本口径以 origin/main 提交历史为准，CHANGELOG 记至 v3.69.0；依赖以 `go.mod` 为准）。
 真实 Forgejo/GitLab 双平台完整生命周期试点验证通过，生产环境 k3s 常驻在役（多仓库 webhook+poller 双任务源、
-R1-R5 全管线 + 23 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
+R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
 开源镜像：https://github.com/yi-nology/argus（脱敏快照）。架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
 [docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)。
@@ -136,7 +136,8 @@ gitleaks 全程 `--redact` 且密钥原文绝不进意见。
 
 变更含 Go 文件且工作副本可用时，审查 agent 额外获得 `get_symbol`（定义/签名定位）与
 `get_references`（跨文件调用方/使用点）两个工具，并自动注入「本次变更触达的符号」入口
-清单（纯 go/parser 确定性索引，零 LLM；非 Go 变更自动跳过）。v5.11.0 起另有消歧符号图两件：
+清单（纯 go/parser 确定性索引，零 LLM；此二工具与符号入口注入为 **Go 专属**——非 Go 变更
+跳过的是这一段注入，多语言面见 §5.5 语言矩阵）。v5.11.0 起另有消歧符号图两件：
 `get_trace`（两符号间 ≤4 跳调用链，改动传导/上游来源核查）与 `get_symbol_context`（单符号
 定义+调用方+被调全景，同名候选合并时显式透出）——纯图模式零 embedding 依赖，默认词法级边，
 部署启用 `ARGUS_GRAPH_PRECISE` 时为 go/types 类型解析级边。
@@ -148,10 +149,29 @@ gitleaks 全程 `--redact` 且密钥原文绝不进意见。
 隔离命令执行，回帖附确定性「沙箱验证结果」。隔离责任（网络/文件系统/资源）在包装命令侧——
 argus 自身永不执行待审代码。`ARGUS_TESTGEN_VERIFY_TIMEOUT` 缺省 5m。
 
-### 5.5 多语言符号上下文（v3.22.0）
+### 5.5 多语言支持与语言能力矩阵（v3.22.0，矩阵 v6.6.0）
 
 codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`）与 Go 调用形态索引
 （`get_callers`）——词法级（非类型解析），工具描述已声明核实纪律。零新增依赖，`ARGUS_CODEGRAPH` 开关沿用。
+
+各能力的语言覆盖（精度档）一览——程序面单源 `internal/langcap`（图层/funcdiff/semsearch
+三面扩展名由它派生，防漂移测试钉一致性）：
+
+| 能力 | 语言覆盖（精度档） |
+|---|---|
+| 审查管线 R1–R5 | 全语言（文本 diff，LLM 审查无语言前置） |
+| `get_symbol` / `get_references` | Go（go/parser AST） |
+| `get_callers` | Go（词法调用形态） |
+| `get_poly_symbol` | Python / JavaScript / TypeScript（词法函数表，textx 上游面） |
+| `search_sem` 索引 | Go=声明级符号索引；其余文本=文件级摘要（Python/JS/TS/shell/SQL/Rust/Java/Kotlin/C/C++/Ruby/PHP/C#/Swift/Scala/Vue/protobuf/文档配置） |
+| 影响图层（source/import/函数调用/表血缘） | Go（import 闭包+AST 符号）+ shell/Python/JS/TS/Rust/Java/Kotlin/C/C++/SQL（词法图层） |
+| `funcdiff` 函数级图 diff | Go（AST）+ shell/Python/Rust/JS/TS（词法，v6.6.0 补 JS/TS） |
+| `get_repo_map` 仓库地图 | Go + shell/Python/JS/TS/Rust/Java/Kotlin/C/C++/SQL |
+| `ARGUS_GRAPH_PRECISE` 精确调用边 | 仅 Go（go/types，唯一路径） |
+
+词法级=正则启发，引用前须 `get_file` 核实（工具描述已声明）。已知缺口：shell 无
+`get_poly_symbol` 词法函数表（textx 上游面）；JS/TS 图层刻意不做函数级调用边
+（「误报面失控」判定，v5.6.3）。
 
 ### 5.5.1 全文检索工具（v3.84.0，`ARGUS_CODESEARCH` 默认开）
 
@@ -187,7 +207,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 | **Webhook** | 平台可达 Argus | 七平台（Gitea/Forgejo/GitHub/GitLab/Gitee/GitCode/腾讯工蜂）签名校验，delivery 幂等；`scripts/setup-webhook.sh` 一键注册（Gitea/Forgejo），任意平台亦可 `ARGUS_ENSURE_WEBHOOK=1` 启动期自注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
-| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十三工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
+| **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十四工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
 
 ### 7. PR 评论交互
 
@@ -384,8 +404,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `restore_finding` | 恢复误抑制意见（suppress 反向，与评论 restore fp: 同源；需 admin 档 token，v3.131.0）|
 | `get_capabilities` | 部署能力面快照（fix/检索/知识库等启用态+版本，纯读零副作用，v3.129.0）|
 | `search_findings` | 本仓历史意见账本检索（跨轮次/跨任务，status+复现次数+fp 短码，「以前怎么裁的」事实源，v3.138.0）|
-| `get_impact` | 改动影响面快照（分层管线+确定性风险分：影响图 nodes/edges、受影响 packages、risk 加分依据、历史共变、函数级图 diff；结构化数据面，`GET /tasks/:taskId/impact` 另有交互 HTML，v3.183.0）|
+| `get_impact` | 改动影响面快照（分层管线+确定性风险分：影响图 nodes/edges、受影响 packages、risk 加分依据、历史共变、函数级图 diff（Go=AST 级，shell/Python/Rust/JS/TS=词法级）；结构化数据面，`GET /tasks/:taskId/impact` 另有交互 HTML，v3.183.0）|
 | `get_repo_config` | 按仓配置与生效参数只读视图（repo_settings 与 .reviewagents.yaml 合并后的预算/上限三旋钮；写入走 admin HTTP API，v3.187.0）|
+| `get_repo_map` | 整仓目录依赖地图（Go import / shell source / 多语言 import·include / SQL 表血缘跨目录聚合，nodes/edges/notes JSON；按需浅克隆缓存 30 分钟；交互 HTML `GET /repos/{owner}/{repo}/map`，v5.6.2）|
 
 > AI agent 直接驱动的完整工作流（何时调哪个工具/失败降级/安全边界）见 agent skill [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md)，参数级参考见其 `references/tools.md`。
 
@@ -612,7 +633,7 @@ internal/
   poster/                      行内评论 + 总结评论三级降级 + staleness 门控
   poller/                      轮询兜底任务源（租约选主门控, v3.3）
   reportview/                  报告渲染（上文示例的出处）
-  channel/mcpserver/           Argus as MCP Server（/mcp 二十三工具）
+  channel/mcpserver/           Argus as MCP Server（/mcp 二十四工具）
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
@@ -646,7 +667,7 @@ L5 上下文 git-platform-sdk ｜ 工作副本沙箱 ｜ SQLite/MySQL ｜ skill/
 ## 十、当前边界
 
 **已落地**（v3.1–v3.4，细节见 [CHANGELOG.md](CHANGELOG.md)）：remote 插件协议子集（a2a/mcp）、
-cli delegate 模式、MCP Server 工具面（含 ask_argus，当前 23 工具见 §3）、SSE 进度流、IM 推送（octopus）、
+cli delegate 模式、MCP Server 工具面（含 ask_argus，当前 24 工具见 §3）、SSE 进度流、IM 推送（octopus）、
 1M 上下文窗口单一基准、GitHub App 认证、acpx 编码 agent 插件、成本记账（任务级+月度仓库用量）、
 多副本横向扩展（租约选主+实例隔离）、Q&A ReAct + 多轮会话、分阶段模型路由（StageRouter）、
 Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共识。

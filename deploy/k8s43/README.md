@@ -49,7 +49,7 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 
 ## v6.x 运维备忘（2026-11-10 实弹沉淀）
 
-- **在役 v6.1.6**（go-git-platform v0.124.0）；MCP 23 工具（含 get_trace/get_symbol_context/search_sem/get_impact/get_repo_map）
+- **在役 v6.5.0**（2026-11-11 换芯升级，go-git-platform v0.124.0+goagent-kernel v0.31.0）；MCP 24 工具（含 get_trace/get_symbol_context/search_sem/get_impact/get_repo_map）
 - **网关 embedding 请求体硬限**：内部网关 /v1/embeddings 按请求体大小分流，≥~10KB 返回误导性 404「model does not exist」（实测 9KB 过/12KB 挂）——argus 侧已用 ByteBatchEmbedder 8KB 字节预算分批消化；直调网关排障时单请求务必 <10KB
 - **ARGUS_GRAPH_PRECISE=缺省关（GO-ABSENT）**：容器无 go 工具链，go/packages 无法加载；要开须镜像叠 Go 工具链层（成本另评）——词法消歧档已全量在役
 - **webhook 入站链路**：om-gitlab → 215 前门 → 43:30899 实测在跑；PUBLIC_URL 保持 215 前门不动（直连 43 需网络侧放行，勿凭 Mac-VPN-SSH 判 215 死活）

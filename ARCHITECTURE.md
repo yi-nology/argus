@@ -44,9 +44,10 @@
 
 | 层 | 包 | 允许的 internal 依赖 | 禁止 |
 |---|---|---|---|
-| L0 纯底座 | codesearch / semsearch / learning / progress / gitdeepen / reposettings | （无） | 一切业务包 |
+| L0 纯底座 | codesearch / learning / progress / gitdeepen / reposettings / langcap | （无） | 一切业务包 |
+| L0 纯底座 | semsearch | langcap（语言能力矩阵单源） | 其余 |
 | L0 纯底座 | goedges | semsearch（NodeKey 键契约单源） | 其余 |
-| 影响面 | impactview | gitdeepen, plugin, semsearch, storage | 编排/入口（包装接线在 runner） |
+| 影响面 | impactview | gitdeepen, langcap, plugin, semsearch, storage | 编排/入口（包装接线在 runner） |
 | 域类型 | domain | learning | — |
 | 引擎面 | dispatch | domain, learning, plugin | runner/service/poster/workflow…（一切上层） |
 | L4 核心域 | plugin | domain | runner/service/poster/workflow…（一切上层） |
@@ -69,7 +70,7 @@
 | L3 能力 | ocrshim | gitdeepen, plugin, plugin/adapter_cli | 编排层互依 |
 | L3 能力 | fixverifier | plugin | 编排层互依 |
 | L3 能力 | commentcmd / memorykernel / writing | （无） | 编排层互依 |
-| L2 编排 | workflow/requirement | codesearch, argusctx, dispatch, domain, obs, plugin, semsearch, toolpool | runner/service/storage/poster |
+| L2 编排 | workflow/requirement | codesearch, argusctx, dispatch, domain, langcap, obs, plugin, semsearch, toolpool | runner/service/storage/poster |
 | L2 编排 | runner | 能力层全集（config, argusctx, dispatch, domain, fixverifier, impactview, learning, memorykernel, notify, ocrdeleg, plugin, poster, progress, reposettings, reportview, sastscan, semsearch, sink, storage, toolpool, workflow/requirement, writing） | service/bootstrap/channel |
 | L2 编排 | service | commentcmd, domain, config, argusctx, health, dispatch, impactview, memorykernel, obs, plugin, progress, qa, reposettings, semsearch, storage, writing | runner/workflow/poster/bootstrap |
 | L1 组合根 | bootstrap | 一切 | **被任何包 import** |

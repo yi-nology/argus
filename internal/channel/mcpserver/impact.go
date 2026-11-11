@@ -39,7 +39,7 @@ func NewImpactTool(s *server.MCPServer, core Core) {
 
 func impactTool() mcp.Tool {
 	return mcp.NewTool("get_impact",
-		mcp.WithDescription("查询 Argus 审查任务的改动影响面快照（分层管线：文件层/import 反向闭包/符号调用方/测试面/历史共变 + 确定性风险分）。返回 nodes/edges/packages/risk/coupling 结构化 JSON 与预渲染 mermaid，可直接评估 blast radius 或渲染成图。"),
+		mcp.WithDescription("查询 Argus 审查任务的改动影响面快照（分层管线：文件层/import 反向闭包/符号调用方/测试面/历史共变 + 确定性风险分 + 函数级图 diff：Go AST 级、shell/Python/Rust/JavaScript/TypeScript 词法级）。返回 nodes/edges/packages/risk/coupling 结构化 JSON 与预渲染 mermaid，可直接评估 blast radius 或渲染成图。"),
 		mcp.WithString("task_id", mcp.Required(), mcp.Description("任务 ID")),
 	)
 }

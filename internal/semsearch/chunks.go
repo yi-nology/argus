@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/yi-nology/argus/internal/langcap"
 )
 
 // 扫描与抽取上限（成本闸；MaxTotalChunks 是 embedding 调用预算的硬顶——
@@ -36,16 +38,16 @@ var excludedDirs = map[string]bool{
 	".venv": true, "venv": true, "target": true,
 }
 
-// codeExts 参与索引的扩展名：代码为主 + 仓库文档（.md 常载规范与架构语义，
-// 审查场景价值高）。go.mod 不在集内——它供 modulePathOf 读 module 声明，
-// 不作为 chunk 进索引。
-var codeExts = map[string]bool{
-	".go": true, ".md": true, ".js": true, ".ts": true, ".jsx": true, ".tsx": true,
-	".py": true, ".java": true, ".rs": true, ".c": true, ".cc": true, ".cpp": true,
-	".h": true, ".hpp": true, ".rb": true, ".php": true, ".cs": true, ".kt": true,
-	".swift": true, ".scala": true, ".sh": true, ".sql": true, ".yaml": true,
-	".yml": true, ".toml": true, ".proto": true, ".vue": true,
-}
+// codeExts 参与索引的扩展名（langcap.SemChunkExts 单源，map 形态供热查）：
+// 代码为主 + 仓库文档（.md 常载规范与架构语义，审查场景价值高）。
+// go.mod 不在集内——它供 modulePathOf 读 module 声明，不作为 chunk 进索引。
+var codeExts = func() map[string]bool {
+	m := make(map[string]bool, len(langcap.SemChunkExts))
+	for _, e := range langcap.SemChunkExts {
+		m[e] = true
+	}
+	return m
+}()
 
 // scannedFile 扫描产物：相对路径 + 指纹 + 内容（抽取与指纹判定共用一次读取）。
 type scannedFile struct {

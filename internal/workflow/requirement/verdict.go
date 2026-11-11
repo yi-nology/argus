@@ -104,9 +104,13 @@ func benignPath(p string) bool {
 		strings.HasPrefix(lower, "documentation/"), strings.Contains(lower, "/documentation/"):
 		return true
 	case strings.HasSuffix(lower, "_test.go"), strings.HasSuffix(lower, "_test.py"),
+		strings.HasPrefix(base, "test_") && strings.HasSuffix(lower, ".py"), // pytest 惯例
 		strings.HasSuffix(lower, ".test.js"), strings.HasSuffix(lower, ".test.ts"),
 		strings.HasSuffix(lower, ".test.jsx"), strings.HasSuffix(lower, ".test.tsx"),
+		strings.HasSuffix(lower, ".test.mjs"), strings.HasSuffix(lower, ".test.cjs"),
 		strings.HasSuffix(lower, ".spec.js"), strings.HasSuffix(lower, ".spec.ts"),
+		strings.HasSuffix(lower, ".spec.jsx"), strings.HasSuffix(lower, ".spec.tsx"),
+		strings.HasSuffix(lower, "_test.sh"), strings.HasSuffix(lower, "_test.bash"),
 		strings.HasSuffix(lower, "_test.rb"), strings.HasSuffix(lower, "test.java"):
 		return true
 	case strings.HasPrefix(lower, "test/"), strings.HasPrefix(lower, "tests/"),

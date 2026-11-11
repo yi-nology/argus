@@ -16,6 +16,7 @@
 - `number` 一律纯数字 PR/MR 序号（`ask_argus` 服务端强校验，其余工具在服务层校验）。
 - `fp` 指纹短码：6-64 位十六进制，来自报告正文 `fp:` 后或 `list_findings` 的 `fp` 字段；服务端统一转小写，大小写不敏感。
 - 平台词表：全部平台类参数统一为 gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code（与 mcpserver `platformVocab` / config.SupportedPlatforms 同步）；实际以部署接入的平台为准（可用 `list_agents` 或部署配置确认）。gitcode / 腾讯工蜂为 SDK 支持、Argus 未实测档。
+- 语言口径：审查管线全语言（文本 diff）；工具/图层/funcdiff 的语言矩阵见 README §5.5（程序面单源 `internal/langcap`）。词法级=正则启发，引用前须 `get_file` 核实。
 
 ## 工具明细
 
@@ -219,6 +220,16 @@ PR 工作副本**符号图邻接查询**（v5.9.0）：查某符号在 semsearch
 
 返回 JSON：`found`（是否有按仓覆盖）、`settings`（覆盖集，monthly_token_budget/task_token_budget/max_diff_chars 可选键）、`effective`（三旋钮生效值：覆盖优先，无覆盖即全局默认）、`source`（repo_override|global_default）、`updated_by`/`updated_at`（写入者 token 指纹与时间）。**只读**——写入走 HTTP admin API：`PUT /repo-settings/{platform}/{owner}/{repo}`（body 为覆盖集 JSON，未知字段/非正整数拒绝；空覆盖拒收，移除用 DELETE；PUT|DELETE 需 admin 档 token）。`repo_settings` 与仓库内 `.reviewagents.yaml` 分层：前者是 admin token 写入的可信面（预算/上限可上调下调），后者是半可信文件面（插件选禁/评审规范，只能收窄）；SAST/OCR/LLM endpoint 永远只来自部署 env，任何仓库配置碰不到。
 
+### get_repo_map
+
+整仓目录依赖地图（v5.6.2）：Go 目录=包 import 聚合、多语言 source/import 装载聚合（shell/Python/JavaScript/TypeScript/Rust/Java/Kotlin/C/C++）、SQL 表血缘跨目录聚合。架构梳理/新人上手/评审前掌握仓库地形用。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `platform`/`owner`/`repo` | string | ✓ | 定位仓库 |
+
+返回 `nodes`/`edges`/`notes` 结构化 JSON（目录级依赖图，封顶+截断注记）。按需浅克隆（首查约数十秒，缓存 30 分钟），只读。交互 HTML：`GET /repos/{owner}/{repo}/map?platform=…`（Bearer）。
+
 ### get_impact
 
 任务改动影响面快照（v3.183.0，blast radius）：分层管线（文件层/import 反向闭包/符号调用方/测试面/历史共变）+ 确定性风险分，零 LLM、可复现。
@@ -227,7 +238,7 @@ PR 工作副本**符号图邻接查询**（v5.9.0）：查某符号在 semsearch
 |---|---|---|---|
 | `task_id` | string | ✓ | 任务 ID |
 
-返回快照 JSON：`changed`（改动文件）、`nodes`/`edges`（影响图；边方向 From=变更源→To=受影响方，rel ∈ import/caller/test_of/coupled）、`packages`（受影响包聚合，含 tests 覆盖数与 exposed 出口标记）、`risk`（level/score/reasons 逐条加分依据）、`coupling`（历史共变对）、`func_diffs`（v3.185.0 函数/方法级图 diff：签名变更/函数增删/调用边 ±，带 before/after 签名原文）、`mermaid` 不在此工具返回（报告评论里）——本工具为结构化数据面，渲染由调用方自行处理。任务 running 早期快照可能尚未生成（无此键），或 `ARGUS_IMPACTVIEW=0` 关闭，均返回提示文本。同数据面另有交互视图：`GET /tasks/:taskId/impact`（Bearer，自包含 HTML）。
+返回快照 JSON：`changed`（改动文件）、`nodes`/`edges`（影响图；边方向 From=变更源→To=受影响方，rel ∈ import/caller/test_of/coupled）、`packages`（受影响包聚合，含 tests 覆盖数与 exposed 出口标记）、`risk`（level/score/reasons 逐条加分依据）、`coupling`（历史共变对）、`func_diffs`（v3.185.0 函数/方法级图 diff：签名变更/函数增删/调用边 ±，带 before/after 签名原文；语言面 Go=AST 级、shell/Python/Rust/JS/TS=词法级，v6.6.0 补 JS/TS）、`mermaid` 不在此工具返回（报告评论里）——本工具为结构化数据面，渲染由调用方自行处理。任务 running 早期快照可能尚未生成（无此键），或 `ARGUS_IMPACTVIEW=0` 关闭，均返回提示文本。同数据面另有交互视图：`GET /tasks/:taskId/impact`（Bearer，自包含 HTML）。
 
 ### search_findings
 

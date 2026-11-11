@@ -8,6 +8,10 @@
 //   - lineage：SQL 表写入（CREATE/INSERT/UPDATE/DELETE/ALTER）→ 读方（FROM/JOIN），
 //     经 table 枢纽节点两跳表达（改动文件→表→消费方）。
 //
+// v5.6.3 起扩 py/js/ts import 边、v5.6.5 起扩 rust mod/use、jvm import、
+// c-family include（函数级只做 shell/py/rust，js/jvm 刻意不做——误报面失控，
+// 见各 case 注释）。参与扩展名单源 langcap.GraphScanExts（v6.6.0）。
+//
 // 刻意不引 AST/新依赖：误报由封顶+Notes 表达，价值在"让受影响面可见"而非完备。
 
 package impactview
@@ -21,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yi-nology/argus/internal/langcap"
 )
 
 // 关系词表扩展与节点种类（与 types.go 同一契约面，只加不改）。
@@ -194,7 +200,7 @@ func buildScriptLayer(ctx context.Context, dir string, s *Snapshot, deadline tim
 	if edges == 0 {
 		return 0, 0
 	}
-	note := "词法图补充：shell source / 函数调用 / SQL 表血缘边 " + strconv.Itoa(edges) + " 条"
+	note := "词法图补充：source/import 装载、函数调用、SQL 表血缘边 " + strconv.Itoa(edges) + " 条"
 	if truncated {
 		s.Stats.Truncated = true
 		note += "（超封顶已截断）"
@@ -271,7 +277,7 @@ func indexReverse(sg *scriptGraph) {
 	}
 }
 
-// scanScripts 遍历收集 shell/SQL 文件并解析。预算到点即停。
+// scanScripts 遍历收集词法面文件（langcap.GraphScanExts）并解析。预算到点即停。
 func scanScripts(dir string, deadline time.Time) *scriptGraph {
 	var paths []string
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -285,9 +291,7 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 			}
 			return nil
 		}
-		switch filepath.Ext(path) {
-		case ".sh", ".bash", ".sql", ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx",
-			".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx":
+		if langcap.HasExt(langcap.GraphScanExts, filepath.Ext(path)) {
 			if len(paths) >= MaxScriptFiles {
 				return nil
 			}

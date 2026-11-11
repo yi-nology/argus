@@ -102,6 +102,7 @@ argus/
     poster/                    # 回帖服务（staleness 门控 + 三级降级）
     reportview/                # 报告模板渲染
     impactview/                # 改动影响面视图（分层管线：文件/import 闭包/符号调用方/测试面/共变/函数级 diff + mermaid·HTML·MCP·prompt 四出口）
+    langcap/                   # 语言能力矩阵单一事实源（v6.6.0：图层/funcdiff/semsearch chunk 参与扩展名 + 描述口径派生，impactview/semsearch/workflow 消费）
     commentcmd/                # 评论指令词法层（v5.4.4：指令目录/解析/mention 词表纯函数单源，service 门面执行体消费）
     reposettings/              # 服务侧按仓配置（v3.187.0：Settings 类型+Parse 校验纯函数；repo_settings 表经 storage，admin API 写入，runner/service 消费——与 .reviewagents.yaml 半可信文件面分层）
     progress/                  # 进度事件总线（SSE）

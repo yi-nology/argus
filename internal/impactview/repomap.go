@@ -2,8 +2,9 @@
 //
 // 与 PR 影响面（Build）共用 Snapshot 契约与渲染面（HTML/JSON 同构），差异：
 // Changed 为空、不做风险评分、粒度收敛到目录。Go 目录=包（import 聚合）；
-// shell source 与 SQL 表血缘跨目录聚合。封顶+Notes 纪律与 Build 一致，
-// 巨型仓输出"够看的地形图"而非完备数据集。
+// 词法面多语言依赖跨目录聚合（shell source 装载、py/js/ts/rust/jvm/c-family
+// import/include、SQL 表血缘——源=scriptgraph 词法解析，覆盖面 langcap）。
+// 封顶+Notes 纪律与 Build 一致，巨型仓输出"够看的地形图"而非完备数据集。
 
 package impactview
 
@@ -17,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yi-nology/argus/internal/langcap"
 )
 
 // 封顶：整仓图按"地形图"定位，超限截断+注明，不做无限展开。
@@ -109,14 +112,20 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 		}
 	}
 
-	// ---- shell source（文件对→目录对聚合） ----
+	// ---- source/import 装载（文件对→目录对聚合）：shell source 走 RelSource，
+	// py/js/ts/rust/jvm/c-family 的 import/include 走 RelImport（与 Go import
+	// 聚合同词表；sourcedBy 混装两类装载，按装载方扩展名族分流） ----
 	sg := scanScripts(dir, deadline)
 	if sg != nil {
 		indexReverse(sg) // sourcedBy/readsBy 反向索引由共享的 indexReverse 单源产出
 		for target, files := range sg.sourcedBy {
 			td := relDir(target)
 			for _, f := range files {
-				if addEdge(RelSource, relDir(f), td) {
+				rel := RelImport
+				if langcap.HasExt(langcap.ShellExts, strings.ToLower(filepath.Ext(f))) {
+					rel = RelSource
+				}
+				if addEdge(rel, relDir(f), td) {
 					addDir(relDir(f))
 					addDir(td)
 				}
@@ -215,7 +224,7 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 	}
 
 	if len(s.Nodes) == 0 {
-		s.Notes = append(s.Notes, "未扫描到 Go/shell/SQL 依赖，地图为空（纯文档/纯 yaml 仓？）")
+		s.Notes = append(s.Notes, "未扫描到 Go/词法面多语言（shell/py/js/ts/rust/jvm/c）/SQL 依赖，地图为空（纯文档/纯 yaml 仓？）")
 		return s
 	}
 	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })

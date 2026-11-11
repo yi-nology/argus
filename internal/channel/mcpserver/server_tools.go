@@ -79,7 +79,7 @@ func searchKnowledgeTool() mcp.Tool {
 
 func searchSemTool() mcp.Tool {
 	return mcp.NewTool("search_sem",
-		mcp.WithDescription("在 PR 工作副本内做语义检索（按意图/自然语言找代码，如「哪里处理认证」「哪里刷新 session token」——代码里未必有查询词，词法 search_code 查不到）。结构化摘要 embedding + 进程内余弦，命中按相似度降序带 file:line 与摘要——命中是线索，引用前须 get_file 核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
+		mcp.WithDescription("在 PR 工作副本内做语义检索（按意图/自然语言找代码，如「哪里处理认证」「哪里刷新 session token」——代码里未必有查询词，词法 search_code 查不到）。结构化摘要 embedding + 进程内余弦（Go=声明级符号索引，其余语言=文件级摘要 chunk），命中按相似度降序带 file:line 与摘要——命中是线索，引用前须 get_file 核实。服务未启用（ARGUS_SEMSEARCH=0 或未配置 ARGUS_EMBEDDING_*）时返回错误"),
 		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),

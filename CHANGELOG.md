@@ -3,6 +3,34 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.6.0（2026-11-11，语言能力面收口：langcap 单一事实源 + funcdiff 补 JS/TS + 契约面补 get_repo_map）
+
+- **`internal/langcap` 语言能力矩阵单一事实源**：图层（scriptgraph）/funcdiff 词法面/
+  semsearch chunk 面三套参与扩展名集收口一处（族与能力面分层声明，Graph/FuncDiff 由族
+  并集派生、SemChunk 独立历史面不并集）；impactview/semsearch/workflow 消费，工具描述
+  口径经 LangsOf 派生；防漂移测试钉族并集不变式 + 全面扩展名展示名登记 + mcpserver
+  描述↔langcap 集合一致（mcpserver 生产面零 internal 依赖不变）。此前语言口径散落且
+  互相矛盾（README「Python/JS/TS」/tech-debt「py/js」/「funcdiff 扩 shell/py」三套并存，
+  rust/jvm/c-family 全程文档隐身）。
+- **funcdiff 词法面补 JS/TS**（用户五语言集 go/ts/js/shell/python 收口）：reJSFunc 保守
+  形态集（function 声明/箭头赋值/类方法含 get/set 与泛型，语句关键字黑名单），多行参数
+  表刻意不做；与 shell/py/rust 同走 BodyHash 对齐。此前 Go/shell/py/rust 有函数级 diff
+  而 js/ts 没有。
+- **verdict benign 判定补真缺口**：`test_*.py`（pytest 惯例此前漏判）/`.spec.jsx`/
+  `.spec.tsx`/`.test.mjs`/`.test.cjs`/`_test.sh`/`_test.bash` 入无需求类路径。
+- **契约面补 get_repo_map**（v5.6.2 已注册 MCP 工具但 README §3 工具表/SKILL.md 速查/
+  tools.md 三处契约文档全部漏载）：三处补条目，工具计数 23→24（README 三处+SKILL.md
+  两处+index.html）。
+- **文档矩阵统一**：README §5.5 重写为「多语言支持与语言能力矩阵」（能力×语言精度档
+  一览，含已知缺口：shell 无 get_poly_symbol 词法表=textx 上游面、JS/TS 图层刻意不做
+  函数级调用边）；§5.3「非 Go 变更自动跳过」限定语修正（跳过的只是 Go 符号注入段）；
+  MCP get_impact/get_repo_map/search_sem 描述补语言范围与索引分层（Go=符号级/其余=
+  文件级）；tools.md/SKILL.md/index.html 同步。
+- repomap 装载边按族分流（shell source=RelSource、py/js/ts/rust/jvm/c import·include=
+  RelImport，此前混标）；图层注记「shell source / 函数调用 / SQL 表血缘」过时措辞修正。
+- 架构面：langcap 入册（L0 零依赖；semsearch/impactview/workflow·requirement 白名单
+  增边），ARCHITECTURE.md/deep-dive 同步。
+
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 
 - **平台词表单一事实源**：`config.SupportedPlatforms`（gitea/forgejo/github/gitlab/gitee/

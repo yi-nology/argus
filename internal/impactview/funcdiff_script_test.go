@@ -118,3 +118,61 @@ func TestDiffScriptFunctionsPyUntouchedNotReported(t *testing.T) {
 		t.Fatalf("未触达的 b 不应上报, 实得 %s", got)
 	}
 }
+
+// TestScriptFuncDefsJS js/ts 词法定义提取（v6.6.0）：function 声明/箭头赋值/
+// 类方法三形态命中；get/set 访问器与泛型方法命中；test scaffold 调用与语句
+// 关键字不误报。
+func TestScriptFuncDefsJS(t *testing.T) {
+	src := "export function add(a, b) {\n  return a + b\n}\n" +
+		"const mul = (a, b) => a * b\n" +
+		"let div = async function (a, b) {\n  return a / b\n}\n" +
+		"class Calc {\n  constructor(x) {\n    this.x = x\n  }\n" +
+		"  get value() {\n    return this.x\n  }\n" +
+		"  static async run<T>(v: T): Promise<T> {\n    return v\n  }\n}\n" +
+		"describe('suite', function() {\n  it('case', () => {\n    expect(1).toBe(1)\n  })\n})\n"
+	got := map[string]bool{}
+	for _, d := range scriptFuncDefs(src, ".ts") {
+		got[d.name] = true
+	}
+	for _, want := range []string{"add", "mul", "div", "constructor", "value", "run"} {
+		if !got[want] {
+			t.Fatalf("缺定义 %q（实得 %v）", want, got)
+		}
+	}
+	for _, ban := range []string{"describe", "it", "expect", "toBe", "class", "return"} {
+		if got[ban] {
+			t.Fatalf("误报 %q", ban)
+		}
+	}
+}
+
+// TestDiffScriptFunctionsJS ts 文件函数级 diff 走通（v6.6.0）：箭头函数体变化
+// → modified，新增 function 声明 → added。
+func TestDiffScriptFunctionsJS(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	v1 := "export const fetchUser = (id) => {\n  return db.get(id)\n}\n"
+	writeAndCommit(t, dir, "src/user.ts", v1, "v1")
+	v2 := "export const fetchUser = (id) => {\n  return db.find(id)\n}\n" +
+		"export function resetCache() {\n  cache.clear()\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "src/user.ts"), []byte(v2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t",
+		"commit", "-aqm", "v2")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("commit v2: %v: %s", err, out)
+	}
+	ranges := map[string][][2]int{"src/user.ts": {{1, 4}}}
+	fds, notes := diffScriptFunctions(context.Background(), dir, "HEAD~1",
+		[]string{"src/user.ts"}, ranges)
+	if len(notes) != 0 {
+		t.Fatalf("不应有 note: %v", notes)
+	}
+	if got := fdStatusOf(fds, "fetchUser"); got != FuncModified {
+		t.Fatalf("fetchUser 应 modified, 实得 %s (%+v)", got, fds)
+	}
+	if got := fdStatusOf(fds, "resetCache"); got != FuncAdded {
+		t.Fatalf("resetCache 应 added, 实得 %s (%+v)", got, fds)
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/oagentkit/toolgate/toolprior"
 
 	"github.com/yi-nology/argus/internal/codesearch"
+	"github.com/yi-nology/argus/internal/langcap"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/semsearch"
 )
@@ -240,7 +241,7 @@ func (w *Workflow) r3CodeGraphTools() (getSymbol, getRefs, getCallers, getPoly t
 		return nil, nil, nil, nil, err
 	}
 	getPoly, err = utils.InferTool("get_poly_symbol",
-		"按名称查询 Python/JavaScript/TypeScript 函数的定义位置与参数（词法级索引），用于核实 diff 中看不到的非 Go 实现。",
+		"按名称查询 "+langcap.JoinLangs(langcap.PolySymbolExts)+" 函数的定义位置与参数（词法级索引），用于核实 diff 中看不到的非 Go 实现。",
 		func(ctx context.Context, in *symIn) (*symOut, error) {
 			defs := w.CodeGraph.PolyDefinitions(in.Name)
 			if len(defs) == 0 {

@@ -52,16 +52,19 @@ func TestMain(m *testing.M) {
 
 // layering 分层白名单。key = 受约束包（精确路径）；value = 允许的 argus/internal/*
 // 依赖集合（封闭）。不在表内的包不受 import 方向约束（现仅剩 bootstrap 组合根
-// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫；42 个 internal 包
-// 其余 41 个全部在表内）。
+// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫；43 个 internal 包
+// 其余 42 个全部在表内）。
 // 规则变更 = 架构变更：必须同步 docs/architecture-deep-dive.md 并在 CHANGELOG 记档。
 var layering = map[string][]string{
 	// ---- L0 纯底座：零 internal 依赖 ----
 	"github.com/yi-nology/argus/internal/codesearch": {},
-	"github.com/yi-nology/argus/internal/semsearch":  {},
-	"github.com/yi-nology/argus/internal/learning":   {},
-	"github.com/yi-nology/argus/internal/progress":   {},
-	"github.com/yi-nology/argus/internal/gitdeepen":  {},
+	// v6.6.0：semsearch chunk 参与面消费 langcap.SemChunkExts（语言能力矩阵单源）。
+	"github.com/yi-nology/argus/internal/semsearch": {"github.com/yi-nology/argus/internal/langcap"},
+	"github.com/yi-nology/argus/internal/learning":  {},
+	"github.com/yi-nology/argus/internal/progress":  {},
+	"github.com/yi-nology/argus/internal/gitdeepen": {},
+	// v6.6.0：语言能力矩阵单一事实源（纯数据+口径派生，零 internal 依赖）。
+	"github.com/yi-nology/argus/internal/langcap": {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
 	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配
@@ -73,7 +76,7 @@ var layering = map[string][]string{
 	// v5.8.2 惯犯热力：ViewOpts.History 用 storage.FindingFileHistory 聚合结果类型
 	// v6.0.0 L2 调用方升级：消歧符号图优先解析调用方（semsearch.NodeKey 键契约
 	// + SymbolContext 邻接；纯底座消费，方向与 goedges 同款）
-	"github.com/yi-nology/argus/internal/impactview": {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/impactview": {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
 	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
 	"github.com/yi-nology/argus/internal/reposettings": {},
 
@@ -131,7 +134,8 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/plugin",
 		// v5.11.0：图面进审查管线——Workflow.Graph 字段与 get_trace/
 		// get_symbol_context 工具渲染消费 semsearch（SymRef/Index.Precise）。
-		"github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
+		// v6.6.0：get_poly_symbol 描述口径消费 langcap（语言能力矩阵单源）。
+		"github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
 	},
 	"github.com/yi-nology/argus/internal/runner": {
 		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx",
