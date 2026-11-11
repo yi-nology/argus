@@ -1,6 +1,6 @@
 module github.com/yi-nology/argus
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/apache/thrift v0.13.0
@@ -38,7 +38,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yi-nology/agent-memory v0.12.0
 	github.com/yi-nology/go-git-platform v0.126.0
-	github.com/yi-nology/goagent-kernel v0.30.1-0.20261111030508-dfc51305f58a
+	github.com/yi-nology/goagent-kernel v0.31.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0

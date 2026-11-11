@@ -568,8 +568,8 @@ github.com/yi-nology/go-gitcode v0.16.0 h1:+YLwbUGj07BBqr8rVLrXri1KFOL2bq1rB/E89
 github.com/yi-nology/go-gitcode v0.16.0/go.mod h1:7WUskajsH/fvcIA9wqoQVLeOL+E7pL/8SbBOhDgxFkc=
 github.com/yi-nology/go-gongfeng v0.3.1 h1:NMvJAMCskcsUbEpkyWB7rTNju3ZPLfFFndUtW6L5r3w=
 github.com/yi-nology/go-gongfeng v0.3.1/go.mod h1:LWkOt1wmYHBtUUw7IeN9S/p6OIPJwxcIGNxEDow4IXE=
-github.com/yi-nology/goagent-kernel v0.30.1-0.20261111030508-dfc51305f58a h1:nCmi6ZQAYZXPspsf65ot7s09FpGR5JX8pfVwcap38Jw=
-github.com/yi-nology/goagent-kernel v0.30.1-0.20261111030508-dfc51305f58a/go.mod h1:RbVAA8px+/YVR6KHtFNxNUqn+qNZ4BA/xkcZOlLwKSc=
+github.com/yi-nology/goagent-kernel v0.31.0 h1:YMn90vF+y1ttCGNmpJxe5yKttMDTjgzmiI0gVZxjkyQ=
+github.com/yi-nology/goagent-kernel v0.31.0/go.mod h1:Gp+Ptkeaw5FhNGeoQItZu4WzhI/bUv/HZXHZlk8Xhzc=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/yudai/gojsondiff v1.0.0/go.mod h1:AY32+k2cwILAkW1fbgxQ5mUmMiZFgLIV+FBNExI05xg=
