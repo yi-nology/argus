@@ -178,8 +178,8 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 	if s.isSQLite() {
 		return s.autoMigrateAll()
 	}
-	if err := s.db.AutoMigrate(&LeaderLease{}); err != nil {
-		return fmt.Errorf("storage: leader_leases 引导失败: %w", err)
+	if err := s.ensureLeaseTable(); err != nil {
+		return err
 	}
 	release, err := s.acquireMigrationLease(ctx, automigrateLeaseKey)
 	if err != nil {
@@ -187,6 +187,32 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 	}
 	defer release()
 	return s.autoMigrateAll()
+}
+
+// ensureLeaseTable 租约载体表引导（P0-04）：GORM AutoMigrate 的 check-then-create
+// 在两副本并发首启时撞数据库 catalog（MySQL 1050 table already exists / PG
+// pg_type_typname_nsp_index 23505，CI 双方言矩阵实锤）——改 Migrator 判定 +
+// 原生 CREATE TABLE IF NOT EXISTS（服务端幂等），DDL 竞态失败再复核一次表存在
+// （他副本先建成功 = 本次放行，类型对齐全量 AutoMigrate 兜）。
+func (s *Store) ensureLeaseTable() error {
+	if s.db.Migrator().HasTable(&LeaderLease{}) {
+		return nil
+	}
+	ddl := "CREATE TABLE IF NOT EXISTS leader_leases (" +
+		"lease_key varchar(128) PRIMARY KEY, holder varchar(128), " +
+		"expires_at "
+	if s.isMySQL() {
+		ddl += "datetime(3), updated_at datetime(3)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+	} else {
+		ddl += "timestamptz, updated_at timestamptz)"
+	}
+	if err := s.db.Exec(ddl).Error; err != nil {
+		if s.db.Migrator().HasTable(&LeaderLease{}) {
+			return nil // 并发竞态：他副本已建（PG pg_type 撞型形态），表在即放行
+		}
+		return fmt.Errorf("storage: leader_leases 引导失败: %w", err)
+	}
+	return nil
 }
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
