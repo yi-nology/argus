@@ -27,7 +27,6 @@ export default defineUserConfig({
       { text: '版本规划', link: '/roadmap.html' },
       { text: '竞品分析', link: '/vs.html' },
       { text: 'README', link: 'https://github.com/yi-nology/argus/blob/main/README.md' },
-      { text: 'GitHub', link: 'https://github.com/yi-nology/argus' },
     ],
     repo: 'yi-nology/argus',
     repoLabel: 'GitHub',

@@ -62,6 +62,13 @@
   窗口三点终端代码块。**暗色机制实锤**：theme-default rc.137 用 `html[data-theme]`
   属性（非 .dark 类）且 bootstrap 只读 localStorage(vuepress-color-scheme)+系统偏好、
   colorMode 选项不进引导——须 head 脚本预写 localStorage 才能默认暗。
+- **布局重构 + 去 AI 味（同日续五，用户标注红框：两侧黑洞/卡片空档/网格缺口/
+  画廊留白）**：双栏 hero（文案|产品 mockup）填满宽屏 + 内容列 960→1240px +
+  **修 hero 光晕 -200vw 负 inset 横向溢出**（真·空洞元凶之一，fullPage 被拉超宽）+
+  主题默认 hero 重复块隐藏 + 卡片图标标题同行（消头部空档）+ 核心能力补第 6 卡
+  「评论指令交互」（消 3+2 网格缺口）+ 画廊改 CSS columns 瀑布流（消行间高低差）+
+  编辑式排版（编号小节 01-06、左对齐标题+右侧导语、删大写眉标/徽章 tagline）+
+  navbar 重复 GitHub 链接去重。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 
