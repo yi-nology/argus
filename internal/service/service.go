@@ -368,6 +368,7 @@ func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo strin
 		return nil, http.StatusInternalServerError
 	}
 	filter := s.AuthorizeRowFilter(ctx)
+	authzDeniedMetric(ctx, "/stats/overview")
 	visible := make([]storage.RepoStats, 0, len(rows))
 	var totals struct {
 		repos, tasks, approved, commented, rejected, tokens, suppressed int64

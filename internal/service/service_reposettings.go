@@ -57,6 +57,7 @@ func (s *Service) RepoSettingsView(ctx context.Context, platform, owner, repo st
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
 	}
 	if !s.Authorize(ctx, platform, owner, repo) {
+		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
 		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
 	}
 	effective := map[string]int{
@@ -108,6 +109,7 @@ func (s *Service) UpsertRepoSettings(ctx context.Context, platform, owner, repo 
 	}
 	// v6.7.0 P0-02：admin 档之上的仓库维度——约束 token 不可写约束外仓库。
 	if !s.Authorize(ctx, platform, owner, repo) {
+		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
 		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
 	}
 	rs, err := reposettings.Parse(body)
@@ -147,6 +149,7 @@ func (s *Service) DeleteRepoSettings(ctx context.Context, platform, owner, repo 
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
 	}
 	if !s.Authorize(ctx, platform, owner, repo) {
+		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
 		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
 	}
 	removed, err := s.Store.DeleteRepoSetting(ctx, platform, owner, repo)

@@ -14,6 +14,7 @@ import (
 	"github.com/oagentkit/textx/reportutil"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -243,10 +244,22 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 				fmt.Sprintf("SAST %s 扫描失败：%s（审查继续）", o.Name, logredact.Redact(o.Err.Error())))
 		}
 	}
-	// G4 降级门（opt-in demote）：完备性检查不过时不允许白给 APPROVE（v3.11.0）。
-	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判。
+	// G4 降级门（v6.3.0 起缺省 demote）：完备性检查不过时不允许白给 APPROVE。
+	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判
+	//（插件失败率/证据充分性/审查降级经完备性检查项进门禁——P2-04 #15 输入面）。
 	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
 		verdict, rule = VerdictComment, "R5.C"
+	}
+	// R5.L 门禁（v6.9.0 P2-04，#15）：LLM 主备降级链触发史进裁决——本轮审查期间
+	// 发生主备切换 = 部分阶段产物来自降级模型（跨模型质量不可比），APPROVE 不可靠
+	// → demote 为 COMMENT + Degraded 注明切换次数。跨任务并发下差值是上界近似
+	//（他任务的切换也计入）：误伤方向是「宁可 COMMENT 不放不可靠 APPROVE」。
+	if delta := obs.LLMFailoverTotal() - w.llmFailoverBase; delta > 0 {
+		merged.Degraded = append(merged.Degraded,
+			fmt.Sprintf("LLM 主备切换 %d 次（部分阶段产物来自降级模型），结论可信度受限", delta))
+		if verdict == VerdictApprove {
+			verdict, rule = VerdictComment, "R5.L"
+		}
 	}
 	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
 	// 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审此前零痕迹——

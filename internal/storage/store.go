@@ -238,7 +238,7 @@ func (s *Store) ensureLeaseTable() error {
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
 func (s *Store) autoMigrateAll() error {
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}, &OutboxEvent{}); err != nil {
 		return fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if s.isMySQL() {

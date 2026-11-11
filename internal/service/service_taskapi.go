@@ -12,6 +12,7 @@ import (
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
@@ -175,6 +176,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 	// v6.7.0 P0-02：写面同样收口仓库维度——HTTP 直入此前无 repoAllowedFor
 	//（MCP 面 SuppressFindingScoped 已接），约束内 admin 才可抑制。
 	if !s.Authorize(ctx, req.Platform, req.Owner, req.Repo) {
+		authzDeniedMetric(ctx, "/findings/suppress")
 		return nil, http.StatusForbidden
 	}
 	str := func(p *string) string {
@@ -266,15 +268,34 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 	return &argus.SuppressFindingResponse{Matched: matched, Fingerprint: fp}, http.StatusOK
 }
 
-// publishCreated 广播 task.created（nil Bus 安全）。
+// publishCreated 广播 task.created（nil Bus 安全）+ 落 outbox（P1-05，#10 跨实例
+// 分发：他实例 fanout 环回灌本地 Bus）。
 func (s *Service) publishCreated(t *storage.Task) {
 	if s.Bus == nil || t == nil {
 		return
 	}
-	s.Bus.Publish(progress.Event{
+	s.publishProgress(progress.Event{
 		Type: progress.EventTaskCreated, TaskID: t.ID, Platform: t.Platform,
 		Owner: t.Owner, Repo: t.Repo, Number: t.Number,
 	})
+}
+
+// publishProgress 进程内快路径广播 + outbox 兜跨实例（P1-05，#10）：本实例
+// SSE 客户端走 Bus（实时），他实例的 fanout 环轮询 outbox 回灌其本地 Bus——
+// 双源经 Event.ID 去重。outbox 追加失败只计数+告警（观测面数据，at-least-once
+// 尽力而为，不阻断任务主流程）。
+func (s *Service) publishProgress(ev progress.Event) {
+	ev.ID = progress.NewEventID()
+	s.Bus.Publish(ev)
+	if s.Store == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Store.AppendOutboxEvent(ctx, ev); err != nil {
+		obs.IncrEventDropped("outbox_failed")
+		s.log().Warn("argus.events.outbox_append_failed", "event", ev.ID, "type", ev.Type, "error", err.Error())
+	}
 }
 
 // publishCommentReplied 广播 comment.replied（v3.50.0）：Q&A/意图路由回帖的终态
@@ -284,7 +305,7 @@ func (s *Service) publishCommentReplied(status, platform, owner, repo, number st
 	if s.Bus == nil {
 		return
 	}
-	s.Bus.Publish(progress.Event{
+	s.publishProgress(progress.Event{
 		Type: "comment.replied", Status: status, Platform: platform,
 		Owner: owner, Repo: repo, Number: number,
 	})
@@ -299,6 +320,9 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 		return nil, http.StatusInternalServerError
 	}
 	filter := s.AuthorizeRowFilter(ctx)
+	if filter != nil {
+		authzDeniedMetric(ctx, "/usage/monthly") // 行过滤发生（约束外用量不可见）
+	}
 	items := make([]storage.RepoTokenUsage, 0, len(usage))
 	var total int64
 	for _, u := range usage {
@@ -308,11 +332,29 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 		items = append(items, u)
 		total += u.Tokens
 	}
+	// 双账本（v6.9.0 P1-06，#11）：quota=done 口径（配额判定与报表，平台故障误烧
+	// 不占额）+ real=全部终态（含 failed/stale，真实消费可观测可设上限）。
+	var realTotal int64
+	realItems := make([]storage.RepoTokenUsage, 0, len(usage))
+	if usageReal, err := s.Store.MonthlyTokensByRepoReal(ctx, since); err == nil {
+		for _, u := range usageReal {
+			if filter != nil && !filter(u.Platform, u.Owner, u.Repo) {
+				continue
+			}
+			realItems = append(realItems, u)
+			realTotal += u.Tokens
+		}
+	} else {
+		s.log().Warn("argus.api.usage_real_failed", "error", err.Error())
+	}
 	return map[string]any{
-		"month":  since.Format("2006-01"),
-		"total":  total,
-		"budget": s.Cfg.RepoMonthlyTokenBudget,
-		"repos":  items,
+		"month":       since.Format("2006-01"),
+		"total":       total,
+		"budget":      s.Cfg.RepoMonthlyTokenBudget,
+		"repos":       items,
+		"real_total":  realTotal,
+		"real_budget": s.Cfg.RealTokenBudget,
+		"real_repos":  realItems,
 	}, http.StatusOK
 }
 
@@ -331,6 +373,7 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTas
 		return nil, http.StatusInternalServerError
 	}
 	if !s.AuthorizeTask(ctx, task.Platform, task.Owner, task.Repo) {
+		authzDeniedMetric(ctx, "/reports/:ref")
 		return nil, http.StatusForbidden
 	}
 	return &argus.GetTaskResponse{

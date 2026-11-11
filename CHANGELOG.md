@@ -3,6 +3,55 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.9.0（2026-11-12，第三轮审计 P1/P2 行为批：跨副本事件面 + 双账本 + 完整性门禁 + 指标面）
+
+审计路线图五项（#10/#11/#14/#15/#16）落地。#9 已随 v6.7.0 P0 批交付；#12/#13 与
+P3 四项（#17-#20）属特性工程，拆独立 issue 跟进。
+
+- **【P1-05 #10】事件 Outbox 跨实例分发**：SSE 事件总线此前纯进程内广播——多副本
+  （replicas=2）下连接 Pod A 的客户端收不到 Pod B 的任务事件。Outbox 模式落地：
+  发布点（service task.created/comment.replied + runner running/finished/stage +
+  poller created）进程内 Bus 快路径照旧 + 追加 `event_outbox` 表（best-effort，
+  观测面数据 at-least-once）；每实例 fanout 环（500ms 轮询）回灌本地 Bus，双源经
+  `Event.ID` 去重（进程内不重复播）；SSE handler 语义不变（Bus 订阅 + 按仓过滤）。
+  新表 event_outbox 随 AutoMigrate；保留期 24h 随 fanout 环顺手清理。回归：双
+  Service（各自 Bus 同库 outbox）跨实例送达 + 双源去重 + 进程内快路径不回退。
+  不引消息中间件（审计明确不建议）；LISTEN/NOTIFY 为延迟优化预留（轮询已低于
+  keepalive 粒度）。
+- **【P1-06 #11】Token 双账本模型**：配额账（done 口径）语义不回退——「平台故障
+  误烧不计入预算」设计意图保持；新增**真实消费账**（RepoMonthlyTokensReal/
+  MonthlyTokensByRepoReal：全部终态 done/failed/stale 聚合）——失败/重试任务的
+  LLM 消费不再绕过硬预算、argus 侧账本可见。独立上限 `ARGUS_REAL_TOKEN_BUDGET`
+  （0=关）：超限新任务失败终态告知（与配额超限同形态，预算路径不重试）。
+  /usage/monthly 双账本展示（real_total/real_budget/real_repos）。指标
+  argus_budget_exceeded_total{ledger=quota|real}。
+- **【P2-03 #14】审查结果一致性（副作用账本 + 对账）**：CommentDelivery 扩为
+  副作用账本——处理事实（delivery 行）、回帖终态（ReplyStatus ok/error）、外部
+  副作用（平台评论 CommentID）、ref 定位四列分离（AutoMigrate 增量加列）；回帖
+  出口（postCommentReply/postQAError）经 ctx 关联 delivery 回填终态（不做穿参
+  改签名——分派链 8 路调用点零扰动）。对账面 OutOfSyncDeliveries：①任务 failed
+  且回帖已成功（summary_comment_id>0）②审查类任务 done 但回帖缺失——bootstrap
+  运维 ticker 每小时核对，不一致计数 + Warn（指标 argus_side_effect_mismatch_total）。
+  指标 argus_comment_redelivery_total（平台重投递命中幂等账本计数）。
+- **【P2-04 #15】审查完整性门禁 R5.L**：LLM 主备降级链触发史进裁决——Workflow.Run
+  起点记录主备切换计数基线，judgeAndGate 读差值；本轮审查发生主备切换 = 部分阶段
+  产物来自降级模型（跨模型质量不可比）→ APPROVE demote 为 COMMENT（rule=R5.L）+
+  Degraded 结构化注明「LLM 主备切换 N 次」。跨任务并发下差值是上界近似（他任务
+  切换也计入）：误伤方向「宁可 COMMENT 不放不可靠 APPROVE」。插件失败率/证据
+  充分性/审查降级三输入已由完备性裁判覆盖（v6.3.0 demote 缺省化），降级原因
+  结构化落库经 Completeness/Degraded 进报告与回帖（既有管道）。回归：降级注入
+  （APPROVE 被拦 + 原因透出）+ 无降级路径语义不回退（R5.5 保持）。
+- **【P2-05 #16】运行时指标五枚**：`argus_migration_lease_lost_total`（P1-01
+  fencing 触发：续约失败/被夺/终检失败——storage 钩子注入，storage 不 import obs
+  纪律同 plugin.Hook*）、`argus_authz_denied_total{route,scope}`（P0-02 统一
+  Authorizer 各出口：reports/stats/usage/repomap/repo-settings/suppress/events +
+  Bearer scope 门）、`argus_events_dropped_total{reason}`（P1-05：authz_filtered/
+  outbox_failed）、`argus_comment_redelivery_total`（P2-03）、
+  `argus_budget_exceeded_total{ledger}`（P1-06）。五枚全部接入 /metrics 并有消费点。
+- 架构白名单补边三处（arch 门禁显式化）：obs→storage（失租钩子）、storage→progress
+  （outbox 载荷 Event 单源）、runner→obs（预算/事件计数直呼）。
+- go.mod 零变更。
+
 ## v6.8.0（2026-11-12，第三轮审计 P1 批：多副本并发正确性）
 
 审计路线图 P1 四项（#6/#7/#8 + #9 已随 v6.7.0 P0 批落地）。全部配三方言回归

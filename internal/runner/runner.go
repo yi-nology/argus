@@ -245,6 +245,9 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		if r.repoBudgetGate(ctx, task, knobs.monthlyBudget) {
 			return nil
 		}
+		if r.realBudgetGate(ctx, task, r.Cfg.RealTokenBudget) {
+			return nil
+		}
 
 		if rerr := r.run(ctx, task, wf, budget, start, taskCost, knobs); rerr != nil {
 			r.handleRunFailure(ctx, task, budget, rerr)

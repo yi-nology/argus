@@ -3,6 +3,11 @@
 package progress
 
 import (
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+
 	oagentprogress "github.com/oagentkit/runtime/progress"
 )
 
@@ -18,6 +23,9 @@ const (
 // Event 词表：Type ∈ EventTask* 常量。task.stage（v3.40.0）：阶段级进度
 // （Stage ∈ R1/R2/R3…），消费者可展示「现在跑到哪一步」。
 type Event struct {
+	// ID 事件唯一标识（uuid；P1-05 Outbox 跨实例分发与进程内快路径双源去重键：
+	// 本实例先 Bus 后落 outbox，他实例的 fanout 环回读同 ID 事件跳过重播）。
+	ID       string `json:"id,omitempty"`
 	Type     string `json:"type"`
 	TaskID   string `json:"task_id"`
 	Platform string `json:"platform,omitempty"`
@@ -28,6 +36,15 @@ type Event struct {
 	Verdict  string `json:"verdict,omitempty"`
 	Stage    string `json:"stage,omitempty"`
 	At       string `json:"at"`
+}
+
+// NewEventID 事件唯一标识（P1-05）：uuid 失败退化为时间戳纳秒（唯一性弱化但
+// 不阻塞事件面）。
+func NewEventID() string {
+	if id, err := uuid.NewRandom(); err == nil {
+		return id.String()
+	}
+	return fmt.Sprintf("ev-%d", time.Now().UnixNano())
 }
 
 // Bus 类型别名：委托给 oagentkit 泛型总线。

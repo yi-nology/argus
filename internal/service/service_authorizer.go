@@ -21,6 +21,8 @@ package service
 import (
 	"context"
 	"errors"
+
+	"github.com/yi-nology/argus/internal/obs"
 )
 
 // Authorize 仓库维度单点判定（v6.7.0 P0-02）：token 仓库约束（pattern）+
@@ -67,6 +69,12 @@ func (s *Service) AuthorizeRowFilter(ctx context.Context) func(platform, owner, 
 	return func(platform, owner, repo string) bool {
 		return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
 	}
+}
+
+// authzDeniedMetric P2-05（#16）授权拒绝计数（route×scope 维度）：约束外访问
+// 的可观测面——泄露尝试/误配 token 的信号。
+func authzDeniedMetric(ctx context.Context, route string) {
+	obs.IncrAuthzDenied(route, ScopeFromContext(ctx))
 }
 
 // ErrAuthzDenied Authorize 拒绝的统一哨兵：HTTP handler 以 errors.Is 映射 403

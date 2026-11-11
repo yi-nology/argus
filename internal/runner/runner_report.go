@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/notify"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/reportview"
@@ -154,16 +156,17 @@ func countMissingPartial(report *plugin.ComplianceReport) int {
 	return n
 }
 
-// publish 广播进度事件（nil Bus 安全）。
+// publish 广播进度事件（nil Bus 安全）+ 落 outbox（P1-05，#10 跨实例分发）。
 func (r *Runner) publish(typ string, task *storage.Task, status, verdict string) {
 	if r.Bus == nil || task == nil {
 		return
 	}
-	r.Bus.Publish(progress.Event{
+	ev := progress.Event{
 		Type: typ, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		Status: status, Verdict: verdict,
-	})
+	}
+	r.publishOutbox(ev)
 }
 
 // publishStage 阶段级进度事件（task.stage；v3.40.0 SSE 阶段可视化数据源）。
@@ -171,11 +174,24 @@ func (r *Runner) publishStage(task *storage.Task, stage string) {
 	if r.Bus == nil || task == nil {
 		return
 	}
-	r.Bus.Publish(progress.Event{
+	r.publishOutbox(progress.Event{
 		Type: progress.EventTaskStage, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		Stage: stage,
 	})
+}
+
+// publishOutbox 进程内 Bus + outbox 双写（与 service.publishProgress 同语义：
+// 本实例实时、跨实例 fanout 回灌；追加失败计数+告警不阻断）。
+func (r *Runner) publishOutbox(ev progress.Event) {
+	ev.ID = progress.NewEventID()
+	r.Bus.Publish(ev)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := r.Store.AppendOutboxEvent(ctx, ev); err != nil {
+		obs.IncrEventDropped("outbox_failed")
+		r.Log.Warn("argus.events.outbox_append_failed", "event", ev.ID, "type", ev.Type, "error", err.Error())
+	}
 }
 
 // stageCNNames 执行期进度条的阶段中文名（v6.1.5）。键一律引用 plugin.Layer*
