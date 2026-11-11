@@ -32,11 +32,12 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       # 站点源在 web/（README.md=首页，img/=真实回帖截图资产）；docs/ 其余内容是
-      # 内部文档，不进 Pages
+      # 内部文档，不进 Pages。--ignore-scripts 拒绝安装期脚本执行（依赖评审条件：
+      # @parcel/watcher 等 install script 默认不放行，构建已验证无需其编译产物）
       - name: Build site
         working-directory: web
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run build
 
       - uses: actions/upload-pages-artifact@v3
