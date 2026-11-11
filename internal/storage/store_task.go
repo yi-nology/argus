@@ -441,7 +441,7 @@ func (s *Store) MergeTaskStageArtifacts(ctx context.Context, id string, patch ma
 		}
 		cur := map[string]string{}
 		if row.StageArtifacts != "" {
-			_ = json.Unmarshal([]byte(row.StageArtifacts), &cur)
+			_ = json.Unmarshal([]byte(row.StageArtifacts), &cur) // 坏 JSON 当空处理（best-effort 读，留痕：不阻断主路）
 		}
 		if cur == nil {
 			cur = map[string]string{}
@@ -474,7 +474,7 @@ func (s *Store) MergeTaskArtifacts(ctx context.Context, id string, patch map[str
 		cur := map[string]string{}
 		if row.ArtifactsJSON != "" {
 			// "null"/坏 JSON 均可能把 cur 反序列化成 nil——统一在下文钳回空表
-			_ = json.Unmarshal([]byte(row.ArtifactsJSON), &cur)
+			_ = json.Unmarshal([]byte(row.ArtifactsJSON), &cur) // 坏 JSON 当空处理（best-effort 读，留痕：不阻断主路）
 		}
 		if cur == nil {
 			cur = map[string]string{}

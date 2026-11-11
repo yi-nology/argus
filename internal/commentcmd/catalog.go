@@ -8,6 +8,7 @@
 //   - 烧预算指令门控（ARGUS_COMMENT_GATE=collaborator 默认）：review/recheck/fix/
 //     testgen 仅协作者可触发，防公开仓路人评论白烧预算；问答/查询/误报反馈类
 //     不受门控。
+
 package commentcmd
 
 import (

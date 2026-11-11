@@ -68,7 +68,7 @@ var layering = map[string][]string{
 	// （bootstrap 不受本表约束），不另立白名单条目。
 	"github.com/yi-nology/argus/internal/goedges": {"github.com/yi-nology/argus/internal/semsearch"},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
-	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁红至今）
+	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁已在 v6.3.0 补录转绿）
 	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）
 	// v5.8.2 惯犯热力：ViewOpts.History 用 storage.FindingFileHistory 聚合结果类型
 	// v6.0.0 L2 调用方升级：消歧符号图优先解析调用方（semsearch.NodeKey 键契约

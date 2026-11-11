@@ -527,7 +527,7 @@ default:                         return "approve"          // R5.5 全部通过
 ### 6.1 diffprep（Diff 预处理）
 
 ```go
-// internal/context/diffprep.go
+// internal/argusctx/diffprep.go
 
 func Prepare(md *provider.MergeDiff, totalLimit int) *plugin.DiffContext
 func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit int) *plugin.DiffContext

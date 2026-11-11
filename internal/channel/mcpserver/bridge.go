@@ -1,5 +1,6 @@
 // bridge.go —— MCP streamable http ↔ Hertz 桥接（v3.165.0 自 server.go 拆出；
 // 零逻辑变更）。
+
 package mcpserver
 
 import (

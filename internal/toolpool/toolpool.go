@@ -1,4 +1,4 @@
-// Package toolpool L5 工具子系统：MCP client 连接管理 → eino tool.BaseTool 适配（design §9.2 方向 A）。
+// Package toolpool L3 能力层（工具子系统）：MCP client 连接管理 → eino tool.BaseTool 适配（design §9.2 方向 A）。
 // RealPool 直接实现 MCP 工具池（mcpServers 配置段驱动），经 internal/bootstrap 装配为任务级工具源。
 package toolpool
 

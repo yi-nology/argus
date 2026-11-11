@@ -3,6 +3,7 @@
 // 插件注册（含 runner 延迟解引用环）→ MCP 工具表 → 成本记账 →
 // dispatcher/merger/poster/runner。
 // main 只保留生命周期语义：存储开关、资源注册、选主、worker 排水、HTTP。
+
 package bootstrap
 
 import (

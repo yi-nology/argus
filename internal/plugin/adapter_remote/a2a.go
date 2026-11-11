@@ -2,6 +2,7 @@
 // 流程 = Agent Card 发现（/.well-known/agent.json）→ message/send 提交 →
 // tasks/get 轮询至终态 → artifact 文本解析 findings。
 // 只实现 A2A 协议中审查委托所需的子集（非流式、单工件），不做协商/推送（§8）。
+
 package adapter_remote
 
 import (
