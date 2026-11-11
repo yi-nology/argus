@@ -45,6 +45,32 @@ func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 	})
 }
 
+// TouchHeartbeatsFor 只续期 taskIDs 中属于本实例且在跑的任务心跳
+// （oagentkit/queue worker.ScopedHeartbeater 实现：Pool 探测到本能力后按本进程
+// 在飞任务集续期，替代盲续 TouchRunningHeartbeats）。
+//
+// 三重守卫缺一不可（oagentkit/queue#42）：runner_id 防续他实例的行；
+// status='running' 防把已终态的行续回新鲜；id IN (...) 是 scoped 语义的实质
+// ——不在续期集里的行（runTask 已 panic/报错/成功退出的）心跳就此冻结，
+// staleAfter 后由 ResetRunningToPending 复位重跑。盲续路径下这些行被本实例
+// 一直续活，复位永不命中（僵尸任务静默丢失的根因）。
+func (s *Store) TouchHeartbeatsFor(ctx context.Context, taskIDs []string) error {
+	if s.RunnerID == "" {
+		// 装配纪律同 TouchRunningHeartbeats：空 RunnerID 的续期无法归属实例
+		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
+	}
+	if len(taskIDs) == 0 {
+		// 空集绝不能退化成「无过滤条件」——那是盲续，正是要修的东西
+		// （Pool 空集时根本不调用，此处自守一层防 SQL 拼装错误）
+		return nil
+	}
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).
+			Where("status = ? AND runner_id = ? AND id IN ?", StatusRunning, s.RunnerID, taskIDs).
+			Update("heartbeat_at", time.Now()).Error
+	})
+}
+
 // GetTask 按 ID 查询。无此任务返回 ErrNotFound 哨兵。
 func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 	var t Task

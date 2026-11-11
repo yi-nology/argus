@@ -3,6 +3,11 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.3.1（2026-11-11，收编：ptc 诊断渲染单源切换 harness Result.Describe）
+
+- **internal/qa ptc 诊断渲染收编**（agent-harness v0.27.1 → v0.30.0，其 #68 导出诊断渲染原语）：删宿主手写 `describePtcFailure`/`describePos`（-25 行），修复回喂环改调 `ptc.Result.Describe()` 单源——诊断措辞（类别/错误原文/位置/修复建议）与 harness 归因口径同源，宿主不再复刻同族渲染；新增归因链摘要段（哪些绑定调用失败，封顶 5 条）随升级白得。本侧只保留「失败是否值得回喂重试」策略面（programFixable 不变），`TestDescribePtcFailure` 改为 `TestPtcFeedbackViaHarnessDescribe` 钉回喂契约（文本模型可行动），渲染形态由 harness 侧用例钉。
+- go.mod：agent-harness v0.27.1 → v0.30.0（带入其依赖地板：goja/regexp2/x/* 常规上移、eino v0.9.22→v0.9.23）；零其余代码适配。
+
 ## v6.3.0（2026-11-11，外部技术评估修复批 + IDL 深度收敛收官）
 
 外部评估（GitHub main 快照，综合 7.6/10）提出的问题逐项处置：
@@ -45,6 +50,7 @@ IDL 深度收敛收官（v6.3.0 重构批收尾，与 b07f883 同版本）：
 - **e2e auth 覆盖探针**：test/e2e/authz_probe_test.go 正则解析 idl/*.thrift 路由清单
   （单源），无 token 打全部 17 条 🔒 路由断言 401（白名单仅 /webhook/* 平台签名面）——
   v5.6.2 repo-map 匿名失守类事故从此是 CI 门禁而非部署后人工探针。
+
 
 ## v6.2.0（2026-11-11，结构重构：storage 方言收敛批 + internal/context 改名）
 

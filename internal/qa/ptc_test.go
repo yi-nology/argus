@@ -129,19 +129,21 @@ func TestProgramFixable(t *testing.T) {
 	}
 }
 
-func TestPtcFailureDescribe(t *testing.T) {
-	// 诊断渲染收编 harness Result.Describe()（harness #68）后仍须保语义：
-	// OK-but-null 须点明缺 return（模型侧可行动）
-	s := ptc.Result{OK: true, Value: "null"}.Describe()
+func TestPtcFeedbackViaHarnessDescribe(t *testing.T) {
+	// 诊断渲染已收编 harness（Result.Describe 单源，argus 不再手写渲染）。
+	// 本侧钉的是回喂契约：喂给修复轮的文本必须是模型可行动的——点得出行列、
+	// 给得出建议（渲染形态本身由 harness 侧用例钉）。
+	// OK-but-null：诊断文本须点明缺 return（模型侧可行动）
+	s := (ptc.Result{OK: true, Value: "null"}).Describe()
 	if !strings.Contains(s, "return") {
 		t.Fatalf("null 诊断应点明缺 return：%q", s)
 	}
 	// 带位置与建议的失败：位置行列 + 建议逐条可读
-	s2 := ptc.Result{
+	s2 := (ptc.Result{
 		ErrorKind: "syntax", Error: "Unexpected token",
 		Location:    ptc.Position{Line: 3, Column: 7},
 		Suggestions: []string{"检查第 3 行的括号配对"},
-	}.Describe()
+	}).Describe()
 	if !strings.Contains(s2, "第 3 行第 7 列") || !strings.Contains(s2, "检查第 3 行的括号配对") {
 		t.Fatalf("诊断面回喂不完整：%q", s2)
 	}

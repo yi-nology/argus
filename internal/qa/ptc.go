@@ -10,6 +10,10 @@
 // （ErrorKind/行号/模型侧修复建议——USAGE §3.4：诊断面就是给模型读的）重试
 // 一次；预算/墙钟类失败不重试（方案太重，同型重试只再烧一遍预算），直接回退。
 //
+// v6.3.1 诊断渲染收编：诊断文本改由 harness ptc.Result.Describe() 单源渲染
+// （位置/建议/归因链摘要与分类口径同源，宿主不再手写同族渲染），本侧只保留
+// 「失败是否值得回喂重试」的策略面（programFixable）。
+//
 // 接入纪律（harness USAGE §3.4）与 argus 裁定：
 //   - Options.Stages 留 nil：harness 的 invoke.Stage 判定环属其编排域；argus 的
 //     qa 工具面在构造期已收口（进程内白名单工具 + 工作副本只读 + 检索预算），
@@ -146,7 +150,7 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 				"kind", res.ErrorKind, "error", res.Error, "calls", res.Calls, "effect", "回退 ReAct")
 			return "", false, nil
 		}
-		feedback := res.Describe() // 诊断渲染单源收编 harness（harness #68）；programFixable 的 ErrorKind 分类是宿主策略，留此不动
+		feedback := res.Describe() // 诊断渲染单源收编 harness（Describe 含位置/建议/归因链摘要）
 		fixed, rerr := e.generateProgram(ctx, sys, question, feedback+"\n上一版程序（有错，请修复后重新完整输出）：\n"+prog+"\n")
 		if rerr != nil || fixed == "" || fixed == prog {
 			e.log().Warn("argus.qa.ptc_repair_gave_up", "pr", prRef, "kind", res.ErrorKind, "effect", "回退 ReAct")
