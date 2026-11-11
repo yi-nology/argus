@@ -57,6 +57,9 @@ h1, h2, h3, h4 {
 }
 
 /* ================= Navbar ================= */
+/* dark-only 守护下隐藏主题切换钮（点击会被 MutationObserver 翻回，徒增困惑） */
+.vp-navbar button[aria-label*="color mode"],
+.vp-navbar button[aria-label*="Color mode"] { display: none; }
 .vp-navbar {
   background: color-mix(in srgb, var(--vp-c-bg) 78%, transparent) !important;
   backdrop-filter: blur(16px) saturate(1.5);
