@@ -138,15 +138,8 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	}
 	store.RunnerID = instanceID
 	log.Info("argus.boot.instance", "id", instanceID)
-	// 多副本同 SHA 双跑最终防线（深挖 P0）：SQLite 部分唯一索引；历史在飞重复
-	// 数据会使其退化（active=false），清理后重启自愈。真实执行错误只告警不阻断
-	// （v3.9.1：错误必须带原始原因透出，此前吞掉会误导运维清数据）。
-	if guardActive, err := store.EnsureSameSHAGuard(); err != nil {
-		log.Warn("argus.boot.same_sha_guard_failed", "error", err.Error())
-	} else if !guardActive {
-		log.Warn("argus.boot.same_sha_guard_skipped", "hint",
-			"tasks 表存在历史在飞重复 (platform,owner,repo,number,head_sha)，唯一索引未建立；清理重复任务后重启自愈")
-	}
+	// 在飞唯一防线已随 storage.Open 的迁移租约建立（v6.8.0 P1-03：三方言，DDL
+	// 在租约内串行；告警走 gorm logger）——main 侧不再重复执行。
 	// ---- 子系统装配（模型栈/知识库/插件/工具/编排，internal/bootstrap）----
 	sys, err := bootstrap.Assemble(ctx, cfg, log, store, version, instanceID)
 	if err != nil {

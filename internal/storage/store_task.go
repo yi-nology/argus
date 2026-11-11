@@ -187,11 +187,14 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 			}
 			// 在飞同 SHA 唯一防线冲突（跨实例并发建同 SHA 任务）：与 in_flight 同语义
 			// 回查；查不到在飞再回退最近历史任务（last_head_sha 语义）。
+			// v6.8.0（P1-02，#7）：回查实参补 t.Kind——此前占位符 7 个实参 6 个，
+			// 回查必失败上抛原始 txErr → webhook 回 500（「避免以 500 暴露」防线被
+			// 本 bug 打穿：GitHub 对连续 500 禁用 webhook）。
 			if isDuplicateKeyErr(txErr) {
 				var existing Task
 				if e := s.quietDB().WithContext(ctx).Where(
 					"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
-					t.Platform, t.Owner, t.Repo, t.Number, t.HeadSHA,
+					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
 					[]string{StatusPending, StatusRunning}).Order("created_at DESC").First(&existing).Error; e == nil {
 					dupReason, existingID = DupInFlight, existing.ID
 					return nil

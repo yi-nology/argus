@@ -12,6 +12,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/oekit/concurrency/async"
@@ -33,6 +34,10 @@ const migrationLockTTL = 5 * time.Minute
 // automigrateLeaseKey AutoMigrate/LONGTEXT 升级的迁移租约 key（P0-04，#5）：
 // schema DDL 与数据回写迁移共用 leader_leases 机制，key 域区分。
 const automigrateLeaseKey = "schema_migration:automigrate"
+
+// migrationRenewalInterval 迁移租约续约间隔（缺省 TTL/10）。包级 var：fencing
+// 注入测试缩短到毫秒级（生产恒缺省值，Open 无入口覆盖）。
+var migrationRenewalInterval = migrationLockTTL / 10
 
 // acquireMigrationLease 抢迁移租约，阻塞至持有或超时（P0-04，#5）：拿不到 =
 // 他副本正在迁移（多副本并发首启），让位轮询等待——AutoMigrate 无 marker 可等，
@@ -116,35 +121,60 @@ func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn f
 		return s.awaitMigrationMarker(ctx, version)
 	}
 	defer func() { _ = s.Release(ctx, key, holder) }()
-	renewStop := make(chan struct{})
+	// ③ 执行期续约 + fencing（v6.8.0 P1-01，#6）：长迁移超 TTL 时锁过期，第三
+	// 实例可闯入双跑（同一迁移两个有效执行者 → DDL/数据回写互相踩踏）。续约环
+	// 每 TTL/10 续约；**续约失败（err≠nil，库断连等）或返回 ok=false（租约被夺/
+	// 过期被抢）= 失租**——fencing 取消迁移执行（fn ctx 贯穿，cancel 传导），结果
+	// 作废不写 marker（成功才写幂等语义），下次启动重试、他实例接手。v6.8.0 前
+	// 续约失败被吞（return 出环继续跑）且 ok 返回值不检查，失租后执行方无感知。
+	//
+	// 收敛纪律（死锁教训）：主路绝不阻塞等续约环退出——环随 fctx 生命周期终止
+	//（fcancel defer 于函数返回时触发）；失租态经 atomic.Bool 传递；marker 写入
+	// 前的「终检续约」补齐强语义（fn 成功与写 marker 之间若恰失租，终检 ok=false
+	// 拦下，marker 不落）。
+	fctx, fcancel := context.WithCancel(ctx)
+	defer fcancel()
+	var leaseLost atomic.Bool
 	async.GoSafe(func() {
-		t := time.NewTicker(migrationLockTTL / 10)
+		t := time.NewTicker(migrationRenewalInterval)
 		defer t.Stop()
 		for {
 			select {
-			case <-renewStop:
-				return
-			case <-ctx.Done():
+			case <-fctx.Done():
 				return
 			case <-t.C:
-				if _, err := s.TryAcquire(context.Background(), key, holder, migrationLockTTL); err != nil {
-					return // 续约失败（库断连等）：执行方继续跑，marker 兜底幂等
+				ok, err := s.TryAcquire(context.Background(), key, holder, migrationLockTTL)
+				if err != nil || !ok {
+					leaseLost.Store(true)
+					fcancel() // fencing：失租即取消迁移执行
+					return
 				}
 			}
 		}
 	})
-	defer close(renewStop)
 	// 拿到锁后双检 marker（他实例可能已跑完写 marker）。
-	if err := s.db.WithContext(ctx).Where("version = ?", version).First(&marker).Error; err == nil {
+	if err := s.db.WithContext(fctx).Where("version = ?", version).First(&marker).Error; err == nil {
 		return 0, nil
 	} else if err != gorm.ErrRecordNotFound {
 		return 0, err
 	}
-	applied, err = fn(ctx)
+	applied, err = fn(fctx)
 	if err != nil {
+		if leaseLost.Load() {
+			applied = 0
+			return 0, fmt.Errorf("迁移 %s 执行期间迁移租约丢失（fencing），结果作废不写 marker，待下次启动重试", version)
+		}
 		return applied, err
 	}
-	if err := s.db.WithContext(ctx).Create(&SchemaMigration{Version: version, AppliedAt: time.Now()}).Error; err != nil {
+	// 终检续约（fencing 强语义）：fn 成功后、写 marker 前再续一次——仍持有 = 刚
+	// 续成功的租约覆盖 marker 写入窗口，接手者的 double-check 会看到 marker；
+	// 失租（被夺/断连）= 结果作废不写 marker。终检后到 marker 落库之间的残余
+	// 窗口（微秒级）由 TTL（5min）量级兜底：接手者只能在本实例 Release 后进入，
+	// 届时 marker 已可被 double-check 命中。
+	if ok, lerr := s.TryAcquire(context.Background(), key, holder, migrationLockTTL); lerr != nil || !ok {
+		return 0, fmt.Errorf("迁移 %s marker 落库前终检续约失败（fencing，ok=%v err=%v），结果作废待重试", version, ok, lerr)
+	}
+	if err := s.db.WithContext(fctx).Create(&SchemaMigration{Version: version, AppliedAt: time.Now()}).Error; err != nil {
 		return applied, err
 	}
 	return applied, nil

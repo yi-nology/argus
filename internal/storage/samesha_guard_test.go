@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -99,5 +101,97 @@ func TestDifferentKindsCoexist(t *testing.T) {
 	t2.HeadSHA = "sha-coexist-2"
 	if dup, _, err := s.CreateTaskForWebhook(ctx, t2); err != nil || dup != "" {
 		t.Fatalf("新 SHA 应正常建: dup=%q err=%v", dup, err)
+	}
+}
+
+// TestInFlightGuardConcurrentCreate 首审并发建任务（P1-03，#8 回归）：同 PR 同
+// SHA 同 kind 两笔并发 CreateTaskForWebhook（不同 delivery、无 review_targets
+// 锚行 = 首审形态）——pg/MySQL 下两事务并发 insert，撞 v6.8.0 在飞唯一约束后
+// 走 duplicate 回查（P1-02 修复的 kind 对齐 SQL）收敛幂等；SQLite 走 writeMu
+// 串行 + count 检查。断言：恰建一任务、双方均不 500、败者拿到 in_flight 幂等语义。
+func TestInFlightGuardConcurrentCreate(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	const (
+		platform, owner, repo, number, kind = "gitea", "o", "first-review", "1", "code_review"
+		sha                                 = "feedface0001"
+	)
+	type outcome struct {
+		dup, id string
+		err     error
+	}
+	results := make([]outcome, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := range results {
+		go func(i int) {
+			defer wg.Done()
+			task := NewTask(kind, platform, owner, repo, number)
+			task.HeadSHA = sha
+			evID := fmt.Sprintf("delivery-%d", i) // 不同 delivery：非幂等预查路径，逼真并发建任务
+			task.EventID = &evID
+			dup, id, err := s.CreateTaskForWebhook(ctx, task)
+			results[i] = outcome{dup, id, err}
+		}(i)
+	}
+	wg.Wait()
+	created := 0
+	var dups []string
+	for i, r := range results {
+		if r.err != nil {
+			t.Fatalf("并发建任务 %d 返回错误（webhook 会 500）: %v", i, r.err)
+		}
+		if r.dup == "" {
+			created++
+		} else {
+			dups = append(dups, r.dup)
+			if r.id == "" {
+				t.Fatalf("幂等命中但 existingID 为空: %v", r)
+			}
+		}
+	}
+	if created != 1 {
+		t.Fatalf("在飞唯一防线失效：并发首审建了 %d 个任务（dup=%v）——双建双烧 LLM", created, dups)
+	}
+	tasks, err := s.ListTasksByHead(ctx, platform, owner, repo, number, sha)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("同 SHA 任务数 = %d err=%v（期望恰 1）", len(tasks), err)
+	}
+}
+
+// TestInFlightGuardConcurrentManualCreate 手工触发并发（P1-03 回归，head_sha 空
+// 形态）：CreateTaskDirectIfIdle 的 count-then-insert 竞窗——pg 部分唯一索引 /
+// MySQL 生成列唯一键（空 SHA 参与拼接）兜底双建。
+func TestInFlightGuardConcurrentManualCreate(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	const platform, owner, repo, number, kind = "gitea", "o", "manual-race", "7", "code_review"
+	type outcome struct {
+		created bool
+		err     error
+	}
+	results := make([]outcome, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := range results {
+		go func(i int) {
+			defer wg.Done()
+			task := NewTask(kind, platform, owner, repo, number)
+			_, created, err := s.CreateTaskDirectIfIdle(ctx, task)
+			results[i] = outcome{created, err}
+		}(i)
+	}
+	wg.Wait()
+	created := 0
+	for i, r := range results {
+		if r.err != nil {
+			t.Fatalf("并发手工建任务 %d 返回错误: %v", i, r.err)
+		}
+		if r.created {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("手工并发双建 %d 个任务（期望 1）——空 SHA 组合未覆盖", created)
 	}
 }

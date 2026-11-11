@@ -145,3 +145,90 @@ func TestOpenSchemaLeaseSerial(t *testing.T) {
 	}
 	_ = s3.Close()
 }
+
+// TestEnsureMigrationAppliedFencing 迁移租约 fencing（P1-01，#6 回归）：租约被夺
+// /续约失败 → 迁移执行被取消（fn ctx 传导）、结果作废不写 marker、另一实例可接手
+// 重跑成功落 marker。修复前续约失败被吞 + ok 返回值不检查，失租后执行方继续跑
+// ——同一迁移两个有效执行者互相踩踏。
+func TestEnsureMigrationAppliedFencing(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "fencing.db")
+	if mysqlDSN := os.Getenv("ARGUS_TEST_MYSQL_DSN"); mysqlDSN != "" {
+		dsn = setupTestMySQL(t, mysqlDSN)
+	}
+	if pgDSN := os.Getenv("ARGUS_TEST_PG_DSN"); pgDSN != "" {
+		dsn = setupTestPG(t, pgDSN)
+	}
+	open := func(id string) *Store {
+		t.Helper()
+		s, err := Open(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.RunnerID = id
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+	sa := open("pod-a")
+	sb := open("pod-b")
+
+	old := migrationRenewalInterval
+	migrationRenewalInterval = 30 * time.Millisecond
+	t.Cleanup(func() { migrationRenewalInterval = old })
+
+	const ver = "p1_fencing_probe"
+	key := "schema_migration:" + ver
+	proceed := make(chan struct{})
+	fn := func(ctx context.Context) (int, error) {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err() // fencing 生效：失租即取消
+		case <-proceed:
+			return 1, nil
+		case <-time.After(10 * time.Second):
+			return 1, nil // fencing 失效形态：10s 兜底返回成功（断言会红）
+		}
+	}
+
+	type res struct {
+		applied int
+		err     error
+	}
+	resCh := make(chan res, 1)
+	go func() {
+		a, e := sa.ensureMigrationApplied(context.Background(), ver, fn)
+		resCh <- res{a, e}
+	}()
+	time.Sleep(300 * time.Millisecond) // A 拿锁进入 fn（阻塞在 select）
+
+	// 模拟租约过期被第三实例抢走：直接改表 holder（不等 5min TTL）
+	if err := sb.db.Exec("UPDATE leader_leases SET holder = ? WHERE lease_key = ?",
+		sb.instanceID()+":migration:"+ver, key).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	got := <-resCh
+	if got.err == nil {
+		t.Fatal("租约被夺后迁移应失败（fencing 取消）；修复前失租无感知继续跑并写 marker")
+	}
+	if got.applied != 0 {
+		t.Fatalf("fencing 后 applied 应为 0: %d", got.applied)
+	}
+	var n int64
+	if err := sa.db.Model(&SchemaMigration{}).Where("version = ?", ver).Count(&n).Error; err != nil || n != 0 {
+		t.Fatalf("fencing 后不应写 marker: n=%d err=%v", n, err)
+	}
+
+	// 另一实例接手：B 的 holder 已在表上（TryAcquire holder=我 命中），proceed 放行
+	// → 迁移重跑成功落 marker（幂等语义：成功才写）
+	close(proceed)
+	applied, err := sb.ensureMigrationApplied(context.Background(), ver, fn)
+	if err != nil {
+		t.Fatalf("接手实例迁移应成功: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("接手实例 applied = %d（期望 1）", applied)
+	}
+	if err := sb.db.Model(&SchemaMigration{}).Where("version = ?", ver).Count(&n).Error; err != nil || n != 1 {
+		t.Fatalf("接手成功应写 marker: n=%d err=%v", n, err)
+	}
+}

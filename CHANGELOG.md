@@ -3,6 +3,34 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.8.0（2026-11-12，第三轮审计 P1 批：多副本并发正确性）
+
+审计路线图 P1 四项（#6/#7/#8 + #9 已随 v6.7.0 P0 批落地）。全部配三方言回归
+（pg/MySQL 路径由 CI 三方言矩阵覆盖）。
+
+- **【P1-01 #6】迁移租约 fencing**：执行期续约环此前「续约失败被吞（return 出环
+  继续跑）+ TryAcquire 返回值 ok 不检查」——租约被夺/过期被抢后执行方无感知继续
+  跑，第三实例可闯入，同一迁移两个有效执行者互相踩踏。修复：续约 err≠nil 或
+  ok=false = 失租 → fencing 取消迁移执行（fn ctx 贯穿 cancel 传导）+ 结果作废
+  不写 marker（成功才写幂等语义不变），下次启动重试、他实例接手；marker 落库前
+  「终检续约」补齐强语义（fn 成功与写 marker 之间恰失租也被拦）。收敛纪律：主路
+  绝不阻塞等续约环退出（死锁教训入档），失租态经 atomic.Bool 传递。注入测试：
+  直改 leader_leases holder 模拟夺锁 → A 被取消 + 无 marker + B 接手成功落 marker。
+- **【P1-02 #7】Webhook 幂等回查 SQL 补 t.Kind**：撞唯一索引后的「在飞同 SHA」
+  回查占位符 7 个实参 6 个（漏传 t.Kind）→ 回查必失败上抛原始错误 → webhook 回
+  500（「避免以 500 暴露」防线被本 bug 打穿：GitHub 对连续 500 禁用 webhook）。
+  一处修复 + 并发双投递回归（三方言：恰建一任务/双方不 500/败者幂等命中）。
+- **【P1-03 #8】在飞任务唯一约束三方言**：首审（无 review_targets 锚行）时
+  FOR UPDATE 串行化落空，count-then-insert 竞窗可双建任务双烧 LLM（生产 pg 此前
+  零约束）。EnsureSameSHAGuard 扩展为 EnsureInFlightGuard：SQLite partial unique
+  index（既有不变）+ PostgreSQL partial unique index（idx_tasks_in_flight，补齐
+  生产方言）+ MySQL in_flight_key 生成列（在飞行 CONCAT_WS 拼身份键、终态行 NULL
+  天然放行）+ 唯一索引。手工任务（head_sha 空）按空 SHA 参与唯一——同 PR 同 kind
+  双份手工在飞同样拦截。撞约束走 duplicate 回查幂等（与 #7 修复联动）。执行时点
+  移入 storage.Open 迁移租约内（DDL 多副本串行），main.go 调用点移除。并发回归
+  ×2（webhook 首审形态 / 手工空 SHA 形态）。
+- go.mod 零变更（本批纯代码修复）。
+
 ## v6.7.0（2026-11-12，第三轮审计 P0 批：安全边界与数据正确性）
 
 第三轮代码审计路线图（Meta #21）P0 四项 + P1-04（与 P0-03 同文件强耦合随批）落地。
