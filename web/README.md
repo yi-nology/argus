@@ -148,7 +148,7 @@ home: true
 <div class="sec-head">
 <div class="secnum">05</div>
 <h2>MCP 原生 · 24 个工具</h2>
-<p class="section-sub">审查能力全部以 MCP 工具暴露——Claude Code、Cursor、ZCode、自建 agent 直接驱动。</p>
+<p class="section-sub">审查能力全部以 MCP 工具暴露——Claude Code、Cursor、ZCode、自建 agent 直接驱动；装上随附的 Agent Skills 一键直驱，见 <a href="./skills.html">AI 协作</a>。</p>
 </div>
 <div class="chips">
 <div class="grp">审查发起</div>

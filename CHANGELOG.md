@@ -79,6 +79,12 @@
 - **doc 页宽度体系统一（同日续七，用户标注两侧黑洞）**：主题 `--content-width`
   740px→1120px（宽屏空洞元凶）+ 段落限行宽 880px（表格/图/代码用全列宽）+
   diagram 去破框（与正文同宽）+ topo 节点 space-between 撑满。
+- **Skills · AI 协作页 + 一键安装（同日续八）**：新增 skills.html——两类技能对照
+  （AI 客户端技能 vs 服务端方法论技能）、三技能卡（argus-mcp/triage/precommit）、
+  **一键安装**（scripts/install-skills.sh：curl|bash 一行装 ~/.claude/skills，支持
+  --target zcode/自定义/仓库检出离线本地复制，幂等升级）+ MCP 四客户端接入表 +
+  AI 协作五步工作流图 + 场景速查（8 场景×技能映射）+ 安全边界（token 三档/
+  反注入/fix 不推送）。navbar 加「AI 协作」，首页 MCP 区链入。
 
 ## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
 

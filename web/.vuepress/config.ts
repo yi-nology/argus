@@ -24,6 +24,7 @@ export default defineUserConfig({
     navbar: [
       { text: '能力', link: '/' },
       { text: '架构', link: '/architecture.html' },
+      { text: 'AI 协作', link: '/skills.html' },
       { text: '部署', link: '/guide.html' },
       { text: '版本规划', link: '/roadmap.html' },
       { text: '竞品分析', link: '/vs.html' },
