@@ -4,6 +4,7 @@ package argus
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -188,7 +189,12 @@ func RepoMap(ctx context.Context, c *app.RequestContext) {
 	}
 	page, err := Svc.RepoMapHTML(ctx, platform, owner, repo)
 	if err != nil {
-		// 生成中/克隆失败/空图统一 502（上游 git/扫描面故障，非客户端错误）
+		// 仓库约束拒绝 = 客户端无权（403）；生成中/克隆失败/空图统一 502
+		//（上游 git/扫描面故障，非客户端错误）
+		if errors.Is(err, service.ErrAuthzDenied) {
+			mw.ErrorResp(c, consts.StatusForbidden, err.Error())
+			return
+		}
 		mw.ErrorResp(c, consts.StatusBadGateway, err.Error())
 		return
 	}

@@ -434,7 +434,8 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_ADDR` | `:8899` | 监听地址 |
 | `ARGUS_DB_DSN` | `argus.db` | SQLite 文件；切 MySQL DSN 即集群化（多副本必须）|
 | `ARGUS_APITOKEN` | 空 | 🔒 路由 Bearer（等价 admin 档）；与 ARGUS_API_TOKENS 全空则 fail-closed 503 |
-| `ARGUS_API_TOKENS` | 空 | 🔒 多 token 分级（v3.87.0）：`tok1:admin,tok2:ci,tok3:read`——read 只读 / ci 可建任务与 MCP / admin 全权（含误报抑制）。可选后缀（v3.135.0/v3.136.0）：`tok:scope@platform:owner/repo#YYYY-MM-DD`——@ 限定该 token 可触达仓库（支持 /* 通配），# 过期时间（轮换=新 token 并行挂入、旧的到期自动失效） |
+| `ARGUS_API_TOKENS` | 空 | 🔒 多 token 分级（v3.87.0）：`tok1:admin,tok2:ci,tok3:read`——read 只读 / ci 可建任务与 MCP / admin 全权（含误报抑制）。可选后缀（v3.135.0/v3.136.0）：`tok:scope@platform:owner/repo#YYYY-MM-DD`——@ 限定该 token 可触达仓库（支持 /* 通配），# 过期时间（轮换=新 token 并行挂入、旧的到期自动失效）。**@ 仓库约束在全部读面生效**（v6.7.0 统一 Authorizer）：任务/报告/统计/用量/代码地图/按仓配置/SSE 事件按约束过滤，约束外一律 403 或行剔除 |
+| `ARGUS_MIGRATION_FAIL_OPEN` | 空 | 数据迁移失败语义（v6.7.0）：缺省 **fail-closed**——关键回写迁移失败拒绝启动（半迁移态库带病服务风险更高）；显式 `=1` 降级为告警继续（下次启动重试）。生产库升级建议独立 Migration Job 先行（deploy/k8s43 README） |
 | `ARGUS_BOT_USERNAME` | - | bot 账号名（自审保护；生产建议独立账号）|
 | `ARGUS_MAX_CONCURRENT_TASKS` | 2 | worker 数，按 LLM 配额调 |
 | `ARGUS_PLUGIN_MAX_CONCURRENT` | 2 | 单任务内插件 fan-out 并发上限（防 API burst 429） |

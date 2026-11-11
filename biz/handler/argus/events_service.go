@@ -61,6 +61,10 @@ func Events(ctx context.Context, c *app.RequestContext) {
 			if !ok {
 				return
 			}
+			// v6.7.0 P0-02：token 仓库约束外的事件不下发（Authorizer SSE 出口）
+			if !Svc.AuthorizeEvent(ctx, ev.Platform, ev.Owner, ev.Repo) {
+				continue
+			}
 			if err := s.Send(ev.Type, ev); err != nil {
 				return
 			}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -150,30 +151,118 @@ func Open(dsn string) (*Store, error) {
 			return nil, fmt.Errorf("storage: 挂载 gorm 插件失败: %w", uerr)
 		}
 	}
+	ctx := context.Background()
+	if err := s.migrateSchema(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.migrateData(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// migrateSchema schema 迁移（AutoMigrate + MySQL LONGTEXT 升级），pg/MySQL 下
+// 纳入迁移租约串行执行（P0-04，#5）：多副本并发首启时各副本并发 DDL（加列/
+// 加索引）在 MySQL 可能死锁或索引名冲突。租约时序——
+//  1. 先单表 AutoMigrate(LeaderLease)：租约机制的载体表必须先存在；CREATE
+//     TABLE IF NOT EXISTS 并发安全（pg 行锁串行 / MySQL 原子 DDL / SQLite 文件锁），
+//     相比全表 AutoMigrate 的并发窗口缩小到单语句。
+//  2. 抢迁移租约（key=schema_migration:automigrate，holder=实例唯一）：拿不到 =
+//     他副本正在迁移，让位轮询等待（2s 间隔，上界 TTL+2min）——多副本首启在此
+//     串行化，后续副本 AutoMigrate 无变更零成本。超时 fail-closed 拒绝启动
+//     （带并发 DDL 风险的带病启动比启动失败更危险）。
+//  3. 持锁执行全表 AutoMigrate + LONGTEXT 升级，完成后释放。
+//
+// SQLite 单文件单写者无并发首启问题，直接执行（与 EnsureSameSHAGuard 同理）。
+func (s *Store) migrateSchema(ctx context.Context) error {
+	if s.isSQLite() {
+		return s.autoMigrateAll()
+	}
+	if err := s.ensureLeaseTable(); err != nil {
+		return err
+	}
+	release, err := s.acquireMigrationLease(ctx, automigrateLeaseKey)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return s.autoMigrateAll()
+}
+
+// ensureLeaseTable 租约载体表引导（P0-04）：GORM AutoMigrate 的 check-then-create
+// 在两副本并发首启时撞数据库 catalog（MySQL 1050 table already exists / PG
+// pg_type_typname_nsp_index 23505，CI 双方言矩阵实锤）——改 Migrator 判定 +
+// 原生 CREATE TABLE IF NOT EXISTS（服务端幂等），DDL 竞态失败再复核一次表存在
+// （他副本先建成功 = 本次放行，类型对齐全量 AutoMigrate 兜）。
+func (s *Store) ensureLeaseTable() error {
+	if s.db.Migrator().HasTable(&LeaderLease{}) {
+		return nil
+	}
+	ddl := "CREATE TABLE IF NOT EXISTS leader_leases (" +
+		"lease_key varchar(128) PRIMARY KEY, holder varchar(128), " +
+		"expires_at "
+	if s.isMySQL() {
+		ddl += "datetime(3), updated_at datetime(3)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+	} else {
+		ddl += "timestamptz, updated_at timestamptz)"
+	}
+	if err := s.db.Exec(ddl).Error; err != nil {
+		if s.db.Migrator().HasTable(&LeaderLease{}) {
+			return nil // 并发竞态：他副本已建（PG pg_type 撞型形态），表在即放行
+		}
+		return fmt.Errorf("storage: leader_leases 引导失败: %w", err)
+	}
+	return nil
+}
+
+// autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
+func (s *Store) autoMigrateAll() error {
 	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}); err != nil {
-		return nil, fmt.Errorf("storage: 自动迁移失败: %w", err)
+		return fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if s.isMySQL() {
 		if err := s.upgradeMySQLLongText(); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	// 指纹 v2 存量迁移（v3.7.0）：v1 行按存量 file/line/comment 重算回写。
-	// v3.8.0 起由 SchemaMigration 哨兵门控（成功一次后不再每次启动全表扫）；
-	// 失败不阻断启动（留待下次重试），只告警。
-	if n, merr := s.ensureMigrationApplied(context.Background(), "fingerprint_v2", s.migratePrintFingerprintsV2); merr != nil {
-		s.db.Logger.Warn(context.Background(), "指纹 v2 迁移失败（下次启动重试）: %v", merr)
-	} else if n > 0 {
-		s.db.Logger.Info(context.Background(), "指纹 v2 迁移完成: %d 行", n)
+	return nil
+}
+
+// migrateData 一次性数据回写迁移（P0-01，#2 fail-closed 化）：关键回写迁移
+// 失败默认中止启动——半迁移态库继续服务会让存量行按旧形态被下游混读
+// （alias_fp 全局主键 → PR 域复合主键切换期间），根因性失败（方言差异/权限
+// 不足）也会陷入「启动重试-失败-告警」循环白烧全表扫描。显式 env 逃生门
+// ARGUS_MIGRATION_FAIL_OPEN=1 降级回告警继续（可用性优先的显式选择，留痕告警、
+// 下次启动重试）。生产库升级建议拆独立 Migration Job 执行（deploy/k8s43，
+// 与 P3-04 部署规范联动）。
+func (s *Store) migrateData(ctx context.Context) error {
+	if err := s.runOneTimeMigration(ctx, "fingerprint_v2", "指纹 v2", s.migratePrintFingerprintsV2); err != nil {
+		return err
 	}
-	// print_aliases PR 域迁移（v3.9.2）：alias_fp 全局主键 → (PR, alias_fp) 复合
-	// 主键——两个 PR 同款措辞漂移不再撞主键回滚；存量按 print_fp 反查 PR 回填。
-	if n, merr := s.ensureMigrationApplied(context.Background(), "print_alias_pr_scope", s.migratePrintAliasPRScope); merr != nil {
-		s.db.Logger.Warn(context.Background(), "print_aliases PR 域迁移失败（下次启动重试）: %v", merr)
-	} else if n > 0 {
-		s.db.Logger.Info(context.Background(), "print_aliases PR 域迁移完成: %d 行", n)
+	return s.runOneTimeMigration(ctx, "print_alias_pr_scope", "print_aliases PR 域", s.migratePrintAliasPRScope)
+}
+
+// runOneTimeMigration 单笔一次性迁移的哨兵执行 + fail-closed 语义收口
+// （v3.7.0 起由 SchemaMigration 哨兵门控：成功一次后不再每次启动全表扫）。
+func (s *Store) runOneTimeMigration(ctx context.Context, version, desc string, fn func(ctx context.Context) (int, error)) error {
+	n, err := s.ensureMigrationApplied(ctx, version, fn)
+	if err == nil {
+		if n > 0 {
+			s.db.Logger.Info(ctx, "%s迁移完成: %d 行", desc, n)
+		}
+		return nil
 	}
-	return s, nil
+	if migrationFailOpen() {
+		s.db.Logger.Warn(ctx, "%s迁移失败（ARGUS_MIGRATION_FAIL_OPEN=1 fail-open，留待下次启动重试）: %v", desc, err)
+		return nil
+	}
+	return fmt.Errorf("storage: %s迁移失败（fail-closed；确认可带旧形态数据服务时以 ARGUS_MIGRATION_FAIL_OPEN=1 显式降级）: %w", desc, err)
+}
+
+// migrationFailOpen 迁移失败逃生门（P0-01）：仅显式 env=1 才降级 warn-only，
+// 缺省 fail-closed——生产静默 fail-open 是半迁移态带病服务的根。
+func migrationFailOpen() bool {
+	return os.Getenv("ARGUS_MIGRATION_FAIL_OPEN") == "1"
 }
 
 // longtextColumns MySQL 下需要 LONGTEXT 的大文本列。GORM `type:text` 在 MySQL 生成

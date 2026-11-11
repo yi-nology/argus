@@ -496,6 +496,8 @@ type stackOpts struct {
 	completenessPolicy string // annotate | demote（空 = annotate）
 	completenessRetry  bool   // 受限补审开关
 	garbleR3           bool   // R3 恒返回不可解析文本（降级路径夹具）
+
+	apiTokens string // ARGUS_API_TOKENS 形态的受限 token 清单（authz 403 矩阵用）
 }
 
 func defaultOpts() stackOpts {
@@ -621,6 +623,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	// 配置
 	cfg := &config.Config{
 		Addr: "127.0.0.1:0", DBDSN: tmp + "/argus.db", APIToken: "e2e-token",
+		APITokens:   config.ParseAPITokens(opt.apiTokens),
 		BotUsername: "argus-bot", SkipDraft: true, MaxConcurrentTasks: 2,
 		RouterMinConfidence: 0.6, // 与生产默认对齐（分类低置信门），路由场景依赖
 		TaskTokenBudget:     200000, ReportMeta: true, PluginsFile: pluginsFile,

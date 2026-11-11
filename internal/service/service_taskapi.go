@@ -172,6 +172,11 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 	if !ok {
 		return nil, http.StatusBadRequest
 	}
+	// v6.7.0 P0-02：写面同样收口仓库维度——HTTP 直入此前无 repoAllowedFor
+	//（MCP 面 SuppressFindingScoped 已接），约束内 admin 才可抑制。
+	if !s.Authorize(ctx, req.Platform, req.Owner, req.Repo) {
+		return nil, http.StatusForbidden
+	}
 	str := func(p *string) string {
 		if p == nil {
 			return ""
@@ -286,15 +291,20 @@ func (s *Service) publishCommentReplied(status, platform, owner, repo, number st
 }
 
 // UsageMonthly 本月各仓库 token 用量（GET /usage/monthly；🔒，v3.1）。
+// v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出（跨仓用量元数据）。
 func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 	since := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
 	usage, err := s.Store.MonthlyTokensByRepo(ctx, since)
 	if err != nil {
 		return nil, http.StatusInternalServerError
 	}
+	filter := s.AuthorizeRowFilter(ctx)
 	items := make([]storage.RepoTokenUsage, 0, len(usage))
 	var total int64
 	for _, u := range usage {
+		if filter != nil && !filter(u.Platform, u.Owner, u.Repo) {
+			continue
+		}
 		items = append(items, u)
 		total += u.Tokens
 	}
@@ -307,6 +317,8 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 }
 
 // GetReportByRef 按 head SHA 查最近一次成功报告（GET /reports/:ref；🔒，v3.1）。
+// v6.7.0 P0-02：解析出的任务必须过 AuthorizeTask——head SHA 是全局寻址键，
+// 此前无仓库约束判定，持任意 read 档 token 可按 SHA 跨仓读取完整审查报告。
 func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTaskResponse, int) {
 	if ref == "" {
 		return nil, http.StatusBadRequest
@@ -317,6 +329,9 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTas
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
+	}
+	if !s.AuthorizeTask(ctx, task.Platform, task.Owner, task.Repo) {
+		return nil, http.StatusForbidden
 	}
 	return &argus.GetTaskResponse{
 		TaskId:  task.ID,
