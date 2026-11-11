@@ -3,6 +3,22 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.4.0（2026-11-11，评估修复+IDL 深度收敛+kernel 迁移合流发布）
+
+本 tag 为 v6.3.1（e6bdf77）之后主线累积的合流发布：v6.3.0/v6.3.1 两段内容
+（评估修复批/ptc 收编）因 merge 拓扑随本 tag 首次落主线，另有以下新增：
+
+- **P2 架构卫生清扫 7 项收尾**（2c3f8c4）：文件头注释补空行（go doc 包注释归
+  doc.go 防拼接）/toolpool 层号对齐/过时措辞订正/argusctx 旧路径清偿/GoSafe
+  表述准确化/json.Unmarshal 吞错留痕/CONTRIBUTING 补代码组织惯例；含
+  ScopedHeartbeater 补实现（TouchHeartbeatsFor 三重守卫+僵尸复位因果链测试）。
+- **agent-harness → goagent-kernel module 更名替换**（7017742+76c8387）：
+  上游改名续作（版本序列一一对应）；迁移中实锤旧 tag 的 go.mod 仍声明旧路径
+  被 Go 工具链硬拒（replace 同拒）→ 先钉 HEAD pseudo-version 应急 → 上游
+  v0.31.0 发版（module 声明修正）即一行升级钉版。四消费包 API 零变化。
+- 合并错解修复（b57d886）：task_service.go import 排序回归 goimports 规范态
+  （idl-drift CI 门禁首跑红抓获——门禁设计目的完整闭环）。
+
 ## v6.3.1（2026-11-11，收编：ptc 诊断渲染单源切换 harness Result.Describe）
 
 - **internal/qa ptc 诊断渲染收编**（agent-harness v0.27.1 → v0.30.0，其 #68 导出诊断渲染原语）：删宿主手写 `describePtcFailure`/`describePos`（-25 行），修复回喂环改调 `ptc.Result.Describe()` 单源——诊断措辞（类别/错误原文/位置/修复建议）与 harness 归因口径同源，宿主不再复刻同族渲染；新增归因链摘要段（哪些绑定调用失败，封顶 5 条）随升级白得。本侧只保留「失败是否值得回喂重试」策略面（programFixable 不变），`TestDescribePtcFailure` 改为 `TestPtcFeedbackViaHarnessDescribe` 钉回喂契约（文本模型可行动），渲染形态由 harness 侧用例钉。
