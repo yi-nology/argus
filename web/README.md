@@ -100,6 +100,17 @@ home: true
 <figure><img src="./img/mermaid-diff.png" alt="mermaid 图 diff 回帖渲染"><figcaption><b>图 diff 回帖</b>——mermaid 直接贴 MR 评论渲染</figcaption></figure>
 </div>
 
+<div class="diagram">
+<div class="diag-cap"><b>技术底座</b> · 通用能力全部下沉共享库，argus 只做审查领域编排 · <a href="./architecture.html">架构详解 →</a></div>
+<div class="eco-mini">
+<div class="em-core"><b>Argus</b><small>审查领域层 · R1–R5 / 真值表 / 影响面</small></div>
+<div class="em-lib"><b>go-git-platform</b><small>git 平台 SDK</small></div>
+<div class="em-lib"><b>oekit</b><small>工程底座 · 12 模块</small></div>
+<div class="em-lib"><b>oagentkit</b><small>agent 能力族 · 12 模块</small></div>
+<div class="em-lib"><b>goagent-kernel</b><small>agent 执行内核</small></div>
+</div>
+</div>
+
 <div class="sec-head">
 <div class="secnum">04</div>
 <h2>Argus 有何不同</h2>

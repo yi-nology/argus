@@ -49,6 +49,26 @@ docker run -d --name argus -p 8899:8899 \
 版本元数据（`/version` 端点、镜像标签、报告头）三处同源：`git describe` 注入
 `main.version` 与 oekit core/version，绝不手填。
 
+<div class="diagram">
+<div class="diag-cap"><b>生产拓扑</b> · 43 k3s 实弹形态</div>
+<div class="topo">
+<div class="topo-row" style="margin-bottom:14px">
+<div class="topo-node"><b>开发者 / CI</b><small>git push</small></div>
+<div class="topo-link">→</div>
+<div class="topo-node"><b>Git 平台（7 选 1）</b><small>GitHub / GitLab / Gitea …</small></div>
+<div class="topo-link">→ webhook / poller →</div>
+<div class="topo-node hot"><b>Argus ×2 副本</b><small>k3s · 租约单飞 · 迁移哨兵</small></div>
+</div>
+<div class="topo-row">
+<div class="topo-node"><b>LLM 网关</b><small>任意 OpenAI 兼容（含内网）</small></div>
+<div class="topo-link">← 调用 →</div>
+<div class="topo-node"><b>PostgreSQL</b><small>任务 / 报告 / 指纹 / 租约</small></div>
+<div class="topo-link">←</div>
+<div class="topo-node"><b>回帖 · 影响面</b><small>TL;DR + 行内意见 + 图 diff → 平台</small></div>
+</div>
+</div>
+</div>
+
 ## k3s 生产部署（实弹在役形态）
 
 生产（43 k3s ARM64，双副本+PostgreSQL）走「换芯」升级链——不重建镜像，只换二进制层：

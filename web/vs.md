@@ -15,6 +15,21 @@
 | **Cursor Bugbot** | SaaS | 低噪声 confidence 卖点 |
 | **Greptile / Sourcegraph** | SaaS | 全库上下文检索增强 |
 
+<div class="diagram">
+<div class="diag-cap"><b>形态定位</b> · 横轴=部署形态，纵轴=审查深度（定性示意）</div>
+<div class="quadrant">
+<div class="q-grid"></div>
+<span class="q-label q-x">SaaS 开箱 ←————————→ 自托管 · 数据主权</span>
+<span class="q-label q-y">表面评论 ←———→ 需求级深度</span>
+<div class="q-dot me" style="left:82%;top:16%"><i></i><span>Argus</span></div>
+<div class="q-dot" style="left:20%;top:38%"><i></i><span>CodeRabbit</span></div>
+<div class="q-dot" style="left:30%;top:60%"><i></i><span>PR-Agent</span></div>
+<div class="q-dot" style="left:12%;top:56%"><i></i><span>Copilot Review</span></div>
+<div class="q-dot" style="left:58%;top:30%"><i></i><span>Agent-CI 形态</span></div>
+<div class="q-dot" style="left:16%;top:72%"><i></i><span>Bugbot</span></div>
+</div>
+</div>
+
 ## 能力矩阵
 
 <table class="vsmatrix">
