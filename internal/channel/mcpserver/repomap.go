@@ -38,7 +38,7 @@ func NewRepoMapTool(s *server.MCPServer, core Core) {
 func repoMapTool() mcp.Tool {
 	return mcp.NewTool("get_repo_map",
 		mcp.WithDescription("查询某仓库的整仓目录依赖地图（v5.6.2）：Go 目录=包 import 聚合、shell source 装载聚合、SQL 表血缘跨目录聚合，返回 nodes/edges/notes 结构化 JSON——架构梳理/新人上手/评审前掌握仓库地形用。按需浅克隆（首查约数十秒，缓存 30 分钟），只读。交互 HTML 见 GET /repos/{owner}/{repo}/map?platform=…（🔒 Bearer）"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台："+platformVocab)),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间（可含子群路径）")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 	)

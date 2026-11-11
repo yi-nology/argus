@@ -42,7 +42,7 @@ func NewRepoConfigTool(s *server.MCPServer, core Core) {
 func repoConfigTool() mcp.Tool {
 	return mcp.NewTool("get_repo_config",
 		mcp.WithDescription("查询某仓库的 Argus 按仓配置与生效参数：monthly_token_budget（月度预算闸）/task_token_budget（单任务预算）/max_diff_chars（diff 上限），返回按仓覆盖集 + 全局默认合并后的 effective 视图——核查某仓实际参数、诊断预算拦截（failed 且提示「预算已耗尽」）前先查这里。只读；写入须走 HTTP admin API（PUT/DELETE /repo-settings/{platform}/{owner}/{repo}，admin 档 token）"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台："+platformVocab)),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 	)

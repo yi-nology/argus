@@ -15,7 +15,7 @@
 
 - `number` 一律纯数字 PR/MR 序号（`ask_argus` 服务端强校验，其余工具在服务层校验）。
 - `fp` 指纹短码：6-64 位十六进制，来自报告正文 `fp:` 后或 `list_findings` 的 `fp` 字段；服务端统一转小写，大小写不敏感。
-- 平台词表：`review_pr`/`requirement_compliance`/`ask_argus` 描述为 gitea/github/gitlab，`fix_finding` 另列 forgejo/gitee；实际以部署接入的平台为准（可用 `list_agents` 或部署配置确认）。
+- 平台词表：全部平台类参数统一为 gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code（与 mcpserver `platformVocab` / config.SupportedPlatforms 同步）；实际以部署接入的平台为准（可用 `list_agents` 或部署配置确认）。gitcode / 腾讯工蜂为 SDK 支持、Argus 未实测档。
 
 ## 工具明细
 
@@ -25,7 +25,7 @@
 
 | 参数 | 类型 | 必填 | 缺省 | 说明 |
 |---|---|---|---|---|
-| `platform` | string | ✓ | | gitea/github/gitlab |
+| `platform` | string | ✓ | | gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code |
 | `owner` | string | ✓ | | 仓库所属空间 |
 | `repo` | string | ✓ | | 仓库名 |
 | `number` | string | ✓ | | PR 序号（纯数字） |
@@ -247,7 +247,7 @@ PR 工作副本**符号图邻接查询**（v5.9.0）：查某符号在 semsearch
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR（platform 词表含 forgejo/gitee） |
+| `platform`/`owner`/`repo`/`number` | string | ✓ | 定位 PR |
 | `fp` | string | ✓ | 指纹短码（6-64 位十六进制） |
 
 返回 diff 与确定性验证结论 JSON。服务端未配 `ARGUS_FIX_AGENT` 时 error：`修复功能未启用（ARGUS_FIX_AGENT 未配置）`。修复耗时可达分钟级（`ARGUS_FIX_TIMEOUT` 缺省 10m），客户端超时须相应调大。

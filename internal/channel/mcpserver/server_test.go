@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
+	"github.com/yi-nology/argus/internal/config"
 )
 
 // ---------- 测试替身（消费侧窄接口 Core/ReviewQA/Copilot 的最小实现） ----------
@@ -1324,5 +1325,23 @@ func TestSearchFindings_RegisteredAndCalled(t *testing.T) {
 	}
 	if core.query != "硬编码" || core.limit != 5 {
 		t.Errorf("入参透传错: %q %d", core.query, core.limit)
+	}
+}
+
+// TestPlatformVocabSync 平台词表防漂移：mcpserver 描述词表（platformVocab）与
+// config.SupportedPlatforms 必须双向相等——mcpserver 生产面零 internal 依赖，
+// 单源在 config，此处钉一致性（config 新增平台而此处漏 = 描述口径重回散落）。
+func TestPlatformVocabSync(t *testing.T) {
+	got := map[string]bool{}
+	for _, p := range strings.Split(platformVocab, "/") {
+		got[p] = true
+	}
+	for _, p := range config.SupportedPlatforms {
+		if !got[p] {
+			t.Fatalf("config.SupportedPlatforms 的 %q 未进 platformVocab（%q）", p, platformVocab)
+		}
+	}
+	if len(got) != len(config.SupportedPlatforms) {
+		t.Fatalf("platformVocab 与 config.SupportedPlatforms 集合不等: %q vs %v", platformVocab, config.SupportedPlatforms)
 	}
 }

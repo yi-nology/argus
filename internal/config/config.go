@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+// SupportedPlatforms 支持的 git 平台词表（单一事实源）：env 装载（ARGUS_<大写平台>_*）、
+// 启动校验提示、webhook 事件词表完备性、MCP 工具描述口径、部署文档全部以此为准。
+// 与上游 go-git-platform 注册后端集合的对齐由 config 防漂移测试把关（SDK 增删平台
+// 即门禁红，强迫人工决策）；新增平台须同步 webhook_ensure 事件词表、mcpserver
+// platformVocab 与 skills/argus-mcp/references/tools.md。
+// gitcode / 腾讯工蜂（tencent_code）：SDK 后端已注册，Argus 端未实测（文档已标注）。
+var SupportedPlatforms = []string{"gitea", "forgejo", "github", "gitlab", "gitee", "gitcode", "tencent_code"}
+
 // PlatformConfig 单个 git 平台的接入凭证。
 type PlatformConfig struct {
 	BaseURL string
@@ -571,7 +579,10 @@ func Load() *Config {
 			LLMResilienceBaseDelay: envDuration("ARGUS_LLM_RESILIENCE_BASE_DELAY", 2*time.Second),
 		},
 	}
-	for _, p := range []string{"gitea", "github", "gitlab", "gitee"} {
+	// 平台凭证同构装载：ARGUS_<大写平台>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,
+	// CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}（词表 SupportedPlatforms；tencent_code
+	// 的 env 前缀为 ARGUS_TENCENT_CODE_*）。
+	for _, p := range SupportedPlatforms {
 		prefix := "ARGUS_" + strings.ToUpper(p) + "_"
 		cfg.Platforms[p] = PlatformConfig{
 			BaseURL:             os.Getenv(prefix + "URL"),

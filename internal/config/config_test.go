@@ -215,3 +215,33 @@ func TestLoadGiteePlatform(t *testing.T) {
 		t.Fatal("未配置应空 token")
 	}
 }
+
+// 平台词表收口（v6.5.0）：forgejo/gitcode/tencent_code 补进装载循环，env 同构
+// ARGUS_<大写平台>_*；tencent_code 的大写形式含下划线（ARGUS_TENCENT_CODE_*）。
+func TestLoadNewPlatforms(t *testing.T) {
+	t.Setenv("ARGUS_FORGEJO_URL", "https://codeberg.org")
+	t.Setenv("ARGUS_FORGEJO_TOKEN", "ftok")
+	t.Setenv("ARGUS_GITCODE_URL", "https://gitcode.com")
+	t.Setenv("ARGUS_GITCODE_TOKEN", "ctok")
+	t.Setenv("ARGUS_TENCENT_CODE_URL", "https://git.tencent.com")
+	t.Setenv("ARGUS_TENCENT_CODE_TOKEN", "ttok")
+	cfg := Load()
+	for _, tc := range []struct {
+		platform, url, token string
+	}{
+		{"forgejo", "https://codeberg.org", "ftok"},
+		{"gitcode", "https://gitcode.com", "ctok"},
+		{"tencent_code", "https://git.tencent.com", "ttok"},
+	} {
+		pc, ok := cfg.Platforms[tc.platform]
+		if !ok || pc.BaseURL != tc.url || pc.Token != tc.token {
+			t.Fatalf("%s 平台配置错误: %+v ok=%v", tc.platform, pc, ok)
+		}
+	}
+	// 词表全集都应有键（未配置时 token 空，Validate 不误报）
+	for _, p := range SupportedPlatforms {
+		if _, ok := cfg.Platforms[p]; !ok {
+			t.Fatalf("SupportedPlatforms 的 %q 未进 Platforms map", p)
+		}
+	}
+}

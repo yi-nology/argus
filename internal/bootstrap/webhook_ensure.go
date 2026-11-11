@@ -40,14 +40,20 @@ const ensureLeaseTTL = 2 * time.Minute
 // gitea/forgejo 原样透传（试点脚本 pull_request_only+issue_comment 实弹验证）；
 // github 原生两词；gitee 经 giteeHookEventFlags 映射（pull_request→merge_requests
 // 族、comment→note 族）；gitlab 三族映射（merge_request + note——v0.101.1 起
-// SDK 支持 note/comment 词，#32 缺口已修，GitLab 评论命令链路 SDK 面闭环）。
+// SDK 支持 note/comment 词，#32 缺口已修，GitLab 评论命令链路 SDK 面闭环）；
+// gitcode 写侧规范词（gitcodeHookEventFlags，issue #85 单名收敛：pull_request→
+// merge_requests_events、note→note_events）；tencent_code（工蜂）merge_request/note
+// 族（merge_requests/pull_request/cr、issue_comment/comment 皆为同族别名）。
+// 词表须覆盖 config.SupportedPlatforms 全集（webhook_ensure_test 完备性用例钉）；
 // 平台不在表内且未配覆盖时跳过（错词表整条 webhook 被平台拒收，宁可不建）。
 var webhookEvents = map[string][]string{
-	"gitea":   {"pull_request_only", "issue_comment"},
-	"forgejo": {"pull_request_only", "issue_comment"},
-	"github":  {"pull_request", "issue_comment"},
-	"gitee":   {"pull_request", "comment"},
-	"gitlab":  {"merge_request", "note"},
+	"gitea":        {"pull_request_only", "issue_comment"},
+	"forgejo":      {"pull_request_only", "issue_comment"},
+	"github":       {"pull_request", "issue_comment"},
+	"gitee":        {"pull_request", "comment"},
+	"gitlab":       {"merge_request", "note"},
+	"gitcode":      {"pull_request", "note"},
+	"tencent_code": {"merge_request", "note"},
 }
 
 // eventsFor 平台事件集：显式覆盖（ARGUS_<P>_WEBHOOK_EVENTS 逗号分隔）优先，

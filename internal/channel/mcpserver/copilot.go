@@ -126,7 +126,7 @@ func NewFixerTool(s *server.MCPServer, core Core) {
 func fixFindingTool() mcp.Tool {
 	return mcp.NewTool("fix_finding",
 		mcp.WithDescription("按 PR 与指纹短码执行单条审查意见的自动修复：隔离沙箱内编码 agent 出 patch + 确定性验证（ARGUS_FIX_VERIFY_CMD），返回 diff 与验证结论。绝不推送分支；服务未启用 ARGUS_FIX_AGENT 时返回错误"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（"+platformVocab+"）")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),
@@ -192,7 +192,7 @@ func NewSuppressorTool(s *server.MCPServer, core Core) {
 func suppressFindingTool() mcp.Tool {
 	return mcp.NewTool("suppress_finding",
 		mcp.WithDescription("把一条审查意见标记为误报并抑制（按 fp 指纹短码，行号/措辞漂移容忍）：后续报告自动剔除该意见，结论回流知识库与学习环。**需 admin 档 token**（服务端 scope 透传二次判定，ci 档调用会报权限错）——确认是误报再调，这是信任边界写操作"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（"+platformVocab+"）")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),
@@ -234,7 +234,7 @@ func NewRestorerTool(s *server.MCPServer, core Core) {
 func restoreFindingTool() mcp.Tool {
 	return mcp.NewTool("restore_finding",
 		mcp.WithDescription("恢复一条被误抑制的审查意见（suppress_finding 的反向，按 fp 指纹短码）：置回 open，后续报告重新可见。**需 admin 档 token**（服务端 scope 透传二次判定，ci 档调用会报权限错）——抑制错了用它撤销"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（gitea/github/gitlab/forgejo/gitee）")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("平台（"+platformVocab+"）")),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库属主")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 编号")),

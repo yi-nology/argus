@@ -5,12 +5,17 @@ package mcpserver
 
 import "github.com/mark3labs/mcp-go/mcp"
 
+// platformVocab 平台词表（工具描述口径）：与 config.SupportedPlatforms 同步——
+// mcpserver 生产面零 internal 依赖，一致性由 server_test 的 TestPlatformVocabSync
+// 钉；改此词表须同步 skills/argus-mcp/references/tools.md。
+const platformVocab = "gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code"
+
 // ---------- 工具定义 ----------
 
 func reviewPrTool() mcp.Tool {
 	return mcp.NewTool("review_pr",
 		mcp.WithDescription("Argus 审查指定 PR：需求复核（R1→R5）+ 专家插件意见合并，回帖报告到 PR。wait=true 时阻塞至终态并返回结论与报告"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台："+platformVocab)),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),
@@ -24,7 +29,7 @@ func reviewPrTool() mcp.Tool {
 func requirementComplianceTool() mcp.Tool {
 	return mcp.NewTool("requirement_compliance",
 		mcp.WithDescription("Argus 需求复核：解析需求 issue/描述 → 逐条判定验收清单完成度（含 scope creep）→ 确定性裁决。等价 review_pr(kind=requirement_compliance)"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台："+platformVocab)),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),
@@ -103,7 +108,7 @@ func askArgusTool() mcp.Tool {
 	return mcp.NewTool("ask_argus",
 		mcp.WithDescription("查询 Argus 对某 MR/PR 的最新审查结论（verdict + findings + 报告摘录）；"+
 			"带 question 时基于该报告回答追问（如 \"为什么这条是 high\"）"),
-		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台：gitea/github/gitlab")),
+		mcp.WithString("platform", mcp.Required(), mcp.Description("git 平台："+platformVocab)),
 		mcp.WithString("owner", mcp.Required(), mcp.Description("仓库所属空间")),
 		mcp.WithString("repo", mcp.Required(), mcp.Description("仓库名")),
 		mcp.WithString("number", mcp.Required(), mcp.Description("PR 序号（纯数字）")),

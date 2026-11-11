@@ -28,7 +28,11 @@ func (c *Config) Validate() error {
 		}
 	}
 	if enabled == 0 {
-		return fmt.Errorf("未配置任何 git 平台凭证（ARGUS_GITEA_TOKEN / ARGUS_GITHUB_TOKEN / ARGUS_GITLAB_TOKEN / ARGUS_GITEE_TOKEN 至少一项，或配置 GitHub App）")
+		tokenVars := make([]string, 0, len(SupportedPlatforms))
+		for _, p := range SupportedPlatforms {
+			tokenVars = append(tokenVars, "ARGUS_"+strings.ToUpper(p)+"_TOKEN")
+		}
+		return fmt.Errorf("未配置任何 git 平台凭证（%s 至少一项，或配置 GitHub App）", strings.Join(tokenVars, " / "))
 	}
 	return nil
 }

@@ -148,3 +148,14 @@ func TestGitlabEventsIncludeNote(t *testing.T) {
 		t.Fatalf("gitlab 默认词表缺 note 事件: %v", evs)
 	}
 }
+
+// TestWebhookEventsCoverSupportedPlatforms 事件词表完备性：config.SupportedPlatforms
+// 每个平台必须有内置默认词表——缺条目时 eventsFor 返回 nil，该平台 webhook ensure
+// 静默跳过（自动注册失效），曾使 forgejo 成为死条目（词表有、config 装载无）。
+func TestWebhookEventsCoverSupportedPlatforms(t *testing.T) {
+	for _, p := range config.SupportedPlatforms {
+		if evs, ok := webhookEvents[p]; !ok || len(evs) == 0 {
+			t.Fatalf("webhookEvents 缺平台 %q 的默认词表（config.SupportedPlatforms 有）", p)
+		}
+	}
+}

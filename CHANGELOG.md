@@ -3,6 +3,31 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.5.0（2026-11-11，平台配置面收口：SDK 七平台对齐 + 平台词表单一事实源 + 文档口径统一）
+
+- **平台词表单一事实源**：`config.SupportedPlatforms`（gitea/forgejo/github/gitlab/gitee/
+  gitcode/tencent_code）收口此前散落五处的口径（config 装载四平台 / webhook 事件表五平台 /
+  MCP 描述两种词表 / README 三种写法互不对齐）；env 装载循环与启动校验提示由它派生。
+- **forgejo/gitcode/腾讯工蜂接入面补齐**：装载循环扩为 SDK 注册后端全集——此前 forgejo
+  在 webhook 事件表与 MCP 描述里「被宣称支持」但实际配不出来（`ARGUS_FORGEJO_*` 不存在，
+  装载循环没有它，requirePlatform 必 404）；webhook 事件词表补 gitcode（pull_request+note，
+  写侧规范词 issue #85）/ tencent_code（merge_request+note 族）。gitcode/工蜂为 SDK 支持、
+  Argus 未实测档（文档已标注）。
+- **防漂移门禁三枚**：config 测试钉词表 ↔ `provider.RegisteredPlatforms()` 双向相等（SDK
+  增删平台即门禁红）；bootstrap 测试钉事件词表覆盖 SupportedPlatforms 全集（防 forgejo
+  式死条目回潮）；mcpserver 测试钉 `platformVocab` ↔ config.SupportedPlatforms（mcpserver
+  生产面零 internal 依赖不变，一致性由测试钉）。
+- **文档口径统一**：README（快速开始平台同构注释 / env 表补全 7 平台与 TOKEN_STYLE、
+  CONDITIONAL_REQUESTS、WEBHOOK_EVENTS 后缀 / 路由表 `/webhook/{platform}` / Webhook 行）；
+  docs/index.html 快速开始重写——**修死变量 `ARGUS_LLM_BASE_URL`（程序只读 `OPENAI_BASE_URL`，
+  照抄旧快照 = LLM 未配置）**，平台示例改多平台同构；architecture-deep-dive env 表
+  （原「ARGUS_GITEA_* = Gitea/Forgejo」错口径）；skills/argus-mcp/references/tools.md 平台
+  词表；deploy 模板（.env.example「四平台」过时措辞 / k8s secret·configmap 注释 /
+  ops-runbook 速查表补平台凭证行）。
+- scripts/setup-webhook.sh 回调路径段参数化（`ARGUS_PLATFORM`，默认 gitea）：按
+  `ARGUS_FORGEJO_*` 一等接入时须设 forgejo——SDK Forgejo 校验器双头回退
+  （X-Forgejo-Signature / X-Gitea-Signature 皆收，签名形态同为裸 hex HMAC-SHA256）。
+
 ## v6.4.0（2026-11-11，评估修复+IDL 深度收敛+kernel 迁移合流发布）
 
 本 tag 为 v6.3.1（e6bdf77）之后主线累积的合流发布：v6.3.0/v6.3.1 两段内容

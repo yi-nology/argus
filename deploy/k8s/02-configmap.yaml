@@ -30,7 +30,7 @@ data:
   # ARGUS_OCR_BIN: "/opt/argus/bin/ocr"
   # ARGUS_OCR_TIMEOUT: "90s"
 
-  # 平台接入（token/secret 在 argus-secret）
+  # 平台接入（token/secret 在 argus-secret；多平台同构 ARGUS_<平台>_*，换前缀即可）
   ARGUS_GITEA_URL: "https://git.example.com"
   # ⚠️ SKIP_TLS=1 同时覆盖平台 API 与 git clone 两条通道：平台 token（header 与
   # clone URL 内嵌）都在无证书校验的 TLS 上传输，同网段 MITM 可截获。

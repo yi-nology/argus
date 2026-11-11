@@ -1134,10 +1134,8 @@ v3.4.1 的 regret 只到**单指纹标注**，R3.5 仍是「批改」而非「�
 | `OPENAI_BASE_URL` | - | LLM 端点 |
 | `OPENAI_API_KEY` | - | LLM 密钥 |
 | `OPENAI_MODEL` | - | 模型名 |
-| `ARGUS_GITEA_URL/TOKEN/SECRET` | - | Gitea/Forgejo 平台 |
-| `ARGUS_GITHUB_TOKEN/SECRET` | - | GitHub 平台 |
+| `ARGUS_<P>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}` | - | 平台凭证同构装载（P ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code，词表 = config.SupportedPlatforms 单一事实源；工蜂前缀 `ARGUS_TENCENT_CODE_*`）|
 | `ARGUS_GITHUB_APP_ID/PRIVATE_KEY/INSTALLATION_ID` | - | GitHub App 认证 |
-| `ARGUS_GITLAB_URL/TOKEN/SECRET` | - | GitLab 平台 |
 | `ARGUS_LLM_RATE_LIMIT` | `0` | 全局 LLM 请求速率限制（rps） |
 | `ARGUS_LLM_RATE_BURST` | =MaxConcurrent | 限速器突发容量 |
 | `ARGUS_WEBHOOK_MAX_BODY` | `1048576` | Webhook 请求体上限（字节） |

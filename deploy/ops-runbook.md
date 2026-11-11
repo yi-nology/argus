@@ -671,6 +671,7 @@ grep "argus.ocrdeleg" /var/log/argus.log | tail -5
 | `ARGUS_DB_DSN` | `argus.db` | 数据库 DSN（SQLite 路径或 MySQL 连接串） |
 | `ARGUS_APITOKEN` | 空 | API Bearer token（空=拒绝鉴权路由） |
 | `ARGUS_BOT_USERNAME` | `argus-bot` | Bot 用户名（防自审） |
+| `ARGUS_<P>_{URL,TOKEN,SECRET}` | 空 | 平台凭证同构（P ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code，工蜂前缀 `ARGUS_TENCENT_CODE_*`）；**SECRET 必配**（空 secret 时 webhook fail-closed 503） |
 | `ARGUS_SKIP_DRAFT` | `true` | 跳过 Draft PR |
 | `ARGUS_MAX_CONCURRENT_TASKS` | `2` | 最大并发任务数 |
 | `ARGUS_LLM_RATE_LIMIT` | `0` | LLM 请求速率限制（req/s，0=不限） |

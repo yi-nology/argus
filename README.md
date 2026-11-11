@@ -184,7 +184,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -ta
 
 | 方式 | 场景 | 说明 |
 |---|---|---|
-| **Webhook** | 平台可达 Argus | Gitea/Forgejo/GitHub/GitLab/Gitee 签名校验，delivery 幂等，`scripts/setup-webhook.sh` 一键注册 |
+| **Webhook** | 平台可达 Argus | 七平台（Gitea/Forgejo/GitHub/GitLab/Gitee/GitCode/腾讯工蜂）签名校验，delivery 幂等；`scripts/setup-webhook.sh` 一键注册（Gitea/Forgejo），任意平台亦可 `ARGUS_ENSURE_WEBHOOK=1` 启动期自注册 |
 | **轮询兜底** | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现新 PR 与 head 变化，与 webhook 任务同语义（试点实测入站零包时靠它） |
 | **TaskAPI** | 手动/脚本/CI 触发 | `POST /tasks` 对任意已有 PR 发起审查，`GET /tasks/:id` 取报告 |
 | **MCP 工具** | 任意 MCP 客户端 | `/mcp`（streamable http + Bearer）暴露 `review_pr` 等二十三工具（清单见 §3），可同步等待终态；AI agent 直驱装 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) |
@@ -331,8 +331,8 @@ export ARGUS_ADDR=:8899
 export ARGUS_APITOKEN=change-me               # 🔒 路由凭证，不配则拒绝服务
 export ARGUS_BOT_USERNAME=argus-bot           # webhook bot 自审保护
 export ARGUS_GITEA_URL=https://git.example.com
-export ARGUS_GITEA_TOKEN=<token>              # GitHub/GitLab/Gitee 同构：ARGUS_GITHUB_* / ARGUS_GITLAB_* / ARGUS_GITEE_*
-export ARGUS_GITEA_SECRET=webhook-secret
+export ARGUS_GITEA_TOKEN=<token>              # 平台同构 ARGUS_<平台>_*：gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code
+export ARGUS_GITEA_SECRET=webhook-secret      # 换平台只换前缀（如 ARGUS_GITHUB_*；工蜂是 ARGUS_TENCENT_CODE_*）
 # LLM 走 OpenAI 兼容协议：OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL（复用 lacus/.env 即可）
 make run                                      # 编译并启动，自动加载 lacus/.env 与 ./.env
 curl localhost:8899/healthz && curl localhost:8899/readyz
@@ -395,7 +395,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 |---|---|---|
 | `GET /healthz` `GET /readyz` `GET /version` | 无 | 存活 / 就绪（db+llm Checker 并发，任一失败 503）/ 版本元数据；统一 `{code,data,message,trace_id}` 信封（oekit hertz/health·versionh，v3.147.0）|
 | `GET /metrics` | 无 | Prometheus 指标（argus_* 前缀）|
-| `POST /webhook/{gitea\|github\|gitlab}` | HMAC 签名 | 平台事件入口，delivery 幂等 |
+| `POST /webhook/{platform}` | 平台签名/密钥校验 | 平台事件入口，delivery 幂等；platform ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code |
 | `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
 | `GET /reports/:ref` | 🔒 Bearer | 按 head SHA 查最近一次成功报告（CI 门禁联动）|
 | `GET /stats/overview` | 🔒 Bearer(read) | 按仓聚合任务量/verdict 分布/抑制计数（?days=30&platform=&owner=&repo=，v3.88.0 仪表盘数据面）|
@@ -425,7 +425,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|
 | `ARGUS_PLUGINS` | plugins.yaml | 插件声明文件 |
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
-| `ARGUS_{GITEA,GITHUB,GITLAB}_{URL,TOKEN,SECRET,SKIP_TLS}` | - | 平台凭证；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）|
+| `ARGUS_<P>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}` | - | 平台凭证（P ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code，如 `ARGUS_GITHUB_TOKEN`；工蜂前缀 `ARGUS_TENCENT_CODE_*`）；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）；TOKEN_STYLE=private/bearer 覆盖认证头风格，WEBHOOK_EVENTS 覆盖内置事件词表 |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
 | `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - | Milvus 向量知识库（需配 `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM`；不配回退本地词元检索，知识飞轮随之关闭）|
 | `ARGUS_OCTOPUS_URL` / `_CHANNEL_ID` / `_USER` / `_TOKEN` | - | octopus IM 推送（审查完成通知）|

@@ -8,6 +8,9 @@
 #   ARGUS_GITEA_URL     默认 https://git.example.com
 #   ARGUS_GITEA_SKIP_TLS  证书过期/自签时设 1（本机实测 git.example.com 证书已过期）
 #   ARGUS_PUBLIC_URL    Argus 对 Forgejo 可达的地址，默认 http://<Mac内网IP>:8899
+#   ARGUS_PLATFORM      回调路径段（/webhook/<platform>），默认 gitea；Argus 侧按
+#                       ARGUS_FORGEJO_* 一等平台接入时须设 forgejo（签名走 SDK 双头
+#                       回退 X-Forgejo-Signature/X-Gitea-Signature，两种形态都收）
 #
 # 用法：./scripts/setup-webhook.sh <owner/repo>   例：./scripts/setup-webhook.sh enjoydream/argus-pilot
 set -euo pipefail
@@ -17,7 +20,7 @@ TOKEN="${ARGUS_GITEA_TOKEN:?需要 ARGUS_GITEA_TOKEN}"
 SECRET="${ARGUS_GITEA_SECRET:?需要 ARGUS_GITEA_SECRET}"
 BASE="${ARGUS_GITEA_URL:-https://git.example.com}"
 MAC_IP="$(ipconfig getifaddr en0 2>/dev/null || echo 127.0.0.1)"
-WEBHOOK_URL="${ARGUS_PUBLIC_URL:-http://${MAC_IP}:8899}/webhook/gitea"
+WEBHOOK_URL="${ARGUS_PUBLIC_URL:-http://${MAC_IP}:8899}/webhook/${ARGUS_PLATFORM:-gitea}"
 
 CURL=(curl -sS -m 15 -H "Authorization: token ${TOKEN}" -H "Content-Type: application/json")
 if [[ "${ARGUS_GITEA_SKIP_TLS:-0}" == "1" ]]; then CURL+=(-k); fi
