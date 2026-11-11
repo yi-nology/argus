@@ -30,6 +30,35 @@ func (SchemaMigration) TableName() string { return "schema_migrations" }
 // 5min 余量充足）；续约（每 TTL/10）兜住长迁移，崩溃时锁按 TTL 自然过期。
 const migrationLockTTL = 5 * time.Minute
 
+// automigrateLeaseKey AutoMigrate/LONGTEXT 升级的迁移租约 key（P0-04，#5）：
+// schema DDL 与数据回写迁移共用 leader_leases 机制，key 域区分。
+const automigrateLeaseKey = "schema_migration:automigrate"
+
+// acquireMigrationLease 抢迁移租约，阻塞至持有或超时（P0-04，#5）：拿不到 =
+// 他副本正在迁移（多副本并发首启），让位轮询等待——AutoMigrate 无 marker 可等，
+// 只能等锁本身；超时 fail-closed 拒绝启动。返回释放函数。
+func (s *Store) acquireMigrationLease(ctx context.Context, key string) (func(), error) {
+	holder := s.instanceID() + ":migration:" + key
+	deadline := time.Now().Add(migrationLockTTL + 2*time.Minute)
+	for {
+		ok, err := s.TryAcquire(ctx, key, holder, migrationLockTTL)
+		if err != nil {
+			return nil, fmt.Errorf("storage: 迁移租约 %s 获取失败: %w", key, err)
+		}
+		if ok {
+			return func() { _ = s.Release(context.Background(), key, holder) }, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("storage: 等待迁移租约 %s 超时（他实例持有未释放，疑似迁移中崩溃）：请人工核查数据库后重启", key)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
 // awaitMigrationMarker 让位等待（评估 P0）：抢锁失败 = 他实例正在跑该迁移。
 // 轮询 marker 出现（每 2s，上界 = TTL + 2min 余量）：等到 = 视为已应用返回 0；
 // 超时 = fail-closed 报错拒绝启动（提示人工核查，不带病服务）；ctx 取消透传。

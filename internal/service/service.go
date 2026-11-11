@@ -353,6 +353,8 @@ func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
 // 按仓任务量 / verdict 分布 / token 用量 / 抑制计数。days 窗口缺省 30，
 // 钳制 1..365；platform/owner/repo 过滤可选。仪表盘（review-service 前端）
 // 的数据面——argus 自身不做 UI（v3.84 轮裁定）。
+// v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出（跨仓任务量/verdict
+// 元数据此前全量聚合）。
 func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo string, days int) (map[string]any, int) {
 	if days <= 0 {
 		days = 30
@@ -365,10 +367,16 @@ func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo strin
 		s.log().Error("argus.argus.stats_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
+	filter := s.AuthorizeRowFilter(ctx)
+	visible := make([]storage.RepoStats, 0, len(rows))
 	var totals struct {
 		repos, tasks, approved, commented, rejected, tokens, suppressed int64
 	}
 	for _, r := range rows {
+		if filter != nil && !filter(r.Platform, r.Owner, r.Repo) {
+			continue
+		}
+		visible = append(visible, r)
 		totals.repos++
 		totals.tasks += r.TasksDone
 		totals.approved += r.Approved
@@ -380,7 +388,7 @@ func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo strin
 	return map[string]any{
 		"window_days":  days,
 		"generated_at": time.Now().Format(time.RFC3339),
-		"repos":        rows,
+		"repos":        visible,
 		"repo_count":   totals.repos,
 		"tasks_done":   totals.tasks,
 		"verdicts": map[string]int64{

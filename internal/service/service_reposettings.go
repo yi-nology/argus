@@ -50,10 +50,14 @@ func validateRepoSettingsIdentity(platform, owner, repo string) error {
 
 // RepoSettingsView 单仓配置视图：found（是否有按仓覆盖）+ settings（覆盖集）
 // + effective（生效值，含全局默认派生）。无覆盖时 effective 即全局默认——观测面
-// 一次看清该仓当前真实参数。
+// 一次看清该仓当前真实参数。v6.7.0 P0-02：仓库维度判定收口（HTTP/MCP 共本出口
+// ——此前 scope 档位有、仓库维度无，约束 token 可读任意仓配置）。
 func (s *Service) RepoSettingsView(ctx context.Context, platform, owner, repo string) (map[string]any, int) {
 	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
+	}
+	if !s.Authorize(ctx, platform, owner, repo) {
+		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
 	}
 	effective := map[string]int{
 		"monthly_token_budget": s.Cfg.RepoMonthlyTokenBudget,
@@ -102,6 +106,10 @@ func (s *Service) UpsertRepoSettings(ctx context.Context, platform, owner, repo 
 	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
 	}
+	// v6.7.0 P0-02：admin 档之上的仓库维度——约束 token 不可写约束外仓库。
+	if !s.Authorize(ctx, platform, owner, repo) {
+		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
+	}
 	rs, err := reposettings.Parse(body)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
@@ -133,9 +141,13 @@ func (s *Service) UpsertRepoSettings(ctx context.Context, platform, owner, repo 
 }
 
 // DeleteRepoSettings 移除单仓覆盖（幂等：无配置也 200，附 removed 标记）。
+// v6.7.0 P0-02：admin 档之上的仓库维度（同 Upsert）。
 func (s *Service) DeleteRepoSettings(ctx context.Context, platform, owner, repo string) (map[string]any, int) {
 	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
 		return map[string]any{"error": err.Error()}, http.StatusBadRequest
+	}
+	if !s.Authorize(ctx, platform, owner, repo) {
+		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
 	}
 	removed, err := s.Store.DeleteRepoSetting(ctx, platform, owner, repo)
 	if err != nil {
@@ -150,14 +162,19 @@ func (s *Service) DeleteRepoSettings(ctx context.Context, platform, owner, repo 
 }
 
 // ListRepoSettings 全部按仓配置（行数=仓库数量级，直接全量；观测面）。
+// v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出。
 func (s *Service) ListRepoSettings(ctx context.Context) (map[string]any, int) {
 	rows, err := s.Store.ListRepoSettings(ctx)
 	if err != nil {
 		s.log().Error("argus.api.repo_settings_list_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
 	}
+	filter := s.AuthorizeRowFilter(ctx)
 	items := make([]map[string]any, 0, len(rows))
 	for _, r := range rows {
+		if filter != nil && !filter(r.Platform, r.Owner, r.Repo) {
+			continue
+		}
 		rs, perr := reposettings.Parse([]byte(r.SettingsJSON))
 		if perr != nil {
 			items = append(items, map[string]any{

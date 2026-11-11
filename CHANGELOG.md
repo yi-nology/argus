@@ -3,6 +3,55 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.7.0（2026-11-12，第三轮审计 P0 批：安全边界与数据正确性）
+
+第三轮代码审计路线图（Meta #21）P0 四项 + P1-04（与 P0-03 同文件强耦合随批）落地。
+全部配回归测试（跨仓 403 矩阵为 e2e 门禁级）。
+
+- **【P0-01 #2】数据迁移 fail-closed 化**：关键回写迁移（指纹 v2 / printalias PR 域）
+  失败此前仅告警继续启动（fail-open）——半迁移态库带病服务、根因性失败陷入「启动
+  重试-失败-告警」循环白烧全表扫描。现缺省 `storage.Open` 返回错误拒绝启动；显式
+  `ARGUS_MIGRATION_FAIL_OPEN=1` 逃生门降级回告警继续（留痕告警、下次启动重试）。
+  `runOneTimeMigration` 单点收口 + fail-closed/fail-open/marker 不落三态回归测试；
+  README 环境变量表 + deploy/k8s43 README 同步（Migration Job 规范形态注记）。
+- **【P0-02 #3】统一 Authorizer：读面仓库约束收口**：`requiredScope` 只判方法+路径
+  档位，token 仓库约束散落消费——四个读面漏接，持任意 read 档 token 即可跨仓读取：
+  GET /reports/:ref（按 head SHA 全局寻址读完整审查报告）/ GET /stats/overview
+  （跨仓任务量与 verdict 元数据）/ GET /repos/map（跨仓代码地图渲染，HTTP+MCP）/ 
+  /repo-settings（跨仓配置视图+清单行，HTTP+MCP；PUT/DELETE 的 admin 档之上亦无
+  仓库维度）。HTTP /findings/suppress 写面同样补仓库维度（MCP 面原已接）。收口形态：
+  `service_authorizer.go` 单点判定（Authorize 仓库三元组 / AuthorizeTask task 维度 /
+  AuthorizeRowFilter 聚合行过滤 / AuthorizeEvent SSE 逐事件过滤），`ErrAuthzDenied`
+  哨兵 → HTTP 403。防漂移门禁：路由授权矩阵（routeAuthzMatrix，IDL 每条非白名单
+  路由必须有授权门行，死行同红，e2e TestAuthzMatrixCoversIDL）+ 跨仓 403/行过滤
+  行为矩阵（e2e TestAuthzRepoDenialMatrix：reports/stats/usage/repomap/repo-settings
+  读写/suppress/tasks × 跨仓/约束内/无约束 token）。README §5 鉴权行同步。
+- **【P0-03 #4】RepoMap 克隆目录哈希寻址 + token 不落盘**：工作目录此前按
+  `platform-owner-repo` 字符串拼接（owner 内 "/" 替换为 "-"），GitLab 子组碰撞对
+  `g/s1+r` 与 `g+s1-r` 撞同一目录——跨仓工作目录不隔离，代码地图/缓存键串仓；
+  且 clone URL 注入 token 持久化到 `.git/config`（目录复用叠加放大泄露面）。修复：
+  ① 目录名 = `platform-<sha256(platform|owner|repo)[:12]>` 哈希派生（碰撞对单测）；
+  ② clone/ls-remote 凭据改走 `git -c http.extraHeader=Authorization: Basic ...`
+  （-c 作用域=单次调用不落盘，origin 为净 URL；token 不落 .git/config 回归测试）；
+  ③ 孤儿克隆治理：建图未命中路径顺手 GC——旧寻址拼接式目录（含 token 落盘历史
+  形态）立即清理，新寻址超 7 天未用的（仓库已删/改名）按保留期清理。
+  跨仓串仓内容面回归（本地裸库真克隆，两仓地图互不可见）。
+- **【P1-04 #9】RepoMap 缓存刷新三缺陷**（与 P0-03 同文件随批）：① ls-remote 缺
+  `-C dir` 在服务进程 CWD 执行，「origin」不存在恒失败 → 按「一致」处理 → HEAD
+  对比恒 true，**提交更新后代码地图永不刷新**——补 `-C` 并把「任何失败按一致」
+  翻转为 fail-safe 刷新（探测失败按失配重建）；② freshness 探测（git 子进程+网络
+  往返，10s 上界）移出全局锁——此前持 repoMaps.mu 探测，一个仓库的慢 ls-remote
+  拖住所有仓库的建图请求；探测后同代条目失配不回吃（刷新不被旧缓存短路）；
+  ③ 旧目录治理见 P0-03 ③。回归：提交新 commit 后 HEAD 失配被探测 + 地图重建
+  （本地裸库推新 commit 实测）。
+- **【P0-04 #5】AutoMigrate 纳入迁移租约**：AutoMigrate（10 表）+ MySQL LONGTEXT
+  升级此前先于迁移租约执行——多副本并发首启并发 DDL（MySQL 死锁/索引名冲突风险）。
+  现 schema 迁移在 `schema_migration:automigrate` 租约内串行：先单表引导 leader_leases
+  （CREATE IF NOT EXISTS 并发安全），再抢租约（让位轮询 2s，上界 TTL+2min，超时
+  fail-closed 拒绝启动），持锁执行全表 AutoMigrate + LONGTEXT，完成释放。SQLite
+  单文件单写者直接执行（无并发首启问题）。双实例并发 Open 回归（pg/MySQL 矩阵
+  并发 + 顺序双开 + 第三实例即刻取锁断言租约释放干净）。
+
 ## v6.6.0（2026-11-11，语言能力面收口：langcap 单一事实源 + funcdiff 补 JS/TS + 契约面补 get_repo_map）
 
 - **`internal/langcap` 语言能力矩阵单一事实源**：图层（scriptgraph）/funcdiff 词法面/
