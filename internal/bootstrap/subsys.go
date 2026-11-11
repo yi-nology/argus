@@ -146,6 +146,25 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	}
 	pruneAuxOnce(ctx)
 	wm.AddTicker("session-print-prune", 24*time.Hour, pruneAuxOnce)
+
+	// ---- 事件 Outbox fanout（v6.9.0 P1-05，#10）+ 副作用对账指标（P2-03，#14）----
+	// 每实例回灌环：outbox 新行 → 本地 Bus → SSE（他实例事件经此送达本实例客户端）。
+	sys.Service.StartOutboxFanout(ctx)
+	reconcileOnce := func(ctx context.Context) {
+		postedButFailed, doneWithoutReply, err := store.OutOfSyncDeliveries(ctx, time.Now().Add(-24*time.Hour))
+		if err != nil {
+			log.Warn("argus.boot.reconcile_failed", "error", err.Error())
+			return
+		}
+		if postedButFailed > 0 || doneWithoutReply > 0 {
+			obs.IncrSideEffectMismatch(postedButFailed + doneWithoutReply)
+			log.Warn("argus.boot.reconcile_mismatch", "posted_but_failed", postedButFailed,
+				"done_without_reply", doneWithoutReply,
+				"hint", "任务终态与回帖副作用不一致（P2-03 对账面）——按 task_id 排查 summary_comment_id 与任务终态时序")
+		}
+	}
+	reconcileOnce(ctx)
+	wm.AddTicker("side-effect-reconcile", time.Hour, reconcileOnce)
 	// failed 任务到期重试（v3.8.0 ARGUS_TASK_MAX_RETRIES，默认 2；0=禁用）：
 	// 指数退避到期后重置 pending；多副本同时执行幂等（RowsAffected 至多一方非零）。
 	if cfg.TaskMaxRetries > 0 {

@@ -19,6 +19,7 @@ import (
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/semsearch"
 	"github.com/yi-nology/argus/internal/toolpool"
@@ -73,6 +74,10 @@ type Workflow struct {
 	// .argus/REVIEW.md；空 = 未启用或仓库未提供）。半可信输入：已经提醒标签
 	// 转义预处理，stages 注入侧带对冲句。
 	RepoGuide string
+
+	// llmFailoverBase 本轮 run 起点的 LLM 主备切换计数基线（P2-04 #15 R5.L 门禁
+	// 输入；Run 入口记录，judgeAndGate 读差值）。
+	llmFailoverBase int64
 
 	// 详情存档目录（v5.0.0 收编 harness spill 语义（今 goagent-kernel），取代 v3.39.0 进程内 map）：
 	// 超限工具全文落盘 <WorkRoot>/spill/<taskID>/，get_detail 取回——checkpoint 复活/
@@ -167,6 +172,9 @@ func skillsForKind(kind string) []string {
 func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
 	start := time.Now()
 	task.Budget = budget // R3 重试的预算门读取（深挖修复：R1-R3 此前完全不受预算约束）
+	// LLM 降级链基线（v6.9.0 P2-04，#15）：run 起点的主备切换计数——judgeAndGate
+	// 据差值判定「本轮审查经历了 LLM 降级」并进裁决（R5.L）。
+	w.llmFailoverBase = obs.LLMFailoverTotal()
 	rc := w.loadRepoConfig(ctx, task)
 
 	debug := map[string]string{}

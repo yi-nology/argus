@@ -168,8 +168,15 @@ func (p *Poller) publishCreated(t *storage.Task) {
 	if p.Bus == nil || t == nil {
 		return
 	}
-	p.Bus.Publish(progress.Event{
+	ev := progress.Event{
 		Type: progress.EventTaskCreated, TaskID: t.ID, Platform: t.Platform,
 		Owner: t.Owner, Repo: t.Repo, Number: t.Number,
-	})
+	}
+	ev.ID = progress.NewEventID()
+	p.Bus.Publish(ev)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.Store.AppendOutboxEvent(ctx, ev); err != nil {
+		obs.IncrEventDropped("outbox_failed")
+	}
 }

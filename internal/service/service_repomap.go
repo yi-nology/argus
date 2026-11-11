@@ -113,6 +113,7 @@ func (s *Service) RepoMapPlatform(explicit string) (string, error) {
 // 持任意 ci 档 token 可渲染任意仓的代码地图。
 func (s *Service) RepoMapView(ctx context.Context, platform, owner, repo string) (string, bool) {
 	if !s.Authorize(ctx, platform, owner, repo) {
+		authzDeniedMetric(ctx, "/repos/map")
 		return ErrAuthzDenied.Error(), false
 	}
 	b, err := s.repoMap(ctx, platform, owner, repo)
@@ -126,6 +127,7 @@ func (s *Service) RepoMapView(ctx context.Context, platform, owner, repo string)
 // ErrAuthzDenied 映射 403）。
 func (s *Service) RepoMapHTML(ctx context.Context, platform, owner, repo string) (string, error) {
 	if !s.Authorize(ctx, platform, owner, repo) {
+		authzDeniedMetric(ctx, "/repos/map")
 		return "", ErrAuthzDenied
 	}
 	b, err := s.repoMap(ctx, platform, owner, repo)

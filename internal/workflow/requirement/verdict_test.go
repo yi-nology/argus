@@ -1,12 +1,15 @@
 package requirement
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oekit/pkg/jsonrepair"
 
 	"github.com/oagentkit/textx/reportutil"
 
+	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -326,5 +329,42 @@ func TestBenignPath(t *testing.T) {
 		if benignPath(p) {
 			t.Errorf("%q 不应为无需求类", p)
 		}
+	}
+}
+
+// TestJudgeAndGateLLMFailoverGate R5.L 门禁（P2-04，#15 回归）：本轮审查期间
+// LLM 主备切换发生 → APPROVE 降级为 COMMENT（R5.L）+ Degraded 注明；无切换时
+// 既有裁决语义不回退（正常路径仍 R5.5 APPROVE）。
+func TestJudgeAndGateLLMFailoverGate(t *testing.T) {
+	base := obs.LLMFailoverTotal()
+	w := &Workflow{CompletenessPolicy: plugin.CompletenessDemote, llmFailoverBase: base}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea"}, Kind: "code_review"}
+	// 一个实际产出的插件 outcome（否则 R5.0 零插件守门先拦，测不到 R5.L）
+	ran := []dispatch.Outcome{{Name: "correctness"}}
+
+	// 无降级：全绿路径 APPROVE（既有语义不回退）
+	verdict, rule, _ := w.judgeAndGate(task, nil, &plugin.ComplianceReport{},
+		&plugin.MergedFindings{}, nil, ran, nil, nil)
+	if verdict != VerdictApprove || rule != "R5.5" {
+		t.Fatalf("无降级路径裁决失真: %s/%s（期望 approve/R5.5）", verdict, rule)
+	}
+
+	// 注入 LLM 降级（本轮 run 期间主备切换 2 次）→ APPROVE 被拦
+	obs.IncrLLMFailover("r3")
+	obs.IncrLLMFailover("r1")
+	merged := &plugin.MergedFindings{}
+	verdict, rule, _ = w.judgeAndGate(task, nil, &plugin.ComplianceReport{}, merged,
+		nil, ran, nil, nil)
+	if verdict != VerdictComment || rule != "R5.L" {
+		t.Fatalf("LLM 降级下 APPROVE 未被拦: %s/%s（期望 comment/R5.L）", verdict, rule)
+	}
+	found := false
+	for _, d := range merged.Degraded {
+		if strings.Contains(d, "LLM 主备切换 2 次") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("降级原因未结构化透出: %v", merged.Degraded)
 	}
 }

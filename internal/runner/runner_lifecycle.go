@@ -18,6 +18,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poster"
 	"github.com/yi-nology/argus/internal/reportview"
@@ -25,6 +26,42 @@ import (
 	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
+
+// realBudgetGate 真实消费账月度上限门（v6.9.0 P1-06，#11）：全部终态任务（含
+// failed/stale）token 聚合超 ARGUS_REAL_TOKEN_BUDGET → 新任务失败终态告知。
+// 与配额账（repoBudgetGate，done 口径）双闸并存：平台故障误烧不占配额（配额
+// 语义不回退），但真实消费可观测、可设上限。budget<=0 = 关。
+func (r *Runner) realBudgetGate(ctx context.Context, task *storage.Task, budget int) bool {
+	if budget <= 0 {
+		return false
+	}
+	now := time.Now()
+	used, err := r.Store.RepoMonthlyTokensReal(ctx, task.Platform, task.Owner, task.Repo,
+		time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
+	if err != nil {
+		r.Log.Warn("argus.runner.real_budget_check_failed", "task", task.ID, "error", err.Error())
+		return false
+	}
+	if used < int64(budget) {
+		return false
+	}
+	obs.IncrBudgetExceeded("real")
+	r.Log.Warn("argus.runner.real_budget_exceeded", "task", task.ID,
+		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", budget)
+	reason := fmt.Sprintf("仓库本月真实 token 消费（含失败/重试）已达上限（used=%d, budget=%d）", used, budget)
+	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
+		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
+	} else if fenced {
+		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
+			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+	}
+	r.setStartMarker(ctx, task, fmt.Sprintf(
+		"❌ Argus 审查失败：%s——下月重置后 push 新提交可重新触发审查；如需立即恢复请调整 ARGUS_REAL_TOKEN_BUDGET。\n\n<!-- argus:start task_id=%s -->",
+		reason, task.ID))
+	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
+	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	return true
+}
 
 // repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed
 // 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。monthlyBudget
@@ -44,6 +81,7 @@ func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task, monthly
 	if used < int64(monthlyBudget) {
 		return false
 	}
+	obs.IncrBudgetExceeded("quota")
 	r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
 		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", monthlyBudget)
 	reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, monthlyBudget)

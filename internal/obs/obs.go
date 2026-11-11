@@ -4,11 +4,13 @@ package obs
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"sync/atomic"
 	"time"
 
 	"github.com/oekit/metrics"
 
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 var (
@@ -189,6 +191,38 @@ var (
 	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
 	}, []string{"plugin", "result"})
+
+	// ---- 第三轮审计 P2-05（#16）：运行时可靠性指标五枚 ----
+	// 迁移租约失租（P1-01 fencing 触发：续约失败/被夺/终检失败）——频繁非零 =
+	// 多副本迁移锁竞争或 DB 连接不稳，需人工核查（联动 P0-04 迁移租约串行）。
+	migrationLeaseLost = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_migration_lease_lost_total", Help: "迁移租约失租次数（fencing 取消迁移执行；P1-01）",
+	})
+	// 授权拒绝（P0-02 统一 Authorizer）：route×scope 维度——泄露尝试/误配 token
+	// 的可观测面（authz_denied 频发 = 约束外扫描或 token 配置漂移）。
+	authzDenied = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_authz_denied_total", Help: "授权拒绝计数（统一 Authorizer；P0-02）",
+	}, []string{"route", "scope"})
+	// 事件丢弃（P1-05 事件面）：fanout 环回去重不计（正常形态），SSE 授权过滤、
+	// outbox 落库失败、Bus 满载丢弃才计——非零需查事件链路健康。
+	eventsDropped = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_events_dropped_total", Help: "事件丢弃计数（授权过滤/outbox 失败/Bus 满载；P1-05）",
+	}, []string{"reason"})
+	// 重复回帖（P2-03 副作用账本）：平台 at-least-once 重投递命中幂等账本计数
+	// ——持续非零 = webhook 重试风暴或对端异常。
+	commentRedelivery = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_comment_redelivery_total", Help: "评论投递幂等命中计数（重复投递；P2-03）",
+	})
+	// 预算超限（P1-06 双账本）：ledger=quota（done 口径月度配额，任务失败终态）/
+	// real（真实消费账，新任务暂缓）。
+	budgetExceeded = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_budget_exceeded_total", Help: "预算超限计数（quota=配额账 real=真实消费账；P1-06）",
+	}, []string{"ledger"})
+	// 副作用不一致（P2-03 对账面）：任务终态与回帖副作用错位（回帖成功但任务
+	// failed / 任务 done 但确认回帖缺失）——运维 ticker 对账窗口内计数。
+	sideEffectMismatch = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "argus_side_effect_mismatch_total", Help: "任务终态与回帖副作用不一致检出（P2-03 对账）",
+	})
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
@@ -204,6 +238,7 @@ func Init() {
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, webhookEnsure, llmFailovers, qaFailures, testGenVerify,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN,
+		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {
@@ -261,7 +296,47 @@ func Init() {
 	plugin.HookBestOfN = func(name, result string) {
 		bestOfN.WithLabelValues(name, result).Inc()
 	}
+	// 迁移租约失租钩（P2-05，#16）：storage 不 import obs（arch 纪律），钩子注入
+	// 与 plugin.Hook* 同模式。
+	storage.HookMigrationLeaseLost = func() {
+		migrationLeaseLost.Inc()
+	}
 }
+
+// ---------- P2-05（#16）导出计数面 ----------
+
+// IncrAuthzDenied 授权拒绝计数（统一 Authorizer 各出口调用）。
+func IncrAuthzDenied(route, scope string) {
+	authzDenied.WithLabelValues(route, scope).Inc()
+}
+
+// IncrEventDropped 事件丢弃计数（reason: authz_filtered / outbox_failed / bus_overflow）。
+func IncrEventDropped(reason string) {
+	eventsDropped.WithLabelValues(reason).Inc()
+}
+
+// IncrCommentRedelivery 评论投递幂等命中计数。
+func IncrCommentRedelivery() {
+	commentRedelivery.Inc()
+}
+
+// IncrBudgetExceeded 预算超限计数（ledger: quota / real）。
+func IncrBudgetExceeded(ledger string) {
+	budgetExceeded.WithLabelValues(ledger).Inc()
+}
+
+// IncrSideEffectMismatch 副作用不一致检出计数（P2-03 对账面）。
+func IncrSideEffectMismatch(n int64) {
+	sideEffectMismatch.Add(float64(n))
+}
+
+// llmFailoverCount LLM 主备切换的单调计数（P2-04 #15 完整性门禁的降级史输入：
+// 工作流 run 前后差值 = 本轮审查经历的降级次数——跨任务并发下差值是上界近似，
+// 误伤方向是「宁可 COMMENT 不放不可靠 APPROVE」，语义可接受）。
+var llmFailoverCount atomic.Int64
+
+// LLMFailoverTotal LLM 主备切换累计次数（单调）。
+func LLMFailoverTotal() int64 { return llmFailoverCount.Load() }
 
 // AddSSEConnections SSE 订阅连接数增减（biz events handler 调用）。
 func AddSSEConnections(delta int) {
@@ -297,6 +372,7 @@ func IncrWebhookEnsure(action string) {
 // IncrLLMFailover LLM 主备切换计数（bootstrap 装配的两类切换回调调用）。
 func IncrLLMFailover(stage string) {
 	llmFailovers.WithLabelValues(stage).Inc()
+	llmFailoverCount.Add(1)
 }
 
 // IncrCtxFit 上下文窗口拟合事件（ctxfit 装饰器回调；仅非 passthrough 上报）。

@@ -43,6 +43,7 @@ func (s *Service) admitComment(ctx context.Context, ev *provider.NormalizedEvent
 		if err != nil {
 			s.log().Warn("argus.qa.delivery_mark_failed", "delivery", delivery, "error", err.Error())
 		} else if !fresh {
+			obs.IncrCommentRedelivery() // P2-05（#16）：平台重投递命中幂等账本
 			return commentcmd.Meta{}, false
 		}
 	}
@@ -126,6 +127,19 @@ func (s *Service) answerComment(ctx context.Context, ev *provider.NormalizedEven
 	s.postCommentReply(ctx, platform, owner, repo, prNum, prRef, reply, question, len(reply))
 }
 
+// deliveryIDKey 回帖出口回填投递账本的 ctx 关联键（P2-03 #14）：HandleComment
+// 准入后写入，postCommentReply/postQAError 读取——避免给全部指令分派链路穿参。
+type deliveryIDKey struct{}
+
+func contextWithDeliveryID(ctx context.Context, delivery string) context.Context {
+	return context.WithValue(ctx, deliveryIDKey{}, delivery)
+}
+
+func deliveryIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(deliveryIDKey{}).(string)
+	return s
+}
+
 // HandleComment 处理 @argus 评论：准入守卫 → 指令分派（抑制类免节流 → 节流 →
 // 写作/修复类）→ Q&A 终态。轻量路径：不建 task、不入 DB、不走 worker pool。
 func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEvent, delivery string) {
@@ -133,6 +147,7 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	if !ok {
 		return
 	}
+	ctx = contextWithDeliveryID(ctx, delivery) // P2-03：回帖出口可回填投递账本
 
 	question := commentcmd.ExtractQuestion(meta.Body, s.Cfg.BotUsername)
 	if question == "" {
@@ -202,17 +217,37 @@ func actorName(ev *provider.NormalizedEvent) string {
 }
 
 // postCommentReply 回帖 + 留痕（Q&A 与意图路由分派的共用出口）。
+// v6.9.0 P2-03（#14）：回帖终态与外部副作用（平台评论 ID）回填投递账本——
+// 处理事实（delivery 行）、回帖终态、外部副作用三列分离，对账面可查。
 func (s *Service) postCommentReply(ctx context.Context, platform, owner, repo, prNum, prRef,
 	body, question string, answerLen int) {
-	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body); err != nil {
+	ic, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body)
+	if err != nil {
 		obs.IncrCommentPostFailure("reply")
 		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
 		s.publishCommentReplied("error", platform, owner, repo, prNum)
+		s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "error", 0, prRef)
 		return
 	}
+	var commentID int64
+	if ic != nil {
+		commentID = ic.ID
+	}
+	s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "ok", commentID, prRef)
 	s.publishCommentReplied("ok", platform, owner, repo, prNum)
 	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
 	s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
+}
+
+// markDeliveryOutcome 投递账本终态回填（nil Store 安全；best-effort，失败只告警
+// ——对账面缺一条不影响回帖主流程）。
+func (s *Service) markDeliveryOutcome(ctx context.Context, delivery, status string, commentID int64, ref string) {
+	if s.Store == nil || delivery == "" {
+		return
+	}
+	if err := s.Store.MarkCommentDeliveryOutcome(ctx, delivery, status, commentID, ref); err != nil {
+		s.log().Warn("argus.qa.delivery_outcome_failed", "delivery", delivery, "error", err.Error())
+	}
 }
 
 // handleSuppressComment 处理 MR 评论里的误报反馈：短码解析完整指纹 → 抑制入库 →
@@ -252,8 +287,16 @@ func (s *Service) knowledgeSuffix() string {
 func (s *Service) postQAError(ctx context.Context, platform, owner, repo, number, msg string) {
 	body := ":warning: **Argus Q&A 错误**: " + msg +
 		"\n\n<!-- argus:qa error -->"
-	if _, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, number, body); err != nil {
+	ic, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, number, body)
+	if err != nil {
 		s.log().Error("argus.qa.error_reply_failed", "error", err.Error())
+		s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "error", 0, "")
+	} else {
+		var commentID int64
+		if ic != nil {
+			commentID = ic.ID
+		}
+		s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "ok", commentID, "")
 	}
 	s.publishCommentReplied("error", platform, owner, repo, number)
 }

@@ -129,6 +129,29 @@ func (s *Store) MonthlyTokensByRepo(ctx context.Context, since time.Time) ([]Rep
 	return out, err
 }
 
+// RepoMonthlyTokensReal 真实消费账（v6.9.0 P1-06，#11）：全部终态（done/failed/
+// stale）任务的 token 消耗——failed 任务的中途 LLM 消耗此前只存在于网关账单侧，
+// argus 账本看不见，硬预算被失败/重试消费绕过。配额账（RepoMonthlyTokens，done
+// 口径）语义不回退：平台故障误烧不占配额；真实消费账独立上限（ARGUS_REAL_TOKEN_BUDGET）。
+func (s *Store) RepoMonthlyTokensReal(ctx context.Context, platform, owner, repo string, since time.Time) (int64, error) {
+	var total int64
+	err := s.quietDB().WithContext(ctx).Model(&Task{}).
+		Where("platform = ? AND owner = ? AND repo = ? AND status IN ? AND created_at >= ?",
+			platform, owner, repo, []string{StatusDone, StatusFailed, StatusStale}, since).
+		Select("COALESCE(SUM(tokens_used),0)").Scan(&total).Error
+	return total, err
+}
+
+// MonthlyTokensByRepoReal 全部仓库真实消费账（/usage/monthly 双账本展示）。
+func (s *Store) MonthlyTokensByRepoReal(ctx context.Context, since time.Time) ([]RepoTokenUsage, error) {
+	var out []RepoTokenUsage
+	err := s.quietDB().WithContext(ctx).Model(&Task{}).
+		Select("platform, owner, repo, SUM(tokens_used) AS tokens, COUNT(*) AS tasks").
+		Where("status IN ? AND created_at >= ?", []string{StatusDone, StatusFailed, StatusStale}, since).
+		Group("platform, owner, repo").Order("tokens DESC").Find(&out).Error
+	return out, err
+}
+
 // jsonUnmarshal 是 encoding/json.Unmarshal 的包内别名，便于测试 mock。
 var jsonUnmarshal = jsonUnmarshalFn
 

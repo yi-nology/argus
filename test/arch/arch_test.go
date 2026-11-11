@@ -93,8 +93,9 @@ var layering = map[string][]string{
 	// v6.2.x 架构卫生批 B：销死边 learning（plugin 实际仅消费 domain）。
 	"github.com/yi-nology/argus/internal/plugin": {"github.com/yi-nology/argus/internal/domain"},
 	"github.com/yi-nology/argus/internal/config": {"github.com/yi-nology/argus/internal/learning"},
-	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）
-	"github.com/yi-nology/argus/internal/obs":    {"github.com/yi-nology/argus/internal/plugin"},
+	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）；
+	// storage 依赖同模式（HookMigrationLeaseLost ← 迁移租约 fencing 触发，P2-05 #16）
+	"github.com/yi-nology/argus/internal/obs":    {"github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/notify": {"github.com/yi-nology/argus/internal/notify/octopus", "github.com/yi-nology/argus/internal/obs"},
 
 	// ---- 自有协议客户端子包：零 internal 依赖（v3.148.0 octopus 回归本仓）----
@@ -105,9 +106,11 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/toolpool":   {"github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/storage":    {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning"},
-	"github.com/yi-nology/argus/internal/worker":     {"github.com/yi-nology/argus/internal/storage"},
-	"github.com/yi-nology/argus/internal/health":     {"github.com/yi-nology/argus/internal/learning"},
+	// v6.9.0 P1-05（#10）：outbox 事件载荷复用 progress.Event（领域事件类型单源）——
+	// storage 序列化/反序列化 outbox 行需要它；progress 零依赖，方向安全。
+	"github.com/yi-nology/argus/internal/storage": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/progress"},
+	"github.com/yi-nology/argus/internal/worker":  {"github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/health":  {"github.com/yi-nology/argus/internal/learning"},
 	// v6.2.x 架构卫生批 B：销死边 obs（argusctx 实际仅消费 config/plugin）。
 	"github.com/yi-nology/argus/internal/argusctx": {"github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/qa":       {"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
@@ -138,6 +141,8 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
 	},
 	"github.com/yi-nology/argus/internal/runner": {
+		// v6.9.0 补 obs 边：预算超限/事件丢弃计数直呼（P2-05 #16 / P1-06 #11）。
+		"github.com/yi-nology/argus/internal/obs",
 		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx",
 		"github.com/yi-nology/argus/internal/dispatch",
 		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",

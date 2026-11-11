@@ -42,6 +42,11 @@ var migrationRenewalInterval atomic.Int64
 
 func init() { migrationRenewalInterval.Store(int64(migrationLockTTL / 10)) }
 
+// HookMigrationLeaseLost 迁移租约失租观测钩（P2-05，#16）：fencing 触发时调用
+// （续约失败/被夺/终检失败）。nil 安全；obs.Init 注入 prometheus 计数——storage
+// 不 import obs（arch 白名单纪律，与 plugin.Hook* 同模式）。
+var HookMigrationLeaseLost func()
+
 // acquireMigrationLease 抢迁移租约，阻塞至持有或超时（P0-04，#5）：拿不到 =
 // 他副本正在迁移（多副本并发首启），让位轮询等待——AutoMigrate 无 marker 可等，
 // 只能等锁本身；超时 fail-closed 拒绝启动。返回释放函数。
@@ -149,6 +154,9 @@ func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn f
 				ok, err := s.TryAcquire(context.Background(), key, holder, migrationLockTTL)
 				if err != nil || !ok {
 					leaseLost.Store(true)
+					if HookMigrationLeaseLost != nil {
+						HookMigrationLeaseLost()
+					}
 					fcancel() // fencing：失租即取消迁移执行
 					return
 				}
@@ -175,6 +183,9 @@ func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn f
 	// 窗口（微秒级）由 TTL（5min）量级兜底：接手者只能在本实例 Release 后进入，
 	// 届时 marker 已可被 double-check 命中。
 	if ok, lerr := s.TryAcquire(context.Background(), key, holder, migrationLockTTL); lerr != nil || !ok {
+		if HookMigrationLeaseLost != nil {
+			HookMigrationLeaseLost()
+		}
 		return 0, fmt.Errorf("迁移 %s marker 落库前终检续约失败（fencing，ok=%v err=%v），结果作废待重试", version, ok, lerr)
 	}
 	if err := s.db.WithContext(fctx).Create(&SchemaMigration{Version: version, AppliedAt: time.Now()}).Error; err != nil {
