@@ -20,13 +20,16 @@ import (
 // piiMaskNote 脱敏发生时的透明脚注（计数不入注——避免泄露命中次数推断内容）。
 const piiMaskNote = "\n\n<sub>🔒 本评论已启用 PII 脱敏（手机号/身份证号已打码；ARGUS_PII_MASK=0 可关闭）</sub>"
 
-// maskOutboundPII 对出站评论正文施加值面 PII 脱敏；命中时追加透明脚注。
+// maskOutboundPII 对出站评论正文施加值面 PII 脱敏；文本被改写时追加透明脚注。
 // 返回处理后的正文。策略未启用时原样直通（pii.Apply 内部判 enabled）。
-// 幂等：已打码文本无 PII 可检出（changed=false 原样返回）；脚注已存在不重复
+//
+// 注意 gak pii.Apply 的 bool 是「阻断」语义（mask 策略恒 false），**不是**「是否
+// 改写」——是否命中以输出比对判定（v6.16.0 实测踩坑：按 bool 判会导致脚注永不
+// 出现）。幂等：已打码文本无 PII 可检出，输出=输入原样返回；脚注已存在不重复
 // 追加（总结评论轮换更新场景——旧脚注随正文带进来）。
 func maskOutboundPII(body string) string {
-	masked, changed := pii.Apply(pii.SurfaceOutput, body)
-	if !changed {
+	masked, _ := pii.Apply(pii.SurfaceOutput, body)
+	if masked == body {
 		return body
 	}
 	if strings.Contains(masked, piiMaskNote) {

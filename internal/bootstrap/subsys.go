@@ -6,6 +6,7 @@ import (
 	"time"
 
 	oagentworker "github.com/oagentkit/queue/worker"
+	"github.com/yi-nology/goagent-kernel/pii"
 	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
@@ -57,6 +58,20 @@ func runOnceUnderLease(ctx context.Context, st *storage.Store, key, holder strin
 func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger,
 	store *storage.Store, sys *System, instanceID string) {
 	ctx := app.Context()
+
+	// ---- 出站 PII 脱敏策略（v6.16.0，gak pii 全局原子策略装配）----
+	// 合规优先缺省开（ARGUS_PII_MASK=0 关）；脱敏动作在 argusctx 评论出站
+	// choke point（maskOutboundPII），此处只装配策略开关。
+	pii.SetEnabled(cfg.PIIMask)
+	if bit, err := pii.SurfaceBit(pii.SurfaceOutput); err == nil {
+		pii.SetSurfaces(bit)
+	}
+	if err := pii.SetStrategy(pii.StrategyMask); err != nil {
+		log.Warn("argus.boot.pii_strategy", "error", err.Error())
+	}
+	if cfg.PIIMask {
+		log.Info("argus.boot.pii_mask_enabled", "surface", string(pii.SurfaceOutput))
+	}
 
 	// ---- 多副本控制面选主（oagentkit/queue/worker.LeaderElector）----
 	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；

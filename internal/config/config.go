@@ -92,6 +92,10 @@ type Config struct {
 	// 更有害，宁可保守。按仓 .reviewagents.yaml review.report_template 优先
 	// （reporttmpl.Resolve 裁决）。
 	ReportTemplate string
+	// PIIMask 出站评论值面 PII 脱敏（ARGUS_PII_MASK；v6.16.0 合规新增面，缺省开）：
+	// 命中手机号/身份证（gak pii 四重校验）打码并附透明脚注。与 logredact 键名面
+	// 互补。合规优先拍板——代码内容里的类证件号串可能被打码（误报评测护栏在案）。
+	PIIMask bool
 	PluginsFile    string
 	SkillsDir      string
 	WorkRoot       string
@@ -471,6 +475,7 @@ func Load() *Config {
 		TaskTokenBudget:          envInt("ARGUS_TASK_TOKEN_BUDGET", 0),
 		ReportMeta:               envBool("ARGUS_REPORT_META", true),
 		ReportTemplate:           resolveReportTemplate(envStr("ARGUS_REPORT_TEMPLATE", "")),
+		PIIMask:                  envBool("ARGUS_PII_MASK", true),
 		PluginsFile:              envStr("ARGUS_PLUGINS", "plugins.yaml"),
 		SkillsDir:                envStr("ARGUS_SKILLS_DIR", "skills"),
 		WorkRoot:                 envStr("ARGUS_WORK_ROOT", "/tmp/argus-work"),

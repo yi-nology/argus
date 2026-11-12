@@ -465,6 +465,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_PLUGINS` | plugins.yaml | 插件声明文件 |
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
 | `ARGUS_REPORT_TEMPLATE` | standard（空同） | 报告契约模板服务级默认（standard/analyst/minimal，详见 §5.1；按仓 yaml `review.report_template` 优先） |
+| `ARGUS_PII_MASK` | true | 出站评论（总结/行内/回复）值面 PII 脱敏（手机号/身份证四重校验打码 + 透明脚注；gak pii 单源，与 logredact 键名面互补）。合规优先缺省开；代码内容里的类证件号串可能被打码，误报护栏在 `internal/argusctx/pii_mask_test.go` |
 | `ARGUS_<P>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}` | - | 平台凭证（P ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code，如 `ARGUS_GITHUB_TOKEN`；工蜂前缀 `ARGUS_TENCENT_CODE_*`）；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）；TOKEN_STYLE=private/bearer 覆盖认证头风格，WEBHOOK_EVENTS 覆盖内置事件词表 |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
 | `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - | Milvus 向量知识库（需配 `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM`；不配回退本地词元检索，知识飞轮随之关闭）|
