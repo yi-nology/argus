@@ -674,6 +674,20 @@ function filter(kw){
   const e=data.edges[+p.dataset.i];
   p.classList.toggle('dim',!(e&&hit[e.from]&&hit[e.to]));
  });
+ // v6.9.3 方向 D：搜索命中自动定位——第一个命中节点居中视口
+ if(kw){
+  let firstHit=null;
+  document.querySelectorAll('#g .node:not(.dim)').forEach(g=>{if(!firstHit)firstHit=g;});
+  if(firstHit){
+   const vb=svg.viewBox.baseVal;
+   const rect=firstHit.getBoundingClientRect();
+   const svgRect=svg.getBoundingClientRect();
+   const nodeX=(rect.left+rect.width/2-svgRect.left)/scale;
+   const nodeY=(rect.top+rect.height/2-svgRect.top)/scale;
+   tx=vb.width/2-nodeX; ty=vb.height/2-nodeY;
+   apply();
+  }
+ }
 }
 svg.addEventListener('click',e=>{
  const g=e.target.closest('.node');if(!g)return;
@@ -740,10 +754,10 @@ function showPanel(n){
  if(n.kind==='package'&&dirExtra){extra=dirExtra;}
  else if(n.kind==='package'&&pkgExtra){extra='<h3 style="margin-top:12px">包聚合</h3>'+pkgExtra;}
  else if(filePath){
-  // v6.9.2 方向 A：被折叠函数列表（symbol 折叠场景）
+  // v6.9.3 方向 E：被折叠函数可点击 → 触发搜索定位
   const folded=folddata[n.id]||[];
   if(folded.length){
-   extra+='<h3 style="margin-top:12px">被折叠函数 '+folded.length+'</h3>'+folded.map(fn=>'<div class="kv">'+esc(fn)+'</div>').join('');
+   extra+='<h3 style="margin-top:12px">被折叠函数 '+folded.length+'</h3>'+folded.map(fn=>'<div class="kv cplrow" onclick="q.value=\''+esc(fn).replace(/'/g,"\\'")+';q.dispatchEvent(new Event(\'input\'))">'+esc(fn)+'</div>').join('');
   }
   const fds=(data.func_diffs||[]).filter(fd=>fd.file===filePath);
   if(fds.length){
