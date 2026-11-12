@@ -511,6 +511,11 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 			}
 		}
 		h := nodeH + min(deg, 6)*4
+		// v6.9.8 方向 Y：tooltip 加风险信号——度数 + findings 数（已有徽标计数）
+		tip += fmt.Sprintf("\n关联 %d", deg)
+		if c := fcount[n.ID]; c > 0 {
+			tip += fmt.Sprintf(" · 意见 %d", c)
+		}
 		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
 			n.Kind, html.EscapeString(n.ID), p[0], p[1],
 			html.EscapeString(tip), nodeW, h, fill, stroke, html.EscapeString(label))
