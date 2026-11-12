@@ -453,12 +453,22 @@ func nodeFill(n Node) (fill, stroke string) {
 
 // svgBody 产出 SVG 主体（框 + 标签 + 贝塞尔边）。
 // viewNodes/viewEdges 是布局与绘制共用的剪枝后视图集（见 viewGraph）。
+//
+// v6.9.7 方向 U：边粗细编码调用频率——同一 (from,to) 对的边数越多线越粗。
+// 改法：统计 viewEdges 中每个 (from,to) 的出现次数，画边时按次数设定
+// stroke-width（1.2 + 0.4×(n-1)，封顶 3.0）。折叠重定向后的目录聚合
+// 边自然变粗（多条 file→caller 合并为一条 file→dir）。
 func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge, fcount map[string]int) string {
 	var b strings.Builder
 	// 边先画（垫底）；data-i 携带快照边序——JS 搜索联动按它回查 data.edges,
 	// 不依赖「DOM 序=数据序」的隐式对齐。边标签包 .edgeg 组默认隐藏、悬停
 	// 显示（v3.185.2：20 条边的中点小字互相糊叠是实测遮挡源，关系详情走
 	// tooltip 与点选面板）
+	// v6.9.7 方向 U：统计 (from,to) 边频次用于粗细编码
+	edgeFreq := map[string]int{}
+	for _, e := range viewEdges {
+		edgeFreq[e.From+"\x00"+e.To]++
+	}
 	for k, e := range viewEdges {
 		i := idxs[k]
 		p1, ok1 := pos[e.From]
@@ -471,8 +481,14 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		x2 := p2[0]
 		y2 := p2[1] + nodeH/2
 		mid := (x1 + x2) / 2
-		fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
-			i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+		// 方向 U：边粗细 = 1.2 + 0.4×(freq-1)，封顶 3.0
+		freq := edgeFreq[e.From+"\x00"+e.To]
+		strokeW := 1.2 + 0.4*float64(freq-1)
+		if strokeW > 3.0 {
+			strokeW = 3.0
+		}
+		fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+			i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
 	}
 	for _, n := range viewNodes {
 		p, ok := pos[n.ID]
@@ -485,9 +501,19 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		if n.Detail != "" {
 			tip += "\n" + n.Detail
 		}
+		// v6.9.7 方向 T：节点大小编码风险——文件节点边数（度）越大框越高。
+		// 改法：统计 viewEdges 中每个节点的度，节点高度 = nodeH + min(degree,6)*4。
+		// 度大 = 被更多人调用/影响更多人 = 风险 Concentration 的一手信号。
+		deg := 0
+		for _, e := range viewEdges {
+			if e.From == n.ID || e.To == n.ID {
+				deg++
+			}
+		}
+		h := nodeH + min(deg, 6)*4
 		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
 			n.Kind, html.EscapeString(n.ID), p[0], p[1],
-			html.EscapeString(tip), nodeW, nodeH, fill, stroke, html.EscapeString(label))
+			html.EscapeString(tip), nodeW, h, fill, stroke, html.EscapeString(label))
 		// v5.8.0 findings 徽标:有审查意见的文件节点右上角红点+计数
 		if c := fcount[n.ID]; c > 0 {
 			fmt.Fprintf(&b, `<circle cx="%d" cy="%d" r="9" fill="#dc2626"/><text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#fff" pointer-events="none">%d</text>`,
