@@ -64,6 +64,9 @@ go.work.sum
 build-deploy/
 eval/results/
 
+# 混沌矩阵报告（test/chaos 产物，CI artifact 抓取，不入库）
+test/chaos/results/
+
 # 本地编译产物（根目录手工构建残留，勿入库；镜像构建用 bin/ 下的交叉编译输出）
 /argus
 

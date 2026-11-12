@@ -68,6 +68,13 @@ var layering = map[string][]string{
 	// v6.10.0：报告契约模板注册表（词表单源 standard|analyst|minimal + analyst
 	// 综合段提示词；L0 零依赖叶子，plugin/config/workflow/adapter_builtin/runner 消费）。
 	"github.com/yi-nology/argus/internal/reporttmpl": {},
+	// P2-01（#24）：故障注入抽象 + 混沌矩阵（五族故障词表/规范矩阵/报告）。
+	// L0 零 internal 依赖——注入契约被 test/chaos 实弹回归与部署侧手动 job 消费，
+	// 在线链路不 import（评测/混沌旁路形态，同 obs evalmetrics）。
+	"github.com/yi-nology/argus/internal/chaos": {},
+	// P2-02（#25）：质量评测体系（指标计算/基准集装载/跑批骨架/报告）。
+	// L0 零 internal 依赖——真实模型调用只经 Reviewer 接口装配，在线链路不 import。
+	"github.com/yi-nology/argus/internal/evalq": {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
 	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配
