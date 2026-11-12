@@ -128,7 +128,7 @@ func matchReviewKeyword(question string) bool {
 
 // isASCIIKeyword 词表项是否纯 ASCII（拉丁词走边界匹配）。
 func isASCIIKeyword(kw string) bool {
-	for i := 0; i < len(kw); i++ {
+	for i := range len(kw) {
 		if kw[i] >= 0x80 {
 			return false
 		}

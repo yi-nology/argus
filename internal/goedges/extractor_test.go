@@ -10,10 +10,11 @@
 package goedges
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/yi-nology/argus/internal/semsearch"
@@ -155,11 +156,11 @@ func TestEdges_Precise(t *testing.T) {
 		{semsearch.NodeKey("app", "", "Use"), semsearch.NodeKey("iface", "Tagger", "Tag")},
 	}
 	// 与 Edges 同款排序后全等比对。
-	sort.Slice(want, func(i, j int) bool {
-		if want[i][0] != want[j][0] {
-			return want[i][0] < want[j][0]
+	slices.SortFunc(want, func(a, b [2]string) int {
+		if c := cmp.Compare(a[0], b[0]); c != 0 {
+			return c
 		}
-		return want[i][1] < want[j][1]
+		return cmp.Compare(a[1], b[1])
 	})
 	if len(edges) != len(want) {
 		t.Fatalf("边数 = %d, want %d；got=%v", len(edges), len(want), edges)

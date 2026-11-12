@@ -7,10 +7,11 @@
 package poster
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,8 +143,8 @@ func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep
 				"%d 条意见的文件路径无法对应 diff 中的文件（模型路径引用偏差），仅在总结中展示、未行内标注", dropped))
 		}
 	}
-	sort.SliceStable(inlineFindings, func(i, j int) bool {
-		return reportutil.Rank(inlineFindings[i].Severity) > reportutil.Rank(inlineFindings[j].Severity)
+	slices.SortStableFunc(inlineFindings, func(a, b plugin.Finding) int {
+		return -cmp.Compare(reportutil.Rank(a.Severity), reportutil.Rank(b.Severity))
 	})
 	inlineFindings = clampInlineByMaxComments(inlineFindings, rep)
 	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
@@ -290,11 +291,11 @@ func reviewTLDR(rep reportview.Report, inlineCount int) string {
 	fmt.Fprintf(&b, "high %d · medium %d · low %d（共 %d 条，行内已标注 %d 条）",
 		bySev[plugin.SeverityHigh], bySev[plugin.SeverityMedium], bySev[plugin.SeverityLow],
 		len(rep.Findings), inlineCount)
-	// 重点关注：排序纪律与 prepareInline 一致（Rank 降序 + SliceStable 保报告序）。
+	// 重点关注：排序纪律与 prepareInline 一致（Rank 降序 + 稳定排序保报告序）。
 	// 摘要是不可信模型文本，经 fence.EscapeUntrusted 注入中和后展示。
 	top := append([]plugin.Finding(nil), rep.Findings...)
-	sort.SliceStable(top, func(i, j int) bool {
-		return reportutil.Rank(top[i].Severity) > reportutil.Rank(top[j].Severity)
+	slices.SortStableFunc(top, func(a, b plugin.Finding) int {
+		return -cmp.Compare(reportutil.Rank(a.Severity), reportutil.Rank(b.Severity))
 	})
 	if len(top) > reviewTLDRMaxTop {
 		top = top[:reviewTLDRMaxTop]

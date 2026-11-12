@@ -72,7 +72,7 @@ func writeBigFile(t *testing.T, dir string) (body string, legacyLine int) {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString("package svc\n\n")
-	for i := 0; i < 70; i++ {
+	for i := range 70 {
 		fmt.Fprintf(&b, "func F%02d() {}\n\n", i)
 	}
 	b.WriteString("func Legacy() {}\n\nfunc UseLegacy() { Legacy() }\n")

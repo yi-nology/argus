@@ -6,8 +6,10 @@
 package impactview
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,11 +95,11 @@ func collectCoupling(ctx context.Context, dir string, changed []string, maxCommi
 			couples = append(couples, Couple{Other: f, Count: n})
 		}
 	}
-	sort.Slice(couples, func(i, j int) bool {
-		if couples[i].Count != couples[j].Count {
-			return couples[i].Count > couples[j].Count
+	slices.SortFunc(couples, func(a, b Couple) int {
+		if c := cmp.Compare(a.Count, b.Count); c != 0 {
+			return -c
 		}
-		return couples[i].Other < couples[j].Other
+		return strings.Compare(a.Other, b.Other)
 	})
 	if len(couples) > MaxCoupling {
 		couples = couples[:MaxCoupling]
@@ -139,22 +141,17 @@ func bestCoupleSource(groups [][]string, changeSet map[string]bool, other string
 	if len(srcs) == 0 {
 		return ""
 	}
-	sort.Slice(srcs, func(i, j int) bool {
-		if srcs[i].count != srcs[j].count {
-			return srcs[i].count > srcs[j].count
+	slices.SortFunc(srcs, func(a, b srcCount) int {
+		if c := cmp.Compare(a.count, b.count); c != 0 {
+			return -c
 		}
-		return srcs[i].file < srcs[j].file
+		return strings.Compare(a.file, b.file)
 	})
 	return srcs[0].file
 }
 
 func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }
 
 // errorsRedacted git 失败回执（stderr 可能回显带凭证 URL，脱敏后拼接）。

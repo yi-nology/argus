@@ -122,17 +122,15 @@ func TestInFlightGuardConcurrentCreate(t *testing.T) {
 	}
 	results := make([]outcome, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	for i := range results {
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			task := NewTask(kind, platform, owner, repo, number)
 			task.HeadSHA = sha
 			evID := fmt.Sprintf("delivery-%d", i) // 不同 delivery：非幂等预查路径，逼真并发建任务
 			task.EventID = &evID
 			dup, id, err := s.CreateTaskForWebhook(ctx, task)
 			results[i] = outcome{dup, id, err}
-		}(i)
+		})
 	}
 	wg.Wait()
 	created := 0
@@ -172,14 +170,12 @@ func TestInFlightGuardConcurrentManualCreate(t *testing.T) {
 	}
 	results := make([]outcome, 2)
 	var wg sync.WaitGroup
-	wg.Add(2)
 	for i := range results {
-		go func(i int) {
-			defer wg.Done()
+		wg.Go(func() {
 			task := NewTask(kind, platform, owner, repo, number)
 			_, created, err := s.CreateTaskDirectIfIdle(ctx, task)
 			results[i] = outcome{created, err}
-		}(i)
+		})
 	}
 	wg.Wait()
 	created := 0

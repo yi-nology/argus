@@ -31,7 +31,7 @@ func TestBreaker(t *testing.T) {
 
 	allow := func() (uint64, error) { _, g, e := bs.AllowGen(context.Background()); return g, e }
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		gen, err := allow()
 		if err != nil {
 			t.Fatal("closed 应放行")

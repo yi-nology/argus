@@ -2,7 +2,7 @@ package dispatch
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -371,6 +371,6 @@ func OutcomeNames(outcomes []Outcome) []string {
 			names = append(names, o.Name)
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }

@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -315,7 +315,7 @@ func (k *Kernel) recallOne(ctx context.Context, ns store.Namespace, sessionID, q
 		for r, n := range res.Drops {
 			reasons = append(reasons, fmt.Sprintf("%s=%d", r, n))
 		}
-		sort.Strings(reasons)
+		slices.Sort(reasons)
 		k.log.Info("argus.memorykernel.recall_dropped", "ns", string(ns),
 			"dropped", res.Dropped, "kept", len(res.Snippets), "reasons", strings.Join(reasons, ","))
 	}

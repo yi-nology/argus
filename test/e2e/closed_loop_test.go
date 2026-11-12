@@ -122,7 +122,7 @@ func TestScenario18_LearningHardFloorDropsLow(t *testing.T) {
 	// Confidence(1 posted, 2 regret, 1 suppress, 0) = 3/(3+4+3)=0.30 —— 需再压
 	// Confidence(1, 3, 1) = 3/(3+6+3)=0.25 < 0.30
 	f := plugin.Finding{File: "b.go", Line: 3, Severity: "low", Comment: comment}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := s.store.PatternRegret(ctx, "gitea", "acme", "app", "correctness", f, time.Now()); err != nil {
 			t.Fatal(err)
 		}

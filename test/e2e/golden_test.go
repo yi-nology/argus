@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,7 +151,7 @@ func loadGoldenCases(t TestingT) []goldenCase {
 		}
 		cases = append(cases, c)
 	}
-	sort.Slice(cases, func(i, j int) bool { return cases[i].Name < cases[j].Name })
+	slices.SortFunc(cases, func(a, b goldenCase) int { return strings.Compare(a.Name, b.Name) })
 	return cases
 }
 

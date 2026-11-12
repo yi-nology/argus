@@ -348,7 +348,7 @@ func TestAnswer_RawTurnsCap(t *testing.T) {
 	key := "gitea:acme/app#7"
 	// 预置满额历史
 	var hist []storage.QATurn
-	for i := 0; i < rawTurnsCap; i++ {
+	for i := range rawTurnsCap {
 		hist = append(hist, storage.QATurn{Question: fmt.Sprintf("q%d", i), Answer: "a", At: "t"})
 	}
 	hj, _ := json.Marshal(hist)
@@ -434,7 +434,7 @@ func TestLatestReview_FieldsAndMiss(t *testing.T) {
 
 	// 长报告截断
 	var long strings.Builder
-	for i := 0; i < 7000; i++ {
+	for range 7000 {
 		long.WriteRune('报')
 	}
 	mkDoneTask(t, store, "t-2", long.String(), "")

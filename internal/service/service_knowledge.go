@@ -8,7 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/oagentkit/rag"
@@ -58,11 +59,7 @@ func (s *Service) SearchKnowledge(ctx context.Context, query string, topK int) (
 		content, _ := textutil.TruncRunes(c.Content, knowledgeChunkCap)
 		fmt.Fprintf(&b, "\n[%d] score=%.3f", i+1, c.Score)
 		if len(c.Metadata) > 0 {
-			keys := make([]string, 0, len(c.Metadata))
-			for k := range c.Metadata {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
+			keys := slices.Sorted(maps.Keys(c.Metadata))
 			parts := make([]string, 0, len(keys))
 			for _, k := range keys {
 				parts = append(parts, k+"="+c.Metadata[k])

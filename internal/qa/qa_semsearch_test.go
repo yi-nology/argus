@@ -35,7 +35,7 @@ func TestRenderSemNeighbors(t *testing.T) {
 		t.Errorf("分组渲染 = %q, want %q", got, want)
 	}
 	var many []semsearch.SymRef // 每侧 4 条，cap=2 应各取前 2（合计 ≤2×cap）
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		many = append(many,
 			semsearch.SymRef{Symbol: fmt.Sprintf("c%d", i), Rel: semRelCaller},
 			semsearch.SymRef{Symbol: fmt.Sprintf("d%d", i), Rel: semRelCallee})
