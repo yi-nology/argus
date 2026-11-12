@@ -469,6 +469,59 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 	for _, e := range viewEdges {
 		edgeFreq[e.From+"\x00"+e.To]++
 	}
+	// v6.10.3 方向 AH：关键路径高亮——BFS 找改动节点到测试节点的最短路径，
+	// 路径上的边加金色高亮样式。帮 review 快速定位「改动 → 需跑测试」链路。
+	criticalEdges := map[string]bool{}
+	{
+		// 收集改动节点和测试节点
+		var changedIDs, testIDs []string
+		for _, n := range viewNodes {
+			if n.Changed {
+				changedIDs = append(changedIDs, n.ID)
+			}
+			if n.Kind == KindTest {
+				testIDs = append(testIDs, n.ID)
+			}
+		}
+		// BFS 从每个 changed 节点出发找最近 test 节点
+		adj := map[string][]string{}
+		for _, e := range viewEdges {
+			adj[e.From] = append(adj[e.From], e.To)
+			adj[e.To] = append(adj[e.To], e.From)
+		}
+		for _, start := range changedIDs {
+			prev := map[string]string{start: ""}
+			queue := []string{start}
+			found := ""
+			for len(queue) > 0 && found == "" {
+				cur := queue[0]
+				queue = queue[1:]
+				for _, nx := range adj[cur] {
+					if _, seen := prev[nx]; seen {
+						continue
+					}
+					prev[nx] = cur
+					for _, tid := range testIDs {
+						if nx == tid {
+							found = tid
+							break
+						}
+					}
+					if found != "" {
+						break
+					}
+					queue = append(queue, nx)
+				}
+			}
+			// 回溯路径标记边
+			if found != "" {
+				for cur := found; prev[cur] != ""; cur = prev[cur] {
+					criticalEdges[prev[cur]+"\x00"+cur] = true
+					criticalEdges[cur+"\x00"+prev[cur]] = true
+				}
+			}
+		}
+	}
 	for k, e := range viewEdges {
 		i := idxs[k]
 		p1, ok1 := pos[e.From]
@@ -487,8 +540,14 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		if strokeW > 3.0 {
 			strokeW = 3.0
 		}
-		fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
-			i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+		// v6.10.3 方向 AH：关键路径边加金色虚线高亮
+		if criticalEdges[e.From+"\x00"+e.To] {
+			fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f;stroke:#f59e0b;stroke-dasharray:6,3"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+		} else {
+			fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+		}
 	}
 	for _, n := range viewNodes {
 		p, ok := pos[n.ID]
