@@ -70,8 +70,20 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpt
 	if opts.RepoMode {
 		legendNodes, legendEdges = repoLegend(), repoLegendEdges()
 	}
+	// v6.10.6 方向 AQ：演化对比高亮——AddedNodes 绿框 / RemovedNodes 灰虚框。
+	// 数据来自 opts.Compare（CompareSnapshots 集合差），图上直接可见。
+	addedSet := map[string]bool{}
+	removedSet := map[string]bool{}
+	if opts.Compare != nil {
+		for _, n := range opts.Compare.AddedNodes {
+			addedSet[n.ID] = true
+		}
+		for _, n := range opts.Compare.RemovedNodes {
+			removedSet[n.ID] = true
+		}
+	}
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
-		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings)), w, h,
+		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings), addedSet, removedSet), w, h,
 		findingsJSON(opts.Findings), compareSummary(opts.Compare), historyJSON(opts.History),
 		legendNodes, legendEdges, foldedSymsJSON(foldedSyms))
 }
@@ -458,7 +470,7 @@ func nodeFill(n Node) (fill, stroke string) {
 // 改法：统计 viewEdges 中每个 (from,to) 的出现次数，画边时按次数设定
 // stroke-width（1.2 + 0.4×(n-1)，封顶 3.0）。折叠重定向后的目录聚合
 // 边自然变粗（多条 file→caller 合并为一条 file→dir）。
-func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge, fcount map[string]int) string {
+func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Edge, fcount map[string]int, addedSet, removedSet map[string]bool) string {
 	var b strings.Builder
 	// 边先画（垫底）；data-i 携带快照边序——JS 搜索联动按它回查 data.edges,
 	// 不依赖「DOM 序=数据序」的隐式对齐。边标签包 .edgeg 组默认隐藏、悬停
@@ -600,9 +612,24 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		if c := fcount[n.ID]; c > 0 {
 			tip += fmt.Sprintf(" · 意见 %d", c)
 		}
-		fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
-			n.Kind, html.EscapeString(n.ID), p[0], p[1],
-			html.EscapeString(tip), nodeW, h, fill, stroke, html.EscapeString(label))
+		// v6.10.6 方向 AQ：演化对比高亮——新增节点绿框 / 移除节点灰虚框
+		strokeExtra := ""
+		if addedSet[n.ID] {
+			strokeExtra = ` stroke="#16a34a" stroke-width="3"`
+			tip += "\n🆕 本轮新增波及"
+		} else if removedSet[n.ID] {
+			strokeExtra = ` stroke="#94a3b8" stroke-width="2" stroke-dasharray:4,3"`
+			tip += "\n🔄 上轮已移除"
+		}
+		if strokeExtra != "" {
+			fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" style="%s"/><text x="12" y="20">%s</text>`,
+				n.Kind, html.EscapeString(n.ID), p[0], p[1],
+				html.EscapeString(tip), nodeW, h, fill, strokeExtra, html.EscapeString(label))
+		} else {
+			fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
+				n.Kind, html.EscapeString(n.ID), p[0], p[1],
+				html.EscapeString(tip), nodeW, h, fill, stroke, html.EscapeString(label))
+		}
 		// v5.8.0 findings 徽标:有审查意见的文件节点右上角红点+计数
 		if c := fcount[n.ID]; c > 0 {
 			fmt.Fprintf(&b, `<circle cx="%d" cy="%d" r="9" fill="#dc2626"/><text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#fff" pointer-events="none">%d</text>`,
