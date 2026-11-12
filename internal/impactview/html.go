@@ -568,7 +568,7 @@ func truncateRunes(s string, max int) string {
 // impactLegend/impactLegendEdges 影响面页图例（v3.183.0 原文，v6.1.4 参数化
 // 以支持地图页分语境）。
 func impactLegend() string {
-	return `<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件`
+	return `<span class="lgd lgd-chg"></span>改动文件/符号（红=直接改动，黄=改动函数有调用方）<span class="lgd lgd-pkg"></span>包<span class="lgd lgd-tst"></span>测试<span class="lgd lgd-tbl"></span>SQL 表<span class="lgd lgd-file"></span>受影响文件（颜色越红=关联越多=风险越高）`
 }
 
 func impactLegendEdges() string {
