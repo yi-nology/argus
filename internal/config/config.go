@@ -95,14 +95,14 @@ type Config struct {
 	// PIIMask 出站评论值面 PII 脱敏（ARGUS_PII_MASK；v6.16.0 合规新增面，缺省开）：
 	// 命中手机号/身份证（gak pii 四重校验）打码并附透明脚注。与 logredact 键名面
 	// 互补。合规优先拍板——代码内容里的类证件号串可能被打码（误报评测护栏在案）。
-	PIIMask bool
-	PluginsFile    string
-	SkillsDir      string
-	WorkRoot       string
-	KnowledgeDir   string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
-	Platforms      map[string]PlatformConfig
-	LLM            LLMConfig
-	Version        string
+	PIIMask      bool
+	PluginsFile  string
+	SkillsDir    string
+	WorkRoot     string
+	KnowledgeDir string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
+	Platforms    map[string]PlatformConfig
+	LLM          LLMConfig
+	Version      string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭
