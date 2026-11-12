@@ -676,6 +676,22 @@ Object.keys(kindCounts).sort().forEach(k=>{
  b.onclick=()=>{if(kindFilter.has(k)){kindFilter.delete(k);b.classList.remove('on');}else{kindFilter.add(k);b.classList.add('on');}filter(q.value.trim().toLowerCase());};
  kindsEl.appendChild(b);
 });
+// v6.9.6 方向 W：「只看改动」过滤 chip
+(function(){
+ const b=document.createElement('span');b.className='kchip';b.dataset.k='__changed';
+ b.textContent='只看改动';
+ let onlyChanged=false;
+ b.onclick=()=>{
+  onlyChanged=!onlyChanged;
+  b.classList.toggle('on',onlyChanged);
+  document.querySelectorAll('#g .node').forEach(g=>{
+   const n=byId[g.dataset.id];
+   if(onlyChanged&&n&&!n.changed){g.classList.add('dim');}
+   else if(!onlyChanged){g.classList.remove('dim');}
+  });
+ };
+ kindsEl.appendChild(b);
+})();
 let focusId=null,focusSet=null;
 function neighborhood(id){
  const s=new Set([id]);
@@ -823,6 +839,8 @@ function showPanel(n){
   +'<div class="kv"><b>类型</b>'+esc(n.kind)+(n.changed?'（本轮改动）':'')+'</div>'
   +(n.detail?'<div class="kv"><b>详情</b>'+esc(n.detail)+'</div>':'')
   +'<div class="kv"><b>ID</b>'+esc(n.id)+'</div>'
+  // v6.9.6 方向 S：复制文件路径按钮
+  +(n.id.startsWith('file:')?' <span class="cplrow" title="点击复制路径" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+esc(n.id.slice(5)).replace(/'/g,"\\'")+'\')">📋复制路径</span>':'')
   +'<div class="kv"><b>聚焦</b>'+(focusId?'已聚焦一跳邻居（再点本节点取消）':'未聚焦')+'</div>'
   +'<h3 style="margin-top:12px">入边 '+edgesIn.length+'</h3>'+li(edgesIn)
   +'<h3 style="margin-top:12px">出边 '+edgesOut.length+'</h3>'+li(edgesOut)
