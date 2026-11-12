@@ -129,7 +129,12 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 		return "", false, nil
 	}
 	sys := buildProgramPrompt(question, historyText, reportAnchor, strategy, tools)
-	runOpts := ptc.Options{Timeout: ptcTimeout, MaxCalls: ptcMaxCalls, MaxBytes: ptcMaxBytes}
+	// v6.13.0 适配（goagent-kernel v0.34.0）：PTC 缺省拒「有绑定无判定环」——
+	// argus 的 qa 工具面在构造期已收口（进程内白名单工具 + 工作副本只读 + 检索
+	// 预算，见文件头接入纪律），无动态披露/出站面，属上游逃逸口的正当适用场景
+	//（「本层的工具另有一套管控」显式声明）。不设则 v0.34 起 QA PTC 运行期全拒。
+	runOpts := ptc.Options{Timeout: ptcTimeout, MaxCalls: ptcMaxCalls, MaxBytes: ptcMaxBytes,
+		AllowUnmanaged: true}
 
 	// 第 1 轮：程序合成（qa 上下文 + 工具面 + 程序契约）。
 	prog, err := e.generateProgram(ctx, sys, question, "")

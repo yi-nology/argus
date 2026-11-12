@@ -3,6 +3,33 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.13.0（2026-11-12，上游升级批：go-git-platform v0.127.0 + goagent-kernel v0.34.0）
+
+- **go-git-platform v0.126.0→v0.127.0**：吃下安全红利——**多跳重定向凭据「复活」
+  修复**（issue #127：平台→第三方→同域再跳链的 hop2 上初始头凭据 PRIVATE-TOKEN
+  被判剥却 no-op，令牌发去第三方主机；执行层改链头判据与决定层同判）——argus 的
+  GitLab 令牌在重定向场景不再泄漏面。同批 LastReadAt 族/gogit rev/ttlCache 世代/
+  branchfilter 跨平台修复被动受益；AllowDeletions 反号映射作废（#130）不影响
+  argus（不调分支保护写侧）。
+- **goagent-kernel v0.31.0→v0.34.0**：吃下执行意图/令牌铸造红利（sideeffect 执行
+  意图持久化、taskboard 令牌改存储铸造、checkpoint SaveIfNewer 拒 Seq==0、egress
+  强度分档）——argus 消费面仅 budget/checkpoint/ptc/toolname 四包，BREAKING 全部
+  落在零消费面（sideeffect/taskboard/SaveIfNewer），零适配成本。**一处适配**：QA
+  PTC 补 `AllowUnmanaged: true`（v0.32.0 起「有绑定无判定环」缺省拒——argus qa 工具
+  面构造期已收口白名单+只读+预算，属上游逃逸口正当场景；运行期拒绝由 qa 测试实锤
+  抓获，测试 Options 同步）。
+- **版本组合决策（留档防重探）**：未升 ggp v0.129.0——v0.128.0 起硬依赖 oekit/pkg
+  ≥v0.45（errors.Errorf 删除），而 goagent-kernel 全线（含 main 8624875f41c1）仍
+  用 errors.Errorf 且钉 pkg v0.44，MVS 冲突编译断（egress 包实锤）。已向上游提票；
+  待 gak 迁移后发版即回补 v0.129（其 MCP 加固与 argus 无关，v0.128 ttlcache
+  Recovered 收编等被动收益随回补兑现）。guardx 保持 v0.24.3（v0.24.5 适配 pkg
+  v0.46 同因缓升）。
+- 顺带对齐（两目标模块 go.mod 传递要求，非 argus 自选）：oekit logx v0.10.0、
+  oagentkit agent v0.14.10/mcpkit v0.13.2/runtime v0.12.9/toolgate v0.17.2/
+  tools v0.14.5、pgx v5.13.0、gitlab client-go v3.48.0、crypto v0.59.0。
+  go.mod 污染回退实录：首轮 go get 把全部直接依赖行抬升（pkg v0.46 混入），
+  checkout 回退后外科式单模块升级重作。
+
 ## v6.12.0（2026-11-12，影响面视图十五连增强：可读性 → 交互性 → 风险可感知）
 
 起因：`kylin-insights-agent` Rust 混合 PR 影响面图完全不可读（34 节点列 0 +

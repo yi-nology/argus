@@ -79,7 +79,7 @@ for (let i = 0; i < 5; i++) {
   if (r.ok) hits.push(r.i);
 }
 return {hits, n: hits.length};
-`, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 16, MaxBytes: ptcMaxBytes})
+`, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 16, MaxBytes: ptcMaxBytes, AllowUnmanaged: true})
 	if !ok.OK || ok.Value == "" {
 		t.Fatalf("预算内程序应成功：%+v", ok)
 	}
@@ -89,7 +89,7 @@ return {hits, n: hits.length};
 	over := ptc.Run(context.Background(), `
 for (let i = 0; i < 99; i++) { await host.probe('{}'); }
 return 1;
-`, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 8, MaxBytes: ptcMaxBytes})
+`, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 8, MaxBytes: ptcMaxBytes, AllowUnmanaged: true})
 	if over.OK || over.ErrorKind != "budget_calls" {
 		t.Fatalf("超预算应 budget_calls 截停：OK=%v kind=%q", over.OK, over.ErrorKind)
 	}
@@ -101,7 +101,7 @@ func TestPtcRunSandboxSubset(t *testing.T) {
 	res := ptc.Run(context.Background(), `return typeof fetch;`, []ptc.Binding{{
 		Name: "noop",
 		Call: func(context.Context, string) (string, error) { return "{}", nil },
-	}}, ptc.Options{Timeout: ptcTimeout, MaxCalls: 2, MaxBytes: 4096})
+	}}, ptc.Options{Timeout: ptcTimeout, MaxCalls: 2, MaxBytes: 4096, AllowUnmanaged: true})
 	if !res.OK || strings.Contains(res.Value, "function") {
 		t.Fatalf("fetch 应不可用：OK=%v value=%q", res.OK, res.Value)
 	}
@@ -164,7 +164,7 @@ func TestPtcRepairLoopEndToEnd(t *testing.T) {
 	// 两类可修复形态都验：(a) 真语法错（未闭合大括号）；(b) 合法但缺 return
 	//（ptc 契约 OK/Value="null"——忘写 return 的静默 bug，programFixable 特例）
 	broken := "const r = JSON.parse(await host.probe('{}'));\nconst leak = {" // 语法错：未闭合
-	first := ptc.Run(context.Background(), broken, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	first := ptc.Run(context.Background(), broken, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096, AllowUnmanaged: true})
 	if first.OK || first.ErrorKind != "syntax" {
 		t.Fatalf("坏程序应 syntax 拒：%+v", first)
 	}
@@ -172,13 +172,13 @@ func TestPtcRepairLoopEndToEnd(t *testing.T) {
 		t.Fatalf("语法错应可修复：%+v", first)
 	}
 	noReturn := "const r = JSON.parse(await host.probe('{}'));" // 合法但无 return
-	nr := ptc.Run(context.Background(), noReturn, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	nr := ptc.Run(context.Background(), noReturn, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096, AllowUnmanaged: true})
 	if !nr.OK || nr.Value != "null" || !programFixable(nr) {
 		t.Fatalf("缺 return 应 OK/null 且可修复：OK=%v value=%q fixable=%v", nr.OK, nr.Value, programFixable(nr))
 	}
 	// 回喂修复产物（模型侧理想输出形态）
 	fixed := "const r = JSON.parse(await host.probe('{}'));\nreturn {got: r.i};"
-	second := ptc.Run(context.Background(), fixed, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096})
+	second := ptc.Run(context.Background(), fixed, b, ptc.Options{Timeout: ptcTimeout, MaxCalls: 4, MaxBytes: 4096, AllowUnmanaged: true})
 	if !second.OK || second.Value == "null" {
 		t.Fatalf("修复后应成功：%+v", second)
 	}
