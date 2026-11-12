@@ -196,6 +196,16 @@ func (r *Runner) resolveReportTemplate(rc *plugin.RepoConfig) string {
 	return reporttmpl.Resolve(repo, r.Cfg.ReportTemplate)
 }
 
+// resolveReportTemplateChain 完整四级裁决（v6.11.0）：repo_settings admin 层 >
+// 仓 yaml > env。任务级（commentcmd --template / API 注入）在 Execute 装配处
+// 先于本链判定（任务 Artifacts 已带合法值则本链不执行）。
+func (r *Runner) resolveReportTemplateChain(rc *plugin.RepoConfig, knobs taskKnobs) string {
+	if knobs.reportTemplate != "" {
+		return knobs.reportTemplate
+	}
+	return r.resolveReportTemplate(rc)
+}
+
 // buildPluginTask 任务组装与注入：plugin.Task 骨架 → checkpoint 回流/落库钩子 →
 // 仓库指引/附加指令/学习环提示/跨轮一致性 → OCR/SAST/codegraph 前置 →
 // 仓库级行为配置进 workflow。
@@ -212,9 +222,8 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 	if ptask.Artifacts == nil {
 		ptask.Artifacts = map[string]string{}
 	}
-	// v6.10.0 报告契约模板：经 Artifacts 开放位传递——R4 builtin 适配器读它决定
-	// chain 纪律注入，workflow 读它决定分析师综合段是否触发。
-	ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplate(rc)
+	// v6.11.0 报告模板裁决在 Execute 装配后统一做（任务级 > repo_settings >
+	// 仓 yaml > env 四级链）——此处不再无条件覆盖任务 Artifacts 里的任务级值。
 	// G2 断点续审（v3.12.0）：同任务重试时回流已持久化的 R1/R2 阶段产物，
 	// 跳过已成功阶段的重复 LLM 调用（跨任务不生效——新任务无 checkpoint 键）。
 	if task.StageArtifacts != "" {

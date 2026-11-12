@@ -103,6 +103,16 @@ type Report struct {
 	// out.Analyst 注入）。各段 nil/空 = 渲染省略（N=0 分支纪律）——综合段失败
 	// 降级时 Analyst 为 nil，退化为 standard 骨架。
 	Analyst *plugin.AnalystSections
+
+	// ScaleFiles/ScaleAdditions/ScaleDeletions 变更规模统计（v6.11.0；runner
+	// 从 DiffContext 汇总，analyst 报告头「N 文件 +A/−B」形态）。ScaleFiles=0
+	// 时规模行整行省略（无 diff 的写作/问答任务不渲染空统计）。
+	ScaleFiles     int
+	ScaleAdditions int
+	ScaleDeletions int
+	// CIStatus head SHA 合并 CI 状态（v6.11.0；统一词表 pending|running|success|
+	// failure|error|canceled，空 = 未取到——meta 行省略该段，不显式报"无"）。
+	CIStatus string
 }
 
 // Render 渲染整份 markdown 报告（含 HTML 注释头）。按 Template 分发：
@@ -269,12 +279,15 @@ func renderFindings(b *strings.Builder, r Report) {
 	}
 }
 
-// renderMeta 元信息尾注节（耗时/成本/交叉审查/抑制计数）。
+// renderMeta 元信息尾注节（耗时/成本/交叉审查/抑制计数/CI 状态）。
 func renderMeta(b *strings.Builder, r Report) {
 	meta := fmt.Sprintf("task `%s` · 插件: %s · 耗时 %ds · tokens %d",
 		r.TaskID, strings.Join(r.Plugins, ","), int(r.Elapsed.Seconds()), r.Tokens)
 	if r.CostUSD > 0 {
 		meta += fmt.Sprintf(" · 成本 ≈ $%.4f", r.CostUSD)
+	}
+	if ci := ciStatusLabel(r.CIStatus); ci != "" {
+		meta += " · " + ci
 	}
 	fmt.Fprintf(b, "\n> %s\n", meta)
 	if r.CrossReview != "" {
@@ -378,20 +391,42 @@ func renderMinimal(r Report) string {
 		}
 	}
 	if r.Meta {
-		fmt.Fprintf(&b, "\n> task `%s` · 耗时 %ds · tokens %d\n",
-			r.TaskID, int(r.Elapsed.Seconds()), r.Tokens)
+		fmt.Fprintf(&b, "\n> task `%s` · 耗时 %ds · tokens %d", r.TaskID, int(r.Elapsed.Seconds()), r.Tokens)
+		if ci := ciStatusLabel(r.CIStatus); ci != "" {
+			fmt.Fprintf(&b, " · %s", ci)
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-// analystScaleLine 一句话规模统计（例文「7 文件 +519/−579」形态的可用部分：
-// 文件数；增删行数 diff 上下文未进 Report 输入，后续如需再扩）。
+// analystScaleLine 规模统计（例文「7 文件 +519/−579」形态；v6.11.0 接入真实
+// diff 统计——v6.10.0 留空实现已兑现）。无 diff 数据（ScaleFiles=0）整行省略。
 func analystScaleLine(r Report) string {
-	if r.Analyst == nil {
+	if r.ScaleFiles == 0 {
 		return ""
 	}
-	// 规模信息暂以 findings 数近似表达，diff 统计接入点留 TODO v6.11。
-	return ""
+	line := fmt.Sprintf("规模：%d 文件", r.ScaleFiles)
+	if r.ScaleAdditions > 0 || r.ScaleDeletions > 0 {
+		line += fmt.Sprintf("（+%d/−%d）", r.ScaleAdditions, r.ScaleDeletions)
+	}
+	return line
+}
+
+// ciStatusLabel 统一 CI 状态 → 展示短标签（图标 + 中文；空输入返回空串，调用方省略）。
+func ciStatusLabel(s string) string {
+	switch s {
+	case "success":
+		return "✅ CI 通过"
+	case "failure", "error":
+		return "❌ CI 失败"
+	case "canceled":
+		return "⏹ CI 已取消"
+	case "pending", "running":
+		return "⏳ CI 进行中"
+	default:
+		return ""
+	}
 }
 
 // claimIcon 声明判定五态图标（词表 plugin.ClaimStatus，spec §4.2）。

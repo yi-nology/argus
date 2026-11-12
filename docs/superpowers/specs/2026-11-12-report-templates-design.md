@@ -251,3 +251,26 @@ report_template 配置项；工具/配置计数同步；发版后「版本·计�
 6. reportview 三模板渲染
 7. runner 接线 + 全量测试
 8. 文档契约面 + 发版（v6.10.0，部署走 Mac 构建 swap-deploy 链）
+
+---
+
+## 9. 演进记录（v6.11.0，同批次落地）
+
+§2 非目标中三项解禁 + C 类记账一项落地，均按本节留档防重探：
+
+1. **任务级模板覆盖**：`@argus review --template <key>`（词表校验失败截停报错，
+   不吞意图）。commentcmd 新增 `ExtractTemplateFlag` 纯词法（保持零依赖，词表归
+   service 用 reporttmpl.IsValid 复核）；模板键经 CreateTaskDirect artifacts 进
+   任务体，runner 侧再 IsValid 防御复核（API 建任务可绕开 commentcmd）。
+2. **repo_settings admin 面**：`report_template` 指针旋钮（形状校验在 Parse，
+   词表校验在 runner 消费端——reposettings 刻意零 internal 依赖）。裁决链升为
+   四级：**任务级 > repo_settings admin > 仓 yaml > env**。
+3. **analyst 规模统计行**（v6.10.0 留空 TODO 兑现）：DiffContext 就地汇总
+   N 文件 +A/−B 进报告头一句话总结。
+4. **流水线状态进 meta**（C 类记账第一项）：SDK `CommitStatusManager.
+   ListCommitStatuses`（optional capability 门）+ `CombineCommitStatusStates`
+   统一词表聚合（worst-state），PRContext.CIStatus → 全模板 meta 行
+   （✅通过/❌失败/⏹取消/⏳进行中；取不到省略不显式报"无"）。**剩余 C 类记账**：
+   本 MR 人工评论去重、影响面六维语义表——仍是独立能力，另立项。
+
+v1 仍不做：仓级自定义模板内容（提示注入面红线不变）。

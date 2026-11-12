@@ -175,6 +175,10 @@ type PRContext struct {
 	// EventType 触发本任务的平台事件（cr.opened/cr.synchronize/...；CLI 手动任务为空）。
 	// 供 Triggers.Events 匹配；空值视为不限制。
 	EventType string
+	// CIStatus head SHA 的合并 CI 状态（v6.11.0；统一词表 pending|running|success|
+	// failure|error|canceled，空 = 未取到/平台无能力——渲染层省略该段）。best-effort
+	// 获取（capability 门 + 超时 + 静默降级），不参与任何裁决。
+	CIStatus string
 }
 
 // Key 返回 PR 唯一键（storage/staleness 共用）。

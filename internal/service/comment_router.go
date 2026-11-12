@@ -32,6 +32,7 @@ import (
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 // 评论意图词表（router.Route.Name；词表保持最小——两类处理链，第三类就是过度设计）。
@@ -51,17 +52,36 @@ var reviewKeywords = []string{
 }
 
 // dispatchReview 显式重审命令（review/评审/复核…）：确定性触发全量复审任务，
-// 免关键词快路径与 LLM 意图分类。返回 true 表示已消费该评论。
+// 免关键词快路径与 LLM 意图分类。支持 `--template <key>` 任务级模板覆盖（v6.11.0：
+// 不动仓配置即可试用 analyst/minimal）。返回 true 表示已消费该评论。
 func (s *Service) dispatchReview(ctx context.Context, question, platform, owner, repo,
 	prNum, prRef, delivery string) bool {
 	note, ok := commentcmd.ExtractReviewCmd(question)
 	if !ok {
 		return false
 	}
+	// --template 旗标：词表校验失败/旗标 malformed 都截停报错（不吞意图——
+	// 用户显式给了旗标，静默忽略比报错更糟）。
+	tmpl, noteRemainder, found, bad := commentcmd.ExtractTemplateFlag(note)
+	switch {
+	case bad:
+		s.postQAError(ctx, platform, owner, repo, prNum,
+			"`--template` 旗标格式有误（用法：`@argus review --template analyst`，可选值 standard|analyst|minimal）")
+		return true
+	case found && !reporttmpl.IsValid(tmpl):
+		s.postQAError(ctx, platform, owner, repo, prNum,
+			"未知报告模板 `"+tmpl+"`（可选值："+strings.Join(reporttmpl.Keys(), "|")+"）")
+		return true
+	}
 	if note == "" {
 		note = question
+	} else if found {
+		note = noteRemainder // 旗标剥除后的剩余说明进补充指令
+		if note == "" {
+			note = question
+		}
 	}
-	reply, err := s.rerunReviewReply(ctx, platform, owner, repo, prNum, prRef, note, delivery)
+	reply, err := s.rerunReviewReply(ctx, platform, owner, repo, prNum, prRef, note, delivery, tmpl)
 	if err != nil {
 		s.log().Error("argus.comment.review_cmd_failed", "pr", prRef, "error", err.Error())
 		s.postQAError(ctx, platform, owner, repo, prNum, "处理失败: "+err.Error())
@@ -130,7 +150,7 @@ func (s *Service) routeAndReply(ctx context.Context, platform, owner, repo, prNu
 		return "> " + input + "\n\n" + ans + "\n\n<!-- argus:qa delivery=" + delivery + " -->", nil
 	}
 	reviewHandle := func(input string) (string, error) {
-		return s.rerunReviewReply(ctx, platform, owner, repo, prNum, prRef, input, delivery)
+		return s.rerunReviewReply(ctx, platform, owner, repo, prNum, prRef, input, delivery, "")
 	}
 
 	// 确定性关键词快路径：短命令直达，不花分类调用
@@ -203,9 +223,15 @@ func (s *Service) classifyIntent(ctx context.Context, question string) (string, 
 // CreateTaskDirect 无同 SHA 去重——重审语义就是"同 head 再来一轮"（Merger 的
 // 跨轮指纹/抑制照常生效）。失败返回 error，由调用方走错误回帖路径。
 func (s *Service) rerunReviewReply(ctx context.Context, platform, owner, repo, prNum, prRef,
-	question, delivery string) (string, error) {
+	question, delivery, templateKey string) (string, error) {
+	artifacts := map[string]string{plugin.ArtifactTrigger: "comment"}
+	// v6.11.0 任务级模板覆盖：commentcmd 已做词表校验，此处直注任务 Artifacts
+	//（runner 侧仍做 IsValid 防御复核——API 建任务路径可绕开 commentcmd）。
+	if templateKey != "" {
+		artifacts[plugin.ArtifactReportTemplate] = templateKey
+	}
 	resp, status := s.CreateTaskDirect(ctx, domain.TaskKindRequirementCompliance,
-		platform, owner, repo, prNum, map[string]string{plugin.ArtifactTrigger: "comment"})
+		platform, owner, repo, prNum, artifacts)
 	if status != http.StatusOK || resp == nil {
 		return "", fmt.Errorf("建审查任务失败（HTTP %d）", status)
 	}

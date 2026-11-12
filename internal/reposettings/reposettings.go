@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // maxKnobValue 旋钮防呆上限（int 溢出防线；1e9 token/字符在真实部署下不可能触达）。
@@ -27,6 +28,12 @@ type Settings struct {
 	// MaxDiffChars 覆盖 MaxDiffCharsResolved()（diff 总量上限；runner
 	// prepareContext 与 service describe 共用）。
 	MaxDiffChars *int `json:"max_diff_chars,omitempty"`
+	// ReportTemplate 覆盖报告契约模板服务默认（v6.11.0；runner 模板裁决链
+	// admin 层：任务级 > 本层 > .reviewagents.yaml > ARGUS_REPORT_TEMPLATE）。
+	// 词表校验（standard|analyst|minimal）不在本包——reposettings 刻意零
+	// internal 依赖（L0），消费端 runner 用 reporttmpl.IsValid 复核，非法值
+	// 告警回退下一层（与 Resolve 防御语义一致）。形状校验在 Parse。
+	ReportTemplate *string `json:"report_template,omitempty"`
 }
 
 // Parse 解析并校验按仓配置 JSON。DisallowUnknownFields：拼写错误（如
@@ -55,6 +62,14 @@ func Parse(data []byte) (*Settings, error) {
 			return nil, fmt.Errorf("%s 须为 1~%d 的正整数，得到 %d", name, maxKnobValue, *v)
 		}
 	}
+	// report_template 形状校验（词表归消费端 reporttmpl.IsValid）：非空、
+	// ≤32 字符、不含空白/控制字符——配置写错比不生效更危险，形状层先挡。
+	if s.ReportTemplate != nil {
+		v := *s.ReportTemplate
+		if v != strings.TrimSpace(v) || v == "" || len(v) > 32 || strings.ContainsAny(v, "\t\n\r \x00") {
+			return nil, fmt.Errorf("report_template 形状非法（须为非空白 ≤32 字符单 token）: %q", v)
+		}
+	}
 	return &s, nil
 }
 
@@ -63,7 +78,8 @@ func (s *Settings) Normalize() ([]byte, error) { return json.Marshal(s) }
 
 // IsZero 全部字段未设置（调用方应拒收——空覆盖无意义，语义等同 DELETE）。
 func (s *Settings) IsZero() bool {
-	return s == nil || (s.MonthlyTokenBudget == nil && s.TaskTokenBudget == nil && s.MaxDiffChars == nil)
+	return s == nil || (s.MonthlyTokenBudget == nil && s.TaskTokenBudget == nil &&
+		s.MaxDiffChars == nil && s.ReportTemplate == nil)
 }
 
 // MonthlyTokenBudgetOr 生效值：未设置落 def（调用方传全局缺省）。nil receiver
@@ -89,6 +105,18 @@ func (s *Settings) MaxDiffCharsOr(def int) int {
 		return def
 	}
 	return or(s.MaxDiffChars, def)
+}
+
+// ReportTemplateOr 生效值：未设置落 def（空串 = 未设置，调用方再进 reporttmpl
+// 裁决链）。nil receiver 安全。
+func (s *Settings) ReportTemplateOr(def string) string {
+	if s == nil {
+		return def
+	}
+	if s.ReportTemplate == nil {
+		return def
+	}
+	return *s.ReportTemplate
 }
 
 func or(p *int, def int) int {

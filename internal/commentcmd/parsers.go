@@ -51,6 +51,44 @@ func ExtractFix(question string) (string, bool) {
 	return ParseFPHex(rest)
 }
 
+// ExtractTemplateFlag 从 review 命令补充说明里剥出 `--template <key>` 任务级
+// 模板旗标（v6.11.0）。支持 `--template key` 与 `--template=key` 两种形态；
+// 命中时返回 (key, 剥除旗标后的剩余说明, found=true)；旗标缺值或黏连多值返回
+// bad=true（调用方截停报错，不吞意图——与 ParseRecheck 的 RecheckFPBad 同纪律）。
+// 词表校验（standard|analyst|minimal）不在本层：commentcmd 是纯函数零依赖包，
+// 归 service 用 reporttmpl.IsValid 复核。
+func ExtractTemplateFlag(rest string) (key, remainder string, found, bad bool) {
+	fields := strings.Fields(rest)
+	var out []string
+	for i := 0; i < len(fields); i++ {
+		tok := fields[i]
+		if tok == "--template" || strings.HasPrefix(tok, "--template=") {
+			if found {
+				return "", "", true, true // 重复旗标 = 歧义，截停
+			}
+			found = true
+			if strings.HasPrefix(tok, "--template=") {
+				key = strings.TrimPrefix(tok, "--template=")
+				if key == "" {
+					return "", "", true, true // --template= 空值
+				}
+			} else {
+				if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "--") {
+					return "", "", true, true // 缺值
+				}
+				i++
+				key = fields[i]
+			}
+			continue
+		}
+		out = append(out, tok)
+	}
+	if !found {
+		return "", strings.TrimSpace(rest), false, false
+	}
+	return key, strings.Join(out, " "), true, false
+}
+
 // RecheckKind ParseRecheck 的裁决形态。
 type RecheckKind int
 

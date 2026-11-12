@@ -3,6 +3,22 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.11.0（2026-11-12，报告模板演进批：任务级覆盖 + admin 旋钮 + 规模统计 + CI 状态）
+
+spec §9 演进记录（`docs/superpowers/specs/2026-11-12-report-templates-design.md`）。
+
+- **任务级模板覆盖**：`@argus review --template analyst` 不动仓配置即可试用深度
+  报告（commentcmd 新增 ExtractTemplateFlag 纯词法，零依赖保持；词表校验失败
+  截停报错不吞意图；模板键经任务 artifacts 下发，runner 再 IsValid 防御复核）。
+- **repo_settings admin 旋钮**：`report_template` 按仓覆盖（Parse 形状校验，
+  词表归 runner 消费端复核——reposettings 零 internal 依赖纪律）。模板裁决链
+  升为四级：任务级 > repo_settings admin > 仓 yaml > env。
+- **analyst 规模统计**：报告头一句话总结附「N 文件 +A/−B」（DiffContext 就地
+  汇总，兑现 v6.10.0 留空 TODO）。
+- **流水线状态进 meta**：head SHA 合并 CI 状态全模板展示（SDK 统一
+  CommitStatusState 词表 + worst-state 聚合；capability 门取数，平台无能力/
+  未取到省略该段，绝不阻断审查）。
+
 ## v6.10.0（2026-11-12，报告契约模板系统：standard/analyst/minimal 三模板白名单）
 
 起因：`obs/kylin-insights-agent` MR!187 上 suoxiaocong 的分析师风格深度评审

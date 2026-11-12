@@ -95,3 +95,53 @@ func TestNormalizeRoundtrip(t *testing.T) {
 		t.Fatalf("规范形态或 omitempty 收敛错误: %s", b)
 	}
 }
+
+// v6.11.0 report_template 旋钮：形状校验（词表归消费端 runner 用
+// reporttmpl.IsValid 复核——本包刻意零 internal 依赖）+ Or 语义 + IsZero。
+func TestParseReportTemplate(t *testing.T) {
+	s, err := Parse([]byte(`{"report_template": "analyst"}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if s.ReportTemplate == nil || *s.ReportTemplate != "analyst" {
+		t.Fatalf("report_template = %v", s.ReportTemplate)
+	}
+	if s.IsZero() {
+		t.Fatal("非空配置被判 IsZero")
+	}
+	// 非词表值形状层放行（词表归 runner 消费端复核）——勿在本包加词表依赖。
+	s2, err := Parse([]byte(`{"report_template": "bogus"}`))
+	if err != nil {
+		t.Fatalf("词表外值应形状层放行: %v", err)
+	}
+	if s2.ReportTemplateOr("") != "bogus" {
+		t.Fatal("Or 未透传")
+	}
+	// Or 语义：nil receiver / 未设置落默认。
+	var nilS *Settings
+	if got := nilS.ReportTemplateOr("standard"); got != "standard" {
+		t.Fatalf("nil ReportTemplateOr = %q", got)
+	}
+	if got := (&Settings{}).ReportTemplateOr("minimal"); got != "minimal" {
+		t.Fatalf("未设置 ReportTemplateOr = %q", got)
+	}
+	// roundtrip 保形。
+	b, err := s.Normalize()
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if string(b) != `{"report_template":"analyst"}` {
+		t.Fatalf("omitempty 收敛错误: %s", b)
+	}
+	// 形状拒绝面。
+	for name, in := range map[string]string{
+		"空串":  `{"report_template": ""}`,
+		"含空白": `{"report_template": "analyst "}`,
+		"超长":  `{"report_template": "` + string(make([]byte, 0)) + `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}`,
+		"含换行": "{\"report_template\": \"ana\nlyst\"}",
+	} {
+		if _, err := Parse([]byte(in)); err == nil {
+			t.Fatalf("%s: 应拒绝 %s", name, in)
+		}
+	}
+}

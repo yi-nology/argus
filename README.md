@@ -136,6 +136,11 @@ describe:
 按仓 yaml 优先于服务级 `ARGUS_REPORT_TEMPLATE` 默认；非法值整份配置拒载降级（与
 `min_severity` 同纪律）。
 
+**模板裁决四级链（v6.11.0）**：任务级（评论指令 `@argus review --template analyst`，
+不动仓配置即可试用）> repo_settings admin 覆盖 > 仓 yaml > 服务 env。analyst 报告
+头附变更规模统计（N 文件 +A/−B）；全部模板的 meta 行附 head SHA 合并 CI 状态
+（capability 门取数，平台无能力/未取到则省略该段）。
+
 ### 5.2 确定性 SAST 前置（v3.15.0，默认关）
 
 配置 `ARGUS_SAST_GITLEAKS_BIN` / `ARGUS_SAST_SEMGREP_BIN`（+
@@ -436,7 +441,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /events` | 🔒 Bearer | SSE 任务进度流（阶段事件实时推送）|
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
-| `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖，PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
+| `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
 ### 5. 常用环境变量

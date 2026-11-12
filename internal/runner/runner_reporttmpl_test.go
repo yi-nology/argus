@@ -31,3 +31,22 @@ func TestResolveReportTemplate(t *testing.T) {
 		}
 	}
 }
+
+// v6.11.0 四级链的 admin 层：repo_settings > 仓 yaml > env（任务级在 Execute
+// 装配处先于本链判定，不在此函数语义内）。
+func TestResolveReportTemplateChain(t *testing.T) {
+	rcYaml := &plugin.RepoConfig{Review: plugin.ReviewSettings{ReportTemplate: "analyst"}}
+	r := &Runner{Cfg: &config.Config{ReportTemplate: "minimal"}}
+	if got := r.resolveReportTemplateChain(rcYaml, taskKnobs{reportTemplate: "standard"}); got != "standard" {
+		t.Fatalf("admin 层应压过 yaml/env: %q", got)
+	}
+	if got := r.resolveReportTemplateChain(rcYaml, taskKnobs{}); got != "analyst" {
+		t.Fatalf("yaml 层应生效: %q", got)
+	}
+	if got := r.resolveReportTemplateChain(nil, taskKnobs{}); got != "minimal" {
+		t.Fatalf("env 默认应生效: %q", got)
+	}
+	if got := r.resolveReportTemplateChain(nil, taskKnobs{reportTemplate: "bogus"}); got != "bogus" {
+		t.Fatalf("本函数不复核词表（复核在 loadTaskKnobs 消费端）: %q", got)
+	}
+}

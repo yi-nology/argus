@@ -167,6 +167,8 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/impactview",
 		"github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/obs",
 		"github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/qa",
+		// v6.11.0：--template 任务级覆盖的词表校验（reporttmpl 消费，commentcmd 保持零依赖）。
+		"github.com/yi-nology/argus/internal/reporttmpl",
 		"github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage",
 		// v3.123.0：diff 预审 prompt 单源下沉 writing.Service，service.ReviewDiff
 		// 委派（与 runner→writing 同向；同 qa 消费先例）。

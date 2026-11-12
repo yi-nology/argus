@@ -35,6 +35,7 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poster"
 	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/sink"
 	"github.com/yi-nology/argus/internal/storage"
@@ -321,6 +322,17 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
 
+	// v6.11.0 报告模板四级裁决：任务级（commentcmd --template / API 注入）优先——
+	// 须 IsValid 复核（API 建任务可绕开 commentcmd 词表校验，非法值告警弃用）；
+	// 任务级缺席时落 repo_settings admin > 仓 yaml > env 链。R4 builtin 适配器
+	// 与 workflow 综合段都经此 Artifacts 键消费。
+	if v := ptask.Artifacts[plugin.ArtifactReportTemplate]; !reporttmpl.IsValid(v) {
+		if v != "" {
+			r.Log.Warn("argus.runner.task_template_invalid", "task", task.ID, "value", v)
+		}
+		ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplateChain(rc, knobs)
+	}
+
 	var out *requirement.Output
 	switch task.Kind {
 	case domain.TaskKindRequirementCompliance:
@@ -338,6 +350,16 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
+	// v6.11.0 规模统计（analyst 报告头）+ CI 状态（meta 行）：数据就地汇总，
+	// 零额外调用（CIStatus 已在 buildPRContext 经 capability 门取好）。
+	if ptask.Diff != nil {
+		rep.ScaleFiles = len(ptask.Diff.Files)
+		for _, f := range ptask.Diff.Files {
+			rep.ScaleAdditions += f.Additions
+			rep.ScaleDeletions += f.Deletions
+		}
+	}
+	rep.CIStatus = pr.CIStatus
 	// 影响面段（v3.183.0）：injectImpactView 产出的快照渲染为评论折叠段
 	//（快照已在 ptask.Artifacts，零额外计算；坏 JSON 静默省段——不阻断回帖）。
 	if raw := ptask.Artifacts[plugin.ArtifactImpactView]; raw != "" {

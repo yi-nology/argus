@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/oagentkit/textx/textutil"
 	datacache "github.com/oekit/data/cache"
+	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -44,7 +46,37 @@ func (r *Runner) buildPRContext(ctx context.Context, task *storage.Task) (*plugi
 		HeadBranch:    cr.SourceBranch,
 		DefaultBranch: repo.DefaultBranch,
 		EventType:     task.EventType,
+		CIStatus:      r.fetchCIStatus(ctx, task.Platform, task.Owner, task.Repo, headSHA),
 	}, nil
+}
+
+// fetchCIStatus 取 head SHA 的合并 CI 状态（v6.11.0 流水线进报告 meta 的数据源）。
+// best-effort 三降级：平台无 CommitStatusManager 能力 / 调用失败 / 无状态——
+// 一律静默返回空串（渲染层省略该段），绝不阻断审查。统一词表由 SDK 后端归一
+// （CombineCommitStatusStates 取最坏状态：任一 context 失败即失败）。
+func (r *Runner) fetchCIStatus(ctx context.Context, platform, owner, repo, sha string) string {
+	if sha == "" || r.SDK == nil {
+		return ""
+	}
+	p, err := r.SDK.Provider(platform)
+	if err != nil || p == nil {
+		return ""
+	}
+	cs, ok := p.(provider.CommitStatusManager)
+	if !ok || !p.Capabilities().CommitStatuses {
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	statuses, err := cs.ListCommitStatuses(cctx, owner, repo, sha)
+	if err != nil || len(statuses) == 0 {
+		return ""
+	}
+	states := make([]provider.CommitStatusState, len(statuses))
+	for i, s := range statuses {
+		states[i] = s.State
+	}
+	return string(provider.CombineCommitStatusStates(states))
 }
 
 // buildDiffIncremental 拉取 diff 并尝试增量清洗（diff-of-diffs）。

@@ -172,3 +172,46 @@ func TestClaimIconVocab(t *testing.T) {
 		t.Fatalf("未知状态兜底 ❓, got %q", got)
 	}
 }
+
+// v6.11.0 规模统计 + CI 状态渲染。
+func TestRenderScaleAndCIStatus(t *testing.T) {
+	r := analystFixture()
+	r.ScaleFiles, r.ScaleAdditions, r.ScaleDeletions = 7, 519, 579
+	r.CIStatus = "failure"
+	out := Render(r)
+	if !strings.Contains(out, "规模：7 文件（+519/−579）") {
+		t.Fatalf("analyst 规模行缺失:\n%s", out)
+	}
+	if !strings.Contains(out, "❌ CI 失败") {
+		t.Fatalf("meta CI 段缺失:\n%s", out)
+	}
+
+	// ScaleFiles=0：规模行省略（无 diff 任务）。
+	r2 := analystFixture()
+	r2.ScaleFiles = 0
+	out2 := Render(r2)
+	if strings.Contains(out2, "规模：") {
+		t.Fatalf("无规模数据应省略规模行:\n%s", out2)
+	}
+
+	// CIStatus 空：meta 行不出现 CI 段（不显式报"无"）。
+	r3 := analystFixture()
+	r3.CIStatus = ""
+	out3 := Render(r3)
+	if strings.Contains(out3, "CI ") {
+		t.Fatalf("空 CIStatus 应省略:\n%s", out3)
+	}
+
+	// CI 词表映射全覆盖。
+	for state, want := range map[string]string{
+		"success": "✅ CI 通过", "failure": "❌ CI 失败", "error": "❌ CI 失败",
+		"canceled": "⏹ CI 已取消", "pending": "⏳ CI 进行中", "running": "⏳ CI 进行中",
+	} {
+		if got := ciStatusLabel(state); got != want {
+			t.Fatalf("ciStatusLabel(%q) = %q, want %q", state, got, want)
+		}
+	}
+	if got := ciStatusLabel("bogus"); got != "" {
+		t.Fatalf("未知 CI 状态应返回空: %q", got)
+	}
+}
