@@ -671,6 +671,7 @@ summary{cursor:pointer;color:#334155}
 <span id="kinds"></span>
 <button id="zin">放大</button><button id="zout">缩小</button><button id="fit">复位</button>
 <button id="export">导出 SVG</button>
+<button id="shareview" title="复制当前视图状态链接">分享视图</button>
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
 ` + cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
@@ -921,8 +922,20 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
  const params=new URLSearchParams(location.search);
  const focus=params.get('focus');
  if(focus&&byId[focus]){focusFileNode(focus);}
+ // v6.10.0 方向 AG：视图状态恢复——?scale=&tx=&ty= 精确恢复缩放/平移
+ const s=parseFloat(params.get('scale')),txp=parseFloat(params.get('tx')),typ=parseFloat(params.get('ty'));
+ if(!isNaN(s))scale=s; if(!isNaN(txp))tx=txp; if(!isNaN(typ))ty=typ;
 })();
 apply();
+// v6.10.0 方向 AG：「分享视图」按钮——复制当前 focus/scale/tx/ty 到剪贴板
+document.getElementById('shareview')?.addEventListener('click',()=>{
+ const u=new URL(location.href);
+ if(focusId)u.searchParams.set('focus',focusId);else u.searchParams.delete('focus');
+ u.searchParams.set('scale',scale.toFixed(2));
+ u.searchParams.set('tx',Math.round(tx));
+ u.searchParams.set('ty',Math.round(ty));
+ navigator.clipboard&&navigator.clipboard.writeText(u.toString());
+});
 </script></body></html>`
 }
 
