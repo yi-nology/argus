@@ -592,6 +592,33 @@ summary{cursor:pointer;color:#334155}
 .lgd-chg{background:#fecaca;border:1px solid #dc2626}.lgd-sym{background:#fef9c3;border:1px solid #ca8a04}.lgd-pkg{background:#dbeafe;border:1px solid #2563eb}.lgd-tst{background:#dcfce7;border:1px solid #16a34a}.lgd-tbl{background:#ede9fe;border:1px solid #7c3aed}.lgd-file{background:#e2e8f0;border:1px solid #64748b}
 .cplrow{cursor:pointer;padding:2px 0;font-size:12px;color:#334155}
 .cplrow:hover{color:#2563eb;text-decoration:underline}
+/* v6.9.4 暗色模式：prefers-color-scheme 媒体查询自动切换 */
+@media(prefers-color-scheme:dark){
+ body{color:#e2e8f0;background:#0f172a}
+ header{background:#1e293b;border-color:#334155}
+ #toolbar{background:#1e293b;border-color:#334155}
+ #viewport{background:#0f172a}
+ button{background:#1e293b;color:#e2e8f0;border-color:#334155}
+ button:hover{background:#334155}
+ #toolbar input{background:#0f172a;color:#e2e8f0;border-color:#334155}
+ aside{background:#1e293b;border-color:#334155}
+ aside .kv{color:#cbd5e1}
+ aside .kv b{color:#94a3b8}
+ summary{color:#94a3b8}
+ details{color:#cbd5e1}
+ .kchip{background:#1e293b;color:#e2e8f0;border-color:#334155}
+ .kchip.on{background:#3b82f6;color:#fff;border-color:#3b82f6}
+ .cplrow{color:#cbd5e1}
+ .cplrow:hover{color:#60a5fa}
+ .node text{fill:#e2e8f0}
+ .edge{stroke:#64748b}
+ .edgeg:hover path.edge{stroke:#94a3b8}
+ .elabel{fill:#64748b}
+ .meta{color:#94a3b8}
+ .badge.high{background:#7f1d1d;color:#fecaca}
+ .badge.medium{background:#78350f;color:#fef3c7}
+ .badge.low{background:#14532d;color:#dcfce7}
+}
 </style></head><body>
 <header>
 <h1>` + title + `</h1>
