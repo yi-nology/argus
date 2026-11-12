@@ -14,11 +14,11 @@ import (
 // benchMergeDiff 合成变更集：n 个 .go 文件、每文件 lines 行新增（单行约 40 字节）。
 func benchMergeDiff(n, lines int) *provider.MergeDiff {
 	files := make([]*provider.ChangedFile, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var b strings.Builder
 		path := fmt.Sprintf("pkg/file%03d.go", i)
 		fmt.Fprintf(&b, "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n@@ -1,%d +1,%d @@\n", path, path, path, path, lines, lines)
-		for j := 0; j < lines; j++ {
+		for j := range lines {
 			fmt.Fprintf(&b, "+func benchF%03d_%03d() { x := %d; _ = x }\n", i, j, j)
 		}
 		files = append(files, &provider.ChangedFile{NewPath: path, Diff: b.String(), Additions: lines})
@@ -40,7 +40,7 @@ func BenchmarkPrepareLarge(b *testing.B) {
 	md := benchMergeDiff(200, 60)
 	b.SetBytes(benchBytes(md))
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Prepare(md, 8<<20)
 	}
 }
@@ -51,7 +51,7 @@ func BenchmarkPrepareTruncated(b *testing.B) {
 	md := benchMergeDiff(200, 60)
 	b.SetBytes(benchBytes(md))
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Prepare(md, 512<<10)
 	}
 }

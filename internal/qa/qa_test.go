@@ -19,7 +19,7 @@ import (
 // 不应把长回答全文带回上下文。
 func TestRenderHistoryCapsAndEscapes(t *testing.T) {
 	var long strings.Builder
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		long.WriteRune('长')
 	}
 	hist := []storage.QATurn{
@@ -60,7 +60,7 @@ func TestRollSummary_DegradesToFIFO(t *testing.T) {
 
 func makeTurns(n int) []storage.QATurn {
 	turns := make([]storage.QATurn, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		turns = append(turns, storage.QATurn{Question: fmt.Sprintf("q%d", i), Answer: "a", At: "t"})
 	}
 	return turns

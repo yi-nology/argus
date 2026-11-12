@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -304,7 +304,7 @@ func scanScripts(dir string, deadline time.Time) *scriptGraph {
 	if len(paths) == 0 {
 		return nil
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 	fileSet := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		fileSet[p] = true

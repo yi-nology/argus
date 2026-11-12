@@ -45,7 +45,7 @@ func TestAnomalyGuardChainBreakResets(t *testing.T) {
 func TestAnomalyGuardNudgeCapReleases(t *testing.T) {
 	g := newAnomalyGuard()
 	blockedCount := 0
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		if _, blocked := g.check("get_symbol", `{"name":"Foo"}`); blocked {
 			blockedCount++
 		}

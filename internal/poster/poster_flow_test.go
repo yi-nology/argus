@@ -564,7 +564,7 @@ func TestPostSummary_ScanBotAuthorFilter(t *testing.T) {
 // SDK 全分页收齐后扫描步无位置盲区，勿在调用侧加早停/截断。
 func TestPostSummary_ScanFindsLateComment(t *testing.T) {
 	fp := newFakePlatform()
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		fp.comments = append(fp.comments, &provider.IssueComment{
 			ID: int64(100 + i), Body: fmt.Sprintf("讨论 %d", i),
 			Author: &provider.CRUser{Username: "dev"},

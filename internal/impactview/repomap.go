@@ -14,7 +14,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -180,7 +180,7 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 			}
 			return nil
 		})
-		sort.Strings(goFiles)
+		slices.Sort(goFiles)
 		if len(goFiles) > 0 && len(goFiles) <= mapFileNodeCap {
 			fset := token.NewFileSet()
 			for _, rel := range goFiles {
@@ -227,12 +227,12 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 		s.Notes = append(s.Notes, "未扫描到 Go/词法面多语言（shell/py/js/ts/rust/jvm/c）/SQL 依赖，地图为空（纯文档/纯 yaml 仓？）")
 		return s
 	}
-	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })
-	sort.Slice(s.Edges, func(i, j int) bool {
-		if s.Edges[i].From != s.Edges[j].From {
-			return s.Edges[i].From < s.Edges[j].From
+	slices.SortFunc(s.Nodes, func(a, b Node) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(s.Edges, func(a, b Edge) int {
+		if c := strings.Compare(a.From, b.From); c != 0 {
+			return c
 		}
-		return s.Edges[i].To < s.Edges[j].To
+		return strings.Compare(a.To, b.To)
 	})
 	s.Notes = append(s.Notes, "仓库全图（目录级）：节点 "+strconv.Itoa(len(s.Nodes))+
 		"、依赖边 "+strconv.Itoa(len(s.Edges))+"（import/source/血缘聚合）")

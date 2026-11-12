@@ -5,8 +5,9 @@
 package impactview
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -170,12 +171,11 @@ func prioritizeNodes(nodes []Node, max int) []Node {
 	}
 	sorted := make([]Node, len(nodes))
 	copy(sorted, nodes)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		wi, wj := weight(sorted[i]), weight(sorted[j])
-		if wi != wj {
-			return wi < wj
+	slices.SortStableFunc(sorted, func(a, b Node) int {
+		if c := cmp.Compare(weight(a), weight(b)); c != 0 {
+			return c
 		}
-		return sorted[i].ID < sorted[j].ID
+		return strings.Compare(a.ID, b.ID)
 	})
 	if len(sorted) > max {
 		sorted = sorted[:max]

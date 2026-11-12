@@ -48,15 +48,12 @@ func TestEnsureMigrationAppliedConcurrent(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	var errA, errB error
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, errA = sa.ensureMigrationApplied(context.Background(), "p0_concurrent_probe", fn)
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		_, errB = sb.ensureMigrationApplied(context.Background(), "p0_concurrent_probe", fn)
-	}()
+	})
 	wg.Wait()
 	if errA != nil || errB != nil {
 		t.Fatalf("并发迁移返回错误: A=%v B=%v", errA, errB)
@@ -118,17 +115,15 @@ func TestOpenSchemaLeaseSerial(t *testing.T) {
 	if networked := os.Getenv("ARGUS_TEST_MYSQL_DSN") != "" || os.Getenv("ARGUS_TEST_PG_DSN") != ""; networked {
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
-		wg.Add(2)
 		for i := range errs {
-			go func(i int) {
-				defer wg.Done()
+			wg.Go(func() {
 				s, err := Open(dsn)
 				if s != nil {
 					s.RunnerID = fmt.Sprintf("pod-%c", 'A'+i)
 					_ = s.Close()
 				}
 				errs[i] = err
-			}(i)
+			})
 		}
 		wg.Wait()
 		for i, err := range errs {

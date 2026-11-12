@@ -6,7 +6,7 @@ package impactview
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -41,7 +41,7 @@ func RenderList(s *Snapshot) string {
 	}
 	for _, kind := range []string{KindSymbol, KindPackage, KindFile, KindTest} {
 		items := byKind[kind]
-		sort.Strings(items)
+		slices.Sort(items)
 		if len(items) == 0 {
 			continue
 		}

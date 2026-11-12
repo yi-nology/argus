@@ -36,7 +36,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -145,11 +145,11 @@ func (x *Extractor) Edges(ctx context.Context, dir string) ([][2]string, error) 
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i][0] != out[j][0] {
-			return out[i][0] < out[j][0]
+	slices.SortFunc(out, func(a, b [2]string) int {
+		if c := strings.Compare(a[0], b[0]); c != 0 {
+			return c
 		}
-		return out[i][1] < out[j][1]
+		return strings.Compare(a[1], b[1])
 	})
 	return out, nil
 }

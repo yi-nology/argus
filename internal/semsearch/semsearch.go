@@ -4,10 +4,11 @@
 package semsearch
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -335,7 +336,7 @@ func (ix *Index) rebuildPathsLocked() {
 	for rel := range ix.files {
 		ix.paths = append(ix.paths, rel)
 	}
-	sort.Strings(ix.paths)
+	slices.Sort(ix.paths)
 }
 
 // Search 按 query 向量对全库 chunk 余弦打分，取相似度降序 topK（minScore>0 时
@@ -373,7 +374,7 @@ func (ix *Index) Search(ctx context.Context, query string, topK int, minScore fl
 			}})
 		}
 	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].h.Score > hits[j].h.Score })
+	slices.SortFunc(hits, func(a, b scored) int { return cmp.Compare(b.h.Score, a.h.Score) })
 	if topK <= 0 {
 		topK = 5
 	}
@@ -399,7 +400,7 @@ func cosine(a, b []float32) float32 {
 		n = len(b)
 	}
 	var dot, na, nb float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dot += float64(a[i]) * float64(b[i])
 		na += float64(a[i]) * float64(a[i])
 		nb += float64(b[i]) * float64(b[i])

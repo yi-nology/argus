@@ -6,7 +6,7 @@ package impactview
 
 import (
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -79,7 +79,7 @@ func scoreRisk(in riskInput) Risk {
 	case r.Score >= 25:
 		r.Level = RiskMedium
 	}
-	sort.Strings(reasons)
+	slices.Sort(reasons)
 	r.Reasons = reasons
 	return r
 }

@@ -219,7 +219,7 @@ func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n
 	}
 	results := make([]sampleRes, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		async.GoSafe(func() {
 			defer wg.Done()

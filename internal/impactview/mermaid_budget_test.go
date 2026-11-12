@@ -13,7 +13,7 @@ func TestTrimCallerEdgesBudget(t *testing.T) {
 		{From: "file:x", To: "file:y", Rel: RelSource},
 		{From: "file:x", To: "table:t", Rel: RelLineage},
 	}
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		edges = append(edges, Edge{From: "sym:b" + string(rune('a'+i%26)), To: "file:o", Rel: RelCaller})
 	}
 	inLen := len(edges)

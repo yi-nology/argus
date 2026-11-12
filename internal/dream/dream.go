@@ -14,9 +14,10 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,11 +145,7 @@ func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time
 		if len(a.repos) < 2 {
 			continue
 		}
-		repos := make([]string, 0, len(a.repos))
-		for r := range a.repos {
-			repos = append(repos, r)
-		}
-		sort.Strings(repos)
+		repos := slices.Sorted(maps.Keys(a.repos))
 		sampleHead, _ := textutil.TruncRunes(key, 80)
 		desc := fmt.Sprintf("跨仓模式（%d 仓共现）：%s", len(a.repos), memorykernel.SingleLine(sampleHead))
 		body := fmt.Sprintf("该审查模式在以下仓库均呈低置信（样本各自独立，跨仓共现提示组织级噪声源）：\n%s\n\n"+

@@ -5,7 +5,10 @@
 
 package semsearch
 
-import "sort"
+import (
+	"slices"
+	"strings"
+)
 
 // resolve 符号名 → 全名候选集：全名精确命中（定义位置或邻接键存在）返回单元素；
 // 否则按末段裸名查候选表（已升序、已封顶 graphSeedCap）——同名符号多候选即
@@ -49,11 +52,11 @@ func (g *symGraph) neighborsOf(symbol string) []SymRef {
 		return nil
 	}
 	// Symbol 同值时按 Rel 决出（同名互调的对称边顺序确定）。
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Symbol != out[j].Symbol {
-			return out[i].Symbol < out[j].Symbol
+	slices.SortFunc(out, func(a, b SymRef) int {
+		if c := strings.Compare(a.Symbol, b.Symbol); c != 0 {
+			return c
 		}
-		return out[i].Rel < out[j].Rel
+		return strings.Compare(a.Rel, b.Rel)
 	})
 	return out
 }
@@ -69,17 +72,15 @@ func (g *symGraph) undirected(n string) []string {
 	all := make([]string, 0, len(g.adj[n])+len(g.radj[n]))
 	all = append(all, g.adj[n]...)
 	all = append(all, g.radj[n]...)
-	sort.Strings(all)
+	slices.Sort(all)
 	return dedupStrings(all)
 }
 
 // stepRel u→v 的边向：v 在 adj[u]（u 调 v）即 calls，否则 called_by（无向 BFS
 // 的逆向步）。
 func (g *symGraph) stepRel(u, v string) string {
-	for _, c := range g.adj[u] {
-		if c == v {
-			return relCalls
-		}
+	if slices.Contains(g.adj[u], v) {
+		return relCalls
 	}
 	return relCalledBy
 }
@@ -121,8 +122,8 @@ func (ix *Index) SymbolContext(symbol string) (self SymRef, in, out []SymRef, ca
 			}
 		}
 	}
-	sort.Strings(callers)
-	sort.Strings(callees)
+	slices.Sort(callers)
+	slices.Sort(callees)
 	if len(callers) > graphCallersCap {
 		callers = callers[:graphCallersCap]
 	}

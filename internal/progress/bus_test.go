@@ -35,7 +35,7 @@ func TestBusDropOnSlow(t *testing.T) {
 	_ = ch
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			b.Publish(Event{Type: "x"})
 		}
 		close(done)

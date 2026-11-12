@@ -15,9 +15,10 @@
 package impactview
 
 import (
+	"cmp"
 	"go/ast"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -66,11 +67,11 @@ func collectSymbols(idx *codeintel.Index, gx *semsearch.Index, ranges map[string
 			}
 		}
 	}
-	sort.Slice(toucheds, func(i, j int) bool {
-		if toucheds[i].file != toucheds[j].file {
-			return toucheds[i].file < toucheds[j].file
+	slices.SortFunc(toucheds, func(a, b touched) int {
+		if c := strings.Compare(a.file, b.file); c != 0 {
+			return c
 		}
-		return toucheds[i].line < toucheds[j].line
+		return cmp.Compare(a.line, b.line)
 	})
 	if len(toucheds) > MaxSymbols {
 		toucheds = toucheds[:MaxSymbols]
