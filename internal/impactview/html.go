@@ -775,6 +775,12 @@ body.fullscreen #viewport{height:100vh}
 }
 /* v6.10.5 边类型过滤：隐藏非选中关系的边 */
 .edge.hidden{display:none}
+/* v6.11.0 小地图：右下角缩略图 + 视口指示器 */
+#minimap{position:fixed;right:16px;bottom:16px;width:180px;height:120px;border:1px solid #cbd5e1;border-radius:6px;background:rgba(255,255,255,.9);z-index:10;overflow:hidden}
+#minimap svg{width:100%;height:100%}
+#minimap rect.vp{fill:rgba(59,130,246,.15);stroke:#3b82f6;stroke-width:1}
+/* v6.11.0 节点拖拽中：禁用视口拖拽 */
+#viewport.nodedrag{cursor:move}
 </style></head><body>
 <header>
 <h1>` + title + `</h1>
@@ -788,6 +794,7 @@ body.fullscreen #viewport{height:100vh}
 <span id="edgekinds"></span>
 <button id="zin">放大</button><button id="zout">缩小</button><button id="fit">复位</button>
 <button id="export">导出 SVG</button>
+<button id="exportpng" title="导出 PNG 图片">导出 PNG</button>
 <button id="shareview" title="复制当前视图状态链接">分享视图</button>
 <button id="fullscreen" title="全屏模式">全屏</button>
 <button id="closepanel" style="display:none">收起详情</button>
@@ -804,6 +811,7 @@ body.fullscreen #viewport{height:100vh}
 <div id="viewport"><svg id="g" width="` + fmt.Sprint(w) + `" height="` + fmt.Sprint(h) + `" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `">
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#94a3b8"/></marker></defs>
 ` + svg + `</svg></div>
+<div id="minimap"><svg id="mm" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `"></svg></div>
 <aside id="panel"></aside>
 <script type="application/json" id="impact-data">` + dataJSON + `</script>
 ` + fScript + hScript + fsScript + `
@@ -1076,6 +1084,159 @@ document.getElementById('shareview')?.addEventListener('click',()=>{
 document.getElementById('fullscreen')?.addEventListener('click',()=>{
  if(document.fullscreenElement){document.exitFullscreen();document.body.classList.remove('fullscreen');}
  else{document.documentElement.requestFullscreen();document.body.classList.add('fullscreen');}
+});
+// ========== v6.11.0 四连：目录展开 + PNG导出 + 小地图 + 节点拖拽 ==========
+// v6.11.0 AC：目录节点双击展开/收起——动态插入/移除成员文件节点
+const expandedDirs=new Set();
+svg.addEventListener('dblclick',e=>{
+ const g=e.target.closest('.node');
+ if(!g)return;
+ const n=byId[g.dataset.id];
+ if(!n||n.kind!=='package'||!n.id.startsWith('dir:'))return;
+ e.stopPropagation();
+ const dirPath=n.id.slice(4);
+ if(expandedDirs.has(n.id)){
+  // 收起：移除成员节点和边
+  expandedDirs.delete(n.id);
+  svg.querySelectorAll('[data-dir="'+n.id+'"]').forEach(el=>el.remove());
+  g.querySelector('rect').setAttribute('stroke-dasharray','');
+  return;
+ }
+ expandedDirs.add(n.id);
+ const members=(data.nodes||[]).filter(x=>x.id.startsWith('file:')&&x.id.slice(5).startsWith(dirPath+'/'));
+ if(!members.length)return;
+ const gRect=g.querySelector('rect');
+ const baseX=parseFloat(g.getAttribute('transform').match(/translate\(([\d.]+)/)[1]);
+ const baseY=parseFloat(g.getAttribute('transform').match(/translate\(([\d.]+),([\d.]+)\)/)[2]);
+ members.forEach((m,i)=>{
+  const y=baseY+42+i*36;
+  const gEl=document.createElementNS('http://www.w3.org/2000/svg','g');
+  gEl.setAttribute('class','node kind-file');
+  gEl.setAttribute('data-id',m.id);
+  gEl.setAttribute('data-dir',n.id);
+  gEl.setAttribute('transform','translate('+baseX+','+y+')');
+  gEl.innerHTML='<title>file · '+esc(m.id)+'</title><rect width="240" height="30" rx="6" fill="#e2e8f0" stroke="#64748b"/><text x="12" y="20">'+esc(m.label.length>28?m.label.slice(0,27)+'…':m.label)+'</text>';
+  gEl.addEventListener('click',ev=>{ev.stopPropagation();showPanel(byId[m.id]);});
+  svg.appendChild(gEl);
+  // 画从目录节点到成员文件的虚线
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d','M'+(baseX+120)+','+(baseY+30)+' L'+(baseX+120)+','+y);
+  path.setAttribute('class','edge');
+  path.setAttribute('data-dir',n.id);
+  path.setAttribute('style','stroke-dasharray:3,3;stroke-width:1');
+  svg.insertBefore(path,gEl);
+ });
+ g.querySelector('rect').setAttribute('stroke-dasharray','6,3');
+});
+// v6.11.0 AK：导出 PNG——SVG → Canvas → toDataURL
+document.getElementById('exportpng')?.addEventListener('click',()=>{
+ const clone=svg.cloneNode(true);
+ const st=document.createElementNS('http://www.w3.org/2000/svg','style');
+ st.textContent=Array.from(document.styleSheets).flatMap(ss=>{try{return Array.from(ss.cssRules).map(r=>r.cssText);}catch(e){return [];}}).join('\n');
+ clone.insertBefore(st,clone.firstChild);
+ clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+ const xml=new XMLSerializer().serializeToString(clone);
+ const img=new Image();
+ img.onload=()=>{
+  const canvas=document.createElement('canvas');
+  canvas.width=svg.viewBox.baseVal.width*2;
+  canvas.height=svg.viewBox.baseVal.height*2;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(2,2);
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0);
+  const a=document.createElement('a');
+  a.href=canvas.toDataURL('image/png');
+  a.download='argus-impact-'+(data&&data.nodes?data.nodes.length:'x')+'.png';
+  a.click();
+ };
+ img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+});
+// v6.11.0 AM：小地图——全图缩略 + 当前视口矩形
+(function(){
+ const mm=document.getElementById('mm');
+ if(!mm)return;
+ const gRect=document.getElementById('g');
+ const vb=gRect.viewBox.baseVal;
+ // 简化的节点缩略点
+ data.nodes.forEach(n=>{
+  const gEl=gRect.querySelector('[data-id="'+CSS.escape(n.id)+'"]');
+  if(!gEl)return;
+  const t=gEl.getAttribute('transform');
+  const m=t&&t.match(/translate\(([\d.]+),([\d.]+)\)/);
+  if(!m)return;
+  const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x',parseFloat(m[1])/8);r.setAttribute('y',parseFloat(m[2])/8);
+  r.setAttribute('width',30);r.setAttribute('height',4);
+  r.setAttribute('fill',n.changed?'#dc2626':'#94a3b8');
+  r.setAttribute('opacity',n.changed?'0.9':'0.4');
+  mm.appendChild(r);
+ });
+ // 视口指示器
+ const vp=document.createElementNS('http://www.w3.org/2000/svg','rect');
+ vp.setAttribute('class','vp');
+ mm.appendChild(vp);
+ function updateVp(){
+  const vpW=document.getElementById('viewport').clientWidth;
+  const vpH=document.getElementById('viewport').clientHeight;
+  const mmScale=180/vb.width;
+  vp.setAttribute('x',(-tx/scale)*mmScale);
+  vp.setAttribute('y',(-ty/scale)*mmScale);
+  vp.setAttribute('width',(vpW/scale)*mmScale);
+  vp.setAttribute('height',(vpH/scale)*mmScale);
+ }
+ updateVp();
+ const origApply=apply;
+ apply=function(){origApply();updateVp();};
+})();
+// v6.11.0 AN：节点拖拽——mousedown 节点上拖动更新位置
+let nodeDrag=null;
+svg.addEventListener('mousedown',e=>{
+ const g=e.target.closest('.node');
+ if(!g)return;
+ e.stopPropagation();
+ const id=g.dataset.id;
+ const startX=e.clientX,startY=e.clientY;
+ const origTx=tx,origTy=ty;
+ vp.classList.add('nodedrag');
+ nodeDrag={id,g,origTx,origTy,startX,startY};
+ const move=ev=>{
+  if(!nodeDrag)return;
+  const dx=(ev.clientX-startX)/scale,dy=(ev.clientY-startY)/scale;
+  const cur=g.getAttribute('transform').match(/translate\(([\d.]+),([\d.]+)\)/);
+  if(cur){
+   const nx=parseFloat(cur[1])+dx,ny=parseFloat(cur[2])+dy;
+   g.setAttribute('transform','translate('+nx+','+ny+')');
+   nodeDrag.startX=ev.clientX;nodeDrag.startY=ev.clientY;
+   // 更新连接到该节点的边
+   svg.querySelectorAll('.edge').forEach(p=>{
+    const ei=+p.dataset.i;
+    const ed=data.edges[ei];
+    if(!ed)return;
+    if(ed.from===id||ed.to===id){
+     // 简化：只更新端点在该节点上的边的起点/终点 Y 坐标
+     const fromG=svg.querySelector('[data-id="'+CSS.escape(ed.from)+'"]');
+     const toG=svg.querySelector('[data-id="'+CSS.escape(ed.to)+'"]');
+     if(!fromG||!toG)return;
+     const ft=fromG.getAttribute('transform').match(/translate\(([\d.]+),([\d.]+)\)/);
+     const tt=toG.getAttribute('transform').match(/translate\(([\d.]+),([\d.]+)\)/);
+     if(!ft||!tt)return;
+     const x1=parseFloat(ft[0])+240,y1=parseFloat(ft[1])+15;
+     const x2=parseFloat(tt[0]),y2=parseFloat(tt[1])+15;
+     const mid=(x1+x2)/2;
+     p.setAttribute('d','M'+x1+','+y1+' C'+mid+','+y1+' '+mid+','+y2+' '+x2+','+y2);
+    }
+   });
+  }
+ };
+ const up=()=>{
+  nodeDrag=null;
+  vp.classList.remove('nodedrag');
+  window.removeEventListener('mousemove',move);
+  window.removeEventListener('mouseup',up);
+ };
+ window.addEventListener('mousemove',move);
+ window.addEventListener('mouseup',up);
 });
 </script></body></html>`
 }
