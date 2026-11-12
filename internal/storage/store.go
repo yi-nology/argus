@@ -34,6 +34,9 @@ type Store struct {
 	// `holder = ? OR expires_at < ?` 条件互相"续约"抢锁（双实例并发首启同跑迁移）。
 	fallbackOnce sync.Once
 	fallbackID   string
+	// inFlightGuardActive 在飞唯一防线建立结果（v6.12 P1 readyz 探针用；
+	// warnInFlightGuard 在 Open 时写入，正常启动后即为真实值）。
+	inFlightGuardActive bool
 }
 
 // instanceID 本实例唯一身份：RunnerID 优先，未装配时惰性生成进程内唯一 ID
@@ -199,16 +202,31 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 // 租约内执行（建索引/加列是 DDL，多副本必须串行）。失败语义沿 v3.9.1 决策——
 // 真实执行错误与历史在飞重复均只告警不阻断启动（防线退化为事务内检查，数据
 // 收敛后重启自愈）。
+//
+// v6.12 P1（外部评估实锤）：默认告警降级，但 ARGUS_STRICT_GUARDS=1（生产严格
+// 模式）时防线缺失拒绝启动（fail-closed）；InFlightGuardActive 供 /readyz
+// 在严格模式下对防线存在性做启动后复核。
 func (s *Store) warnInFlightGuard() error {
 	active, err := s.EnsureInFlightGuard()
+	s.inFlightGuardActive = active
 	switch {
 	case err != nil:
 		s.db.Logger.Warn(context.Background(), "argus.boot 在飞唯一防线建立失败（双跑防线退化为事务内检查）: %v", err)
+		if os.Getenv("ARGUS_STRICT_GUARDS") == "1" {
+			return fmt.Errorf("storage: 在飞唯一防线建立失败（ARGUS_STRICT_GUARDS=1 严格模式拒绝启动）: %w", err)
+		}
 	case !active:
 		s.db.Logger.Warn(context.Background(), "argus.boot tasks 表存在历史在飞重复，唯一索引未建立；清理重复任务后重启自愈")
+		if os.Getenv("ARGUS_STRICT_GUARDS") == "1" {
+			return fmt.Errorf("storage: 在飞唯一防线未建立（历史在飞重复；ARGUS_STRICT_GUARDS=1 严格模式拒绝启动，清理重复任务后重启）")
+		}
 	}
 	return nil
 }
+
+// InFlightGuardActive 防线存在性（v6.12 readyz 探针用；未跑过 EnsureInFlightGuard
+// 时为 false——storage.Open 必跑，正常启动后即为真实值）。
+func (s *Store) InFlightGuardActive() bool { return s.inFlightGuardActive }
 
 // ensureLeaseTable 租约载体表引导（P0-04）：GORM AutoMigrate 的 check-then-create
 // 在两副本并发首启时撞数据库 catalog（MySQL 1050 table already exists / PG

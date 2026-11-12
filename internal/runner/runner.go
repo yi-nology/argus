@@ -63,8 +63,9 @@ type Runner struct {
 	Knowledge  rag.KnowledgeService
 	// WC 工作副本池（OCR delegate 前置使用；nil = 委托前置不生效）。
 	WC      *workcopy.Pool
-	Bus     *progress.Bus    // 任务进度事件（v3.1 SSE；nil 安全）
-	Notify  *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
+	Bus       *progress.Bus   // 任务进度事件（v3.1 SSE；nil 安全）
+	EventSeen *progress.Dedup // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
+	Notify    *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
 	Sink    *sink.Reporter   // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
 	Poster  *poster.Poster
 	Log     logx.Logger

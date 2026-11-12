@@ -256,6 +256,17 @@ func registerCustom(h *server.Hertz, store *storage.Store, cfg *config.Config, s
 				}
 				return errors.New("llm unreachable")
 			}),
+			// v6.12 P1：严格模式下复核在飞唯一防线存在性（评估「约束缺失不应
+			// Ready」）；非严格模式不检查（兼容告警降级语义，缺省即不阻断）。
+			health.NamedChecker("in_flight_guard", func(ctx context.Context) error {
+				if os.Getenv("ARGUS_STRICT_GUARDS") != "1" {
+					return nil
+				}
+				if store.InFlightGuardActive() {
+					return nil
+				}
+				return errors.New("in-flight unique guard not established")
+			}),
 		),
 		health.WithCheckTimeout(5*time.Second),
 	))

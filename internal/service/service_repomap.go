@@ -171,18 +171,26 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 	// 阶段二（锁外）：freshness 探测。任何失败按失配处理——fail-safe 刷新
 	//（v6.7.0 P1-04：此前 ls-remote 失败按「一致」处理，HEAD 对比恒 true，
 	// 提交更新后代码地图永不刷新）。
+	// v6.12 P1（外部评估实锤）：探测失配不自删 probeDir——并发请求 A 可能
+	// 正处在阶段三重建扫描中，B 删其工作目录即地图损坏。代际标记（staleDir
+	// 保留给 in-flight 重建方在成功落缓存后统一回收）+ 阶段三 fresh 分支
+	// 「同代同 dir」命中即返回缓存——多探测者最多一个进入重建（退位语义），
+	// 不再互删。
 	probedStale := false
 	if probeDir != "" {
 		if s.repoMapHeadMatches(ctx, probeDir, platform) {
 			return probeSnap, nil
 		}
-		probedStale = true
-		os.RemoveAll(probeDir) // 失配：丢弃旧副本走全量重建（cloneForMap 重克隆）
+		probedStale = true // 不自删——代际标记留给重建方回收
 	}
 
 	// 阶段三：锁内复查 + in-flight 占位（check-and-set 原子，防并发双克隆）。
 	// 探测期间他请求可能已重建完成（e.at 推进）——TTL 内直接采信；但自己刚
 	// 探测失配的同一代快照不得再采信（否则刷新被旧缓存短路，永不生效）。
+	// v6.12 P1：同代同 dir 不采信（e.at.Equal(probedAt) 判同代，不论 dir 是否
+	// 变化）——并发重建方落缓存时必推进 e.at（at: time.Now()），第二个探测者
+	// 进入本阶段看到 e.at 已推进即知重建完成、采信新代。旧代同 dir 残留仅
+	// 出现在「自己即将重建」的占位被回收前，不得短路。
 	repoMaps.mu.Lock()
 	if e, ok := repoMaps.items[key]; ok {
 		fresh := now.Sub(e.at) < repoMapTTL
@@ -203,6 +211,14 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 	repoMaps.mu.Unlock()
 
 	var snap *impactview.Snapshot
+	// v6.12 P1：重建方克隆前清理自己探测失配的那一代目录——cloneForMap 对
+	// 同哈希目录已有 .git 直接复用（旧 HEAD 仍在），不清理则「重建」实为空转。
+	// 安全性：只有重建方（in-flight 占位持有者）删自己刚探测过的目录；并发
+	// 探测者已进入阶段三会命中占位返回「生成中」，不会走到这里；若另一重建
+	// 方抢先占位，本请求已在上方 fresh 分支采信/报错返回，亦不会走到这里。
+	if probedStale && probeDir != "" {
+		_ = os.RemoveAll(probeDir)
+	}
 	dir, err := s.cloneForMap(ctx, platform, owner, repo)
 	if err == nil {
 		snap = impactview.BuildRepoMap(dir, repoMapScanTimeout)

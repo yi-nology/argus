@@ -195,8 +195,13 @@ func (r *Runner) publishStage(task *storage.Task, stage string) {
 
 // publishOutbox 进程内 Bus + outbox 双写（与 service.publishProgress 同语义：
 // 本实例实时、跨实例 fanout 回灌；追加失败计数+告警不阻断）。
+// v6.12 P1：本地发布前登记 EventSeen 环——fanout 回灌同 ID 跳过，同实例
+// at-most-once（评估实锤的「同实例收到两次」竞窗修复；nil 时退回旧语义）。
 func (r *Runner) publishOutbox(ev progress.Event) {
 	ev.ID = progress.NewEventID()
+	if r.EventSeen != nil {
+		r.EventSeen.Add(ev.ID)
+	}
 	r.Bus.Publish(ev)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

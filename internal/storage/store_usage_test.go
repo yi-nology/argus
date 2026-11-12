@@ -67,11 +67,11 @@ func TestFindReportByHead(t *testing.T) {
 	if err := s.CreateTask(ctx, tk); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.FindReportByHead(ctx, "abc123")
+	got, err := s.FindReportByHead(ctx, "abc123", "", "", "")
 	if err != nil || got.Report != "# 报告" {
 		t.Fatalf("want 命中，got %v err=%v", got, err)
 	}
-	if _, err := s.FindReportByHead(ctx, "missing"); err == nil {
+	if _, err := s.FindReportByHead(ctx, "missing", "", "", ""); err == nil {
 		t.Fatal("未命中应报 NotFound")
 	}
 }

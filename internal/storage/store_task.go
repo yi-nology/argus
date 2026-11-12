@@ -568,11 +568,19 @@ func (s *Store) ListTasksByPR(ctx context.Context, platform, owner, repo, number
 
 // FindReportByHead 按 head SHA 查最近一次成功的报告（GET /reports/:ref）。
 // 无报告返回 ErrNotFound 哨兵。
-func (s *Store) FindReportByHead(ctx context.Context, headSHA string) (*Task, error) {
+//
+// v6.12 P1（外部评估实锤）：此前 head SHA 是全局寻址键，同 SHA 多仓（fork/
+// 镜像）时可能先取到别仓报告再 403，而不是继续查找有权访问的报告。现改
+// 组合寻址——platform/owner/repo 非空时在查询阶段限定仓库范围，天然只取到
+// 本仓报告；全空保持全局语义（向后兼容）。
+func (s *Store) FindReportByHead(ctx context.Context, headSHA, platform, owner, repo string) (*Task, error) {
+	q := s.quietDB().WithContext(ctx).
+		Where("head_sha = ? AND status = ? AND report != ''", headSHA, StatusDone)
+	if platform != "" || owner != "" || repo != "" {
+		q = q.Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo)
+	}
 	var t Task
-	err := s.quietDB().WithContext(ctx).
-		Where("head_sha = ? AND status = ? AND report != ''", headSHA, StatusDone).
-		Order("created_at DESC").First(&t).Error
+	err := q.Order("created_at DESC").First(&t).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -580,6 +588,19 @@ func (s *Store) FindReportByHead(ctx context.Context, headSHA string) (*Task, er
 		return nil, err
 	}
 	return &t, nil
+}
+
+// FindReportsByHead 按 head SHA 查全部成功报告（created_at DESC，跨仓 SHA 碰撞
+// 授权回退用：取列表逐条过授权，第一条通过的返回）。无报告返回空切片。
+func (s *Store) FindReportsByHead(ctx context.Context, headSHA string, limit int) ([]Task, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	var ts []Task
+	err := s.quietDB().WithContext(ctx).
+		Where("head_sha = ? AND status = ? AND report != ''", headSHA, StatusDone).
+		Order("created_at DESC").Limit(limit).Find(&ts).Error
+	return ts, err
 }
 
 // GetLastReviewedDiff 查询同 PR 最近一次 done 任务的 diff 文本（增量审查 diff-of-diffs）。

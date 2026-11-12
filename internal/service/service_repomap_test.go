@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,5 +230,77 @@ func TestRepoMapStaleCloneGC(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("不应清理 %s: %v", p, err)
 		}
+	}
+}
+
+// TestRepoMapConcurrentRefreshNoRacingDelete v6.12 P1 回归（外部评估实锤形态）：
+// 并发探测者检测到旧 HEAD 时不得互删对方工作目录——两个 goroutine 同时
+// 探测失配，至多一个进入重建（另一个在阶段三命中 in-flight 占位返回「生成中」
+// 或采信新代），任何时刻 .git 必须存在且最终快照必须含新文件。
+func TestRepoMapConcurrentRefreshNoRacingDelete(t *testing.T) {
+	root := t.TempDir()
+	bare := repomapSeedRepo(t, root, "concrmap")
+	s := repomapTestService(t, root, bare)
+	ctx := context.Background()
+
+	if _, err := s.repoMap(ctx, "local", "o", "rr"); err != nil {
+		t.Fatalf("首建失败: %v", err)
+	}
+
+	// 远端推进
+	work := filepath.Join(root, "seed2")
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("", "clone", "--depth", "1", bare, work)
+	if err := os.WriteFile(filepath.Join(work, "refresh_marker.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(work, "config", "user.email", "test@test")
+	run(work, "config", "user.name", "test")
+	run(work, "add", ".")
+	run(work, "commit", "-m", "refresh")
+	run(work, "push", bare, "main")
+
+	dst := repoMapWorkDir(root, "local", "o", "rr")
+
+	// 并发双探测：两者都探测失配 → 至多一个重建
+	var wg sync.WaitGroup
+	results := make([]error, 2)
+	snaps := make([][]byte, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			b, err := s.repoMap(ctx, "local", "o", "rr")
+			results[idx] = err
+			snaps[idx] = b
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range results {
+		if err != nil && !strings.Contains(err.Error(), "生成中") {
+			t.Fatalf("goroutine %d 非预期错误: %v", i, err)
+		}
+	}
+	// 至少一个成功拿到快照
+	ok := false
+	for _, b := range snaps {
+		if len(b) > 0 && strings.Contains(string(b), "refresh_marker") {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Fatal("并发刷新后无任一快照含新文件 refresh_marker.go")
+	}
+	// 目录不被互删：.git 必须存在
+	if _, err := os.Stat(filepath.Join(dst, ".git")); err != nil {
+		t.Fatalf("并发刷新后工作目录被误删（互删竞窗未修复）: %v", err)
 	}
 }

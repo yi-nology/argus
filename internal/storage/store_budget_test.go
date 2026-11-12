@@ -98,7 +98,7 @@ func TestFindReportByHead_MultipleHeads(t *testing.T) {
 		tk.Report = "报告" + sha
 		_ = s.CreateTask(ctx, tk)
 	}
-	got, err := s.FindReportByHead(ctx, "bbb")
+	got, err := s.FindReportByHead(ctx, "bbb", "", "", "")
 	if err != nil || got.Report != "报告bbb" {
 		t.Fatalf("应命中 bbb 报告: %+v err=%v", got, err)
 	}

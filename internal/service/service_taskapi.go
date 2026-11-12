@@ -282,10 +282,15 @@ func (s *Service) publishCreated(t *storage.Task) {
 
 // publishProgress 进程内快路径广播 + outbox 兜跨实例（P1-05，#10）：本实例
 // SSE 客户端走 Bus（实时），他实例的 fanout 环轮询 outbox 回灌其本地 Bus——
-// 双源经 Event.ID 去重。outbox 追加失败只计数+告警（观测面数据，at-least-once
-// 尽力而为，不阻断任务主流程）。
+// 双源经 Event.ID 去重（v6.12 P1：本地发布侧 Bus.Publish 前登记实例级
+// EventSeen 环，fanout 回灌命中环即跳过——同实例 at-most-once，修复评估实锤
+// 的「同实例收到两次」竞窗）。outbox 追加失败只计数+告警（观测面数据，
+// at-least-once 尽力而为，不阻断任务主流程）。
 func (s *Service) publishProgress(ev progress.Event) {
 	ev.ID = progress.NewEventID()
+	if s.EventSeen != nil {
+		s.EventSeen.Add(ev.ID) // 本地发布登记：fanout 回灌同 ID 跳过
+	}
 	s.Bus.Publish(ev)
 	if s.Store == nil {
 		return
@@ -361,11 +366,53 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 // GetReportByRef 按 head SHA 查最近一次成功报告（GET /reports/:ref；🔒，v3.1）。
 // v6.7.0 P0-02：解析出的任务必须过 AuthorizeTask——head SHA 是全局寻址键，
 // 此前无仓库约束判定，持任意 read 档 token 可按 SHA 跨仓读取完整审查报告。
+// v6.12 P1：评估实锤「同 SHA 多仓（fork/镜像）碰撞」——token 带仓库约束时
+// 先按约束精确寻址（查库阶段限定平台/仓），查不到再全局取列表逐条过授权
+// 回退（第一条通过者返回）；无约束 token 保持旧形态。
 func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTaskResponse, int) {
 	if ref == "" {
 		return nil, http.StatusBadRequest
 	}
-	task, err := s.Store.FindReportByHead(ctx, ref)
+	// v6.12 P1：评估实锤「同 SHA 多仓（fork/镜像）碰撞」+ 门禁「跨仓存在性探测
+	// 403」语义调和——
+	// ① token 带仓库约束：按约束精确寻址（查库阶段限定平台/仓，防碰撞）。
+	//    精确条目命中但越权 = 403（e2e 门禁「跨仓 ref 必须 403」语义，防存在性
+	//    探测）；未命中 = 404（该 SHA 不在本仓，语义等价「本仓无此报告」——
+	//    不暴露全局存在性）。
+	// ② 通配/多约束条目（无法精确寻址）：取 SHA 全量列表逐条过授权，第一条
+	//    通过的返回——评估语义（合法用户不被 fork 同 SHA 碰撞误 403）。
+	if tp := TokenReposFromContext(ctx); tp != "" {
+		if platform, owner, repo := parseExactRepoPattern(tp); platform != "" {
+			if task, err := s.Store.FindReportByHead(ctx, ref, platform, owner, repo); err == nil {
+				if s.AuthorizeTask(ctx, task.Platform, task.Owner, task.Repo) {
+					return reportResponse(task), http.StatusOK
+				}
+				authzDeniedMetric(ctx, "/reports/:ref")
+				return nil, http.StatusForbidden
+			}
+			return nil, http.StatusNotFound
+		}
+		// 通配/多约束：列表回退，第一条授权通过者返回；全部拒绝则 403——
+		// 语义：该 SHA 存在但当前 token 无权访问（与 e2e 门禁「跨仓 ref 403」
+		// 一致，防存在性探测泄露），与「本仓无此报告」404 区分。
+		tasks, err := s.Store.FindReportsByHead(ctx, ref, 0)
+		if err != nil {
+			return nil, http.StatusInternalServerError
+		}
+		for i := range tasks {
+			t := &tasks[i]
+			if s.AuthorizeTask(ctx, t.Platform, t.Owner, t.Repo) {
+				return reportResponse(t), http.StatusOK
+			}
+		}
+		if len(tasks) > 0 {
+			authzDeniedMetric(ctx, "/reports/:ref")
+			return nil, http.StatusForbidden
+		}
+		return nil, http.StatusNotFound
+	}
+	// 无仓库约束：旧语义——全局取最新一条 + 授权
+	task, err := s.Store.FindReportByHead(ctx, ref, "", "", "")
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, http.StatusNotFound
@@ -376,12 +423,39 @@ func (s *Service) GetReportByRef(ctx context.Context, ref string) (*argus.GetTas
 		authzDeniedMetric(ctx, "/reports/:ref")
 		return nil, http.StatusForbidden
 	}
+	return reportResponse(task), http.StatusOK
+}
+
+// reportResponse GetReportByRef 响应构造（单源，两处共用）。
+func reportResponse(task *storage.Task) *argus.GetTaskResponse {
 	return &argus.GetTaskResponse{
 		TaskId:  task.ID,
 		Status:  task.Status,
 		Verdict: strPtr(task.Verdict),
 		Report:  strPtr(task.Report),
-	}, http.StatusOK
+	}
+}
+
+// parseExactRepoPattern 把 token 仓库约束的精确条目 "platform:owner/repo"
+// 解析成三元组；非精确形态（空/含通配 */多条目）返回空串走列表回退。
+func parseExactRepoPattern(tp string) (platform, owner, repo string) {
+	if tp == "" || strings.Contains(tp, ",") || strings.Contains(tp, "*") {
+		return "", "", ""
+	}
+	rest, ok := strings.CutPrefix(tp, ":")
+	if !ok {
+		return "", "", ""
+	}
+	var rest2 string
+	platform, rest2, ok = strings.Cut(rest, ":")
+	if !ok || platform == "" {
+		return "", "", ""
+	}
+	owner, repo, ok = strings.Cut(rest2, "/")
+	if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+		return "", "", ""
+	}
+	return platform, owner, repo
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。
