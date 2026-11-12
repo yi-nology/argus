@@ -119,16 +119,57 @@ func withFuncDiffNodes(s *Snapshot) *Snapshot {
 	return &vs
 }
 
+// viewGraphSymbolsCap 列 0 改动节点（symbol + file）上限：超出时 symbol 折叠进
+// 父文件节点（同文件多 symbol 合一）。实测 27 symbol + 7 file = 34 节点列 0
+// 在 1080p 视口不可读（边交叉全糊）；折叠后 7 file 节点 + 重定向边即可读。
+const viewGraphSymbolsCap = 12
+
 // viewGraph 交互视图的剪枝集（与 mermaid 同纪律，v3.185.2）：孤立改动符号
 // （度=0——类型/常量被触达但无人调用）不进图，改动列从 16 盒收敛到 6 盒。
 // 返回视图节点集与 (原始边序, 边) 对——data-i 须指向完整 s.Edges,JS 搜索
 // 联动按它回查内嵌全量数据。
+//
+// v6.9.1 混合语言 PR 可读性：列 0 改动节点超 viewGraphSymbolsCap 时，symbol
+// 折叠进父文件节点（Detail 记 "N 函数被触达"），边重定向 file→caller 并去重。
+// 只影响视图剪枝集——快照 JSON 全量保留（JS 搜索/侧栏数据面不回退）。
 func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 	deg := map[string]int{}
 	for _, e := range s.Edges {
 		deg[e.From]++
 		deg[e.To]++
 	}
+
+	// ---- v6.9.1 列 0 超载判定：changed symbol + changed file 计数 ----
+	changedSymCount := 0
+	changedFileCount := 0
+	for _, n := range s.Nodes {
+		if !n.Changed {
+			continue
+		}
+		switch n.Kind {
+		case KindSymbol:
+			if deg[n.ID] > 0 {
+				changedSymCount++
+			}
+		case KindFile:
+			changedFileCount++
+		}
+	}
+	collapseSyms := changedSymCount+changedFileCount > viewGraphSymbolsCap && changedSymCount > 0
+
+	// symID → parent file ID 映射（折叠用）：sym:path:FuncName → file:path
+	symToFile := map[string]string{}
+	if collapseSyms {
+		for _, n := range s.Nodes {
+			if n.Kind == KindSymbol && n.Changed && deg[n.ID] > 0 {
+				if parts := strings.SplitN(n.ID, ":", 3); len(parts) == 3 {
+					symToFile[n.ID] = "file:" + parts[1]
+				}
+			}
+		}
+	}
+
+	// ---- 节点剪枝（symbol 折叠进父文件）----
 	nodes := make([]Node, 0, len(s.Nodes))
 	noTest := map[string]bool{}
 	for _, p := range s.Packages {
@@ -136,9 +177,17 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 			noTest["pkg:"+p.Path] = true
 		}
 	}
+	// 折叠计数：fileID → 被折叠的 symbol 数
+	symFoldCount := map[string]int{}
 	for _, n := range s.Nodes {
 		if n.Kind == KindSymbol && deg[n.ID] == 0 {
 			continue
+		}
+		if collapseSyms && n.Kind == KindSymbol && n.Changed {
+			if parentID, ok := symToFile[n.ID]; ok {
+				symFoldCount[parentID]++
+				continue // 折叠：不单独进图
+			}
 		}
 		// v5.7.4 包节点标注测试覆盖缺口（风险面 TestMissing 的图上直读形态）
 		if n.Kind == KindPackage && noTest[n.ID] && !strings.HasSuffix(n.Label, "·无测试") {
@@ -146,14 +195,38 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 		}
 		nodes = append(nodes, n)
 	}
+	// 折叠后的文件节点 Detail 补充 symbol 计数
+	if collapseSyms {
+		for i, n := range nodes {
+			if cnt, ok := symFoldCount[n.ID]; ok && cnt > 0 {
+				nodes[i].Detail = fmt.Sprintf("%d 函数被触达", cnt)
+			}
+		}
+	}
+
+	// ---- 边剪枝 + 折叠重定向 ----
+	// 折叠时 sym→caller 边改为 file→caller（按 (from,to) 去重）
+	type edgeKey struct{ from, to string }
+	seenEdge := map[edgeKey]bool{}
 	idxs := make([]int, 0, len(s.Edges))
 	edges := make([]Edge, 0, len(s.Edges))
 	for i, e := range s.Edges {
 		if deg[e.From] == 0 || deg[e.To] == 0 {
 			continue // 端点被剪（防御：孤立符号本应无边）
 		}
+		from, to := e.From, e.To
+		if collapseSyms {
+			if parentID, ok := symToFile[from]; ok {
+				from = parentID // 折叠：sym→caller 重定向为 file→caller
+			}
+		}
+		k := edgeKey{from, to}
+		if seenEdge[k] {
+			continue // 折叠产生的重复边去重
+		}
+		seenEdge[k] = true
 		idxs = append(idxs, i)
-		edges = append(edges, e)
+		edges = append(edges, Edge{From: from, To: to, Rel: e.Rel})
 	}
 	return nodes, idxs, edges
 }
