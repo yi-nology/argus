@@ -51,7 +51,7 @@ type System struct {
 	Skills    skill.Provider
 	Knowledge rag.KnowledgeService
 	Bus       *progress.Bus
-	EventSeen *progress.Dedup // v6.12 P1：实例级事件去重环（Service/Runner 共享）
+	EventSeen *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
 	Notify    *notify.Notifier // nil = 未配置 octopus
 
 	Registry            *dispatch.Registry
@@ -236,10 +236,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		Poster: sys.Poster, Log: log, Version: version,
 		Audit:         auditLog,
 		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
-			WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
-			Bus:       sys.Bus,
-			EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
-			Notify:    sys.Notify,
+		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
+		Bus:       sys.Bus,
+		EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
+		Notify:    sys.Notify,
 		Knowledge: sys.Knowledge,
 		// Limiter 仅作用于非降级路径的阶段覆盖 Client（历史行为，原样保留）
 		LLMLimiter: models.Limiter,
@@ -327,7 +327,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		Cfg: cfg, Store: store, SDK: sdk, Registry: reg,
 		Knowledge: sys.Knowledge, Log: log, Bus: sys.Bus,
 		EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
-		Model: models.React, QAModel: models.QA,
+		Model:     models.React, QAModel: models.QA,
 		LLM:         models.Generate, // diff 预审单轮写作（v3.123.0）
 		RouterModel: models.Router,
 		WC:          sys.WC,        // testgen 沙箱验证（ARGUS_TESTGEN_VERIFY_CMD 启用；nil 安全）

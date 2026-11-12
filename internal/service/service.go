@@ -62,8 +62,8 @@ type Service struct {
 	Registry  *dispatch.Registry
 	Log       Logger
 	Version   string
-	Bus       *progress.Bus   // 任务进度事件（v3.1 SSE 数据源；nil 安全）
-	EventSeen *progress.Dedup // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环，同实例 at-most-once；nil = 旧语义）
+	Bus       *progress.Bus        // 任务进度事件（v3.1 SSE 数据源；nil 安全）
+	EventSeen *progress.Dedup      // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环，同实例 at-most-once；nil = 旧语义）
 	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
 	QAModel   model.BaseChatModel  // Q&A 专用模型（P6 覆盖；nil = 用 Model）
 	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）

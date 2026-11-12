@@ -128,6 +128,7 @@ func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, n
 // GitLab 的 IssueManager.CreateIssueComment 走 Issues Notes API 会 404。
 // 回退到 IssueManager 仅当平台不实现 DiffManager（如纯 Issue 场景）。
 func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, number, body string) (*provider.IssueComment, error) {
+	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
 	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
 		// 优先走 DiffManager.CreateNote（MR Notes API），兼容所有 CR 场景。
 		if dm, ok := p.(provider.DiffManager); ok {
@@ -178,6 +179,7 @@ func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo st
 // 平台）→ v3.91.2 的 DiffManager 原子换新兜底（先 CreateNote 后 DeleteNote，
 // 返回新 ID，调用方经 repointIfSwapped 回写缓存）。
 func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
+	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
 	if c, err := callIface(s, ctx, platform, "NoteManager",
 		func(ctx context.Context, nm provider.NoteManager) (*provider.IssueComment, error) {
 			return nm.UpdateNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10), body)
@@ -221,6 +223,7 @@ func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, 
 
 // CreateReview 提交行内评论 review。
 func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+	opts = maskReviewOptions(opts) // v6.16.0 出站值面 PII 脱敏（总评+行内全包）
 	return callIface(s, ctx, platform, "ReviewManager",
 		func(ctx context.Context, rm provider.ReviewManager) (*provider.ReviewResult, error) {
 			return rm.CreateReview(ctx, owner, repo, number, opts)
