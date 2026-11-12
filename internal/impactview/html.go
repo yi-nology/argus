@@ -848,6 +848,12 @@ document.getElementById('export').onclick=()=>{
  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
 };
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// v6.9.5 方向 R：URL 参数直达——?focus=<nodeId> 自动聚焦并开侧栏
+(function(){
+ const params=new URLSearchParams(location.search);
+ const focus=params.get('focus');
+ if(focus&&byId[focus]){focusFileNode(focus);}
+})();
 apply();
 </script></body></html>`
 }
