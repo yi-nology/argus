@@ -511,6 +511,31 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 			}
 		}
 		h := nodeH + min(deg, 6)*4
+		// v6.10.1 方向 AI：风险热力图——非改动节点按 degree 归一化 fill 色蓝→红渐变。
+		// 改法：计算全图 maxDeg，deg/maxDeg 插值 RGB（蓝 #3b82f6 → 红 #ef4444）。
+		// changed 节点保持红色不变，不受影响。
+		if !n.Changed && deg > 0 {
+			maxDeg := 0
+			for _, n2 := range viewNodes {
+				d2 := 0
+				for _, e2 := range viewEdges {
+					if e2.From == n2.ID || e2.To == n2.ID {
+						d2++
+					}
+				}
+				if d2 > maxDeg {
+					maxDeg = d2
+				}
+			}
+			if maxDeg > 0 {
+				ratio := float64(deg) / float64(maxDeg)
+				r := int(59 + ratio*(239-59))
+				g := int(130 - ratio*(130-68))
+				b := int(246 - ratio*(246-68))
+				fill = fmt.Sprintf("#%02x%02x%02x", r, g, b)
+				stroke = fill
+			}
+		}
 		// v6.9.8 方向 Y：tooltip 加风险信号——度数 + findings 数（已有徽标计数）
 		tip += fmt.Sprintf("\n关联 %d", deg)
 		if c := fcount[n.ID]; c > 0 {
