@@ -5,7 +5,6 @@ package requirement
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/toolgate/toolprior"
+	"github.com/yi-nology/goagent-kernel/spill"
 
 	"github.com/yi-nology/argus/internal/codesearch"
 	"github.com/yi-nology/argus/internal/langcap"
@@ -541,21 +541,33 @@ func (w *Workflow) r3SearchTool() tool.BaseTool {
 	return st
 }
 
-// r3DetailTool get_detail（大输出两级化；v5.0.0 存档面切磁盘——ref 白名单挡注入，
-// 全文落盘自 stashDetail）：被截断工具的全文取回通道。
+// r3DetailTool get_detail（大输出两级化；v5.0.0 存档面切磁盘——取回面 v6.15.0 收编
+// goagent-kernel/spill.ReadPage：净化+会话隔离三重守卫单源上游，白名单正则退役；
+// 分页取回——单页缺省 8KB/上限 16KB，NextOffset 续页，替代旧版全文直读
+//（200KB 直塞上下文是预算隐患））。
 func (w *Workflow) r3DetailTool() (tool.BaseTool, error) {
 	return utils.InferTool("get_detail",
-		"读取此前被截断的完整工具输出。ref 来自截断提示中的 ref 编号（如 \"d1\"）。",
+		"读取此前被截断的完整工具输出（分页）。ref 来自截断提示中的 ref 编号（如 \"d1\"）；"+
+			"默认读第一页，长输出用 offset/limit 续页（返回值含 next_offset 时还有后续页）。",
 		func(ctx context.Context, in *getDetailIn) (*symOut, error) {
 			ref := strings.TrimSpace(in.Ref)
-			if !spillRefRe.MatchString(ref) || w.SpillDir == "" {
+			if ref == "" || w.SpillDir == "" {
 				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
 			}
-			raw, err := os.ReadFile(filepath.Join(w.SpillDir, ref))
+			// SpillDir 布局 = <root>/<taskID>：root/session 拆给上游 spill 契约
+			//（净化/会话守卫/分页语义全在上游单源）。
+			pg, err := spill.ReadPage(filepath.Dir(w.SpillDir), filepath.Base(w.SpillDir),
+				ref, in.Offset, in.Limit)
 			if err != nil {
 				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
 			}
-			return &symOut{Result: DataFence("get_detail 完整输出（数据）", string(raw))}, nil
+			out := DataFence("get_detail 完整输出（数据）", pg.Content)
+			if !pg.EOF {
+				out += fmt.Sprintf("\n…（分页取回：本页 %d/%d 字节，offset=%d；"+
+					"继续用 get_detail ref=%q offset=%d 取下一页）",
+					pg.Bytes, pg.Total, pg.Offset, pg.Name, pg.NextOffset)
+			}
+			return &symOut{Result: out}, nil
 		})
 }
 
@@ -641,7 +653,9 @@ type getIssueOut struct {
 }
 
 type getDetailIn struct {
-	Ref string `json:"ref" jsonschema:"description=截断提示中的详情编号"`
+	Ref    string `json:"ref" jsonschema:"description=截断提示中的详情编号"`
+	Offset int64  `json:"offset,omitempty" jsonschema:"description=分页起点字节偏移（缺省 0 读第一页）"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"description=单页字节上限（缺省 8192，上限 16384）"`
 }
 
 type symIn struct {

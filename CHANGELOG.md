@@ -3,6 +3,22 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.15.0（2026-11-13，gak 收编批：get_detail 取回面上游 spill 单源）
+
+- **get_detail 收编 goagent-kernel/spill.ReadPage**（全库勘察后唯一"手写同题"
+  候选落地）：净化（pathx.IsSafeFileName，Windows 盘符相对路径同拒）+ 会话隔离
+  三重守卫 + 分页语义全收上游单源，手写 spillRefRe 白名单正则退役。**行为红利**：
+  分页取回（缺省 8KB/上限 16KB + next_offset 续页指引）替代旧版全文直读——
+  旧版把最高 200KB 存档直塞上下文，是隐性预算隐患。写侧（stashDetail）与
+  PruneSpillRoot 粒度不匹配（gak Prune 按文件 keepNewest+TTL，argus 按任务目录）
+  保持自研，截断提示文案保持自写（gak TruncHint 契约文本绑定其 read_spill 工具
+  名与前端钉档，argus 工具名 get_detail 不适用——三处不收编理由留档防重探）。
+- **全库勘察结论（gak v0.34.0 全部 34 包 vs argus 手写面）**：worktree/ticket/
+  commitgate/watchdog/statemachine 全部"名字像题不同层"——argus 的租约/心跳/
+  fencing 是 DB 级多副本方案，比 gak 进程内机制更贴合部署形态，收编即倒退；
+  retryplan 核心价值依赖 sideeffect（无幂等键面）；pii 是合规新增面而非替代
+  （logredact 键名面之外的值面补充），留作后续独立评估。勘察全表见批内记录。
+
 ## v6.13.0（2026-11-12，上游升级批：go-git-platform v0.127.0 + goagent-kernel v0.34.0）
 
 - **go-git-platform v0.126.0→v0.127.0**：吃下安全红利——**多跳重定向凭据「复活」

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -86,9 +85,9 @@ const (
 	detailOverflowMax = 4_000
 )
 
-// spillRefRe 详情 ref 白名单：本包生成的存档名形态（d<十进制序号>）。get_detail 的
-// ref 由模型提供（不可信），取回面以此挡路径注入——不满足形态直接按「无此 ref」处理。
-var spillRefRe = regexp.MustCompile(`^d[1-9][0-9]*$`)
+// v6.15.0：spillRefRe 白名单正则退役——取回面收编 goagent-kernel/spill.ReadPage
+//（pathx.IsSafeFileName 净化 + 会话目录守卫 + 分页语义全在上游单源，比本仓
+// 手写正则更严：Windows 盘符相对路径同拒）。
 
 // stashDetail 超限全文落盘存档（v5.0.0 收编 harness spill 语义（今 goagent-kernel）：磁盘面取代
 // v3.39.0 进程内 map——checkpoint 复活/进程重启后 get_detail 不再落空；会话隔离 =
