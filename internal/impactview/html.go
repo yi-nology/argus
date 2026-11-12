@@ -650,6 +650,15 @@ summary{cursor:pointer;color:#334155}
  .badge.medium{background:#78350f;color:#fef3c7}
  .badge.low{background:#14532d;color:#dcfce7}
 }
+/* v6.9.9 方向 Z：打印样式——隐藏交互元素，调整颜色供导出 PDF */
+@media print{
+ #toolbar,aside,#closepanel{display:none!important}
+ header{border-bottom:none}
+ #viewport{height:auto;overflow:visible}
+ svg{transform:none!important;max-width:100%;height:auto}
+ .node.dim{opacity:.3}
+ details{break-inside:avoid}
+}
 </style></head><body>
 <header>
 <h1>` + title + `</h1>
@@ -884,6 +893,16 @@ document.querySelectorAll('.fdcard[data-fdfile]').forEach(el=>{
  el.addEventListener('click',()=>window.focusFileNode('file:'+el.dataset.fdfile));
 });
 document.getElementById('closepanel').onclick=function(){panel.style.display='none';this.style.display='none';};
+// v6.9.9 方向 AD：键盘快捷键——Esc 关侧栏，F 复位，+/− 缩放
+document.addEventListener('keydown',e=>{
+ if(e.target.tagName==='INPUT')return;
+ switch(e.key){
+  case 'Escape':panel.style.display='none';document.getElementById('closepanel').style.display='none';break;
+  case 'f':case 'F':document.getElementById('fit').click();break;
+  case '+':case '=':document.getElementById('zin').click();break;
+  case '-':document.getElementById('zout').click();break;
+ }
+});
 // v5.6.0 探索器增强 ③导出 SVG：克隆图+内联样式单文件落盘（离线评审/贴周报用）
 document.getElementById('export').onclick=()=>{
  const clone=svg.cloneNode(true);
