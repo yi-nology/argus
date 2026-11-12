@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +64,7 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpt
 	vs := withFuncDiffNodes(s)
 	data, _ := json.Marshal(vs)
 	dataStr := strings.ReplaceAll(string(data), "</", `<\/`) // script 内闭合防线
-	vn, vi, ve := viewGraph(vs)
+	vn, vi, ve, foldedSyms := viewGraph(vs)
 	pos, w, h := layoutSVG(vn, ve)
 	legendNodes, legendEdges := impactLegend(), impactLegendEdges()
 	if opts.RepoMode {
@@ -72,7 +73,7 @@ func renderImpactHTML(s *Snapshot, taskID, title, headLabel string, opts ViewOpt
 	return htmlTemplate(title, headLabel, html.EscapeString(riskBadge(s.Risk.Level)), s, taskID,
 		string(dataStr), svgBody(pos, vn, vi, ve, findingsByFile(opts.Findings)), w, h,
 		findingsJSON(opts.Findings), compareSummary(opts.Compare), historyJSON(opts.History),
-		legendNodes, legendEdges)
+		legendNodes, legendEdges, foldedSymsJSON(foldedSyms))
 }
 
 // maxFuncDiffNodes 主图合成的函数级变更节点上限（防大 diff 刷屏；完整清单
@@ -132,7 +133,7 @@ const viewGraphSymbolsCap = 12
 // v6.9.1 混合语言 PR 可读性：列 0 改动节点超 viewGraphSymbolsCap 时，symbol
 // 折叠进父文件节点（Detail 记 "N 函数被触达"），边重定向 file→caller 并去重。
 // 只影响视图剪枝集——快照 JSON 全量保留（JS 搜索/侧栏数据面不回退）。
-func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
+func viewGraph(s *Snapshot) ([]Node, []int, []Edge, map[string][]string) {
 	deg := map[string]int{}
 	for _, e := range s.Edges {
 		deg[e.From]++
@@ -177,8 +178,9 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 			noTest["pkg:"+p.Path] = true
 		}
 	}
-	// 折叠计数：fileID → 被折叠的 symbol 数
+	// 折叠计数：fileID → 被折叠的 symbol 数 + 函数名列表
 	symFoldCount := map[string]int{}
+	symFoldNames := map[string][]string{} // v6.9.2 方向 A：侧栏展示被折叠函数
 	for _, n := range s.Nodes {
 		if n.Kind == KindSymbol && deg[n.ID] == 0 {
 			continue
@@ -186,6 +188,10 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 		if collapseSyms && n.Kind == KindSymbol && n.Changed {
 			if parentID, ok := symToFile[n.ID]; ok {
 				symFoldCount[parentID]++
+				// 提取函数名：sym:path:FuncName → FuncName
+				if parts := strings.SplitN(n.ID, ":", 3); len(parts) == 3 {
+					symFoldNames[parentID] = append(symFoldNames[parentID], parts[2])
+				}
 				continue // 折叠：不单独进图
 			}
 		}
@@ -195,7 +201,7 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 		}
 		nodes = append(nodes, n)
 	}
-	// 折叠后的文件节点 Detail 补充 symbol 计数
+	// 折叠后的文件节点 Detail 补充 symbol 计数 + 被折叠函数名列表（侧栏展示用）
 	if collapseSyms {
 		for i, n := range nodes {
 			if cnt, ok := symFoldCount[n.ID]; ok && cnt > 0 {
@@ -228,11 +234,29 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge) {
 		idxs = append(idxs, i)
 		edges = append(edges, Edge{From: from, To: to, Rel: e.Rel})
 	}
-	return nodes, idxs, edges
+	return nodes, idxs, edges, symFoldNames
 }
+
+// foldedSymsJSON 被折叠函数名列表的 JSON 序列化（侧栏展示用）。
+// key = fileID（"file:path"），value = 被折叠的函数名列表。
+func foldedSymsJSON(m map[string][]string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(m)
+	return strings.ReplaceAll(string(b), "</", `<\/`)
+}
+
+// viewGraphDirGroupCap 列 1+ 调用方文件按目录分组阈值：单目录文件数超此值时
+// 聚合成目录节点（实测 46 caller 文件平铺一列太长，按目录聚合可读性倍增）。
+const viewGraphDirGroupCap = 4
 
 // layoutSVG 分层布局：BFS 深度定列（改动=列 0），列内按 (Kind 权重, ID) 栈叠。
 // 返回 节点坐标表 + 画布宽高。
+//
+// v6.9.2 方向 B：列 1+ 调用方文件按目录分组——同目录文件数超 viewGraphDirGroupCap
+// 时聚合成目录节点（kind=package，label=目录名，detail=N 个文件）。边重定向到
+// 目录节点并去重。只影响布局——JSON 数据面保留全量文件节点（JS 搜索不回退）。
 func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 	depth := map[string]int{}
 	// 改动节点为 0 列；其余由边 BFS 外推（环/多点入边取最小深度）
@@ -267,6 +291,92 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 			maxDepth = d
 		}
 	}
+	// v6.9.2 方向 B：列 1+ 调用方文件按目录分组聚合
+	// 步骤 1：统计每个目录的文件数（仅列 1+ 的 file 节点）
+	dirCount := map[string]int{}
+	for _, n := range nodes {
+		if n.Kind == KindFile && !n.Changed {
+			if d, ok := depth[n.ID]; ok && d >= 1 {
+				if dir := filepath.Dir(n.ID); dir != "." && dir != "" {
+					dirCount[dir]++
+				}
+			}
+		}
+	}
+	// 步骤 2：需要聚合的目录集合
+	groupDirs := map[string]bool{}
+	for dir, cnt := range dirCount {
+		if cnt > viewGraphDirGroupCap {
+			groupDirs[dir] = true
+		}
+	}
+	// 步骤 3：构建目录聚合映射 fileID → dirID
+	fileToDir := map[string]string{}
+	for _, n := range nodes {
+		if n.Kind == KindFile && !n.Changed {
+			if dir := filepath.Dir(n.ID); dir != "." && dir != "" && groupDirs[dir] {
+				fileToDir[n.ID] = "dir:" + dir
+			}
+		}
+	}
+	// 步骤 4：替换节点集——被聚合的文件移除，插入目录节点
+	if len(fileToDir) > 0 {
+		newNodes := make([]Node, 0, len(nodes))
+		seenDir := map[string]bool{}
+		for _, n := range nodes {
+			if dirID, ok := fileToDir[n.ID]; ok {
+				if !seenDir[dirID] {
+					seenDir[dirID] = true
+					dirName := strings.TrimPrefix(dirID, "dir:")
+					newNodes = append(newNodes, Node{
+						ID:    dirID,
+						Kind:  KindPackage,
+						Label: filepath.Base(dirName),
+						Detail: fmt.Sprintf("%d 个文件", dirCount[dirName]),
+					})
+				}
+				continue
+			}
+			newNodes = append(newNodes, n)
+		}
+		nodes = newNodes
+		// 步骤 5：重定向边并去重
+		type eKey struct{ from, to string }
+		seenE := map[eKey]bool{}
+		newEdges := make([]Edge, 0, len(edges))
+		for _, e := range edges {
+			to := e.To
+			if dirID, ok := fileToDir[to]; ok {
+				to = dirID
+			}
+			k := eKey{e.From, to}
+			if seenE[k] {
+				continue
+			}
+			seenE[k] = true
+			newEdges = append(newEdges, Edge{From: e.From, To: to, Rel: e.Rel})
+		}
+		edges = newEdges
+		// 步骤 6：重算深度（目录节点深度 = 最小成员深度）
+		for _, n := range nodes {
+			if n.Kind == KindPackage && strings.HasPrefix(n.ID, "dir:") {
+				minD := -1
+				for fileID, dirID := range fileToDir {
+					if dirID == n.ID {
+						if d, ok := depth[fileID]; ok {
+							if minD == -1 || d < minD {
+								minD = d
+							}
+						}
+					}
+				}
+				if minD >= 0 {
+					depth[n.ID] = minD
+				}
+			}
+		}
+	}
+
 	weight := map[string]int{KindSymbol: 0, KindFuncDiff: 0, KindPackage: 1, KindFile: 2, KindTest: 3}
 	type colItem struct {
 		id     string
@@ -417,7 +527,7 @@ func repoLegendEdges() string {
 	return `import=跨包依赖 · contains=包含（目录→文件，仅小仓展开） · source=脚本装载 · lineage=表血缘`
 }
 
-func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary, historyJSON, legendNodes, legendEdges string) string {
+func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, dataJSON, svg string, w, h int, findingsJSON, cmpSummary, historyJSON, legendNodes, legendEdges, foldedSymsJSON string) string {
 	var notes strings.Builder
 	for _, n := range s.Notes {
 		notes.WriteString("<li>" + html.EscapeString(n) + "</li>")
@@ -430,6 +540,10 @@ func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, da
 	hScript := ""
 	if historyJSON != "" {
 		hScript = `<script type="application/json" id="impact-history">` + historyJSON + `</script>`
+	}
+	fsScript := ""
+	if foldedSymsJSON != "" {
+		fsScript = `<script type="application/json" id="impact-folded-syms">` + foldedSymsJSON + `</script>`
 	}
 	var riskList strings.Builder
 	for _, r := range s.Risk.Reasons {
@@ -504,12 +618,13 @@ summary{cursor:pointer;color:#334155}
 ` + svg + `</svg></div>
 <aside id="panel"></aside>
 <script type="application/json" id="impact-data">` + dataJSON + `</script>
-` + fScript + hScript + `
+` + fScript + hScript + fsScript + `
 <script>
 const data=JSON.parse(document.getElementById('impact-data').textContent);
 const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
 const fdata=(()=>{const el=document.getElementById('impact-findings');try{return el?JSON.parse(el.textContent):[];}catch(e){return [];}})();
 const hdata=(()=>{const el=document.getElementById('impact-history');try{return el?JSON.parse(el.textContent):{};}catch(e){return {};}})();
+const folddata=(()=>{const el=document.getElementById('impact-folded-syms');try{return el?JSON.parse(el.textContent):{};}catch(e){return {};}})();
 const svg=document.getElementById('g'),vp=document.getElementById('viewport'),q=document.getElementById('q'),panel=document.getElementById('panel');
 let scale=1,tx=0,ty=0;
 function apply(){svg.style.transformOrigin='0 0';svg.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';}
@@ -594,6 +709,17 @@ function showPanel(n){
    return;
   }
  }
+ // v6.9.2 方向 C 实际落地：目录聚合节点（dir: 前缀）点击展开成员文件列表
+ let dirExtra='';
+ if(n.kind==='package'&&n.id.startsWith('dir:')){
+  const dirPath=n.id.slice(4);
+  const members=(data.nodes||[]).filter(x=>x.id.startsWith('file:')&&x.id.slice(5).startsWith(dirPath+'/'));
+  if(members.length){
+   dirExtra='<h3 style="margin-top:12px">目录聚合</h3><div class="kv"><b>路径</b>'+esc(dirPath)+'</div>'
+    +'<div class="kv"><b>文件数</b>'+members.length+'</div>'
+    +'<h3 style="margin-top:8px">成员文件</h3>'+members.map(m=>'<div class="kv">'+esc(m.label)+'</div>').join('');
+  }
+ }
  // v5.7.4 包聚合详情：文件数/测试覆盖/对外暴露/深度
  let pkgExtra='';
  if(n.kind==='package'&&data.packages){
@@ -609,8 +735,14 @@ function showPanel(n){
  const filePath=n.id.startsWith('file:')?n.id.slice(5):null;
  const stIcon={added:'🟢',removed:'🔴'};
  let extra='';
- if(n.kind==='package'&&pkgExtra){extra='<h3 style="margin-top:12px">包聚合</h3>'+pkgExtra;}
+ if(n.kind==='package'&&dirExtra){extra=dirExtra;}
+ else if(n.kind==='package'&&pkgExtra){extra='<h3 style="margin-top:12px">包聚合</h3>'+pkgExtra;}
  else if(filePath){
+  // v6.9.2 方向 A：被折叠函数列表（symbol 折叠场景）
+  const folded=folddata[n.id]||[];
+  if(folded.length){
+   extra+='<h3 style="margin-top:12px">被折叠函数 '+folded.length+'</h3>'+folded.map(fn=>'<div class="kv">'+esc(fn)+'</div>').join('');
+  }
   const fds=(data.func_diffs||[]).filter(fd=>fd.file===filePath);
   if(fds.length){
    extra+='<h3 style="margin-top:12px">函数级变更 '+fds.length+'</h3>'+fds.map(fd=>{

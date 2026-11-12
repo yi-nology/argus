@@ -56,7 +56,7 @@ func TestViewGraphSymbolCollapse(t *testing.T) {
 		},
 	}
 
-	nodes, _, edges := viewGraph(s)
+	nodes, _, edges, _ := viewGraph(s)
 
 	// 列 0 应从 18 节点（15 sym + 3 file）折叠到 3 file 节点
 	changedCount := 0
@@ -112,7 +112,7 @@ func TestViewGraphNoCollapseUnderCap(t *testing.T) {
 		},
 	}
 
-	nodes, _, edges := viewGraph(s)
+	nodes, _, edges, _ := viewGraph(s)
 
 	// 3 changed nodes (1 file + 2 sym) ≤ 12 cap → 不折叠
 	symCount := 0
@@ -148,7 +148,7 @@ func TestViewGraphCollapseIsolatedSymsSkipped(t *testing.T) {
 		Edges: []Edge{},
 	}
 
-	nodes, _, _ := viewGraph(s)
+	nodes, _, _, _ := viewGraph(s)
 	// 孤立 symbol 被剪，只剩 1 个 file 节点 → 不触发折叠
 	if len(nodes) != 1 {
 		t.Fatalf("孤立 symbol 应被剪掉, got %d nodes", len(nodes))
