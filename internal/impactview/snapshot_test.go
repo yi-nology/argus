@@ -571,7 +571,7 @@ func TestRenderHTMLViewPrune(t *testing.T) {
 		t.Fatal("边应包 edgeg 组（悬停显示标签）")
 	}
 	// 剪枝后仍无悬挂边（data-i 回查全量序）
-	vn, vi, ve := viewGraph(s)
+	vn, vi, ve, _ := viewGraph(s)
 	if len(vn) != 3 || len(ve) != 2 || len(vi) != 2 {
 		t.Fatalf("view 集口径错: n=%d e=%d i=%d", len(vn), len(ve), len(vi))
 	}
