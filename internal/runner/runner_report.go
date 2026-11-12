@@ -58,6 +58,11 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 		Tokens:  out.Tokens,
 		FixHint: r.Cfg.FixAgent != "", // v3.85.0：fixer 启用时意见行附一键修复入口
 	}
+	// v6.10.0 报告契约模板：渲染分发键与综合段产物（finish 从 Artifacts 回声到
+	// Output，这里直读；Analyst 为 nil（非 analyst/降级）时渲染层自然退化为
+	// standard 骨架）。
+	rep.Template = out.ReportTemplate
+	rep.Analyst = out.Analyst
 	if taskCost != nil {
 		var usd float64
 		for _, ms := range taskCost.Summary() {
@@ -115,6 +120,11 @@ type ResultPayload struct {
 	Completeness *plugin.CompletenessReport `json:"completeness,omitempty"`
 	// DiffText 本次审查的 diff 原文（增量审查时用于 diff-of-diffs 比对）。
 	DiffText string `json:"diff_text,omitempty"`
+	// Analyst 分析师综合段产物（v6.10.0；nil = 非 analyst/综合段失败降级）。
+	// 结构化消费面（报告页/IDE）据此渲染声明对照/结构维度，无需解析 markdown。
+	Analyst *plugin.AnalystSections `json:"analyst,omitempty"`
+	// ReportTemplate 本任务裁决后的报告模板键（v6.10.0）。
+	ReportTemplate string `json:"report_template,omitempty"`
 }
 
 func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
@@ -130,6 +140,8 @@ func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
 	// G7：完备性报告持久化（nil 安全）——结构化产出进 result_json，任何任务
 	// 详情消费方（报告页/副驾/IDE 插件）无需解析 markdown 即可拿到
 	p.Completeness = out.Completeness
+	p.Analyst = out.Analyst
+	p.ReportTemplate = out.ReportTemplate
 	return p
 }
 

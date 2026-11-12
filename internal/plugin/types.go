@@ -348,6 +348,13 @@ const (
 	ArtifactDiffInput = "diff"
 )
 
+// ArtifactReportTemplate Task.Artifacts 键（v6.10.0 报告契约模板）：runner 装配
+// 时写入 resolveTemplate 裁决值（standard|analyst|minimal），R4 builtin 适配器
+// 读它决定 chain 纪律注入、workflow 读它决定分析师综合段是否运行。经 Artifacts
+// 开放位传递而非构造期注入——适配器是跨仓共享单例，模板按仓变。键缺失 =
+// standard（既有行为）。
+const ArtifactReportTemplate = "report_template"
+
 // tasks.debug_json 的阶段调试键（workflow 写，service.TaskStages 读；e2e 断言消费）。
 // 与 ArtifactCkpt* 的区别：debug 键仅诊断与时间线推断用，缺失不影响断点续审。
 const (

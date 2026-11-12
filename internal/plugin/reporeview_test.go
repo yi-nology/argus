@@ -33,8 +33,30 @@ describe:
 	if rc.Review.ExtraInstructions != "关注错误包装" {
 		t.Fatalf("extra_instructions = %q", rc.Review.ExtraInstructions)
 	}
+	if rc.Review.ReportTemplate != "" {
+		t.Fatalf("未配置 report_template 应零值, got %q", rc.Review.ReportTemplate)
+	}
 	if len(rc.Describe.Labels) != 1 || rc.Describe.Labels[0].Name != "bug" {
 		t.Fatalf("labels = %+v", rc.Describe.Labels)
+	}
+}
+
+// v6.10.0 report_template 白名单：合法三值直通、非法值整份拒载（笔误如 analist
+// 静默落意外模板比缺失更有害——与 min_severity 同配置卫生纪律）。
+func TestParseRepoConfigReportTemplate(t *testing.T) {
+	for _, ok := range []string{"standard", "analyst", "minimal"} {
+		rc, err := ParseRepoConfig([]byte("review:\n  report_template: " + ok + "\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", ok, err)
+		}
+		if rc.Review.ReportTemplate != ok {
+			t.Fatalf("%s 直通失败: %q", ok, rc.Review.ReportTemplate)
+		}
+	}
+	for _, bad := range []string{"analist", "CUSTOM", "none"} {
+		if _, err := ParseRepoConfig([]byte("review:\n  report_template: " + bad + "\n")); err == nil {
+			t.Fatalf("%q 非法值应整份拒载", bad)
+		}
 	}
 }
 
@@ -67,7 +89,8 @@ func TestParseRepoConfigReviewDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rc.Review.MinSeverity != "" || rc.Review.MaxComments != 0 ||
-		len(rc.Review.ExcludePaths) != 0 || len(rc.Review.IncludePaths) != 0 {
+		len(rc.Review.ExcludePaths) != 0 || len(rc.Review.IncludePaths) != 0 ||
+		rc.Review.ReportTemplate != "" {
 		t.Fatalf("缺省 review 段应全零值: %+v", rc.Review)
 	}
 }

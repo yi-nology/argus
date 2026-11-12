@@ -21,6 +21,7 @@ import (
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poster"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/sink"
 	"github.com/yi-nology/argus/internal/storage"
@@ -184,6 +185,17 @@ func (r *Runner) prepareContext(ctx context.Context, task *storage.Task, knobs t
 	return pr, rc, diff, false, nil
 }
 
+// resolveReportTemplate 报告模板裁决（v6.10.0）：按仓 yaml review.report_template
+// 优先于服务级 ARGUS_REPORT_TEMPLATE 默认；reporttmpl.Resolve 裁决（空/非法值
+// 层层回退 standard，配置故障不阻断审查）。
+func (r *Runner) resolveReportTemplate(rc *plugin.RepoConfig) string {
+	repo := ""
+	if rc != nil {
+		repo = rc.Review.ReportTemplate
+	}
+	return reporttmpl.Resolve(repo, r.Cfg.ReportTemplate)
+}
+
 // buildPluginTask 任务组装与注入：plugin.Task 骨架 → checkpoint 回流/落库钩子 →
 // 仓库指引/附加指令/学习环提示/跨轮一致性 → OCR/SAST/codegraph 前置 →
 // 仓库级行为配置进 workflow。
@@ -200,6 +212,9 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 	if ptask.Artifacts == nil {
 		ptask.Artifacts = map[string]string{}
 	}
+	// v6.10.0 报告契约模板：经 Artifacts 开放位传递——R4 builtin 适配器读它决定
+	// chain 纪律注入，workflow 读它决定分析师综合段是否触发。
+	ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplate(rc)
 	// G2 断点续审（v3.12.0）：同任务重试时回流已持久化的 R1/R2 阶段产物，
 	// 跳过已成功阶段的重复 LLM 调用（跨任务不生效——新任务无 checkpoint 键）。
 	if task.StageArtifacts != "" {

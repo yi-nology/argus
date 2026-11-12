@@ -119,10 +119,22 @@ review:
   min_severity: medium        # 低于阈值的意见不进报告与裁决（low|medium|high）
   max_comments: 20            # 行内评论上限（0=不限，超出保留严重度 top N 进总结）
   extra_instructions: "关注错误包装与并发边界"   # 附加审查指令（与 guidelines.md 合并注入）
+  report_template: analyst    # 报告模板（v6.10.0）：standard|analyst|minimal，只能选内置白名单
 describe:
   labels:                     # @argus describe 的建议标签词表（可省略）
     - {name: bug, description: 缺陷修复}
 ```
+
+`report_template` 三枚内置模板（spec：`docs/superpowers/specs/2026-11-12-report-templates-design.md`）：
+
+| 模板 | 形态 | 适用 |
+|---|---|---|
+| `standard`（缺省） | 验收清单 + findings 列表 + 结论 + 元信息 | 常规审查，零额外成本 |
+| `analyst` | 深度报告：声明对照表（✅⚠️❌➕❗ 五态）→ 风险链（证据链）→ 代码坏味 → 结构维度 → 测试缺口/待确认 | MR 大/风险高/想要例文级深度；merge 后多一次综合 LLM 调用 |
+| `minimal` | 结论先行 + 仅高危意见 + 一行元信息 | "别吵我"的仓 |
+
+按仓 yaml 优先于服务级 `ARGUS_REPORT_TEMPLATE` 默认；非法值整份配置拒载降级（与
+`min_severity` 同纪律）。
 
 ### 5.2 确定性 SAST 前置（v3.15.0，默认关）
 
@@ -447,6 +459,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` | - | 轮询兜底（webhook 不可达时开）|
 | `ARGUS_PLUGINS` | plugins.yaml | 插件声明文件 |
 | `ARGUS_SKILLS_DIR` / `ARGUS_WORK_ROOT` / `ARGUS_REPORT_META` / `ARGUS_DEBUG` | - | 方法论目录 / 沙箱根 / 报告元信息 / 调试留存 |
+| `ARGUS_REPORT_TEMPLATE` | standard（空同） | 报告契约模板服务级默认（standard/analyst/minimal，详见 §5.1；按仓 yaml `review.report_template` 优先） |
 | `ARGUS_<P>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}` | - | 平台凭证（P ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code，如 `ARGUS_GITHUB_TOKEN`；工蜂前缀 `ARGUS_TENCENT_CODE_*`）；**SECRET 必配**——空 secret 时该平台 webhook fail-closed 503（SDK 空 secret 会跳过签名校验）；TOKEN_STYLE=private/bearer 覆盖认证头风格，WEBHOOK_EVENTS 覆盖内置事件词表 |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | - | LLM（OpenAI 兼容协议）|
 | `ARGUS_MILVUS_ADDR` / `ARGUS_MILVUS_COLLECTION` | - | Milvus 向量知识库（需配 `ARGUS_EMBEDDING_BASE_URL/API_KEY/MODEL/DIM`；不配回退本地词元检索，知识飞轮随之关闭）|

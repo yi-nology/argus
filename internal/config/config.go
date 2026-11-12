@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 // SupportedPlatforms 支持的 git 平台词表（单一事实源）：env 装载（ARGUS_<大写平台>_*）、
@@ -85,13 +87,18 @@ type Config struct {
 	GetIssueMaxRunesOverride int
 	TaskTokenBudget          int // <=0 表示按公式动态计算（EffectiveTaskTokenBudget）
 	ReportMeta               bool
-	PluginsFile              string
-	SkillsDir                string
-	WorkRoot                 string
-	KnowledgeDir             string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
-	Platforms                map[string]PlatformConfig
-	LLM                      LLMConfig
-	Version                  string
+	// ReportTemplate 报告契约模板服务级默认（ARGUS_REPORT_TEMPLATE；v6.10.0）：
+	// 空或非法值回退 standard——模板是渲染/提示词契约变更，错误默认值比缺失
+	// 更有害，宁可保守。按仓 .reviewagents.yaml review.report_template 优先
+	// （reporttmpl.Resolve 裁决）。
+	ReportTemplate string
+	PluginsFile    string
+	SkillsDir      string
+	WorkRoot       string
+	KnowledgeDir   string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
+	Platforms      map[string]PlatformConfig
+	LLM            LLMConfig
+	Version        string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭
@@ -463,6 +470,7 @@ func Load() *Config {
 		GetIssueMaxRunesOverride: envInt("ARGUS_GET_ISSUE_MAX_RUNES", 0),
 		TaskTokenBudget:          envInt("ARGUS_TASK_TOKEN_BUDGET", 0),
 		ReportMeta:               envBool("ARGUS_REPORT_META", true),
+		ReportTemplate:           resolveReportTemplate(envStr("ARGUS_REPORT_TEMPLATE", "")),
 		PluginsFile:              envStr("ARGUS_PLUGINS", "plugins.yaml"),
 		SkillsDir:                envStr("ARGUS_SKILLS_DIR", "skills"),
 		WorkRoot:                 envStr("ARGUS_WORK_ROOT", "/tmp/argus-work"),
@@ -614,6 +622,14 @@ func Load() *Config {
 
 // env 读取助手：类型解析复用 oekit/core/config（strconv 同源），非法值回退默认时
 // 保留 warnBadEnv 留痕——oekit/core/config 的 *WithDefault 系列是静默回退，不能直接换。
+
+// resolveReportTemplate ARGUS_REPORT_TEMPLATE 白名单解析（v6.10.0）：词表单源
+// reporttmpl；空/非法值回退 standard（模板是渲染+提示词契约变更，错误默认比
+// 缺失更有害，宁可保守；想要非 standard 必须显式给出合法值）。按仓配置优先
+// 级裁决在 reporttmpl.Resolve。
+func resolveReportTemplate(v string) string {
+	return reporttmpl.Resolve("", v)
+}
 
 // WarnLogger WarnOnly 的日志口（与 logx.Logger 解耦，测试可注入）。
 type WarnLogger interface{ Warn(msg string, kv ...any) }

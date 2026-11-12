@@ -30,6 +30,13 @@ type WorkflowOutput struct {
 	// CompletenessPolicy（annotate 默认 / demote 降级门 rule=R5.C）。
 	Completeness *CompletenessReport
 	Debug        map[string]string // 阶段产物（ARGUS_DEBUG=1 时由 runner 留存）
+	// Analyst 分析师综合段产物（v6.10.0 报告契约模板；nil = 非 analyst 模板、
+	// 综合段未触发或产出失败降级）。claims/design/test_gaps/open_questions 仅供
+	// 报告渲染，不参与 R5 裁决（裁决仍只读 findings+AC，行为不变）。
+	Analyst *AnalystSections
+	// ReportTemplate 本任务裁决后的报告模板键（v6.10.0；runner 装配时写入
+	// Artifacts，finish 回声到 Output 供 buildReport 渲染分发）。空 = standard。
+	ReportTemplate string
 }
 
 // ReflectSummary R3.5 反思结果（WorkflowOutput.Reflect；nil = 未启用或无 findings）。

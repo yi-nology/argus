@@ -59,6 +59,12 @@ type Finding struct {
 	// Verified 沙箱验证环（v3.74.0）：suggested_fix 已在隔离包装命令下应用
 	// 并通过编译/测试。渲染属性不入指纹；仅 runner 侧 fixverifier 写定。
 	Verified bool `json:"verified,omitempty"`
+	// Chain 证据链叙述（v6.10.0 报告契约模板，仅 analyst 模板由模型补充）：
+	// 改动侧是什么（file:line）/消费侧哪里依赖旧语义/不改的后果——对外语义、
+	// 上报口径、协议变更类问题的决定性证据。渲染属性不进指纹（与 Confidence/
+	// Samples 同类：指纹身份=File+原始 comment+Line，渲染标注入键会让跨轮身份
+	// 漂移，v3.8.0/v3.9.1 教训）。
+	Chain string `json:"chain,omitempty"`
 }
 
 // PrintState 既有指纹状态。

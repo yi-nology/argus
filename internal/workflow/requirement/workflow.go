@@ -322,19 +322,26 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 	w.applyRepoPolicies(merged, rc, task)
 
+	// v6.10.0 分析师综合段：仅 analyst 模板触发，产出失败降级不阻断（analyst.go）。
+	analyst := w.synthesisAnalyst(ctx, task, merged, summary)
+	// 模板键回声到 Output（runner 装配时写入 Artifacts）供 buildReport 渲染分发。
+	reportTemplate := task.Artifacts[plugin.ArtifactReportTemplate]
+
 	verdict, rule, completeness := w.judgeAndGate(task, spec, report, merged, sel, outcomes, pruned, retryNotes)
 
 	out := &Output{
-		Verdict:      verdict,
-		Rule:         rule,
-		Spec:         spec,
-		Report:       report,
-		Merged:       merged,
-		PluginsRun:   dispatch.OutcomeNames(outcomes),
-		Summary:      summary,
-		Elapsed:      time.Since(start),
-		Reflect:      reflectInfo,
-		Completeness: completeness,
+		Verdict:        verdict,
+		Rule:           rule,
+		Spec:           spec,
+		Report:         report,
+		Merged:         merged,
+		PluginsRun:     dispatch.OutcomeNames(outcomes),
+		Summary:        summary,
+		Elapsed:        time.Since(start),
+		Reflect:        reflectInfo,
+		Completeness:   completeness,
+		Analyst:        analyst,
+		ReportTemplate: reportTemplate,
 	}
 	out.Tokens = w.LLM.UsedTokens()
 	return out, nil

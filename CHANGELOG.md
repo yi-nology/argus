@@ -3,6 +3,36 @@
 <!-- v3.70.0 起详述停更，以下为 git log 自动浓缩（一行一版，细节看对应提交）；
      后续版本请继续在本表追加一行，重大变更另起详述小节。 -->
 
+## v6.10.0（2026-11-12，报告契约模板系统：standard/analyst/minimal 三模板白名单）
+
+起因：`obs/kylin-insights-agent` MR!187 上 suoxiaocong 的分析师风格深度评审
+（note_39868：声明-证据对照表 ✅⚠️❌➕❗ 五态、风险链 R1-R7 追到消费侧反向验证、
+结构维度、测试缺口、待确认清单）叠加在 argus 30 条结构化意见之上还纠正了一条
+定级——argus 缺"综合层"。设计：`docs/superpowers/specs/2026-11-12-report-templates-design.md`。
+
+- **模板白名单三枚**（新包 `internal/reporttmpl`：词表 + analyst 综合段提示词
+  单源）：`standard`（现状不动，缺省）/ `analyst`（例文同款深度报告）/ `minimal`
+  （结论+高危极简）。仓库 `.reviewagents.yaml` `review.report_template` 只能「选」
+  不能自定义内容（提示注入面控制）；sanitize 词表校验，非法值整份拒载降级
+  （min_severity 同纪律）；服务级默认 `ARGUS_REPORT_TEMPLATE`，按仓优先
+  （reporttmpl.Resolve 三层裁决）。
+- **analyst 综合段**（workflow 新条件阶段，LayerR4X）：merge 后一次 LLM 调用统一
+  产出 claims/design/test_gaps/open_questions——全报告综合产物不能由 R4 各插件
+  分散产（互相冲突）。检查表提炼自 mr-review playbook（漏项清单/坏味词表/
+  30 秒结构判定/输出纪律）。design 触发式（未命中整段省略）；任何失败降级
+  Analyst=nil + Degraded 注明，报告退化为 standard 骨架照常发出。R5 裁决不读
+  新字段（行为不变）。
+- **风险链=findings**（复用指纹/抑制/R5/行内评论/fix fp: 全闭环）：`domain.Finding`
+  加可选 `chain` 证据链字段（渲染属性不进指纹，v3.8.0 纪律）；仅 analyst 模板经
+  Task.Artifacts 通道给 builtin 审查系统提示词追加 chain 纪律（standard/minimal
+  提示词逐字节不动，golden 测试钉住）。
+- **渲染分发**（reportview.Report.Template）：analyst=声明对照表→风险链（🔴🟠
+  分组 + chain 缩进子段）→代码坏味编号组→结构维度→测试缺口/待确认→结论；
+  minimal=结论先行+高危封顶 10 条；standard 逐字节保留。新段落全走
+  fence.EscapeUntrusted + SanitizeAnalyst 条数/runes 双钳（模型产出按敌对数据）。
+- result_json 顺带 analyst/report_template 结构化字段（MCP/IDE 结构化消费面
+  后续接，v1 不宣）。
+
 ## v6.9.0（2026-11-12，第三轮审计 P1/P2 行为批：跨副本事件面 + 双账本 + 完整性门禁 + 指标面）
 
 审计路线图五项（#10/#11/#14/#15/#16）落地。#9 已随 v6.7.0 P0 批交付；#12/#13 与

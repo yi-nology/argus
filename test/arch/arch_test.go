@@ -65,6 +65,9 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/gitdeepen": {},
 	// v6.6.0：语言能力矩阵单一事实源（纯数据+口径派生，零 internal 依赖）。
 	"github.com/yi-nology/argus/internal/langcap": {},
+	// v6.10.0：报告契约模板注册表（词表单源 standard|analyst|minimal + analyst
+	// 综合段提示词；L0 零依赖叶子，plugin/config/workflow/adapter_builtin/runner 消费）。
+	"github.com/yi-nology/argus/internal/reporttmpl": {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
 	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配
@@ -91,8 +94,10 @@ var layering = map[string][]string{
 
 	// ---- L4 核心域与横切底座 ----
 	// v6.2.x 架构卫生批 B：销死边 learning（plugin 实际仅消费 domain）。
-	"github.com/yi-nology/argus/internal/plugin": {"github.com/yi-nology/argus/internal/domain"},
-	"github.com/yi-nology/argus/internal/config": {"github.com/yi-nology/argus/internal/learning"},
+	// v6.10.0：report_template 白名单 sanitize 消费 reporttmpl 词表单源。
+	"github.com/yi-nology/argus/internal/plugin": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/reporttmpl"},
+	// v6.10.0：ARGUS_REPORT_TEMPLATE 服务级默认解析消费 reporttmpl 词表单源。
+	"github.com/yi-nology/argus/internal/config": {"github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/reporttmpl"},
 	// obs 的 plugin 依赖是钩子接线（HookLLMTokens 等 → plugin.Hook*，装配期注入实现）；
 	// storage 依赖同模式（HookMigrationLeaseLost ← 迁移租约 fencing 触发，P2-05 #16）
 	"github.com/yi-nology/argus/internal/obs":    {"github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
@@ -102,7 +107,7 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/notify/octopus": {},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
-	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
 	"github.com/yi-nology/argus/internal/toolpool":   {"github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/plugin"},
@@ -138,7 +143,8 @@ var layering = map[string][]string{
 		// v5.11.0：图面进审查管线——Workflow.Graph 字段与 get_trace/
 		// get_symbol_context 工具渲染消费 semsearch（SymRef/Index.Precise）。
 		// v6.6.0：get_poly_symbol 描述口径消费 langcap（语言能力矩阵单源）。
-		"github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
+		// v6.10.0：分析师综合段消费 reporttmpl 提示词单源（报告契约模板）。
+		"github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/reporttmpl", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/toolpool",
 	},
 	"github.com/yi-nology/argus/internal/runner": {
 		// v6.9.0 补 obs 边：预算超限/事件丢弃计数直呼（P2-05 #16 / P1-06 #11）。
@@ -148,7 +154,7 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",
 		"github.com/yi-nology/argus/internal/memorykernel",
 		"github.com/yi-nology/argus/internal/notify", "github.com/yi-nology/argus/internal/ocrdeleg", "github.com/yi-nology/argus/internal/plugin",
-		"github.com/yi-nology/argus/internal/poster", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/reportview",
+		"github.com/yi-nology/argus/internal/poster", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/reporttmpl", "github.com/yi-nology/argus/internal/reportview",
 		// v5.11.0：injectCodeGraph 同工作副本再建消歧符号图（semsearch 纯图模式）。
 		"github.com/yi-nology/argus/internal/sastscan", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/sink", "github.com/yi-nology/argus/internal/storage",
 		"github.com/yi-nology/argus/internal/toolpool", "github.com/yi-nology/argus/internal/workflow/requirement", "github.com/yi-nology/argus/internal/writing",
@@ -173,7 +179,7 @@ var layering = map[string][]string{
 
 	// ---- 适配器子包：单向依赖核心域（plugin 不得反向 import 适配器）----
 	"github.com/yi-nology/argus/internal/plugin/adapter_acpx":    {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/plugin/adapter_builtin": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_builtin": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
 	"github.com/yi-nology/argus/internal/plugin/adapter_cli":     {"github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/plugin/adapter_remote":  {"github.com/yi-nology/argus/internal/plugin"},
 }

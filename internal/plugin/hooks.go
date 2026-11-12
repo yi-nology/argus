@@ -197,8 +197,14 @@ const (
 	LayerR35      = "R35"
 	LayerR4       = "R4"
 	LayerR5       = "R5"
-	LayerMerger   = "merger"
-	LayerPoster   = "poster"
+	// LayerR4X 分析师综合段（v6.10.0 报告契约模板）：merge 后按仓模板的条件性
+	// 附加调用。指标/token 记账 label 用；不进 StageTimeline（时间线是用户可见
+	// 审查进度，综合段是模板附加成本不显示进度槽位）。StageRouter 前缀命中
+	// LayerR4——R4 模型覆盖/包装对综合段同样生效（刻意：同一审查任务的综合
+	// 质量与专家审查同档模型）。
+	LayerR4X    = "R4x"
+	LayerMerger = "merger"
+	LayerPoster = "poster"
 )
 
 // StageTimeline 阶段时间线的规范顺序（只读词表，消费方勿改写元素；新增阶段在此追加）。

@@ -23,6 +23,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 // diffPathDiscipline 注入 diff 数据区前的路径纪律（v3.51.0）：实测模型常以子项目
@@ -332,6 +333,12 @@ func (r *Reviewer) buildReviewSystem(task plugin.Task, strategy string) string {
 	}
 	if text := r.skillPromptText(); text != "" {
 		sys += "\n\n===【审查方法论（skill 注入）】===\n" + text
+	}
+	// v6.10.0 报告契约模板：仅 analyst 追加 chain 证据链纪律（standard/minimal
+	// 提示词逐字节不动，由 builtin_test golden 钉住）。模板键经 Task.Artifacts
+	// 开放位传递——适配器是跨仓共享单例，构造期无法按仓注入；键缺失 = 不追加。
+	if task.Artifacts[plugin.ArtifactReportTemplate] == reporttmpl.Analyst {
+		sys += reporttmpl.ChainInstruction
 	}
 	return sys
 }

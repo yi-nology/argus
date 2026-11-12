@@ -10,6 +10,8 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	oekitconfig "github.com/oekit/core/config"
 	"gopkg.in/yaml.v3"
+
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 // ---------- plugins.yaml（Hub 全局配置，唯一能声明 cli 二进制/remote endpoint 的地方）----------
@@ -166,6 +168,11 @@ type ReviewSettings struct {
 	// ExtraInstructions 仓库附加审查指令（对标 Copilot custom instructions）：
 	// 与 .argus/review-guidelines.md 合并注入 R4 提示词。≤4000 runes（截断）。
 	ExtraInstructions string `yaml:"extra_instructions"`
+	// ReportTemplate 报告契约模板（v6.10.0）：standard|analyst|minimal 白名单
+	// 选择（词表单源 reporttmpl——本包只消费不复制，防漂移）。空 = 取服务级
+	// ARGUS_REPORT_TEMPLATE 默认。只能「选」不能自定义内容（提示注入面控制，
+	// 非法值整份配置拒载降级，与 min_severity 同纪律）。
+	ReportTemplate string `yaml:"report_template"`
 }
 
 // DescribeSettings @argus describe 命令的仓库级配置（v3.15.0）。
@@ -296,6 +303,13 @@ func sanitizeReviewSettings(r ReviewSettings, maxList int) (ReviewSettings, erro
 		r.ExtraInstructions = t + "\n…（截断）"
 	} else {
 		r.ExtraInstructions = strings.TrimSpace(r.ExtraInstructions)
+	}
+	// report_template 白名单校验（v6.10.0）：空 = 继承服务级默认（合法）；非空
+	// 必须在 reporttmpl 词表内。非法值整份拒载——宽容回退会让笔误（如 analist）
+	// 静默落到意外模板，配置卫生优先（与 min_severity 同纪律）。
+	if r.ReportTemplate != "" && !reporttmpl.IsValid(r.ReportTemplate) {
+		return r, fmt.Errorf(".reviewagents.yaml review.report_template=%q 非法（合法词表 %s）",
+			r.ReportTemplate, strings.Join(reporttmpl.Keys(), "|"))
 	}
 	return r, nil
 }

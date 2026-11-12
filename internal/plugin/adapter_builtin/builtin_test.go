@@ -20,6 +20,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 // fakeGen 最小 llm.Generator：GenerateJSON 把 canned JSON 解进 out（与
@@ -88,6 +89,38 @@ func TestBuildReviewSystem_Sections(t *testing.T) {
 	}
 	if !strings.Contains(bare, "SKILL-METHOD-TEXT") {
 		t.Fatalf("skill 注入段两路径都应出现:\n%s", bare)
+	}
+}
+
+// v6.10.0 报告契约模板：chain 纪律仅 analyst 模板追加；standard/minimal/缺键
+// 与现状逐字节一致（既有行为零漂移由本 golden 钉住）。
+func TestBuildReviewSystem_ReportTemplateChain(t *testing.T) {
+	mk := func() *Reviewer {
+		r, err := NewReviewer(plugin.AgentManifest{Name: "req-review"}, "correctness", &fakeGen{}, nil, nil)
+		if err != nil {
+			t.Fatalf("NewReviewer: %v", err)
+		}
+		return r
+	}
+	baseline := mk().buildReviewSystem(plugin.Task{}, "")
+	if strings.Contains(baseline, "chain") {
+		t.Fatalf("缺省模板不应含 chain 纪律:\n%s", baseline)
+	}
+	// standard/minimal/空键/非法键：全部与 baseline 逐字节一致。
+	for _, key := range []string{"standard", "minimal", "", "bogus"} {
+		task := plugin.Task{Artifacts: map[string]string{plugin.ArtifactReportTemplate: key}}
+		if got := mk().buildReviewSystem(task, ""); got != baseline {
+			t.Fatalf("模板键 %q 提示词与 baseline 漂移", key)
+		}
+	}
+	// analyst：追加 chain 纪律。
+	analyst := plugin.Task{Artifacts: map[string]string{plugin.ArtifactReportTemplate: "analyst"}}
+	got := mk().buildReviewSystem(analyst, "")
+	if !strings.HasSuffix(got, reporttmpl.ChainInstruction) {
+		t.Fatalf("analyst 模板应追加 ChainInstruction:\n尾部=%q", got[len(got)-120:])
+	}
+	if !strings.Contains(got, "\"chain\"") {
+		t.Fatalf("analyst chain 纪律缺字段锚点:\n%s", got)
 	}
 }
 
