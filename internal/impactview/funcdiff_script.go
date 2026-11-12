@@ -16,12 +16,13 @@
 package impactview
 
 import (
+	"cmp"
 	"context"
 	"hash/fnv"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -65,7 +66,7 @@ func diffScriptFunctions(ctx context.Context, dir, baseRef string, changed []str
 			files = append(files, f)
 		}
 	}
-	sort.Strings(files)
+	slices.Sort(files)
 	if len(files) == 0 {
 		return nil, notes
 	}
@@ -233,7 +234,7 @@ func scriptFuncDefs(text, ext string) []scriptFuncDef {
 			appendHit(name, loc[0])
 		}
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].line < hits[j].line })
+	slices.SortStableFunc(hits, func(a, b hit) int { return cmp.Compare(a.line, b.line) })
 	defs := make([]scriptFuncDef, len(hits))
 	for i, h := range hits {
 		body := 1

@@ -76,7 +76,7 @@ func TestRepoAllowedFor_TokenRepos(t *testing.T) {
 func TestTokenRateOK(t *testing.T) {
 	s := &Service{Cfg: &config.Config{APIRateRPM: 60}} // burst = max(10, 10) = 10
 	allowed := 0
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		if s.tokenRateOK("tok-a") {
 			allowed++
 		}
@@ -90,7 +90,7 @@ func TestTokenRateOK(t *testing.T) {
 	}
 	// 0 = 关闭
 	s2 := &Service{Cfg: &config.Config{APIRateRPM: 0}}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if !s2.tokenRateOK("tok-c") {
 			t.Error("限速关闭时不应拒绝")
 		}

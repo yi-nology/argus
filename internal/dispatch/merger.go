@@ -1,9 +1,11 @@
 package dispatch
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -146,11 +148,7 @@ func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 		}
 	}
 	if disagreed > 0 {
-		var names []string
-		for n := range memberSet {
-			names = append(names, n)
-		}
-		sort.Strings(names)
+		names := slices.Sorted(maps.Keys(memberSet))
 		mf.CrossReview = fmt.Sprintf("%s 编队交叉审查，分歧 %d 处已标注", strings.Join(names, "+"), disagreed)
 	}
 }
@@ -423,14 +421,14 @@ func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcome
 	pendings := m.persistPrints(ctx, pr, taskID, at, order)
 	m.applyLearning(ctx, pr, at, out, pendings)
 
-	sort.SliceStable(out.Findings, func(i, j int) bool {
-		if SeverityRank(out.Findings[i].Severity) != SeverityRank(out.Findings[j].Severity) {
-			return SeverityRank(out.Findings[i].Severity) > SeverityRank(out.Findings[j].Severity)
+	slices.SortStableFunc(out.Findings, func(a, b Finding) int {
+		if c := cmp.Compare(SeverityRank(a.Severity), SeverityRank(b.Severity)); c != 0 {
+			return -c
 		}
-		if out.Findings[i].File != out.Findings[j].File {
-			return out.Findings[i].File < out.Findings[j].File
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
 		}
-		return out.Findings[i].Line < out.Findings[j].Line
+		return cmp.Compare(a.Line, b.Line)
 	})
 	return out, nil
 }

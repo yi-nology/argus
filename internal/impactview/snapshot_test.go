@@ -221,7 +221,7 @@ func TestCoupling(t *testing.T) {
 	write("once.go", "package main\n\nvar B = 1\n")
 	gitCmd(t, dir, "add", ".")
 	gitCmd(t, dir, "commit", "-m", "init")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		write("main.go", "package main\n\nfunc main() { _ = "+string(rune('a'+i))+" }\n")
 		write("partner.go", "package main\n\nvar A = "+itoaN(i+2)+"\n")
 		gitCmd(t, dir, "commit", "-am", "bump")
@@ -282,7 +282,7 @@ func TestRenderMermaid(t *testing.T) {
 func TestRenderMermaidAggregation(t *testing.T) {
 	// 构造 40 个受影响文件节点（远超 24 上限）
 	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"}}
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		id := "file:pkg" + itoaN(i) + "/f.go"
 		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindFile, Label: id})
 		s.Edges = append(s.Edges, Edge{From: "file:a.go", To: id, Rel: RelCaller})
@@ -437,7 +437,7 @@ func TestNoDanglingEdges(t *testing.T) {
 func TestSnapshotCapacityGuard(t *testing.T) {
 	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
 	// 200 个改动文件节点（L0 场景）+ 每文件一条 caller 边
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		id := "file:pkg" + strconv.Itoa(i) + "/f.go"
 		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindFile, Label: id, Changed: true})
 		symID := "sym:pkg" + strconv.Itoa(i) + "/f.go:F"
@@ -522,7 +522,7 @@ func TestMermaidDropsIsolatedSymbols(t *testing.T) {
 func TestRenderMermaidPure(t *testing.T) {
 	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a/a.go"}}
 	s.Nodes = append(s.Nodes, Node{ID: "file:a/a.go", Kind: KindFile, Label: "a.go", Changed: true})
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		id := "pkg:p" + strconv.Itoa(i)
 		s.Nodes = append(s.Nodes, Node{ID: id, Kind: KindPackage, Label: id})
 		s.Edges = append(s.Edges, Edge{From: "file:a/a.go", To: id, Rel: RelImport})

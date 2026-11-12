@@ -248,7 +248,7 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	sameB := []Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)}
 	scriptA := make([][]Finding, 6)
 	scriptB := make([][]Finding, 6)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		scriptA[i] = sameA
 		scriptB[i] = sameB
 	}
@@ -260,7 +260,7 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
 	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		outcomes := d.RunConsensus(context.Background(), task, sq, nil)
 		total := 0
 		for _, o := range outcomes {
@@ -344,7 +344,7 @@ func TestRunConsensus_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
 
 	bs := d.BreakerFor("blocker")
-	for i := 0; i < breakerTripThreshold; i++ {
+	for range breakerTripThreshold {
 		_, gen, berr := bs.AllowGen(context.Background())
 		if berr != nil {
 			break

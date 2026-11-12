@@ -14,7 +14,7 @@ import (
 func BenchmarkFingerprint(b *testing.B) {
 	comment := "并发写共享 map 未加锁：func set(k string, v int) { cache[k] = v } 无互斥保护，建议 sync.RWMutex"
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Fingerprint("internal/plugin/merger.go", comment, 42)
 	}
 }
@@ -23,8 +23,8 @@ func BenchmarkFingerprint(b *testing.B) {
 // （签名双通道 + eq 行号相容判定）。
 func BenchmarkAggregateSamples3x50(b *testing.B) {
 	findings := make([]Finding, 0, 150)
-	for s := 0; s < 3; s++ {
-		for i := 0; i < 50; i++ {
+	for s := range 3 {
+		for i := range 50 {
 			findings = append(findings, Finding{
 				File:     fmt.Sprintf("pkg/file%02d.go", i%20),
 				Line:     10 + i,
@@ -34,7 +34,7 @@ func BenchmarkAggregateSamples3x50(b *testing.B) {
 		}
 	}
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = reportutil.Aggregate(findings,
 			func(f Finding) []string {
 				return []string{

@@ -10,9 +10,10 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -78,10 +79,7 @@ func scanWorkspace(dir string) (*goMods, bool) {
 		}
 		return nil
 	})
-	for d := range m.fileCount {
-		m.dirs = append(m.dirs, d)
-	}
-	sort.Strings(m.dirs)
+	m.dirs = slices.Sorted(maps.Keys(m.fileCount))
 	return m, truncated
 }
 
@@ -147,6 +145,6 @@ func mergeSortedUnique(base, add []string) []string {
 			base = append(base, a)
 		}
 	}
-	sort.Strings(base)
+	slices.Sort(base)
 	return base
 }

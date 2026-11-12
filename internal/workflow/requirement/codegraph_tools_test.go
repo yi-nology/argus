@@ -310,7 +310,7 @@ func QueryDB() {
 	writeFile("api.go", "package app\n\n// Handle HTTP 入口，查 DB。\nfunc Handle() {\n\tQueryDB()\n}\n")
 	// 凑 chunk 数（topK 上界钳制观察需要 >10 个含 db chunk）；文本混入 http 压低
 	// 余弦，不与 QueryDB 争首条。
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		writeFile(fmt.Sprintf("pad/p%02d.go", i),
 			fmt.Sprintf("package pad\n\n// DBPad%02d 缓存 HTTP 会话。\nfunc DBPad%02d() {}\n", i, i))
 	}

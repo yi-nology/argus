@@ -285,7 +285,7 @@ func (s *Store) ClaimNextPending(ctx context.Context) (*Task, bool, error) {
 	err := s.withWrite(func() error {
 		const maxAttempts = 3
 		return s.quietDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for attempt := 0; attempt < maxAttempts; attempt++ {
+			for range maxAttempts {
 				var t Task
 				// 优先级队列（v3.40.0）：人类在等的任务（评论重审/API 手工）先于
 				// poller 批量；同优先级保持 FIFO

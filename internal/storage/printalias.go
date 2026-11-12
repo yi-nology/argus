@@ -269,7 +269,7 @@ func familyRelated(anchor, cand FindingPrint) bool {
 // 措辞变体——从 suppressed 行出发不动点扩张，家族行并入抑制。此前须逐变体打
 // 地鼠（实测同一问题四轮四种措辞，压二缺一即复活）。
 func suppressFamily(tx *gorm.DB, platform, owner, repo, number string, at time.Time) error {
-	for round := 0; round < 8; round++ { // 家族规模小，不动点 8 轮封顶
+	for range 8 { // 家族规模小，不动点 8 轮封顶
 		var rows []FindingPrint
 		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
 			platform, owner, repo, number).Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
@@ -304,7 +304,7 @@ func suppressFamily(tx *gorm.DB, platform, owner, repo, number string, at time.T
 // restoreFamily 恢复家族传播（suppressFamily 对称）：从 open 行出发把家族内的
 // suppressed 行放回 open。
 func restoreFamily(tx *gorm.DB, platform, owner, repo, number string) error {
-	for round := 0; round < 8; round++ {
+	for range 8 {
 		var rows []FindingPrint
 		if err := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ?",
 			platform, owner, repo, number).Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {

@@ -201,7 +201,7 @@ func TestRenderTriage(t *testing.T) {
 // RenderTriage：排除清单超过上限时省略计数标注。
 func TestRenderTriageExcludedCap(t *testing.T) {
 	var files []previewFile
-	for i := 0; i < maxExcludedLines+5; i++ {
+	for range maxExcludedLines + 5 {
 		files = append(files, previewFile{Path: "p.go", ExcludeReason: "x"})
 	}
 	p := &PreviewResult{Mode: "range", TotalFiles: len(files), ExcludedCount: len(files),
@@ -233,7 +233,7 @@ func TestRenderRules(t *testing.T) {
 // RenderRules：组内文件清单超上限省略计数；超长 section 封顶截断。
 func TestRenderRulesCaps(t *testing.T) {
 	var files []string
-	for i := 0; i < maxGroupFileList+7; i++ {
+	for range maxGroupFileList + 7 {
 		files = append(files, "f.go")
 	}
 	s := RenderRules([]RuleGroup{{GroupID: 1, Files: files, Rule: "r"}})

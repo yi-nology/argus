@@ -2,7 +2,8 @@ package requirement
 
 import (
 	"encoding/json"
-	"sort"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 
@@ -111,21 +112,15 @@ func TestR4CkptHook_ConcurrentNoLostUpdate(t *testing.T) {
 	}}
 	var wg sync.WaitGroup
 	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
-		wg.Add(1)
-		go func(n string) {
-			defer wg.Done()
-			w.r4CkptHook(dispatch.Outcome{Name: n, Result: &plugin.Result{Notes: n}})
-		}(name)
+		wg.Go(func() {
+			w.r4CkptHook(dispatch.Outcome{Name: name, Result: &plugin.Result{Notes: name}})
+		})
 	}
 	wg.Wait()
 	mu.Lock()
 	defer mu.Unlock()
 	if len(saved) != 8 {
-		keys := make([]string, 0, len(saved))
-		for k := range saved {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(saved))
 		t.Fatalf("并发落键丢失：got %d keys %v", len(saved), keys)
 	}
 }

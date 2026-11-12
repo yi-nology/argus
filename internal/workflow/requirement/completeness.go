@@ -13,7 +13,7 @@ package requirement
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -71,13 +71,13 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 	}
 	missing = append(missing, prunedNotes(pruned)...)
 	if len(missing) > 0 {
-		sort.Strings(missing)
+		slices.Sort(missing)
 		fail(plugin.CheckPluginsMissing, "以下插件未实际产出："+strings.Join(missing, "、"))
 	} else {
 		pass(plugin.CheckPluginsMissing, "")
 	}
 	if len(missingLock) > 0 {
-		sort.Strings(missingLock)
+		slices.Sort(missingLock)
 		fail(plugin.CheckLockPluginMissing, "lockRepoConfig 锁定插件未产出："+strings.Join(missingLock, "、"))
 	} else {
 		pass(plugin.CheckLockPluginMissing, "")

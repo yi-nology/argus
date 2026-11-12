@@ -202,7 +202,7 @@ func TestTotalChunkBudget(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.go", "b.go", "c.go"} {
 		src := "package a\n"
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			src += "func F" + strings.Repeat("x", i) + strings.TrimSpace(name[:1]) + "()" + " {}\n"
 		}
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {

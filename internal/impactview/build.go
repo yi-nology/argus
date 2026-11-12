@@ -5,10 +5,12 @@
 package impactview
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -181,7 +183,7 @@ func buildAffectedPackages(s *Snapshot, ws *goMods, changed []string) []PkgImpac
 		}
 	}
 	for d := range importers {
-		sort.Strings(importers[d])
+		slices.Sort(importers[d])
 	}
 
 	// BFS：parent 记来路包（边渲染用），parentChanged 标记来路是改动包
@@ -242,11 +244,11 @@ func buildAffectedPackages(s *Snapshot, ws *goMods, changed []string) []PkgImpac
 		}
 	}
 	// 排序展示序：先跳数后路径
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].pi.Depth != rows[j].pi.Depth {
-			return rows[i].pi.Depth < rows[j].pi.Depth
+	slices.SortFunc(rows, func(a, b row) int {
+		if c := cmp.Compare(a.pi.Depth, b.pi.Depth); c != 0 {
+			return c
 		}
-		return rows[i].pi.Path < rows[j].pi.Path
+		return strings.Compare(a.pi.Path, b.pi.Path)
 	})
 
 	for _, r := range rows {
@@ -369,15 +371,15 @@ const (
 // finalize 确定化排序 + 重复边去重 + 容量守卫（节点按影响权重封顶 →
 // 边随端点裁剪 → JSON 体积守卫）。任何截断记 Notes + Truncated。
 func finalize(s *Snapshot) {
-	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })
-	sort.SliceStable(s.Edges, func(i, j int) bool {
-		if s.Edges[i].From != s.Edges[j].From {
-			return s.Edges[i].From < s.Edges[j].From
+	slices.SortFunc(s.Nodes, func(a, b Node) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortStableFunc(s.Edges, func(a, b Edge) int {
+		if c := strings.Compare(a.From, b.From); c != 0 {
+			return c
 		}
-		if s.Edges[i].To != s.Edges[j].To {
-			return s.Edges[i].To < s.Edges[j].To
+		if c := strings.Compare(a.To, b.To); c != 0 {
+			return c
 		}
-		return s.Edges[i].Rel < s.Edges[j].Rel
+		return strings.Compare(a.Rel, b.Rel)
 	})
 	dedup := s.Edges[:0]
 	for i, e := range s.Edges {
@@ -450,7 +452,7 @@ func finalize(s *Snapshot) {
 			s.Notes = append(s.Notes, "快照 JSON 超 48KB 体积守卫，逐批裁节点至达标（完整面见交互视图/get_impact）")
 		}
 	}
-	sort.Strings(s.Notes)
+	slices.Sort(s.Notes)
 }
 
 // containsNote Notes 精确子串判重（体积守卫循环内只记一次）。
@@ -494,25 +496,20 @@ func dedupSorted(in []string) []string {
 		seen[s] = true
 		out = append(out, s)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
 // sortedSet map 键的字典序展开（确定性遍历统一入口）。
 func sortedSet(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }
 
 // sortedStrings 切片字典序副本（确定性遍历统一入口）。
 func sortedStrings(in []string) []string {
 	out := make([]string, len(in))
 	copy(out, in)
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

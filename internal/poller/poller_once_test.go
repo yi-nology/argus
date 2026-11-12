@@ -153,7 +153,7 @@ func TestPollOnce_Filters(t *testing.T) {
 func TestPollOnce_PagingTruncated(t *testing.T) {
 	full := func(tag string) []*provider.ChangeRequest {
 		out := make([]*provider.ChangeRequest, 0, 30)
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			out = append(out, cr(fmt.Sprintf("%s-%d", tag, i), fmt.Sprintf("sha-%s-%d", tag, i),
 				provider.CRStateOpened, false))
 		}

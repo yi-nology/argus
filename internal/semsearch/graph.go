@@ -26,7 +26,7 @@ import (
 	"context"
 	"hash/fnv"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -162,7 +162,7 @@ func (ix *Index) rebuildGraphLocked() {
 	//   候选封顶 graphSeedCap。最后整图原子挂载。
 	for _, m := range []map[string][]string{g.adj, g.radj, g.bare} {
 		for k, list := range m {
-			sort.Strings(list)
+			slices.Sort(list)
 			m[k] = dedupStrings(list)
 		}
 	}

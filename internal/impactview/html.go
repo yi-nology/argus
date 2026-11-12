@@ -6,11 +6,13 @@
 package impactview
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"html"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -269,11 +271,7 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 	for _, e := range edges {
 		adj[e.From] = append(adj[e.From], e.To)
 	}
-	queue := make([]string, 0, len(depth))
-	for id := range depth {
-		queue = append(queue, id)
-	}
-	sort.Strings(queue)
+	queue := slices.Sorted(maps.Keys(depth))
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -329,9 +327,9 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 					seenDir[dirID] = true
 					dirName := strings.TrimPrefix(dirID, "dir:")
 					newNodes = append(newNodes, Node{
-						ID:    dirID,
-						Kind:  KindPackage,
-						Label: filepath.Base(dirName),
+						ID:     dirID,
+						Kind:   KindPackage,
+						Label:  filepath.Base(dirName),
 						Detail: fmt.Sprintf("%d 个文件", dirCount[dirName]),
 					})
 				}
@@ -392,20 +390,16 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 		w := weight[n.Kind]
 		cols[d] = append(cols[d], colItem{n.ID, w})
 	}
-	colNums := make([]int, 0, len(cols))
-	for d := range cols {
-		colNums = append(colNums, d)
-	}
-	sort.Ints(colNums)
+	colNums := slices.Sorted(maps.Keys(cols))
 	pos := map[string][2]int{}
 	width, height := 0, 0
 	for _, d := range colNums {
 		items := cols[d]
-		sort.SliceStable(items, func(i, j int) bool {
-			if items[i].weight != items[j].weight {
-				return items[i].weight < items[j].weight
+		slices.SortStableFunc(items, func(a, b colItem) int {
+			if c := cmp.Compare(a.weight, b.weight); c != 0 {
+				return c
 			}
-			return items[i].id < items[j].id
+			return strings.Compare(a.id, b.id)
 		})
 		x := orgX + d*(nodeW+colGap)
 		for y, it := range items {

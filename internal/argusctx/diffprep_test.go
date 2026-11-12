@@ -69,7 +69,7 @@ func TestPrepareCleaning(t *testing.T) {
 
 func TestPrepareTotalTruncation(t *testing.T) {
 	var big strings.Builder
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		big.WriteString("+line of code that matters\n")
 	}
 	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
@@ -91,7 +91,7 @@ func TestPrepareTotalTruncation(t *testing.T) {
 
 func TestPrepareSingleFileTruncation(t *testing.T) {
 	var big strings.Builder
-	for i := 0; i < SingleFileMaxChars+100; i++ {
+	for range SingleFileMaxChars + 100 {
 		big.WriteString("x")
 	}
 	md := &provider.MergeDiff{Files: []*provider.ChangedFile{diffFile("a.go", big.String(), 1)}}
@@ -385,7 +385,7 @@ func TestNoiseSegmentMatch(t *testing.T) {
 // 深挖修复回归：噪声/二进制文件不进截断说明（它们是按规则排除，不是预算截断）。
 func TestTruncationNoteExcludesNoise(t *testing.T) {
 	var big strings.Builder
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		big.WriteString("+code\n")
 	}
 	md := &provider.MergeDiff{Files: []*provider.ChangedFile{

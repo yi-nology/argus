@@ -5,8 +5,10 @@
 package storage
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -155,11 +157,11 @@ func (s *Store) ListLowConfidencePatterns(ctx context.Context, platform, owner, 
 		out = append(out, p)
 	}
 	// 确定性排序：置信度升序，同分按 pattern
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Confidence != out[j].Confidence {
-			return out[i].Confidence < out[j].Confidence
+	slices.SortFunc(out, func(a, b learning.PatternState) int {
+		if c := cmp.Compare(a.Confidence, b.Confidence); c != 0 {
+			return c
 		}
-		return out[i].Pattern < out[j].Pattern
+		return strings.Compare(a.Pattern, b.Pattern)
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]

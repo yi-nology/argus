@@ -25,7 +25,7 @@ func TestPatternSignalsLifecycle(t *testing.T) {
 	}
 
 	// Regret×2 + Suppress×1 → 低于 soft floor
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := s.PatternRegret(ctx, "gitea", "acme", "app", "security", f, at); err != nil {
 			t.Fatal(err)
 		}
@@ -73,14 +73,14 @@ func TestListLowConfidencePatternsFilters(t *testing.T) {
 	fHigh := domain.Finding{Comment: "存在空指针解引用风险"}
 
 	// 低置信：samples=4, regret2+suppress1
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_ = s.PatternRegret(ctx, "gitea", "acme", "app", "style", fLow, at)
 	}
 	_ = s.PatternSuppress(ctx, "gitea", "acme", "app", "style", fLow, at)
 	_ = s.PatternPosted(ctx, "gitea", "acme", "app", "style", fLow, at)
 
 	// 高置信：大量 posted
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = s.PatternPosted(ctx, "gitea", "acme", "app", "security", fHigh, at)
 	}
 

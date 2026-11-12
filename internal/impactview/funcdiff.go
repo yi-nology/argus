@@ -15,8 +15,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +107,7 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 			files = append(files, f)
 		}
 	}
-	sort.Strings(files)
+	slices.Sort(files)
 	if len(files) > MaxFuncDiffFiles {
 		notes = append(notes, "改动 Go 文件超函数级对比上限（"+strconv.Itoa(MaxFuncDiffFiles)+"），仅对比前序部分")
 		files = files[:MaxFuncDiffFiles]
@@ -169,14 +170,14 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 		}
 	}
 	// 排序 + 封顶（(File,Name,Status) 确定化）
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].File != out[j].File {
-			return out[i].File < out[j].File
+	slices.SortFunc(out, func(a, b FuncDiff) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
 		}
-		if out[i].Name != out[j].Name {
-			return out[i].Name < out[j].Name
+		if c := strings.Compare(a.Name, b.Name); c != 0 {
+			return c
 		}
-		return out[i].Status < out[j].Status
+		return strings.Compare(a.Status, b.Status)
 	})
 	if len(out) > MaxFuncDiffs {
 		out = out[:MaxFuncDiffs]
@@ -184,7 +185,7 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 	if trunc {
 		notes = append(notes, "函数级 diff 超上限（"+strconv.Itoa(MaxFuncDiffs)+"），已截断")
 	}
-	sort.Strings(notes)
+	slices.Sort(notes)
 	return out, notes
 }
 
@@ -253,7 +254,7 @@ func parseFuncsSide(fset *token.FileSet, dir, rel string, rs [][2]int) (
 			}
 			return true
 		})
-		sort.Strings(snap.Calls)
+		slices.Sort(snap.Calls)
 		funcs[name] = snap
 	}
 	// 全触达口径展开
@@ -313,7 +314,7 @@ func gitFileFuncs(ctx context.Context, dir, ref, rel string) map[string]*FuncSna
 			}
 			return true
 		})
-		sort.Strings(snap.Calls)
+		slices.Sort(snap.Calls)
 		funcs[funcDeclName(fd)] = snap
 	}
 	return funcs
@@ -330,12 +331,7 @@ func srcSeg(fset *token.FileSet, src []byte, from, to token.Pos) string {
 
 // sortedFuncNames 确定化遍历序。
 func sortedFuncNames(m map[string]*FuncSnap) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }
 
 // setDiff a - b（保持 a 序）。

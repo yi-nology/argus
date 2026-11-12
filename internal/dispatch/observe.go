@@ -2,7 +2,7 @@ package dispatch
 
 import (
 	"slices"
-	"sort"
+	"strings"
 )
 
 // 仓库侧生效状态词表（GET /agents 可观测，v3.0.1 评审项）。
@@ -101,5 +101,5 @@ func joinNote(a, b string) string {
 
 // SortStatuses 观测输出排序（名字序，稳定）。
 func SortStatuses(sts []PluginRepoStatus) {
-	sort.SliceStable(sts, func(i, j int) bool { return sts[i].Name < sts[j].Name })
+	slices.SortStableFunc(sts, func(a, b PluginRepoStatus) int { return strings.Compare(a.Name, b.Name) })
 }

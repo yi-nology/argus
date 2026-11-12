@@ -217,7 +217,7 @@ func TestRun_CircuitBreakerSkips(t *testing.T) {
 	})
 
 	// 触发熔断：连续失败 3 次
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		sel := []Selection{{Reg: &Registration{
 			Manifest: AgentManifest{Name: "fail-plugin"},
 			Plugin:   &failPlugin{manifest: AgentManifest{Name: "fail-plugin"}},
@@ -395,14 +395,14 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 	sel2 := []Selection{{Reg: reg2, Reason: "base"}}
 	ctx := context.Background()
 
-	for i := 0; i < breakerTripThreshold; i++ {
+	for range breakerTripThreshold {
 		d.Run(ctx, Task{}, sel1, nil)
 	}
 	if _, _, berr := d.BreakerFor("canceled-agent").AllowGen(ctx); berr != nil {
 		t.Fatal("连续取消不应熔断插件")
 	}
 
-	for i := 0; i < breakerTripThreshold; i++ {
+	for range breakerTripThreshold {
 		d.Run(ctx, Task{}, sel2, nil)
 	}
 	if _, _, berr := d.BreakerFor("fail-agent").AllowGen(ctx); berr == nil {
@@ -422,7 +422,7 @@ func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	sel := []Selection{{Reg: reg1, Reason: "base"}}
 
 	bs := d.BreakerFor("canceled-agent")
-	for i := 0; i < breakerTripThreshold; i++ {
+	for range breakerTripThreshold {
 		_, gen, berr := bs.AllowGen(context.Background())
 		if berr != nil {
 			break

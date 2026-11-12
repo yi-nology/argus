@@ -2,7 +2,7 @@ package dispatch
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -66,7 +66,7 @@ func (r *Registry) Snapshot() []*Registration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	names := append([]string(nil), r.order...)
-	sort.Strings(names)
+	slices.Sort(names)
 	out := make([]*Registration, 0, len(names))
 	for _, n := range names {
 		out = append(out, r.items[n])

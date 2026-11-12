@@ -12,9 +12,10 @@
 package health
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -132,11 +133,11 @@ func Build(ctx context.Context, store Store, cfg Config) (*Report, error) {
 }
 
 func sortTips(tips []Tip, topN int) []Tip {
-	sort.SliceStable(tips, func(i, j int) bool {
-		if tips[i].Posted != tips[j].Posted {
-			return tips[i].Posted > tips[j].Posted
+	slices.SortStableFunc(tips, func(a, b Tip) int {
+		if c := cmp.Compare(a.Posted, b.Posted); c != 0 {
+			return -c
 		}
-		return tips[i].Confidence < tips[j].Confidence
+		return cmp.Compare(a.Confidence, b.Confidence)
 	})
 	if len(tips) > topN {
 		tips = tips[:topN]
