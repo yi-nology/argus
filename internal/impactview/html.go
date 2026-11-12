@@ -693,6 +693,8 @@ svg{min-width:100%}
 .edgeg:hover text.elabel{opacity:1}
 .edgeg:hover path.edge{stroke:#475569;stroke-width:2}
 .elabel{font-size:10px;fill:#94a3b8}
+/* v6.10.5 边类型过滤：边按 rel 属性打标，JS 按选中类型显隐 */
+.edge.hidden{display:none}
 aside{position:fixed;right:0;top:0;bottom:0;width:320px;background:#fff;border-left:1px solid #e2e8f0;padding:16px;display:none;overflow:auto}
 aside h3{margin:0 0 8px;font-size:14px}
 aside .kv{margin:2px 0;font-size:12px;color:#334155;word-break:break-all}
@@ -702,6 +704,10 @@ summary{cursor:pointer;color:#334155}
 #kinds{display:inline-flex;gap:4px;margin:0 6px}
 .kchip{padding:2px 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;font-size:12px;cursor:pointer;user-select:none}
 .kchip.on{background:#1e293b;color:#fff;border-color:#1e293b}
+/* v6.10.5 边类型过滤 chips */
+#edgekinds{display:inline-flex;gap:4px;margin:0 6px}
+.ekchip{padding:2px 8px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;font-size:11px;cursor:pointer;user-select:none}
+.ekchip.on{background:#8b5cf6;color:#fff;border-color:#8b5cf6}
 .node.focus rect{stroke:#2563eb;stroke-width:2.5}
 .lgd{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 8px;vertical-align:-1px}
 .lgd-chg{background:#fecaca;border:1px solid #dc2626}.lgd-sym{background:#fef9c3;border:1px solid #ca8a04}.lgd-pkg{background:#dbeafe;border:1px solid #2563eb}.lgd-tst{background:#dcfce7;border:1px solid #16a34a}.lgd-tbl{background:#ede9fe;border:1px solid #7c3aed}.lgd-file{background:#e2e8f0;border:1px solid #64748b}
@@ -746,6 +752,8 @@ body.fullscreen #viewport{height:100vh}
  .node.dim{opacity:.3}
  details{break-inside:avoid}
 }
+/* v6.10.5 边类型过滤：隐藏非选中关系的边 */
+.edge.hidden{display:none}
 </style></head><body>
 <header>
 <h1>` + title + `</h1>
@@ -756,6 +764,7 @@ body.fullscreen #viewport{height:100vh}
 <div id="toolbar">
 <input id="q" placeholder="搜索文件 / 包 / 符号…">
 <span id="kinds"></span>
+<span id="edgekinds"></span>
 <button id="zin">放大</button><button id="zout">缩小</button><button id="fit">复位</button>
 <button id="export">导出 SVG</button>
 <button id="shareview" title="复制当前视图状态链接">分享视图</button>
@@ -805,6 +814,24 @@ Object.keys(kindCounts).sort().forEach(k=>{
  b.onclick=()=>{if(kindFilter.has(k)){kindFilter.delete(k);b.classList.remove('on');}else{kindFilter.add(k);b.classList.add('on');}filter(q.value.trim().toLowerCase());};
  kindsEl.appendChild(b);
 });
+// v6.10.5 方向 AO：边类型过滤——按 rel 类型显隐边
+(function(){
+ const ek=document.getElementById('edgekinds');
+ const relCounts={};
+ data.edges.forEach(e=>{relCounts[e.rel]=(relCounts[e.rel]||0)+1;});
+ Object.keys(relCounts).sort().forEach(r=>{
+  const b=document.createElement('span');b.className='ekchip on';b.dataset.r=r;
+  b.textContent=r+' '+relCounts[r];
+  b.onclick=()=>{
+   const on=b.classList.toggle('on');
+   document.querySelectorAll('#g .edge').forEach(p=>{
+    const e=data.edges[+p.dataset.i];
+    if(e&&e.rel===r){p.classList.toggle('hidden',!on);}
+   });
+  };
+  ek.appendChild(b);
+ });
+})();
 // v6.9.6 方向 W：「只看改动」过滤 chip
 (function(){
  const b=document.createElement('span');b.className='kchip';b.dataset.k='__changed';
