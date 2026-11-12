@@ -707,6 +707,9 @@ summary{cursor:pointer;color:#334155}
 .lgd-chg{background:#fecaca;border:1px solid #dc2626}.lgd-sym{background:#fef9c3;border:1px solid #ca8a04}.lgd-pkg{background:#dbeafe;border:1px solid #2563eb}.lgd-tst{background:#dcfce7;border:1px solid #16a34a}.lgd-tbl{background:#ede9fe;border:1px solid #7c3aed}.lgd-file{background:#e2e8f0;border:1px solid #64748b}
 .cplrow{cursor:pointer;padding:2px 0;font-size:12px;color:#334155}
 .cplrow:hover{color:#2563eb;text-decoration:underline}
+/* v6.10.4 全屏模式：body.fullscreen 隐藏 header/toolbar，viewport 占满全屏 */
+body.fullscreen header,body.fullscreen #toolbar{display:none}
+body.fullscreen #viewport{height:100vh}
 /* v6.9.4 暗色模式：prefers-color-scheme 媒体查询自动切换 */
 @media(prefers-color-scheme:dark){
  body{color:#e2e8f0;background:#0f172a}
@@ -756,6 +759,7 @@ summary{cursor:pointer;color:#334155}
 <button id="zin">放大</button><button id="zout">缩小</button><button id="fit">复位</button>
 <button id="export">导出 SVG</button>
 <button id="shareview" title="复制当前视图状态链接">分享视图</button>
+<button id="fullscreen" title="全屏模式">全屏</button>
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
 ` + cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
@@ -1019,6 +1023,11 @@ document.getElementById('shareview')?.addEventListener('click',()=>{
  u.searchParams.set('tx',Math.round(tx));
  u.searchParams.set('ty',Math.round(ty));
  navigator.clipboard&&navigator.clipboard.writeText(u.toString());
+});
+// v6.10.4 全屏模式——document.documentElement.requestFullscreen + body.fullscreen CSS
+document.getElementById('fullscreen')?.addEventListener('click',()=>{
+ if(document.fullscreenElement){document.exitFullscreen();document.body.classList.remove('fullscreen');}
+ else{document.documentElement.requestFullscreen();document.body.classList.add('fullscreen');}
 });
 </script></body></html>`
 }
