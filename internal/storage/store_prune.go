@@ -129,27 +129,83 @@ func (s *Store) MonthlyTokensByRepo(ctx context.Context, since time.Time) ([]Rep
 	return out, err
 }
 
-// RepoMonthlyTokensReal 真实消费账（v6.9.0 P1-06，#11）：全部终态（done/failed/
-// stale）任务的 token 消耗——failed 任务的中途 LLM 消耗此前只存在于网关账单侧，
-// argus 账本看不见，硬预算被失败/重试消费绕过。配额账（RepoMonthlyTokens，done
-// 口径）语义不回退：平台故障误烧不占配额；真实消费账独立上限（ARGUS_REAL_TOKEN_BUDGET）。
+// RepoMonthlyTokensReal 真实消费账（v6.9.0 P1-06 #11 → #32 升级为逐调用实销）：
+// 口径从「任务终态聚合」改为 usage_event 逐调用记录（status=settled）——运行中
+// 任务的调用即时入账、重试各次调用全部计入（终态聚合会把重试覆盖成末次
+// attempt 的 tokens_used），多副本不再等终态才有真实消费可见。配额账
+// （RepoMonthlyTokens，done 口径）语义不回退：平台故障误烧不占配额；真实
+// 消费账独立上限（ARGUS_REAL_TOKEN_BUDGET）。历史任务经终态 delta 兜底 +
+// 一次性回填迁移补齐（backfill* 事件同为 settled，天然并入本口径）。
 func (s *Store) RepoMonthlyTokensReal(ctx context.Context, platform, owner, repo string, since time.Time) (int64, error) {
 	var total int64
-	err := s.quietDB().WithContext(ctx).Model(&Task{}).
-		Where("platform = ? AND owner = ? AND repo = ? AND status IN ? AND created_at >= ?",
-			platform, owner, repo, []string{StatusDone, StatusFailed, StatusStale}, since).
-		Select("COALESCE(SUM(tokens_used),0)").Scan(&total).Error
+	err := s.quietDB().WithContext(ctx).Model(&UsageEvent{}).
+		Where("platform = ? AND owner = ? AND repo = ? AND status = ? AND occurred_at >= ?",
+			platform, owner, repo, UsageSettled, since).
+		Select("COALESCE(SUM(input_tokens + output_tokens),0)").Scan(&total).Error
 	return total, err
 }
 
-// MonthlyTokensByRepoReal 全部仓库真实消费账（/usage/monthly 双账本展示）。
+// MonthlyTokensByRepoReal 全部仓库实销聚合（/usage/monthly 双账本展示）。
+// tasks 列 = 触达的不同任务数（同任务多笔调用去重，列义与配额账保持一致）。
 func (s *Store) MonthlyTokensByRepoReal(ctx context.Context, since time.Time) ([]RepoTokenUsage, error) {
 	var out []RepoTokenUsage
-	err := s.quietDB().WithContext(ctx).Model(&Task{}).
-		Select("platform, owner, repo, SUM(tokens_used) AS tokens, COUNT(*) AS tasks").
-		Where("status IN ? AND created_at >= ?", []string{StatusDone, StatusFailed, StatusStale}, since).
+	err := s.quietDB().WithContext(ctx).Model(&UsageEvent{}).
+		Select("platform, owner, repo, SUM(input_tokens + output_tokens) AS tokens, "+
+			"COUNT(DISTINCT task_id) AS tasks").
+		Where("status = ? AND occurred_at >= ?", UsageSettled, since).
 		Group("platform, owner, repo").Order("tokens DESC").Find(&out).Error
 	return out, err
+}
+
+// PruneUsageEvents 账本保留清理（#32）：usage_event 按 occurred_at、已收口
+// 预留（settled/released）按 updated_at 早于 cutoff 分批删除（每批 500，与
+// PruneTasks 同理——单条大 DELETE 长事务占住 SQLite 单写连接队头阻塞心跳）。
+// 活跃预留（reserved）不动：仍在占额度判定（过期的由 ReleaseExpiredReservations
+// 先置 released，下轮随龄出局）。与 PruneTasks 同 cutoff 时序安全：任务保留
+// ≥ 事件龄（事件 occurred_at ≥ 任务 created_at），任务未清则其事件必在——
+// 不存在「任务还在、事件被清 → 启动对账重复回填」的窗口。
+func (s *Store) PruneUsageEvents(ctx context.Context, cutoff time.Time) (total int64, err error) {
+	err = s.withWrite(func() error {
+		for {
+			var ids []uint
+			if err := s.db.WithContext(ctx).Model(&UsageEvent{}).
+				Where("occurred_at < ?", cutoff).Limit(500).Pluck("id", &ids).Error; err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				break
+			}
+			res := s.db.WithContext(ctx).Where("id IN ?", ids).Delete(&UsageEvent{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(ids) < 500 {
+				break
+			}
+		}
+		for {
+			var ids []uint
+			if err := s.db.WithContext(ctx).Model(&BudgetReservation{}).
+				Where("status <> ? AND updated_at < ?", ReservationReserved, cutoff).
+				Limit(500).Pluck("id", &ids).Error; err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				break
+			}
+			res := s.db.WithContext(ctx).Where("id IN ?", ids).Delete(&BudgetReservation{})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(ids) < 500 {
+				break
+			}
+		}
+		return nil
+	})
+	return total, err
 }
 
 // jsonUnmarshal 是 encoding/json.Unmarshal 的包内别名，便于测试 mock。

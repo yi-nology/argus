@@ -19,19 +19,42 @@ import (
 // （§10.4：崩溃任务否则静默丢失）。staleAfter 取心跳间隔的 ≥3 倍：
 // 只有 heartbeat_at 已死（或遗留的 NULL 心跳旧行）才重置——多副本共库时，
 // 一个实例滚动重启不会把其他存活实例正在执行的任务也重置（那会双执行、双回帖）。
+// #32 崩溃恢复：被复位任务的未核销预留就地释放（心跳已死 = 持有进程不会
+// 再续租，不等租约过期）——逐 id 条件更新（心跳在挑选与复位之间复活的任务
+// 不被复位、也不误释放预留），复位成功才释放。
 func (s *Store) ResetRunningToPending(ctx context.Context, staleAfter time.Duration) (n int64, err error) {
 	err = s.withWrite(func() error {
-		cutoff := time.Now().Add(-staleAfter)
-		res := s.db.WithContext(ctx).Model(&Task{}).
+		now := time.Now()
+		cutoff := now.Add(-staleAfter)
+		var ids []string
+		if err := s.db.WithContext(ctx).Model(&Task{}).
 			Where("status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)", StatusRunning, cutoff).
-			Update("status", StatusPending)
-		n = res.RowsAffected
-		return res.Error
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		var reset []string
+		for _, id := range ids {
+			// 逐 id 复位：条件在本语句内原子复核（与旧单语句同语义），
+			// RowsAffected=1 才算真复位——复位与释放一一对应。
+			res := s.db.WithContext(ctx).Model(&Task{}).
+				Where("id = ? AND status = ? AND (heartbeat_at IS NULL OR heartbeat_at < ?)",
+					id, StatusRunning, cutoff).
+				Update("status", StatusPending)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected > 0 {
+				reset = append(reset, id)
+			}
+		}
+		n = int64(len(reset))
+		return s.releaseTaskReservations(ctx, reset, ReservationReleased, now)
 	})
 	return n, err
 }
 
 // TouchRunningHeartbeats 续本实例全部 running 任务的心跳（worker 池周期调用）。
+// 预留租约随心跳同步续期（#32：expires_at 与任务活性绑定）。
 func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 	if s.RunnerID == "" {
 		// 显式失败拒绝执行：空 RunnerID 的续期无法归属实例，静默 no-op 会让
@@ -39,9 +62,22 @@ func (s *Store) TouchRunningHeartbeats(ctx context.Context) error {
 		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
 	}
 	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).
+		now := time.Now()
+		var ids []string
+		if err := s.db.WithContext(ctx).Model(&Task{}).
 			Where("status = ? AND runner_id = ?", StatusRunning, s.RunnerID).
-			Update("heartbeat_at", time.Now()).Error
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := s.db.WithContext(ctx).Model(&Task{}).
+			Where("id IN ? AND status = ? AND runner_id = ?", ids, StatusRunning, s.RunnerID).
+			Update("heartbeat_at", now).Error; err != nil {
+			return err
+		}
+		return s.renewTaskReservations(ctx, ids, now)
 	})
 }
 
@@ -65,9 +101,15 @@ func (s *Store) TouchHeartbeatsFor(ctx context.Context, taskIDs []string) error 
 		return nil
 	}
 	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).
+		now := time.Now()
+		if err := s.db.WithContext(ctx).Model(&Task{}).
 			Where("status = ? AND runner_id = ? AND id IN ?", StatusRunning, s.RunnerID, taskIDs).
-			Update("heartbeat_at", time.Now()).Error
+			Update("heartbeat_at", now).Error; err != nil {
+			return err
+		}
+		// 预留租约随心跳续期（#32 验收④）：expires_at 与任务活性绑定——
+		// 进程活着预留不掉，进程死心跳停 → 预留到期释放（清扫+查询双兜底）。
+		return s.renewTaskReservations(ctx, taskIDs, now)
 	})
 }
 
@@ -364,15 +406,23 @@ func (s *Store) FinishTaskFenced(ctx context.Context, id, status, verdict, repor
 		if summaryCommentID > 0 {
 			updates["summary_comment_id"] = summaryCommentID
 		}
-		if status == StatusFailed {
+		// 任务坐标/attempt 预取（#32 终态差额兜底 + failed 退避共用）：须在更新
+		// 前取——failed 路径更新会递增 attempt，补账要对齐本次执行的 attempt_id。
+		var cur *Task
+		if tokensUsed > 0 || status == StatusFailed {
+			var row Task
+			if err := s.db.WithContext(ctx).
+				Select("platform", "owner", "repo", "attempt").
+				Where("id = ?", id).First(&row).Error; err == nil {
+				cur = &row
+			}
+		}
+		if status == StatusFailed && cur != nil {
 			// failed 退避（v3.8.0）：attempt+1，指数退避（5m×3^n，封顶 1h）后由
 			// ResetFailedForRetry 重置重试；成功/stale 路径不动 attempt。
-			var cur Task
-			if err := s.db.WithContext(ctx).Select("attempt").Where("id = ?", id).First(&cur).Error; err == nil {
-				updates["attempt"] = cur.Attempt + 1
-				nr := now.Add(retryBackoff(5*time.Minute, cur.Attempt+1))
-				updates["next_retry_at"] = &nr
-			}
+			updates["attempt"] = cur.Attempt + 1
+			nr := now.Add(retryBackoff(5*time.Minute, cur.Attempt+1))
+			updates["next_retry_at"] = &nr
 		}
 		// 例外：RunnerID 未装配（单测桩直接 CreateTask(pending)→finish 的合成路径）
 		// 时跳过 fencing——生产装配流程 main 必然先赋 RunnerID 再启动 worker。
@@ -385,6 +435,26 @@ func (s *Store) FinishTaskFenced(ctx context.Context, id, status, verdict, repor
 			return res.Error
 		}
 		fenced = res.RowsAffected == 0
+		if fenced {
+			return nil
+		}
+		// 终态差额兜底（#32）：埋点 best-effort 丢笔时按 tokens_used − 本次执行
+		// 已落事件补差——先补账再核销预留（保守序：承诺归还前实销已完整）。
+		// 失败只告警不阻断终态写入（缺口由启动期对账 ReconcileUsageEvents 兜不住
+		// ——有事件的任务它跳过，此处告警是唯一信号，排查面留痕）。
+		if tokensUsed > 0 && cur != nil {
+			if berr := s.backfillTaskUsageDelta(ctx, id, cur.Platform, cur.Owner, cur.Repo,
+				cur.Attempt, tokensUsed, now); berr != nil {
+				s.db.Logger.Warn(ctx, "argus.storage.usage_backfill_failed task=%s err=%v", id, berr)
+			}
+		}
+		// 预留核销（#32 验收③）：任务终态即预留生命周期正常结束——已承诺额度
+		// 归还（实销由 usage_event 逐调用在账，不再需要预留代表未来消耗）。
+		// fenced（归属易主）不核销：预留属于接管方的执行。失败只告警不阻断：
+		// 预留过期兜底仍在（expires_at + 清扫）。
+		if rerr := s.releaseTaskReservations(ctx, []string{id}, ReservationSettled, now); rerr != nil {
+			s.db.Logger.Warn(ctx, "argus.storage.budget_reserve_settle_failed task=%s err=%v", id, rerr)
+		}
 		return nil
 	})
 	return fenced, err

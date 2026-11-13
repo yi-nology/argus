@@ -98,8 +98,9 @@ func TestCommentDeliveryOutcome(t *testing.T) {
 	}
 }
 
-// TestDualLedgerQueries 双账本口径（P1-06，#11）：配额账只计 done；真实消费账
-// 计全部终态（含 failed/stale）——失败/重试消费不再绕过硬预算。
+// TestDualLedgerQueries 双账本口径（P1-06 #11 → #32 逐调用升级）：配额账只计
+// done（任务行口径不回退）；真实消费账 = usage_event 逐调用实销——失败/运行中
+// 任务的调用照计，不再等任务终态聚合。
 func TestDualLedgerQueries(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -110,6 +111,17 @@ func TestDualLedgerQueries(t *testing.T) {
 		if err := s.CreateTask(ctx, task); err != nil {
 			t.Fatal(err)
 		}
+		// 逐调用埋点（#32）：实销来自 usage_event，不依赖任务行终态。
+		if tokens > 0 {
+			if err := s.RecordUsageEvent(ctx, &UsageEvent{
+				TaskID: id, AttemptID: "0", InvocationID: "inv-" + id,
+				Platform: "gitea", Owner: "o", Repo: "ledger",
+				Model: "m", InputTokens: tokens, Status: UsageSettled,
+				OccurredAt: time.Now(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if _, err := s.FinishTaskFenced(ctx, id, status, "", "", "", "", tokens, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -117,6 +129,22 @@ func TestDualLedgerQueries(t *testing.T) {
 	mk("t-done", StatusDone, 100)
 	mk("t-failed", StatusFailed, 30)
 	mk("t-stale", StatusStale, 20)
+	// 运行中任务（未终态）的调用同样入账——#32 缺口「运行中消费不在任一账本」。
+	running := NewTask("code_review", "gitea", "o", "ledger", "2")
+	running.ID = "t-running"
+	running.HeadSHA = "t-running"
+	running.Status = StatusRunning
+	if err := s.CreateTask(ctx, running); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordUsageEvent(ctx, &UsageEvent{
+		TaskID: "t-running", AttemptID: "0", InvocationID: "inv-running",
+		Platform: "gitea", Owner: "o", Repo: "ledger",
+		Model: "m", InputTokens: 40, Status: UsageSettled,
+		OccurredAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	since := time.Now().Add(-time.Hour)
 	quota, err := s.RepoMonthlyTokens(ctx, "gitea", "o", "ledger", since)
@@ -124,11 +152,11 @@ func TestDualLedgerQueries(t *testing.T) {
 		t.Fatalf("配额账（done 口径）= %d err=%v（期望 100，语义不回退）", quota, err)
 	}
 	real, err := s.RepoMonthlyTokensReal(ctx, "gitea", "o", "ledger", since)
-	if err != nil || real != 150 {
-		t.Fatalf("真实消费账 = %d err=%v（期望 150=100+30+20）", real, err)
+	if err != nil || real != 190 {
+		t.Fatalf("实销 = %d err=%v（期望 190=100+30+20+运行中 40）", real, err)
 	}
 	repos, err := s.MonthlyTokensByRepoReal(ctx, since)
-	if err != nil || len(repos) != 1 || repos[0].Tokens != 150 {
-		t.Fatalf("真实消费账聚合: %+v err=%v", repos, err)
+	if err != nil || len(repos) != 1 || repos[0].Tokens != 190 {
+		t.Fatalf("实销聚合: %+v err=%v", repos, err)
 	}
 }

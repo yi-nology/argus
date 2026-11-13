@@ -256,7 +256,7 @@ func (s *Store) ensureLeaseTable() error {
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
 func (s *Store) autoMigrateAll() error {
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}, &OutboxEvent{}); err != nil {
+	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}, &OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}); err != nil {
 		return fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if s.isMySQL() {
@@ -278,7 +278,26 @@ func (s *Store) migrateData(ctx context.Context) error {
 	if err := s.runOneTimeMigration(ctx, "fingerprint_v2", "指纹 v2", s.migratePrintFingerprintsV2); err != nil {
 		return err
 	}
-	return s.runOneTimeMigration(ctx, "print_alias_pr_scope", "print_aliases PR 域", s.migratePrintAliasPRScope)
+	if err := s.runOneTimeMigration(ctx, "print_alias_pr_scope", "print_aliases PR 域", s.migratePrintAliasPRScope); err != nil {
+		return err
+	}
+	// #32 历史实销回填（启动期对账，刻意无哨兵 marker）：滚动发布期间旧二进制
+	// 终态的任务、以及终态差额兜底漏网的任务，下次启动自愈；NOT EXISTS 让已有
+	// 事件的任务零成本跳过，invocation_id 唯一键兜底幂等。失败语义沿 P0-01
+	// fail-closed（ARGUS_MIGRATION_FAIL_OPEN=1 显式降级）——实销断档会让硬预算
+	// 低估历史消费。
+	n, err := s.ReconcileUsageEvents(ctx)
+	if err != nil {
+		if migrationFailOpen() {
+			s.db.Logger.Warn(ctx, "历史实销回填失败（ARGUS_MIGRATION_FAIL_OPEN=1 fail-open，留待下次启动重试）: %v", err)
+			return nil
+		}
+		return fmt.Errorf("storage: 历史实销回填失败（fail-closed；ARGUS_MIGRATION_FAIL_OPEN=1 可显式降级）: %w", err)
+	}
+	if n > 0 {
+		s.db.Logger.Info(ctx, "历史实销回填完成: %d 行", n)
+	}
+	return nil
 }
 
 // runOneTimeMigration 单笔一次性迁移的哨兵执行 + fail-closed 语义收口
