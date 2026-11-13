@@ -44,7 +44,7 @@
 <tr><td>问答追问（基于报告/代码）</td><td class="yes">✅ ask_argus 多轮</td><td class="yes">✅ chat</td><td class="yes">✅ /ask</td><td class="part">⚠️</td><td class="yes">✅</td></tr>
 <tr><td>改动影响面可视化</td><td class="yes">✅ 图谱+函数级 diff+共变</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td></tr>
 <tr><td>CI 失败归因</td><td class="yes">✅</td><td class="no">—</td><td class="part">⚠️</td><td class="no">—</td><td class="yes">✅ 可跑测试</td></tr>
-<tr><td>自动修复闭环（push commit）</td><td class="part">⚠️ 沙箱验证在，push 待拍板</td><td class="part">⚠️ Fix with AI</td><td class="part">⚠️</td><td class="no">—</td><td class="yes">✅ 天然形态</td></tr>
+<tr><td>自动修复闭环（push commit）</td><td class="yes">✅ 沙箱验证+修复分支+PR（v7.0）</td><td class="part">⚠️ Fix with AI</td><td class="part">⚠️</td><td class="no">—</td><td class="yes">✅ 天然形态</td></tr>
 <tr><td>交互记忆/学习环</td><td class="yes">✅ 误报抑制+学习环</td><td class="yes">✅ learnings</td><td class="part">⚠️</td><td class="no">—</td><td class="no">—</td></tr>
 <tr><td>评测体系进 CI</td><td class="yes">✅ 68+ golden + 定时真实评测</td><td class="no">—</td><td class="part">⚠️ 少量用例</td><td class="no">—</td><td class="no">—</td></tr>
 <tr><td>自托管 / 内网离线</td><td class="yes">✅ 单二进制/Docker/k3s</td><td class="no">— SaaS</td><td class="yes">✅ 开源</td><td class="no">— SaaS</td><td class="part">⚠️ 依赖模型服务</td></tr>
@@ -66,7 +66,7 @@
 
 - **SaaS 开箱体验**：CodeRabbit/Copilot 零部署点一下就用；Argus 需要自托管与配置（一次成本，长期自由）。
 - **生态与知名度**：商业产品有成熟支持/文档/集成市场；Argus 是新晋开源项目，社区规模小。
-- **agent 自动修复闭环**：Claude Code Action/Codex 形态天然带完整 agent loop；Argus 的自动 push 尚在授权模型拍板中（沙箱验证环已在）。
+- **agent 自动修复闭环**：Claude Code Action/Codex 形态天然带完整 agent loop；Argus 的 Verified Fix Loop（v7.0）走修复分支+PR 形态——经评审可回滚，不直推保护分支（沙箱验证环+运营指标已在）。
 - **模型生态**：SaaS 绑定自家强模型；Argus 模型任配——上限取决于你的网关里有什么。
 
 **一句话选型**：要零部署、找 bug 够用 → SaaS 产品；要**需求级把关 + 确定性结论 + 影响面视图 + 数据不出内网** → Argus。

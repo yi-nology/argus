@@ -205,8 +205,12 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 无沙箱旗标的 agent fail-closed 拒绝）出 patch → `ARGUS_FIX_VERIFY_CMD` 沙箱验证
 （复用 testgen 的包装命令纪律：argus 自身永不执行待审代码）→ 回帖 diff。
 修复成立与否由确定性验证判定，不由 agent 自评；**不自动 push**（写分支仍是
-v3.74.1 `ARGUS_FIX_PUSH=1` 管线环的职权）。服务启用后报告意见行附一键修复入口
-（`@argus fix fp:xxxx`）。`ARGUS_FIX_TIMEOUT` 缺省 10m。
+`ARGUS_FIX_PUSH` 管线环的职权）。管线环形态（v7.0 Verified Fix Loop）：
+`ARGUS_FIX_PUSH=1`（缺省形态 `branch`）把验证通过的修复推到 `argus/fix/<task>`
+修复分支并开 PR 进入原审查分支——不直推任何既有分支，失败不碰保护分支，
+审计 `fix.push(mode=branch)`/`fix.cr` 可追溯，回滚=关 PR 删分支；
+`ARGUS_FIX_PUSH=direct` 保留 v3.74.1 直推 PR 源分支旧形态（显式选择才启用）。
+服务启用后报告意见行附一键修复入口（`@argus fix fp:xxxx`）。`ARGUS_FIX_TIMEOUT` 缺省 10m。
 
 ### 5.7 副驾参考客户端（v3.22.0）
 

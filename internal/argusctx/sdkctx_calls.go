@@ -59,6 +59,14 @@ func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string
 	})
 }
 
+// CreateCR 创建 PR/MR（v7.0 Verified Fix Loop 阶段 2：修复分支开 PR）。
+// Provider 接口内嵌 ChangeRequestManager（全平台必有），直连 call 无需能力断言。
+func (s *SDKCtx) CreateCR(ctx context.Context, platform string, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.ChangeRequest, error) {
+		return p.CreateCR(ctx, opts)
+	})
+}
+
 // GetCRDiff 拉取 PR diff（结构化文件 + 原始 unified diff）。
 func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number string) (*provider.MergeDiff, error) {
 	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.MergeDiff, error) {

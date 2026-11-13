@@ -171,6 +171,19 @@ var (
 		Name: "argus_testgen_verify_total", Help: "testgen 沙箱验证结果分布（passed/failed）",
 	}, []string{"result"})
 
+	// ---- 阶段 3（v7.1 生产运营）首切：修复闭环运营指标 ----
+	// 修复验证环结果（分子分母的分母侧）：verifyFixes 对带 suggested_fix 的
+	// 意见逐条跑沙箱验证，passed/failed——「自动修复有效率」的输入面。
+	fixVerify = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_fix_verify_total", Help: "修复沙箱验证结果分布（passed/failed；阶段 3 有效率分母）",
+	}, []string{"result"})
+	// 修复推送环结果（mode=branch|direct）：result 词表
+	// pushed=分支已推/direct 成功，cr_created=PR 已开，cr_failed=开 PR 失败
+	// （分支已推可手动补），apply_failed/commit_failed/push_failed=各步失败。
+	fixPush = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_fix_push_total", Help: "修复推送环结果分布（阶段 3 有效率分子：cr_created/pushed）",
+	}, []string{"mode", "result"})
+
 	// pollerFailures 轮询兜底链路失败计数（v3.9.2：轮询是 webhook 不可达环境的
 	// 主力任务源，此前失败仅 Warn 日志，API 故障率/截断率无法聚合告警）。
 	pollerFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -237,6 +250,7 @@ func Init() {
 		ctxFit, llmContinued, toolAnomaly, ctxBreakdown, r2SoftFailure,
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, webhookEnsure, llmFailovers, qaFailures, testGenVerify,
+		fixVerify, fixPush,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
@@ -422,6 +436,21 @@ func IncrTestGenVerify(passed bool) {
 		return
 	}
 	testGenVerify.WithLabelValues("failed").Inc()
+}
+
+// IncrFixVerify 修复沙箱验证结果计数（阶段 3：有效率分母）。
+func IncrFixVerify(passed bool) {
+	if passed {
+		fixVerify.WithLabelValues("passed").Inc()
+		return
+	}
+	fixVerify.WithLabelValues("failed").Inc()
+}
+
+// IncrFixPush 修复推送环结果计数（阶段 3：mode=branch|direct，
+// result=pushed/cr_created/cr_failed/apply_failed/commit_failed/push_failed）。
+func IncrFixPush(mode, result string) {
+	fixPush.WithLabelValues(mode, result).Inc()
 }
 
 // IncrCommentPostFailure 评论回帖失败计数（service 层调用）。

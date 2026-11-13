@@ -33,7 +33,7 @@
 
 ## 中期（v7.0 方向）
 
-- ✅ **修复闭环自动 push**（agent loop 形态：检测→patch→沙箱验证→自动提交修复 commit）：testgen 沙箱+fixverifier+suggested_fix 三块基石已在，缺授权模型拍板（自动 push 的信任边界）——agent 时代 review bot 的生存位。
+- ✅ **Verified Fix Loop（v7.0）**：检测→patch→沙箱验证→**修复分支+PR** 全链落地——`ARGUS_FIX_PUSH=1` 推 `argus/fix/<task>` 分支并开 PR 进入原审查分支，不直推受保护分支；审计 `fix.push`/`fix.cr` 可追溯、回滚=关 PR 删分支；`ARGUS_FIX_PUSH=direct` 保留直推旧形态（显式选择）。运营指标 `argus_fix_verify_total`/`argus_fix_push_total` 回答「自动修复有效率」。
 - 🔍 **本地 pre-commit 审查**：argus-copilot 扩展成 git hook 形态，同一套审查管线左移。
 - 🔍 **非 Go 符号级索引**：semsearch 对 Python/JS/TS 从文件级摘要升级到声明级 chunk+调用边（当前 Go 专属）。
 - 🔍 **ARGUS_GRAPH_PRECISE 生产档**：镜像叠 Go 工具链层启用 go/types 精确调用边（当前容器 GO-ABSENT 缺省关）。

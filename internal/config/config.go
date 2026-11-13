@@ -423,10 +423,18 @@ type Config struct {
 	// 应用+编译验证，通过者在回帖标「✅ 沙箱验证通过」。空 = 功能停用
 	//（findings 保持「未经编译验证」，零行为变更）。
 	FixVerifyCmd string
-	// FixPush 修复 push 环（v3.74.1，ARGUS_FIX_PUSH=1 显式 opt-in）：验证通过的
-	// 修复建议自动 commit 并 push 到 PR 源分支。默认关闭——bot 直接写用户分支
-	// 是信任面决策；依赖 FixVerifyCmd（没有验证环就没有 push 环）。
+	// FixPush 修复 push 环（v3.74.1，ARGUS_FIX_PUSH 显式 opt-in）：验证通过的
+	// 修复建议自动 commit 并推送。默认关闭——bot 写远端分支是信任面决策；
+	// 依赖 FixVerifyCmd（没有验证环就没有 push 环）。
 	FixPush bool
+	// FixPushMode 推送形态（v7.0 Verified Fix Loop，阶段 2）：
+	//   "branch"（ARGUS_FIX_PUSH=1，缺省形态）——推 `argus/fix/<task>` 修复分支
+	//     + CreateCR 开 PR（源=修复分支，目标=PR 源分支），不直推任何既有分支，
+	//     失败不碰保护分支；可审计（fix.branch/fix.cr）、可回滚（关 PR 删分支）。
+	//   "direct"（ARGUS_FIX_PUSH=direct）——v3.74.1 旧形态直推 PR 源分支，
+	//     显式选择才启用。
+	// 空 = 环关闭（FixPush=false）。
+	FixPushMode string
 	// APITokens 多 token 分级（v3.87.0，ARGUS_API_TOKENS）：逗号分隔的
 	// "token:scope" 列表，scope ∈ read|ci|admin（admin ⊇ ci ⊇ read）。旧
 	// ARGUS_APITOKEN 等价一条 admin 条目，两者可并存；两者全空 = 🔒 路由
@@ -500,7 +508,8 @@ func Load() *Config {
 		RelatedRepos:             envBool("ARGUS_RELATED_REPOS", false),
 		TestGenVerifyCmd:         os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:             os.Getenv("ARGUS_FIX_VERIFY_CMD"),
-		FixPush:                  os.Getenv("ARGUS_FIX_PUSH") == "1",
+		FixPush:                  fixPushEnabled(os.Getenv("ARGUS_FIX_PUSH")),
+		FixPushMode:              fixPushMode(os.Getenv("ARGUS_FIX_PUSH")),
 		FixAgent:                 os.Getenv("ARGUS_FIX_AGENT"),
 		FixTimeout:               envDuration("ARGUS_FIX_TIMEOUT", 0),
 		FixVerifyTimeout:         envDuration("ARGUS_FIX_VERIFY_TIMEOUT", 0),
@@ -635,6 +644,23 @@ func Load() *Config {
 func resolveReportTemplate(v string) string {
 	return reporttmpl.Resolve("", v)
 }
+
+// fixPushMode ARGUS_FIX_PUSH 值解析（v7.0 Verified Fix Loop）：
+// "1"/"branch" → "branch"（修复分支+PR 形态，v7.0 缺省）；"direct" → "direct"
+// （v3.74.1 直推旧形态）；其余（含空/"0"）→ ""（环关闭，与旧 `== "1"` 兼容）。
+func fixPushMode(v string) string {
+	switch v {
+	case "1", "branch":
+		return "branch"
+	case "direct":
+		return "direct"
+	default:
+		return ""
+	}
+}
+
+// fixPushEnabled 环开关（mode 非空即开）。
+func fixPushEnabled(v string) bool { return fixPushMode(v) != "" }
 
 // WarnLogger WarnOnly 的日志口（与 logx.Logger 解耦，测试可注入）。
 type WarnLogger interface{ Warn(msg string, kv ...any) }

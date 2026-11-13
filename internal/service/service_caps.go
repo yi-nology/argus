@@ -23,6 +23,10 @@ func (s *Service) Capabilities(context.Context) map[string]any {
 	if s.Cfg != nil && len(s.Cfg.RepoAllowlist) > 0 {
 		allowlist = strings.Join(s.Cfg.RepoAllowlist, ",")
 	}
+	fixPushMode := ""
+	if s.Cfg != nil {
+		fixPushMode = s.Cfg.FixPushMode
+	}
 	return map[string]any{
 		"repo_allowlist": allowlist,
 		"version":        s.Version,
@@ -34,6 +38,7 @@ func (s *Service) Capabilities(context.Context) map[string]any {
 		"knowledge":      knowledgeOn,
 		"fix_agent":      s.Cfg != nil && s.Cfg.FixAgent != "",
 		"fix_push":       s.Cfg != nil && s.Cfg.FixPush,
+		"fix_push_mode":  fixPushMode, // branch=修复分支+PR（v7.0）/ direct=直推旧形态 / ""=关
 		"codegraph":      s.Cfg != nil && s.Cfg.Codegraph,
 		"related_repos":  s.Cfg != nil && s.Cfg.RelatedRepos,
 		"ocr":            s.Cfg != nil && s.Cfg.OcrBin != "",

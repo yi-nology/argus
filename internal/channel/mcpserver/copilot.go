@@ -153,7 +153,7 @@ func NewCapabilityTool(s *server.MCPServer, core Core) {
 
 func capabilitiesTool() mcp.Tool {
 	return mcp.NewTool("get_capabilities",
-		mcp.WithDescription("查询本部署启用的能力面与版本（llm/diff_preview/qa/code_search/sem_search/knowledge/fix_agent/fix_push/codegraph/related_repos/ocr）——调用受限工具（fix_finding/suppress_finding/search_sem/search_knowledge）前先看这里，免盲调报错；纯读配置态，零副作用"),
+		mcp.WithDescription("查询本部署启用的能力面与版本（llm/diff_preview/qa/code_search/sem_search/knowledge/fix_agent/fix_push/fix_push_mode/codegraph/related_repos/ocr）——调用受限工具（fix_finding/suppress_finding/search_sem/search_knowledge）前先看这里，免盲调报错；纯读配置态，零副作用"),
 	)
 }
 

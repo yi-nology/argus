@@ -184,7 +184,7 @@ PR 工作副本**符号图邻接查询**（v5.9.0）：查某符号在 semsearch
 
 ### get_capabilities
 
-部署能力面快照（v3.129.0）：`{version, llm, diff_preview, qa, code_search, sem_search, knowledge, fix_agent, fix_push, codegraph, related_repos, ocr}`。无参数、纯读零副作用。调用受限工具（`fix_finding`/`suppress_finding`/`search_sem`/`search_knowledge`）前先看这里，免盲调报错。
+部署能力面快照（v3.129.0，v7.0 增 `fix_push_mode`）：`{version, llm, diff_preview, qa, code_search, sem_search, knowledge, fix_agent, fix_push, fix_push_mode, codegraph, related_repos, ocr}`。`fix_push_mode`：`branch`=修复分支+PR 形态（v7.0 缺省，argus/fix/<task> 分支开 PR 不直推）/ `direct`=直推 PR 源分支旧形态 / `""`=环关闭。无参数、纯读零副作用。调用受限工具（`fix_finding`/`suppress_finding`/`search_sem`/`search_knowledge`）前先看这里，免盲调报错。
 
 ### suppress_finding
 
