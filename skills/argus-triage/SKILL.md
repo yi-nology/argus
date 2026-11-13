@@ -1,6 +1,7 @@
 ---
 name: argus-triage
 description: This skill should be used when the user asks to "分诊/处理这批审查意见", "triage these review findings", "看看哪些是误报", "这个问题以前报过吗/怎么裁的", "清理一下 findings", "把误报压掉/恢复被压的意见", or when an Argus MCP server is connected and the agent needs to work through a batch of review findings (fix / dismiss / escalate), query finding history, or manage false-positive suppression.
+compatibility: ">=6.9.0 <7.0.0"  # 适配的 argus 服务版本区间（P3-01 #26）；skills 随 argus 仓 tag 发布
 ---
 
 # Argus 审查意见分诊（triage）

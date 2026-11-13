@@ -1,6 +1,7 @@
 ---
 name: argus-mcp
 description: This skill should be used when the user asks to "用 Argus 审查这个 PR/MR", "trigger an Argus review", "跑一下需求复核 / requirement compliance check", "看看 Argus 的审查意见 / findings", "ask Argus about this review", "按 fp 短码修复这条意见 / fix this finding", "提交前用 Argus 预审 diff / pre-commit review", or when an Argus MCP server (/mcp endpoint) is connected and the agent needs to drive PR auto-review, read structured findings, or execute sandboxed fixes through it.
+compatibility: ">=6.9.0 <7.0.0"  # 适配的 argus 服务版本区间（P3-01 #26）；skills 随 argus 仓 tag 发布
 ---
 
 # Argus MCP 驱动指南

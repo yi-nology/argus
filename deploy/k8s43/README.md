@@ -22,7 +22,33 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 - kubectl：本地 `~/.kube/config-k3s43`（VPN 直连 6443），断连时走 215 隧道：`ssh -N -L 16443:10.0.0.43:6443 10.0.0.215` + config-k3s43 server→https://127.0.0.1:16443
 - 日志：`kubectl -n argus logs deploy/argus -f`
 - 升级：Mac `make docker` 同款 Dockerfile + `--platform linux/arm64`，save→scp→import→`kubectl set image`
-- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。滚动升级照旧即可；规范形态是升级前先跑一次性 Migration Job（独立 Pod 执行同一镜像启动即退出，业务副本随后滚动）——待 P3-04 拆分落地
+- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。规范形态是升级前先跑一次性 Migration Job（独立 Pod 执行同一镜像启动即退出，业务副本随后滚动）——已落地（P3-04 #29）：Helm 形态见 `deploy/helm/argus`（pre-upgrade hook），本集群手工形态见下节 runbook；规范文档 `docs/deploy-production.md`
+
+## 滚动升级 runbook（P3-04，#29）
+
+完整规范（含 Helm 形态）见 `docs/deploy-production.md` §4；本节是在役 k3s43 手工形态的等价步骤：
+
+```bash
+# 1) 升级前备份（重大升级前手动触发一次；日常由 CronJob 每天 03:30 兜底）
+kubectl -n argus create job --from=cronjob/argus-pg-backup pre-upgrade-$(date +%s)
+
+# 2) 迁移先行（同一镜像起一次性 Pod，启动即退出；失败面收敛到滚动之前。
+#    -migrate-only 接入点落地前，业务副本首启也会做迁移——v6.7.0 租约串行
+#    保证不并发 DDL + fail-closed 拒绝带病启动，见上方迁移语义）
+kubectl -n argus run migrate-$(date +%s) --rm -it --restart=Never \
+  --image=argus:<new-tag> --env-from=secret/argus-env -- /app/argus <迁移入口>
+
+# 3) 滚动（实弹口径：set image 后等收敛；双副本 maxUnavailable=0 语义同 Chart）
+kubectl -n argus set image deploy/argus argus=argus:<new-tag>
+kubectl -n argus rollout status deploy/argus --timeout=300s
+
+# 4) 抽验：两副本 READY、/readyz 过、迁移/租约日志无红字
+kubectl -n argus get pods
+kubectl -n argus logs deploy/argus --tail=100 | grep -iE 'migrate|lease|error'
+```
+
+回退：镜像 tag 换回上一版重复 step 3-4（**schema 不回滚**——数据迁移单向前推，
+回退只回应用层；根因性迁移失败在 fail-closed 下根本不会滚出去）。
 
 ## 多副本形态（v5.4.9 实弹验证 2026-11-06）
 

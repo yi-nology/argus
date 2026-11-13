@@ -1,0 +1,187 @@
+# Java 语言审查基准（P3-03，#28）——合成夹具起步集，金标准标注。
+# 维度对齐 P2-02（#25）指标；验证「审查结论质量」：漏检与误报。
+# 出处口径同 eval/baseline/go.yaml：全部样例为合成夹具（自编写现实形态 Java diff），
+# 现网在役仓已裁决 MR 样例落地前不冒充现网数据。
+language: java
+description: Java 审查结论质量基准（合成夹具：自编写，非现网 MR）
+cases:
+  - id: java-001
+    repo: acme/order-svc
+    title: OutputStream 未在 finally/try-with-resources 关闭
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/ExportService.java
+      +++ b/src/main/java/com/acme/order/ExportService.java
+      @@ -18,4 +18,5 @@ public byte[] export(Orders orders) throws IOException {
+      -        FileOutputStream out = new FileOutputStream(tmp);
+      -        orders.writeTo(out);
+      +        FileOutputStream out = new FileOutputStream(tmp);
+      +        orders.writeTo(out);
+      +        out.flush();
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: resource-leak
+          severity: high
+  - id: java-002
+    repo: acme/order-svc
+    title: 只重写 equals 未重写 hashCode
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/Sku.java
+      +++ b/src/main/java/com/acme/order/Sku.java
+      @@ -10,3 +10,6 @@ public class Sku {
+      +    @Override
+      +    public boolean equals(Object o) {
+      +        return o instanceof Sku s && s.code.equals(code);
+      +    }
+    expect:
+      verdict: comment
+      must_find:
+        - kind: equals-hashcode
+          severity: medium
+  - id: java-003
+    repo: acme/inventory-svc
+    title: 库存查询 SQL 字符串拼接
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/inv/StockDao.java
+      +++ b/src/main/java/com/acme/inv/StockDao.java
+      @@ -24,3 +24,5 @@ public List<Stock> query(String sku) {
+      -        String sql = "SELECT * FROM stock WHERE locked = 0";
+      +        String sql = "SELECT * FROM stock WHERE sku = '" + sku + "'";
+      +        return jdbc.query(sql, mapper);
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: sql-inject
+          severity: high
+  - id: java-004
+    repo: acme/order-svc
+    title: catch (Exception) 后仅打印继续
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/RefundJob.java
+      +++ b/src/main/java/com/acme/order/RefundJob.java
+      @@ -31,4 +31,7 @@ void refund(Order o) {
+      +        try {
+      +            gateway.refund(o);
+      +        } catch (Exception e) {
+      +            log.warn("refund failed", e);
+      +        }
+    expect:
+      verdict: comment
+      must_find:
+        - kind: exception-swallow
+          severity: medium
+  - id: java-005
+    repo: acme/inventory-svc
+    title: 遍历 HashMap 时 remove
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/inv/Reserver.java
+      +++ b/src/main/java/com/acme/inv/Reserver.java
+      @@ -40,4 +40,5 @@ void evict(Map<String,Item> m) {
+               for (String k : m.keySet()) {
+      +            if (expired(m.get(k))) { m.remove(k); }
+               }
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: concurrent-modification
+          severity: high
+  - id: java-006
+    repo: acme/order-svc
+    title: Integer 拆箱 NPE
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/Pricing.java
+      +++ b/src/main/java/com/acme/order/Pricing.java
+      @@ -15,3 +15,4 @@ int total(Order o) {
+      +        int discount = couponService.find(o.getId()).getAmount();
+      +        return o.amount() - discount;
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: npe
+          severity: high
+  - id: java-007
+    repo: acme/order-svc
+    title: SimpleDateFormat 共享实例
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/Ids.java
+      +++ b/src/main/java/com/acme/order/Ids.java
+      @@ -8,3 +8,4 @@ class Ids {
+      +    private static final SimpleDateFormat FMT = new SimpleDateFormat("yyyyMMddHHmmss");
+       }
+    expect:
+      verdict: comment
+      must_find:
+        - kind: thread-safety
+          severity: medium
+  - id: java-008
+    repo: acme/order-svc
+    title: getter 命名规范化重命名
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设：历史误报形态）
+    diff: |
+      --- a/src/main/java/com/acme/order/Sku.java
+      +++ b/src/main/java/com/acme/order/Sku.java
+      @@ -6,3 +6,4 @@ public class Sku {
+      -    public String getCode() { return code; }
+      +    public String getCode() { return this.code; }
+    expect:
+      verdict: approve
+      must_find: []
+  - id: java-009
+    repo: acme/inventory-svc
+    title: 附件下载路径可穿越（历史漏检）
+    label: known_miss
+    source: 自行编写（合成夹具；known_miss 预设形态）
+    diff: |
+      --- a/src/main/java/com/acme/inv/AttachmentCtl.java
+      +++ b/src/main/java/com/acme/inv/AttachmentCtl.java
+      @@ -20,4 +20,6 @@ void download(HttpServletRequest req, HttpServletResponse resp) {
+      +        String name = req.getParameter("name");
+      +        resp.getOutputStream().write(Files.readAllBytes(Paths.get("/data/attach", name)));
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: path-traversal
+          severity: high
+  - id: java-010
+    repo: acme/order-svc
+    title: 日志级别调整
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/main/java/com/acme/order/RefundJob.java
+      +++ b/src/main/java/com/acme/order/RefundJob.java
+      @@ -12,2 +12,3 @@
+      -            log.info("refund start");
+      +            log.debug("refund start");
+    expect:
+      verdict: approve
+      must_find: []
+  - id: java-011
+    repo: acme/inventory-svc
+    title: 防御性判空（历史误报：redundant-null-check）
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设形态）
+    diff: |
+      --- a/src/main/java/com/acme/inv/Reserver.java
+      +++ b/src/main/java/com/acme/inv/Reserver.java
+      @@ -30,3 +30,5 @@ void reserve(Item it) {
+      +        if (it == null) { return; }
+               lock(it.getSku());
+    expect:
+      verdict: approve
+      must_find: []
