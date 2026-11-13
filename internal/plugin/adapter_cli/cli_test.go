@@ -218,7 +218,7 @@ func TestInvoke_FailureSurfaces(t *testing.T) {
 
 func TestParseFindingsFieldVariants(t *testing.T) {
 	in := `{"comments":[
-		{"file":"a.go","Line":"7","severity":"WARNING","message":"msg 变体","fix":"fix 变体"},
+		{"file":"a.go","Line":"7","severity":"WARNING","message":"msg 变体","fix":"fix 变体","evidence":"a.go:7 调用前未校验"},
 		{"Path":"b.go","line_number":8.0,"level":"error","body":"body 变体","SuggestedFix":"大写变体"},
 		{"Filename":"c.go","Line":"9","priority":"banana","description":"desc 变体"},
 		{"no_file":"d.go","comment":"缺 file 应剔除"},
@@ -236,6 +236,10 @@ func TestParseFindingsFieldVariants(t *testing.T) {
 	}
 	if fs[0].File != "a.go" || fs[0].Line != 7 || fs[0].Comment != "msg 变体" || fs[0].SuggestedFix != "fix 变体" {
 		t.Fatalf("变体1 归一失真: %+v", fs[0])
+	}
+	// v6.18.0 evidence 变体：外部 CLI JSON 的证据字段透传（缺省空）
+	if fs[0].Evidence != "a.go:7 调用前未校验" {
+		t.Fatalf("evidence 变体未透传: %+v", fs[0])
 	}
 	if fs[1].File != "b.go" || fs[1].Line != 8 || fs[1].Comment != "body 变体" || fs[1].SuggestedFix != "大写变体" {
 		t.Fatalf("变体2 归一失真: %+v", fs[1])

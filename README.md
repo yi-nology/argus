@@ -409,7 +409,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `list_tasks` | 任务清单枚举（status/limit 可选，倒序摘要面）——巡检/找 task_id 入口（v3.122.0）|
 | `ask_argus` | Q&A：无 question 返回某 PR 最新审查结论（verdict/findings/摘录）；带 question 则基于报告+仓库上下文追问（ReAct，v3.3）|
 | `get_task_stages` | 任务阶段时间线（R1→R5 完成状态，v3.15.0）——「审得全不全」可观测 |
-| `list_findings` | 结构化意见直出（fp 短码/suggested_fix，免解析 markdown，v3.15.0）|
+| `list_findings` | 结构化意见直出（fp 短码/suggested_fix/evidence 证据引用，免解析 markdown，v3.15.0）|
 | `get_suggestion` | 按指纹短码取回单条修复建议（一键回写由客户端执行，v3.15.0）|
 | `search_code` | PR 工作副本受控全文检索（R3/R4 同款纪律；ARGUS_CODESEARCH 门控，v3.122.0）|
 | `search_knowledge` | 知识库语义检索：规范/历史审查结论/误报判例，与 R3/R4 的 search_knowledge 同源（未配知识源时报错，v3.125.0）|

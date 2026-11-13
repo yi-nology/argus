@@ -50,7 +50,7 @@ func changedPaths(task plugin.Task) []string {
 }
 
 // touchedPaths 从 ArtifactCodegraphTouched 渲染面提取 file:line 触达集
-//（证据交叉校验用；该 artifact 是 RenderTouchedSymbols 渲染的提示词文本，
+// （证据交叉校验用；该 artifact 是 RenderTouchedSymbols 渲染的提示词文本，
 // 用 ParseEvidenceRefs 抽出文件路径）。无 codegraph 时返回 nil。
 func touchedPaths(task plugin.Task) []string {
 	s := task.Artifacts[plugin.ArtifactCodegraphTouched]

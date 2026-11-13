@@ -101,7 +101,7 @@
 |---|---|---|---|
 | `task_id` | string | ✓ | 任务 ID |
 
-返回结构化意见数组，每条含：`file`、`line`、`severity`、`comment`、`by`（来源插件）、`fp`（指纹短码）、`suggested_fix`。替代解析 markdown 报告的唯一正道。
+返回结构化意见数组，每条含：`file`、`line`、`severity`、`comment`、`by`（来源插件）、`fp`（指纹短码）、`suggested_fix`、`evidence`（代码证据引用 file:line，可选；不可核对的引用带「⚠️ 证据待验证」标注，v6.18.0）。替代解析 markdown 报告的唯一正道。
 
 ### get_suggestion
 

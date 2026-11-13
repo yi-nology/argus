@@ -2,7 +2,7 @@
 // 「IDE 追问 / 阶段可视化 / 一键回写」三能力的数据面。工具只读、零 LLM：
 //
 //	get_task_stages  任务阶段时间线（stage_artifacts/debug/终态推导，审得全不全可观测）
-//	list_findings    结构化 findings（含 fp 短码与 suggested_fix，替代解析 markdown）
+//	list_findings    结构化 findings（含 fp 短码、suggested_fix 与 evidence 证据引用，替代解析 markdown）
 //	get_suggestion   按指纹短码取回单条建议（补丁内容由 IDE 侧执行应用）
 //
 // 可选接口模式（同 ReviewQA）：core 未实现时工具返回明确错误文本。
@@ -21,7 +21,7 @@ import (
 type Copilot interface {
 	// TaskStages 任务阶段时间线；无任务返回 false。
 	TaskStages(ctx context.Context, taskID string) (map[string]any, bool)
-	// Findings 结构化意见清单（含 fp/suggested_fix）；无任务返回 false。
+	// Findings 结构化意见清单（含 fp/suggested_fix/evidence）；无任务返回 false。
 	Findings(ctx context.Context, taskID string) ([]map[string]any, bool)
 	// Suggestion 按指纹短码（≥6 位）取回单条建议；未命中返回 false。
 	Suggestion(ctx context.Context, taskID, fpPrefix string) (map[string]any, bool)
@@ -81,7 +81,7 @@ func taskStagesTool() mcp.Tool {
 
 func listFindingsTool() mcp.Tool {
 	return mcp.NewTool("list_findings",
-		mcp.WithDescription("按 taskId 获取结构化审查意见（file/line/severity/comment/by/fp 指纹短码/suggested_fix），无需解析 markdown 报告"),
+		mcp.WithDescription("按 taskId 获取结构化审查意见（file/line/severity/comment/by/fp 指纹短码/suggested_fix/evidence 证据引用），无需解析 markdown 报告"),
 		mcp.WithString("task_id", mcp.Required(), mcp.Description("任务 ID")),
 	)
 }

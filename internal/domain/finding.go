@@ -65,6 +65,13 @@ type Finding struct {
 	// Samples 同类：指纹身份=File+原始 comment+Line，渲染标注入键会让跨轮身份
 	// 漂移，v3.8.0/v3.9.1 教训）。
 	Chain string `json:"chain,omitempty"`
+	// Evidence 代码证据引用（v6.18.0 Finding 级证据，v6.17.0 Claim 级同族）：
+	// 自由文本 file:line 引用（可含叙述，如"改动侧 a.go:12 与消费侧 b.go:34 不一致"），
+	// 模型经 findings JSON evidence 字段产出；交叉校验见 plugin.VerifyFindingEvidence
+	//（改动集/触达集内）。校验标注（⚠️ 证据待验证）追加在本字段而非 Comment——
+	// 渲染属性不入指纹，与 Chain/Confidence/Samples 同纪律（指纹身份恒为
+	// File+原始 comment+Line）。
+	Evidence string `json:"evidence,omitempty"`
 }
 
 // PrintState 既有指纹状态。

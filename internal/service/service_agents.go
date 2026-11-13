@@ -168,7 +168,7 @@ func deriveStageDone(arts, debug map[string]string, resultJSON, verdict, status 
 	return stageDone
 }
 
-// Findings 结构化意见清单（fp/suggested_fix 直出，副驾免解析 markdown）。
+// Findings 结构化意见清单（fp/suggested_fix/evidence 直出，副驾免解析 markdown）。
 func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any, bool) {
 	task, err := s.Store.GetTask(ctx, taskID)
 	if err != nil {
@@ -183,12 +183,19 @@ func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any
 	}
 	out := make([]map[string]any, 0, len(findings))
 	for _, f := range findings {
-		out = append(out, map[string]any{
-			"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
-			"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,
-		})
+		out = append(out, findingDTO(f))
 	}
 	return out, true
+}
+
+// findingDTO 单条意见的 MCP/副驾直出载荷（出口面单源，v6.18.0 起含 evidence：
+// Finding 级证据随结构化清单直出——schema 有字段而出口不带，消费面等于看不到）。
+func findingDTO(f plugin.Finding) map[string]any {
+	return map[string]any{
+		"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
+		"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,
+		"evidence": f.Evidence,
+	}
 }
 
 // SearchCode MCP search_code 数据面（v3.121.0）：PR 工作副本受控全文检索。

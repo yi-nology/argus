@@ -30,3 +30,18 @@ func TestTaskFindings(t *testing.T) {
 		t.Errorf("空串应 (nil,false)，got ok=%v fs=%v", ok, fs)
 	}
 }
+
+// TestFindingDTO v6.18.0 list_findings 出口带 evidence：Finding 级证据字段随
+// 结构化清单直出（MCP 副驾消费面与 schema 同步演化——字段入 schema 而出口
+// 不带，等于消费面看不到）。
+func TestFindingDTO(t *testing.T) {
+	f := plugin.Finding{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast",
+		SuggestedFix: "if v == nil { return }", Evidence: "a.go:3 判空缺失"}
+	m := findingDTO(f)
+	if m["evidence"] != "a.go:3 判空缺失" {
+		t.Fatalf("dto 缺 evidence: %+v", m)
+	}
+	if m["suggested_fix"] != "if v == nil { return }" || m["fp"] == nil {
+		t.Fatalf("既有字段应保持: %+v", m)
+	}
+}

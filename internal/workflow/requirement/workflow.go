@@ -322,6 +322,11 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 	w.applyRepoPolicies(merged, rc, task)
 
+	// v6.18.0 Finding 级证据可信度校验（v6.17.0 Claim 级同族、不同面）：在主权
+	// 过滤后、综合段与 R5 裁决前——综合段输入与裁决都读到校验后的证据状态；
+	// 高危证据不可验证降级 medium 退出一票否决面（与 Claim 高风险降级同纪律）。
+	verifyFindingsEvidence(merged, task)
+
 	// v6.10.0 分析师综合段：仅 analyst 模板触发，产出失败降级不阻断（analyst.go）。
 	analyst := w.synthesisAnalyst(ctx, task, merged, summary)
 	// 模板键回声到 Output（runner 装配时写入 Artifacts）供 buildReport 渲染分发。
@@ -345,6 +350,15 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 	}
 	out.Tokens = w.LLM.UsedTokens()
 	return out, nil
+}
+
+// verifyFindingsEvidence Finding 级证据校验接线缝（v6.18.0，finish 步骤）：
+// 校验面 = 改动集（Diff.Files.Path）+ 触达集（ArtifactCodegraphTouched 渲染面
+// 提取的 file:line 引用），与 Claim 级 synthesisAnalyst 内的校验同源不同面。
+// 纯委托 plugin.VerifyFindingsEvidence——独立命名是为可测接线（finish 组合由
+// golden e2e 覆盖，本缝单测钉住参数装配：changed/touched 两集的取数正确性）。
+func verifyFindingsEvidence(merged *plugin.MergedFindings, task plugin.Task) {
+	plugin.VerifyFindingsEvidence(merged, changedPaths(task), touchedPaths(task))
 }
 
 // dispatchR4 R4 专家委派：确定性路由 → 预算裁剪 → fan-out → 编队共识 → SAST

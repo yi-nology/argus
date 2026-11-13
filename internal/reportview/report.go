@@ -266,6 +266,7 @@ func renderFindings(b *strings.Builder, r Report) {
 		fmt.Fprintf(b, "- `%s:%d` **[%s]** %s — by %s%s\n",
 			fence.EscapeUntrusted(f.File), f.Line, strings.ToUpper(f.Severity), comment,
 			fence.EscapeUntrusted(by), fpnote)
+		b.WriteString(evidenceLine(f, "  "))
 		if f.SuggestedFix != "" {
 			// v3.91.2 围栏安全渲染：裸内容 + 按内容中最长反引号串动态加长围栏。
 			// 此前经 EscapeUntrusted 再进围栏——零宽实体（&#8203;）在围栏内
@@ -277,6 +278,19 @@ func renderFindings(b *strings.Builder, r Report) {
 			fmt.Fprintf(b, "  \n  **建议修复：**\n  %s\n  %s\n  %s\n", fenceStr, fix, fenceStr)
 		}
 	}
+}
+
+// evidenceLine Finding.Evidence 证据行（v6.18.0）：非空返回 indent 前缀的
+// 「📎 证据：」续行（⚠️ 校验标注随之透出），空返回 ""——标准意见列表/风险链/
+// 坏味组三面共用。转义与 comment 同纪律（敌对输入），换行折叠保列表结构。
+// 渲染属性不入指纹，本行只读 Finding.Evidence。
+func evidenceLine(f plugin.Finding, indent string) string {
+	ev := strings.TrimSpace(fence.EscapeUntrusted(f.Evidence))
+	if ev == "" {
+		return ""
+	}
+	ev = strings.ReplaceAll(ev, "\n", " ")
+	return indent + "📎 证据：" + ev + "\n"
 }
 
 // renderMeta 元信息尾注节（耗时/成本/交叉审查/抑制计数/CI 状态）。
@@ -516,6 +530,7 @@ func renderRiskChain(b *strings.Builder, r Report, risks []plugin.Finding) {
 		fmt.Fprintf(b, "\n#### %s R%d（%s）`%s:%d`\n\n%s — by %s\n",
 			icon, i+1, strings.ToUpper(f.Severity),
 			fence.EscapeUntrusted(f.File), f.Line, comment, fence.EscapeUntrusted(by))
+		b.WriteString(evidenceLine(f, "> "))
 		if chain := strings.TrimSpace(fence.EscapeUntrusted(f.Chain)); chain != "" {
 			chain = strings.ReplaceAll(chain, "\n", "\n> ")
 			fmt.Fprintf(b, "\n> **证据链**：%s\n", chain)
@@ -539,6 +554,7 @@ func renderSmells(b *strings.Builder, r Report, smells []plugin.Finding) {
 		comment := strings.ReplaceAll(strings.TrimSpace(fence.EscapeUntrusted(f.Comment)), "\n", "\n  ")
 		fmt.Fprintf(b, "\n%d. **`%s:%d`** — %s\n",
 			i+1, fence.EscapeUntrusted(f.File), f.Line, comment)
+		b.WriteString(evidenceLine(f, "   "))
 		if f.SuggestedFix != "" {
 			n := codeFenceLen(f.SuggestedFix)
 			fenceStr := strings.Repeat("`", n)

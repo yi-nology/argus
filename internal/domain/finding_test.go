@@ -2,6 +2,8 @@ package domain
 
 import (
 	"encoding/hex"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +93,38 @@ func TestFingerprintNorm(t *testing.T) {
 	fpClamp, _ := FingerprintNorm(file, comment, -1)
 	if fpClamp != Fingerprint(file, comment, 0) {
 		t.Error("negative line should clamp to 0 in FingerprintNorm")
+	}
+}
+
+// Evidence 字段（v6.18.0 Finding 级证据，v6.17.0 Claim 级同族）：JSON 双向携带；
+// 零值 omitempty 不出线（旧消费者/存储面零影响）。渲染属性不入指纹——指纹仍由
+// Fingerprint(file, comment, line) 派生，与 Evidence 无关（下方对照钉住）。
+func TestFindingEvidenceJSON(t *testing.T) {
+	in := `{"file":"a.go","line":3,"severity":"high","comment":"缺判空","evidence":"a.go:3 改动侧缺失判空"}`
+	var f Finding
+	if err := json.Unmarshal([]byte(in), &f); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if f.Evidence != "a.go:3 改动侧缺失判空" {
+		t.Fatalf("Evidence 未从 JSON 携带: %q", f.Evidence)
+	}
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), `"evidence":"a.go:3 改动侧缺失判空"`) {
+		t.Fatalf("Evidence 未回写 JSON: %s", out)
+	}
+	// 零值不出线（omitempty 契约）
+	zero, err := json.Marshal(Finding{File: "x.go", Comment: "c"})
+	if err != nil {
+		t.Fatalf("marshal zero: %v", err)
+	}
+	if strings.Contains(string(zero), "evidence") {
+		t.Fatalf("零值 Evidence 不应出线: %s", zero)
+	}
+	// 指纹身份不受 Evidence 影响（渲染属性不入指纹纪律）
+	if Fingerprint(f.File, f.Comment, f.Line) != Fingerprint("a.go", "缺判空", 3) {
+		t.Fatal("Evidence 不应参与指纹派生")
 	}
 }

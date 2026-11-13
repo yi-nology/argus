@@ -8,6 +8,7 @@ import (
 	"github.com/oagentkit/guardx/fence"
 
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/reporttmpl"
 )
 
 func TestRenderFullReport(t *testing.T) {
@@ -210,5 +211,40 @@ func TestRenderImpactSection(t *testing.T) {
 	}
 	if strings.Index(out, "代码审查意见") > strings.Index(out, "影响范围") {
 		t.Fatal("影响段应在 findings 之后")
+	}
+}
+
+// TestRenderFindingEvidence v6.18.0 Finding.Evidence 渲染：标准模板意见行下出
+// 「📎 证据：」续行（含 ⚠️ 校验标注透出），深度模板（analyst）风险链与坏味组
+// 同面；空证据条目零渲染（不出行）。
+func TestRenderFindingEvidence(t *testing.T) {
+	findings := []plugin.Finding{
+		{File: "a.go", Line: 3, Severity: "high", Comment: "SQL 拼接", By: "correctness",
+			Evidence: "a.go:3 拼接点未参数化"},
+		{File: "b.go", Line: 9, Severity: "medium", Comment: "命名", By: "correctness",
+			Evidence: "ghost.go:9 ⚠️ 证据待验证（ghost.go:9 不在改动集/触达集，或行号无效）"},
+		{File: "c.go", Line: 1, Severity: "low", Comment: "无证据条目", By: "correctness"},
+	}
+	out := Render(Report{TaskID: "t-ev", Findings: findings})
+	if !strings.Contains(out, "📎 证据：a.go:3 拼接点未参数化") {
+		t.Fatalf("标准模板缺证据续行:\n%s", out)
+	}
+	if !strings.Contains(out, "⚠️ 证据待验证") {
+		t.Fatalf("校验标注应透出报告:\n%s", out)
+	}
+	if n := strings.Count(out, "📎 证据："); n != 2 {
+		t.Fatalf("空证据不应出行, 📎 计数=%d want 2:\n%s", n, out)
+	}
+
+	// 深度模板：风险链（high）与坏味组（medium）都带证据行
+	out2 := Render(Report{TaskID: "t-ev", Template: reporttmpl.Analyst, Findings: findings})
+	if !strings.Contains(out2, "📎 证据：a.go:3 拼接点未参数化") {
+		t.Fatalf("深度模板风险链缺证据行:\n%s", out2)
+	}
+	if !strings.Contains(out2, "📎 证据：ghost.go:9") {
+		t.Fatalf("深度模板坏味组缺证据行:\n%s", out2)
+	}
+	if n := strings.Count(out2, "📎 证据："); n != 2 {
+		t.Fatalf("深度模板空证据不应出行, 📎 计数=%d want 2:\n%s", n, out2)
 	}
 }

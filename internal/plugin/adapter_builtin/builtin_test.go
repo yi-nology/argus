@@ -124,6 +124,24 @@ func TestBuildReviewSystem_ReportTemplateChain(t *testing.T) {
 	}
 }
 
+// v6.18.0 findings JSON 输出协议补 evidence 字段：Finding.Evidence 由模型在
+// 协议里产出（可选），Finding 级交叉校验（VerifyFindingsEvidence）才有输入——
+// 协议缺锚点 = schema 字段死代码。同时钉住「引用须在数据区变更文件上」的纪律句。
+func TestBuildReviewSystem_EvidenceProtocol(t *testing.T) {
+	r, err := NewReviewer(plugin.AgentManifest{Name: "req-review"}, "correctness", &fakeGen{}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReviewer: %v", err)
+	}
+	sys := r.buildReviewSystem(plugin.Task{}, "")
+	if !strings.Contains(sys, `"evidence"`) {
+		t.Fatalf("输出协议缺 evidence 字段锚点:\n%s", sys)
+	}
+	if !strings.Contains(sys, "交叉校验") {
+		t.Fatalf("缺 evidence 交叉校验纪律句:\n%s", sys)
+	}
+	// ReAct 与单轮两路径同源（buildReviewSystem 单一出口），此处即双路径覆盖。
+}
+
 // invokeSingle 把 FindingsWire 解进结果并强制 By=manifest.Name；上游失败原样上抛。
 func TestInvokeSingle_ByStampedAndErrorPropagation(t *testing.T) {
 	g := &fakeGen{jsonOut: `{"findings":[{"file":"pkg/a.go","comment":"c1"}],"notes":"n1"}`}

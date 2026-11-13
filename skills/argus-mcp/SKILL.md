@@ -42,7 +42,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `list_agents` | 插件清单 | 无 | 三参全传附带 `.reviewagents.yaml` 视图与信任边界告警 |
 | `get_report` | 按 task_id 取状态/verdict/报告 | task_id | 轮询用 |
 | `get_task_stages` | R1→R5 阶段时间线 | task_id | 「审得全不全」可观测 |
-| `list_findings` | 结构化意见直出 | task_id | 含 fp 短码与 suggested_fix，**勿解析 markdown 报告** |
+| `list_findings` | 结构化意见直出 | task_id | 含 fp 短码、suggested_fix 与 evidence（代码证据，可选），**勿解析 markdown 报告** |
 | `get_suggestion` | 单条意见的修复建议内容 | task_id/fp | fp 为 6-64 位十六进制短码 |
 | `ask_argus` | 最新审查结论问答 | platform/owner/repo/number | number 纯数字；question 可选 |
 | `search_code` | PR 工作副本受控全文检索 | platform/owner/repo/number/pattern | glob/ignore_case 可选；`ARGUS_CODESEARCH=0` 或无工作副本池时报错 |
@@ -69,7 +69,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 
 ### 2. 读结构化意见
 
-拿到 task_id 后用 `list_findings` 取结构化清单（file/line/severity/comment/by/fp/suggested_fix），逐条有 `fp` 短码可供后续 `get_suggestion`/`fix_finding`/`ask_argus` 引用。要看审查过程是否完整用 `get_task_stages`。**不要让模型解析 markdown 报告**——结构化字段就是为此存在。手里没有 task_id 时用 `list_tasks` 枚举（可按 status 过滤）再定位。
+拿到 task_id 后用 `list_findings` 取结构化清单（file/line/severity/comment/by/fp/suggested_fix/evidence），逐条有 `fp` 短码可供后续 `get_suggestion`/`fix_finding`/`ask_argus` 引用。要看审查过程是否完整用 `get_task_stages`。**不要让模型解析 markdown 报告**——结构化字段就是为此存在。手里没有 task_id 时用 `list_tasks` 枚举（可按 status 过滤）再定位。
 
 ### 3. 追问
 

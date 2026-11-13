@@ -132,7 +132,11 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 			continue
 		}
 		suggestedFix := firstString(obj, "suggested_fix", "SuggestedFix", "suggestedFix", "fix", "Fix")
-		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment, SuggestedFix: suggestedFix})
+		// v6.18.0 证据字段变体（缺省空）：外部 CLI 插件可选产出 file:line 证据，
+		// 进 Finding.Evidence 走同一交叉校验面（可选透传，不参与必填判定）。
+		evidence := firstString(obj, "evidence", "Evidence")
+		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment,
+			SuggestedFix: suggestedFix, Evidence: evidence})
 	}
 	if len(out) == 0 {
 		if len(items) == 0 {
