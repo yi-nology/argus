@@ -205,7 +205,7 @@
 
 - agent-harness v0.27.0→v0.27.1（issue #53-#59 七修，argus 全部不受影响）；全仓对照复核「真重叠 5 处全收敛」（v5.0.0 结论）**在 v0.27.1 下仍成立**，可净删面≈0（详细逐函数对照表在 /tmp/harness-simplify-report.md 会话存档）。
 - **不做三项（勿重探）**：①spill 读/清侧 → harness spill.List/ReadPage/Prune——读语义不同（get_detail 全文 vs 分页）清理语义不同（目录 mtime 7 天 vs 文件 TTL），净删 30 行不抵改写风险；②DrainComments → harness drain.Drain——语义相反（harness 超时 CancelAll 强杀，argus 刻意「超时放行不杀」与 worker 两阶段停机同哲学），适配器净增 30 行；③任务去重/单飞 ↔ harness pending——映射错位（pending 是反问/消歧挂起态载体，argus 无此域）。
-- **存疑一项（等上游）**：ptc 诊断渲染 ~25 行（describePtcFailure/describePos）↔ harness 未导出的 describePosition/suggestionsFor——已提上游 issue「feat(ptc): 导出 Result.Describe() 诊断渲染原语」（P3），导出后回收。
+- ~~**存疑一项（等上游）**：ptc 诊断渲染 ~25 行（describePtcFailure/describePos）↔ harness 未导出的 describePosition/suggestionsFor——已提上游 issue「feat(ptc): 导出 Result.Describe() 诊断渲染原语」（P3），导出后回收。~~ **〔已闭环 v6.3.1〕**上游已导出 `ptc.Result.Describe()`（goagent-kernel v0.34.0 `ptc/diagnostic.go:246` 实锤），argus 侧 `internal/qa/ptc.go:158` 已收编消费（诊断渲染单源，含位置/建议/归因链摘要），本项销账（2026-11-14 批 A4）。
 - harness ptc 侧未用能力（Signature/Discoverer/Stages/SubprocessProvider）=能力扩展方向非简化对象。
 
 ## 剩余较大文件（420~560 行，内聚面已单一）
@@ -282,6 +282,29 @@
   全有活消费（accessor 可达）、导出常量零死项、跨包重名函数仅 parseFindings（语义
   不同非冗余）与 tail（7 行×2，按 noopLogger 先例不值得新开共享位）、测试助手全活、
   无注释代码块。test-only 保留裁定维持：NewSDKCtxStubbed/testkit.Shq/LoadIndex。
+
+## 13 项执行批 A（2026-11-14，小赢清账）
+
+清单与批次口径见 `docs/execution-13items.md`。本批销账：
+
+- **#27 质量趋势面实装**：`/console` 新增 `renderConsoleTrend`（消费
+  `qconsole.LoadEvalTrend` 只读投影——包文档「后续批次可接服务端路由直出」
+  的兑现）；config 增 `ARGUS_EVAL_REPORT`（缺省 eval/results/baseline-latest.json）；
+  两态测试（基线在/缺位占位）；arch 白名单 service→qconsole 单向补边。
+- **#29 CI helm job**：`ci.yml` 增 `helm` job（lint + template 双路径冒烟，
+  含 pgRestore 演练 Job 渲染）——deploy-production.md「CI 未接」欠账声明同步销。
+- **P2 打磨余 4 条**（arch-hygiene 报告已归档 docs/archive/2026-11-11-，
+  状态头注明 7 条已被 v6.3.0 顺带修掉）：#11 mcpserver / #13 adapter_remote
+  包文档归位（隔开竞争性 package 注释，go doc 分别归 server.go / remote.go
+  总述）；P2-9 dup 回查失败 Warn 留痕；P2-10 三处 WalkDir 外层错误弃口径注释。
+- **ptc Describe 上游项销账**（〔已闭环 v6.3.1〕，见上文 harness 节）。
+- **ggp v0.127→v0.134 升级成功**（一次红一次绿）：首试被 pkg v0.48 断
+  guardx v0.24.4 `errors.Errorf`——升 guardx v0.25.0 后再断 goagent-kernel
+  v0.34.0 egress 同符号（= 记忆中「ggp 待 gak #134 回补」的门）；**#134 已于
+  2026-11-13 上游 CLOSED**，goagent-kernel v0.35.0 解锁。终态：ggp v0.134.0 +
+  goagent-kernel v0.35.0 + guardx v0.25.0 + pkg v0.48.0 + concurrency v0.34.1 +
+  toolgate v0.17.3 + go-gongfeng v0.4.0，`go build ./...` + 全量 `go test`
+  零失败。**教训：pkg 大版本跳级的连环断=按依赖链逐环升，单升一环必红。**
 
 ## 复测方法
 
