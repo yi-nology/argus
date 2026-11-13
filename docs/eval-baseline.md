@@ -3,7 +3,7 @@
 > 状态：骨架 + 本批补齐（分严重度报表聚合、起步集 `eval/baseline/go.yaml`、
 > 真实模型单发审查 Reviewer 与 `make eval-baseline-real` 跑批入口；首跑基线
 > 数值见文末「完成度边界」）+ **#28 四语言起步集扩容**
-> （`{go,java,python,js-ts}.yaml` 22 条，门禁并入 `TestEvalBaselineStarterSet`）。
+> （`{go,java,python,jsts}.yaml` 各 11 条共 44 条，门禁 `TestBaselineDataset`）。
 > 关联：golden eval（`make eval` / `make eval-real`，v3.10.0 起）是编排语义与
 > verdict 命中率面——本体系补 finding 级混淆矩阵与裁决稳定性；现网已裁决 MR
 > 样例回填仍待数据（#28 余量）；质量趋势可视化消费面见 P3-02（#27）。
@@ -58,15 +58,16 @@ must_find）；`known_fp` = 历史模型在干净 diff 上报出的意见（误�
 必须有零 must_find）。`Validate()` 硬校验 id 唯一 / label·verdict 词表 /
 标签结构约束 / diff 非空。
 
-**起步集（#25 交付 + #28 四语言扩容）**：`eval/baseline/{go,java,python,js-ts}.yaml`
-四语言 22 条样例（go 7 / java 5 / python 5 / js-ts 5）——各语言独立混合
-standard/known_miss/known_fp，go 覆盖 high/medium/low 三档 must_find，分仓 ≥3。
+**起步集（#25 交付 + #28 四语言扩容，两批合流）**：`eval/baseline/{go,java,python,jsts}.yaml`
+四语言各 11 条共 44 条样例——各语言独立混合 standard/known_miss/known_fp、
+known_miss/known_fp 正例各 ≥1、high 严重度锚齐，分仓 ≥3。
 **出处口径**：全部为合成夹具（go 为 golden 08/09/10/29/30 改写 + 自编写；其余
 三语言为自编写现实形态 diff），`source` 字段逐条标注，不冒充现网已裁决 MR；
 known_miss/known_fp 在起步集是**预设形态**（按标签结构约束标注），其「历史模型
-漏报/误报」实证待现网 MR 样例回填。装载门禁
-`test/evalq.TestEvalBaselineStarterSet` 守规模/标签混合/严重度覆盖/分仓/出处/
-**四语言齐且各语言 ≥4 条自带标签混合面（#28）**。
+漏报/误报」实证待现网 MR 样例回填。装载门禁双层：
+`test/evalq.TestEvalBaselineStarterSet`（#25 规模/标签混合/严重度覆盖/分仓/出处）
++ `test/evalq.TestBaselineDataset`（#28 四语言齐/每语言 ≥10 条/known_miss·
+known_fp 正例/high 锚）。
 
 ## 跑批骨架（`Evaluate`）
 
@@ -124,19 +125,19 @@ make eval-baseline-real   # 真实模型：ARGUS_EVAL=1 + lacus/.env 的 OPENAI_
 
 - 已落地：指标计算单源（含裁决稳定性）、**分严重度报表聚合**（JSON
   `by_severity` + Markdown 分严重度表）、基准集装载与完整性校验、**四语言起步集
-  `eval/baseline/{go,java,python,js-ts}.yaml`**（22 条合成夹具，各语言自带
-  标签混合面）、打桩跑批回归、报告双形态、`make eval-baseline`（打桩）与
+  `eval/baseline/{go,java,python,jsts}.yaml`**（各 11 条共 44 条合成夹具，
+  各语言自带标签混合面）、打桩跑批回归、报告双形态、`make eval-baseline`（打桩）与
   `make eval-baseline-real`（真实模型，`TestEvalBaselineRealModel`，
   `ARGUS_EVAL_STABILITY` 控制 k 轮）双入口、**真实模型单发审查 Reviewer**
   （test 侧轻装配 + 归一化规则单测）。
 - 起步集出处口径：全部样例为合成夹具（go=golden 改写 + 自编写；java/python/
-  js-ts=自编写），`source` 逐条标注；known_miss/known_fp 是预设形态，实证回填
+  jsts=自编写），`source` 逐条标注；known_miss/known_fp 是预设形态，实证回填
   与现网已裁决 MR 样例仍待回填——起步集不冒充现网数据。
 - **首跑基线（2026-11-13，`make eval-baseline-real`，mimo-v2.6-pro，k=3）**：
   Precision 0.833 / Recall 1.000 / 误报率 1.000 / 漏检率 0.000 / F1 0.909 /
   Verdict 命中率 42.9% / 裁决稳定性 0.952（混淆 TP=5 FP=1 FN=0 TN=0；7 案
   出错 1——单发协议下该样例模型输出不可解析，保守计分）。⚠️ **该数值是
-  go.yaml 单语言 7 案时代的首跑**——四语言扩容（22 案）后尚未重跑，新基线
+  go.yaml 单语言 7 案时代的首跑**——四语言扩容（44 案）后尚未重跑，新基线
   以扩容后首次 `make eval-baseline-real` 归档为准，勿跨口径比较。全量 artifact
   见 `eval/results/baseline-latest.{json,md}`（gitignored，每次跑批覆盖）。
   同配置另一次跑批因网关读超时出错 1 案（Precision 0.444 / Recall 0.800 /

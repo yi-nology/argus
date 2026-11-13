@@ -52,8 +52,8 @@ func TestMain(m *testing.M) {
 
 // layering 分层白名单。key = 受约束包（精确路径）；value = 允许的 argus/internal/*
 // 依赖集合（封闭）。不在表内的包不受 import 方向约束（现仅剩 bootstrap 组合根
-// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫；43 个 internal 包
-// 其余 42 个全部在表内）。
+// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫；47 个 internal 包
+// 其余 46 个全部在表内）。
 // 规则变更 = 架构变更：必须同步 docs/architecture-deep-dive.md 并在 CHANGELOG 记档。
 var layering = map[string][]string{
 	// ---- L0 纯底座：零 internal 依赖 ----
@@ -75,6 +75,10 @@ var layering = map[string][]string{
 	// P2-02（#25）：质量评测体系（指标计算/基准集装载/跑批骨架/报告）。
 	// L0 零 internal 依赖——真实模型调用只经 Reviewer 接口装配，在线链路不 import。
 	"github.com/yi-nology/argus/internal/evalq": {},
+	// P3-02（#27）：审查质量控制台（只读聚合 + 静态页/CLI 输出形态）。
+	// L0 零 internal 依赖——自带轻量解析直拉既有 API 面（/stats /usage /metrics），
+	// 不复用 service DTO（反向依赖不可能发生）；在线链路不 import（旁路形态）。
+	"github.com/yi-nology/argus/internal/qconsole": {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
 	// semsearch 取 NodeKey 键契约单源；bootstrap→goedges 为组合根单向装配

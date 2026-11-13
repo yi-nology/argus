@@ -146,10 +146,6 @@ jobs:
             mv bin/argus "dist/argus_linux_${goarch}"
           done
           (cd dist && sha256sum argus_linux_amd64 argus_linux_arm64 > checksums.txt)
-          # Skills 发布校验清单（#26）：install-skills.sh --version <tag> --verify
-          # 从同 Release 拉本清单逐文件核验（make skills-checksums 同口径）。
-          make skills-checksums
-          cp scripts/skills-checksums.txt dist/skills-checksums.txt
 
       - name: Locate release notes
         id: notes
@@ -166,7 +162,6 @@ jobs:
             dist/argus_linux_amd64
             dist/argus_linux_arm64
             dist/checksums.txt
-            dist/skills-checksums.txt
           fail_on_unmatched_files: true
           generate_release_notes: true
           body_path: ${{ steps.notes.outputs.path }}

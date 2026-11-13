@@ -1,13 +1,14 @@
 ---
 name: argus-mcp
 description: This skill should be used when the user asks to "用 Argus 审查这个 PR/MR", "trigger an Argus review", "跑一下需求复核 / requirement compliance check", "看看 Argus 的审查意见 / findings", "ask Argus about this review", "按 fp 短码修复这条意见 / fix this finding", "提交前用 Argus 预审 diff / pre-commit review", or when an Argus MCP server (/mcp endpoint) is connected and the agent needs to drive PR auto-review, read structured findings, or execute sandboxed fixes through it.
+compatibility: ">=6.9.0 <8.0.0"  # 适配的 argus 服务版本区间（P3-01 #26）；skills 随 argus 仓 tag 发布
 ---
 
 # Argus MCP 驱动指南
 
 Argus 是 PR 自动审查 bot：多 agent 编队审查（R1 需求解析 → R2 变更理解 → R3 完成度判定 → R3.5 反思 → R4 专家委派 → R5 确定性裁决），报告回帖到 PR。它把全部审查能力以 MCP 工具暴露在 `/mcp`（streamable HTTP + Bearer），任何 MCP 客户端或本 skill 的调用方都能直接驱动。本文件是工作流与判定规则；参数级细节（每个字段的类型/默认值/错误语义）见 [references/tools.md](references/tools.md)。
 
-**版本兼容性**（#26 发布管理）：本技能快照对应 **argus 服务 v7.0.0+**（`get_capabilities` 全量键面，含 `fix_push_mode`）。对 v6.9.0–v6.x 服务**向下兼容**——能力面缺键即对应功能未启用（`get_capabilities` 先查再调的纪律覆盖此场景）；低于 v6.9.0 未验证。固定版本安装：`install-skills.sh --version v7.0.0 --verify`（sha256 核验）。
+**版本兼容性**（#26 发布管理）：本技能快照对应 **argus 服务 v7.0.0+**（`get_capabilities` 全量键面，含 `fix_push_mode`）。对 v6.9.0–v6.x 服务**向下兼容**——能力面缺键即对应功能未启用（`get_capabilities` 先查再调的纪律覆盖此场景）；低于 v6.9.0 未验证。固定版本安装：`install-skills.sh --version v7.0.0`（sha256 校验缺省开，`--no-verify` 仅调试跳过）。
 
 ## 连接
 

@@ -1,6 +1,7 @@
 ---
 name: argus-precommit
 description: This skill should be used when the user asks to "提交前帮我自查一下代码", "用 Argus 预审这段 diff", "run a pre-commit review", "check my staged changes before committing", "装一个提交前 AI 审查钩子 / set up the Argus pre-commit hook", "提交后轮询预审结果", or wants a review-fix-recheck loop on local changes before pushing.
+compatibility: ">=6.9.0 <8.0.0"  # 适配的 argus 服务版本区间（P3-01 #26）；skills 随 argus 仓 tag 发布
 ---
 
 # Argus 提交前自查（pre-commit 预审）

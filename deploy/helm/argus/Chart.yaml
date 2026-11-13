@@ -1,0 +1,9 @@
+apiVersion: v2
+name: argus
+description: Argus 可插拔多 Agent 审查平台（HA 双副本 + Migration Job + 备份恢复，P3-04 #29）
+type: application
+version: 0.1.0
+appVersion: "v6.16.0"
+kubeVersion: ">=1.26.0"
+annotations:
+  argus.yi-nology/spec: "docs/deploy-production.md"

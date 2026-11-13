@@ -1,132 +1,187 @@
-# Python 语言审查基准（P3-03 #28 起步集）。
-#
-# 出处口径（诚实标注，禁止把合成夹具说成现网已裁决 MR）：
-#   - 本文件全部样例为**合成夹具**：自行编写的现实形态 Python diff（常见缺陷模式）；
-#     现网在役仓的已裁决 MR 样例落地前，本文件不冒充现网数据。
-#   - 标签口径与 go.yaml 同：known_miss/known_fp 是预设形态（结构约束由
-#     LoadDir.Validate 硬校验），「历史模型漏报/误报」的实证归现网样例回填。
-#
-# kind 词表与真实模型评测协议（test/evalq/real_model_test.go）同闭集；匹配规则
-# （kind 主键、file 可选收窄）见 docs/eval-baseline.md。
+# Python 语言审查基准（P3-03，#28）——合成夹具起步集，金标准标注。
+# 维度对齐 P2-02（#25）指标；验证「审查结论质量」：漏检与误报。
+# 出处口径同 eval/baseline/go.yaml：全部样例为合成夹具（自编写现实形态 Python diff），
+# 现网在役仓已裁决 MR 样例落地前不冒充现网数据。
 language: python
-description: Python 语言审查基准（合成夹具起步集：常见缺陷模式自编写，非现网 MR）
+description: Python 审查结论质量基准（合成夹具：自编写，非现网 MR）
 cases:
   - id: py-001
-    repo: acme/etl-pipeline
-    title: API Token 明文写进源码
+    repo: acme/data-pipeline
+    title: 可变对象作缺省参数
     label: standard
-    source: 自编写合成夹具（现实形态 Python diff）
+    source: 自行编写（合成夹具）
     diff: |
-      diff --git a/pipeline/client.py b/pipeline/client.py
-      --- a/pipeline/client.py
-      +++ b/pipeline/client.py
-      @@ -5,7 +5,8 @@ import requests
-   
-       class UpstreamClient:
-           BASE_URL = "https://etl.internal/api"
-      +    API_TOKEN = "sk-etl-9f8e7d6c5b4a"
-      
-       def fetch(self, path: str) -> dict:
-           return requests.get(
+      --- a/pipeline/aggr.py
+      +++ b/pipeline/aggr.py
+      @@ -8,2 +8,3 @@
+      -def collect(rows, bucket):
+      +def collect(rows, bucket=[]):
+      +    bucket.extend(r["amount"] for r in rows)
     expect:
-      verdict: request_changes
+      verdict: comment
       must_find:
-        - file: pipeline/client.py
-          kind: hardcoded-secret
-          severity: high
-
+        - kind: mutable-default
+          severity: medium
   - id: py-002
-    repo: acme/etl-pipeline
-    title: 裸 except 吞掉全部异常继续执行
+    repo: acme/ops-tools
+    title: subprocess 带用户输入且 shell=True
     label: standard
-    source: 自编写合成夹具（现实形态 Python diff）
+    source: 自行编写（合成夹具）
     diff: |
-      diff --git a/pipeline/loader.py b/pipeline/loader.py
-      --- a/pipeline/loader.py
-      +++ b/pipeline/loader.py
-      @@ -18,8 +18,8 @@ def load_batch(rows: list[dict]) -> int:
-           loaded = 0
-           for row in rows:
-               try:
-                   upsert(row)
-                   loaded += 1
-      -        except Exception as e:
-      -            logger.error("upsert failed: %s", e)
-      +        except Exception:
-      +            pass
-           return loaded
+      --- a/ops/cleanup.py
+      +++ b/ops/cleanup.py
+      @@ -14,3 +14,4 @@ def clean(name):
+      -    subprocess.run(["rm", "-rf", f"/tmp/build/{name}"])
+      +    subprocess.run(f"rm -rf /tmp/build/{name}", shell=True)
     expect:
       verdict: request_changes
       must_find:
-        - file: pipeline/loader.py
-          kind: error-swallow
-          severity: medium
-
-  - id: py-003
-    repo: acme/billing-api
-    title: f-string 拼接 SQL 新增查询（注入面）
-    label: known_miss
-    source: 自编写合成夹具（现实形态 Python diff）
-    diff: |
-      diff --git a/billing/queries.py b/billing/queries.py
-      --- a/billing/queries.py
-      +++ b/billing/queries.py
-      @@ -24,6 +24,12 @@ def list_invoices(conn, status: str) -> list:
-           return conn.execute(sql, (status,)).fetchall()
-      
-      +def search_invoices(conn, keyword: str) -> list:
-      +    sql = f"SELECT * FROM invoices WHERE memo LIKE '%{keyword}%'"
-      +    return conn.execute(sql).fetchall()
-      +
-       def invoice_count(conn) -> int:
-           return conn.execute("SELECT count(*) FROM invoices").fetchone()[0]
-    expect:
-      verdict: request_changes
-      must_find:
-        - file: billing/queries.py
-          kind: sql-inject
+        - kind: cmd-inject
           severity: high
-
-  - id: py-004
-    repo: acme/billing-api
-    title: 打开文件未关闭（资源泄漏）
-    label: known_miss
-    source: 自编写合成夹具（现实形态 Python diff）
+  - id: py-003
+    repo: acme/data-pipeline
+    title: 裸 except 吞异常
+    label: standard
+    source: 自行编写（合成夹具）
     diff: |
-      diff --git a/billing/export.py b/billing/export.py
-      --- a/billing/export.py
-      +++ b/billing/export.py
-      @@ -9,7 +9,6 @@ def export_csv(path: str, rows: list[tuple]) -> None:
-      -    with open(path, "w", newline="") as f:
-      -        writer = csv.writer(f)
-      -        writer.writerows(rows)
-      +    f = open(path, "w", newline="")
-      +    csv.writer(f).writerows(rows)
-       # 文件句柄交由 GC 关闭
+      --- a/pipeline/loads.py
+      +++ b/pipeline/loads.py
+      @@ -21,3 +21,4 @@ def load(path):
+      +    try:
+      +        return parse(path)
+      +    except:
+      +        return None
+    expect:
+      verdict: comment
+      must_find:
+        - kind: bare-except
+          severity: medium
+  - id: py-004
+    repo: acme/ops-tools
+    title: open 后未 with/close
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/ops/report.py
+      +++ b/ops/report.py
+      @@ -9,3 +9,4 @@ def dump(stats):
+      -    write_stats(stats)
+      +    f = open("/tmp/report.csv", "w")
+      +    f.write(format(stats))
+    expect:
+      verdict: comment
+      must_find:
+        - kind: resource-leak
+          severity: medium
+  - id: py-005
+    repo: acme/data-pipeline
+    title: 检查后使用竞态（check-then-act）
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/pipeline/locks.py
+      +++ b/pipeline/locks.py
+      @@ -16,4 +16,5 @@ def ensure_lock(name):
+      -    if not os.path.exists(lock_path(name)):
+      -        raise RuntimeError("locked")
+      +    if os.path.exists(lock_path(name)):
+      +        os.remove(lock_path(name))
     expect:
       verdict: request_changes
       must_find:
-        - file: billing/export.py
-          kind: resource-leak
-          severity: medium
-
-  - id: py-005
-    repo: acme/ml-serving
-    title: 补类型注解与 docstring（干净改进）
-    label: known_fp
-    source: 自编写合成夹具（现实形态 Python diff；误报正例=干净 diff）
+        - kind: toc-tou
+          severity: high
+  - id: py-006
+    repo: acme/ops-tools
+    title: 硬编码云凭证
+    label: standard
+    source: 自行编写（合成夹具）
     diff: |
-      diff --git a/serving/preprocess.py b/serving/preprocess.py
-      --- a/serving/preprocess.py
-      +++ b/serving/preprocess.py
-      @@ -3,8 +3,10 @@ import numpy as np
-   
-      -def normalize(x):
-      +def normalize(x: np.ndarray) -> np.ndarray:
-      +    """按 min-max 归一化到 [0, 1]。"""
-           lo, hi = x.min(), x.max()
-           if hi == lo:
-               return np.zeros_like(x)
-           return (x - lo) / (hi - lo)
+      --- a/ops/upload.py
+      +++ b/ops/upload.py
+      @@ -4,2 +4,3 @@
+      -client = make_client()
+      +client = make_client(secret_key="AKIA1234567890EXAMPLE")
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: hardcode-secret
+          severity: high
+  - id: py-007
+    repo: acme/data-pipeline
+    title: 解析结果未判 None 即取下标
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/pipeline/parse.py
+      +++ b/pipeline/parse.py
+      @@ -18,3 +18,4 @@ def main(raw):
+      -    doc = parse(raw)
+      +    doc = parse(raw)
+      +    return doc["items"][0]["sku"]
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: none-deref
+          severity: high
+  - id: py-008
+    repo: acme/data-pipeline
+    title: 仅补充类型注解
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设：历史误报形态）
+    diff: |
+      --- a/pipeline/aggr.py
+      +++ b/pipeline/aggr.py
+      @@ -8,2 +8,3 @@
+      -def collect(rows, bucket):
+      +def collect(rows: list[dict], bucket: list[int]) -> None:
     expect:
       verdict: approve
+      must_find: []
+  - id: py-009
+    repo: acme/ops-tools
+    title: yaml.load 未指定 SafeLoader（历史漏检）
+    label: known_miss
+    source: 自行编写（合成夹具；known_miss 预设形态）
+    diff: |
+      --- a/ops/config.py
+      +++ b/ops/config.py
+      @@ -12,3 +12,3 @@ def load_cfg(path):
+      -    return yaml.load(text)
+      +    cfg = yaml.load(text)
+      +    return cfg or {}
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: unsafe-yaml
+          severity: high
+  - id: py-010
+    repo: acme/data-pipeline
+    title: 仅 docstring 补充
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/pipeline/parse.py
+      +++ b/pipeline/parse.py
+      @@ -1,2 +1,5 @@
+       def parse(raw):
+      +    """解析上游 JSON 文本。
+      +
+      +    空文本返回 None（调用方判空）。"""
+    expect:
+      verdict: approve
+      must_find: []
+  - id: py-011
+    repo: acme/ops-tools
+    title: f-string 改写（历史误报：style）
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设形态）
+    diff: |
+      --- a/ops/report.py
+      +++ b/ops/report.py
+      @@ -20,2 +20,3 @@
+      -    print("%s: %s" % (name, n))
+      +    print(f"{name}: {n}")
+    expect:
+      verdict: approve
+      must_find: []

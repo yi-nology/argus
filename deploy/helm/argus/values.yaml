@@ -1,0 +1,100 @@
+# Argus HA Chart 缺省值（P3-04，#29）——拓扑对齐 deploy/k8s43 在役形态：
+# 双副本 + PostgreSQL + PVC（memory/knowledge/ocr-home 共享）+ per-pod work 盘。
+# 资源配额/副本数/备份策略全部在此收口（规范文档 docs/deploy-production.md）。
+
+image:
+  repository: argus
+  tag: ""            # 缺省取 .Chart.AppVersion；集群离线导入场景填节点内已 import 的 tag
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---- HA 拓扑 ----
+replicaCount: 2
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0   # 滚动升级容量不掉底（配合 maxSurge=1）
+    maxSurge: 1
+terminationGracePeriodSeconds: 120   # 覆盖 worker 两阶段排水（60s grace + 硬取消）
+
+# ---- 资源配额（k8s43 在役值为锚；新集群按负载调整）----
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+service:
+  type: ClusterIP
+  port: 8899
+
+# ---- 探活（/readyz 单面，与 k8s43 同参）----
+probes:
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 6
+  liveness:
+    initialDelaySeconds: 180
+    periodSeconds: 60
+    failureThreshold: 5
+
+# ---- 存储 ----
+persistence:
+  existingClaim: ""        # 在役集群填既有 PVC（argus-data）；空 = 新建
+  size: 20Gi
+  storageClass: ""         # local-path 等；空 = 集群缺省
+workDiskSize: 8Gi          # per-pod emptyDir（workcopy 瞬态，k8s43 形态）
+
+# ---- 配置注入 ----
+# 明面 env（ConfigMap）；敏感值一律走 existingSecret（勿写入 values）。
+config:
+  ARGUS_ADDR: ":8899"
+  ARGUS_ENSURE_WEBHOOK: "1"
+  # ARGUS_PUBLIC_URL: http://<前门地址>
+  # ARGUS_REPO_ALLOWLIST: ...
+existingSecret: argus-env      # envFrom secretRef（DSN/token 等敏感面）
+pluginsConfigMap: argus-plugins
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---- Migration Job（升级先行拆分；v6.7.0 迁移语义联动）----
+migrationJob:
+  enabled: true
+  # 迁移接入点已落地（#29，v7.0）：ARGUS_MIGRATE_MODE=job（模板注入）——
+  # storage.Open 完成 schema+数据回写后进程退出 0；副本侧 ARGUS_MIGRATE_MODE
+  # =verify 只校验不迁移（三态语义见 docs/deploy-production.md 与
+  # deploy/k8s43/README.md 滚动升级 runbook）。
+  command: ["/app/argus"]
+  backoffLimit: 0        # 迁移失败不重试（fail-closed 语义：人工介入）
+  ttlSecondsAfterFinished: 3600
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# ---- pg 定时备份（对齐 deploy/k8s43/80-pg-backup.yaml 在役形态）----
+pgBackup:
+  enabled: true
+  schedule: "30 3 * * *"
+  retention: 7                       # 保留最近 N 份
+  image: postgres:16-alpine
+  pgHost: argus-pg
+  pgDB: argus
+  pgSecret: argus-pg                 # POSTGRES_PASSWORD 所在 Secret
+  pgUser: argus
+  storageClass: local-path
+  size: 5Gi
+  nodeSelector:
+    kubernetes.io/hostname: ubuntu-2404-k3s-master01
+
+# ---- 恢复演练（手动 Job：dump → 恢复进 scratch 库 → 行数对账 → 清理）----
+pgRestore:
+  enabled: false       # 手动触发：helm upgrade --set pgRestore.enabled=true
+  image: postgres:16-alpine
+  drillDB: argus_drill # 演练库名（恢复目标，演练完 drop）
