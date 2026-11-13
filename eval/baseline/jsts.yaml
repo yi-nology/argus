@@ -104,7 +104,7 @@ cases:
     expect:
       verdict: request_changes
       must_find:
-        - kind: hardcode-secret
+        - kind: hardcoded-secret
           severity: high
   - id: ts-007
     repo: acme/console-web

@@ -40,10 +40,21 @@ const reviewSystemPrompt = `你是代码审查专家，对给定的 PR 标题与
 {"verdict":"approve|comment|request_changes","findings":[{"file":"相对路径","line":12,"kind":"kebab-case 类别词","severity":"high|medium|low","comment":"中文一句话"}],"notes":""}
 
 约定：
-- kind 用 kebab-case 类别词，如 hardcoded-secret、missing-tx、error-swallow、unchecked-err、resource-leak、nil-deref、race-condition、sql-inject、missing-doc-comment、naming-convention、style-nit；
+- kind 必须从下列闭集词表中选取**最贴切的一个**（协议统一标签，不要自造同义词）：
+  bare-except、cmd-inject、concurrent-modification、data-race、equals-hashcode、
+  error-swallow、exception-swallow、hardcoded-secret、int-overflow、
+  loose-eq、missing-doc-comment、missing-tx、mutable-default、mutex-copy、none-deref、
+  npe、path-traversal、prototype-pollution、resource-leak、serial-await、sql-inject、
+  thread-safety、toc-tou、unawaited-promise、unsafe-yaml、xss、
+  naming-convention、style-nit、unchecked-err、nil-deref、race-condition；
 - severity 只取 high|medium|low；
 - verdict：存在 high 意见 → request_changes；仅 medium/low 意见 → comment；无意见 → approve；
-- 没有问题时 findings 输出 []；diff 中未出现的文件不要报。`
+- 没有问题时 findings 输出 []；diff 中未出现的文件不要报；
+- **纯风格偏好不算问题**：等价改写（类型注解补充、f-string/% 格式化互换、
+  getter/命名微调、防御性判空、this限定等）不改变行为与契约——即使看起来
+  可挑剔也输出 []，不要为此造 style-nit/naming-convention 意见；
+  style 类词仅用于**新代码违反该语言强约定**的场景（如 Go 导出符号缺注释
+  → missing-doc-comment），存量代码的风格瑕疵不报。`
 
 // modelView 评测侧并行解码视图：kind（金标准匹配主键）与 verdict（模型自评）
 // 不在 plugin.FindingsWire 生产契约里——生产链路 verdict 由 R5 真值表裁决（不读

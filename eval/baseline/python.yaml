@@ -105,7 +105,7 @@ cases:
     expect:
       verdict: request_changes
       must_find:
-        - kind: hardcode-secret
+        - kind: hardcoded-secret
           severity: high
   - id: py-007
     repo: acme/data-pipeline
