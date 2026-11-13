@@ -209,10 +209,15 @@ func (s *Store) CreateTaskForWebhook(ctx context.Context, t *Task) (dupReason, e
 			if cnt > 0 {
 				dupReason = DupInFlight
 				var existing Task
-				_ = tx.Select("id").Where(
+				// 回查失败仅元数据降级（dupReason 已定，existingID 空）——留痕
+				// 防静默（runner_lifecycle best-effort 写失败留痕先例，P2-9）。
+				if recErr := tx.Select("id").Where(
 					"platform = ? AND owner = ? AND repo = ? AND number = ? AND kind = ? AND head_sha = ? AND status IN ?",
 					t.Platform, t.Owner, t.Repo, t.Number, t.Kind, t.HeadSHA,
-					[]string{StatusPending, StatusRunning}).First(&existing).Error
+					[]string{StatusPending, StatusRunning}).First(&existing).Error; recErr != nil {
+					s.db.Logger.Warn(ctx, "argus.storage.dup_inflight_lookup_failed platform=%s owner=%s repo=%s number=%s err=%v",
+						t.Platform, t.Owner, t.Repo, t.Number, recErr)
+				}
 				existingID = existing.ID
 				return nil
 			}

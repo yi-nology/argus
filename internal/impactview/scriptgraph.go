@@ -280,6 +280,8 @@ func indexReverse(sg *scriptGraph) {
 // scanScripts 遍历收集词法面文件（langcap.GraphScanExts）并解析。预算到点即停。
 func scanScripts(dir string, deadline time.Time) *scriptGraph {
 	var paths []string
+	// 外层错误恒弃：walkFn 逐项容错（err→nil 跳过），失败即降级面（词法层
+	// 少扫文件，预算到点即停语义不受影响）——不阻断构建（P2-10 口径）。
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil

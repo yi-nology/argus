@@ -2,6 +2,7 @@
 // 只读工具（数据面=semsearch 符号邻接图，词法级边）。与 get_impact 同模式：
 // 两个可选扩展接口各自独立断言注册，core 未实现各自接口时跳过注册，
 // tools/list 不出现死工具。
+
 package mcpserver
 
 import (

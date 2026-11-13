@@ -154,6 +154,8 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 	// 同款（.git/vendor/node_modules/.zcode）。
 	if len(s.Nodes) > 0 && len(s.Nodes) <= 3 {
 		var goFiles []string
+		// 外层错误恒弃：walkFn 逐项容错（err→nil），失败即降级面（文件节点
+		// 少收集，目录级地图仍完整）——不阻断渲染（P2-10 口径）。
 		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil

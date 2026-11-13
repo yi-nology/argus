@@ -6,6 +6,7 @@
 //	get_suggestion   按指纹短码取回单条建议（补丁内容由 IDE 侧执行应用）
 //
 // 可选接口模式（同 ReviewQA）：core 未实现时工具返回明确错误文本。
+
 package mcpserver
 
 import (

@@ -1,6 +1,7 @@
 // impact.go —— MCP get_impact（v3.183.0）：改动影响面快照只读工具。
 // blast radius 一手结构化数据（nodes/edges/packages/risk/coupling + 预渲染
 // mermaid），外部 AI/IDE 直取直渲染，不必解析报告 markdown。
+
 package mcpserver
 
 import (

@@ -15,6 +15,7 @@
 //
 // 分流键取 needs 而非 tool 名：需要工作副本的对端必然消费 payload.workcopy_dir，
 // 这是两形态的语义分界，tool 名只是配置巧合。
+
 package adapter_remote
 
 import (

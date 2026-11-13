@@ -1,6 +1,7 @@
 // server_tools.go —— MCP 工具 schema 构造器（v3.165.0 自 server.go 拆出；
 // 零逻辑变更）。schema 文案是 get_capabilities/skills 文档的外部契约面，
 // 改描述须同步 skills/argus-mcp/references/tools.md。
+
 package mcpserver
 
 import "github.com/mark3labs/mcp-go/mcp"

@@ -1,5 +1,6 @@
 // server_handlers.go —— MCP 工具执行体与参数助手（v3.165.0 自 server.go 拆出；
 // 零逻辑变更）。
+
 package mcpserver
 
 import (

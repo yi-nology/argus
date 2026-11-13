@@ -40,7 +40,9 @@ func scanWorkspace(dir string) (*goMods, bool) {
 	fset := token.NewFileSet()
 	count := 0
 	truncated := false
-	// 目录序遍历保证确定性；单文件解析失败跳过（与 codeintel 同纪律）
+	// 目录序遍历保证确定性；单文件解析失败跳过（与 codeintel 同纪律）。
+	// 外层错误恒弃：walkFn 对每项已自行容错（err→nil 跳过），WalkDir 返回值
+	// 只会是 walkFn 的返回——失败即降级面（图少节点），不阻断渲染（P2-10 口径）。
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() {
