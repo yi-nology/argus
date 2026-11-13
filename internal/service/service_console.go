@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/qconsole"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -60,6 +61,7 @@ a{color:var(--acc)}
 	renderConsoleUsage(&b, usage)
 	renderConsoleFailures(&b, metrics)
 	renderConsoleFixLoop(&b, metrics)
+	renderConsoleTrend(&b, s.evalTrend())
 	renderConsoleRepos(&b, stats)
 
 	b.WriteString("</body></html>")
@@ -187,6 +189,51 @@ func renderConsoleFixLoop(b *strings.Builder, ms []obs.ConsoleMetric) {
 		card(b, "推送成功率", "—（环未启用）", "")
 	}
 	b.WriteString("</div>")
+}
+
+// renderConsoleTrend 质量趋势（#27 验收「质量趋势」面）：P2-02 评测基线报告
+// 只读投影——总指标卡（FP 率/漏检率/精确率/召回率/裁决稳定性）+ 分语言表。
+// 数据源缺位渲染占位（趋势面缺位属常态，同 qconsole 口径）。
+func renderConsoleTrend(b *strings.Builder, t *qconsole.EvalTrend) {
+	b.WriteString("<h2>质量趋势（评测基线）</h2>")
+	if t == nil {
+		b.WriteString("<p class=\"muted\">暂无基线——运行 <code>make eval-baseline-real</code> " +
+			"归档 eval/results/baseline-latest.json 后展示</p>")
+		return
+	}
+	fmt.Fprintf(b, "<p class=\"muted\">模型 %s · 生成于 %s · 裁决稳定性 %.3f</p>",
+		html.EscapeString(orDash(t.Model)),
+		t.GeneratedAt.Format("2006-01-02 15:04"), t.Stability)
+	b.WriteString("<div class=\"grid\">")
+	card(b, "误报率（FP）", fmt.Sprintf("%.1f%%", t.Overall.FP*100),
+		tone(1-t.Overall.FP, 0.8, 0.5))
+	card(b, "漏检率（Miss）", fmt.Sprintf("%.1f%%", t.Overall.Miss*100),
+		tone(1-t.Overall.Miss, 0.9, 0.7))
+	card(b, "精确率", fmt.Sprintf("%.1f%%", t.Overall.P*100), tone(t.Overall.P, 0.8, 0.6))
+	card(b, "召回率", fmt.Sprintf("%.1f%%", t.Overall.R*100), tone(t.Overall.R, 0.9, 0.7))
+	card(b, "裁决稳定性", fmt.Sprintf("%.1f%%", t.Stability*100), tone(t.Stability, 0.9, 0.7))
+	b.WriteString("</div>")
+	if len(t.ByLanguage) == 0 {
+		return
+	}
+	b.WriteString("<p class=\"muted\">分语言</p><table><tr><th>语言</th><th class=\"num\">误报率</th>" +
+		"<th class=\"num\">漏检率</th></tr>")
+	for _, l := range t.ByLanguage {
+		fmt.Fprintf(b, "<tr><td>%s</td><td class=\"num\">%.1f%%</td><td class=\"num\">%.1f%%</td></tr>",
+			html.EscapeString(orDash(l.Language)), l.FP*100, l.Miss*100)
+	}
+	b.WriteString("</table>")
+}
+
+// evalTrend 评测基线投影（#27 质量趋势数据源）：读 config 指向的 P2-02
+// artifact（缺省 eval/results/baseline-latest.json）；文件缺位/坏 JSON 返回
+// nil——趋势面占位属常态，不构成控制台错误（同 qconsole.LoadEvalTrend 口径）。
+func (s *Service) evalTrend() *qconsole.EvalTrend {
+	path := "eval/results/baseline-latest.json"
+	if s.Cfg != nil && s.Cfg.EvalReportPath != "" {
+		path = s.Cfg.EvalReportPath
+	}
+	return qconsole.LoadEvalTrend(path)
 }
 
 // renderConsoleRepos 按仓明细表（行过滤后的 stats 透出；类型=StatsOverview

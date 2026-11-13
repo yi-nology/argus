@@ -407,6 +407,11 @@ type Config struct {
 	// 组合生效——SemSearch 未就绪时本档无消费面（仅启动 warn，不报错）。
 	GraphPrecise bool
 
+	// EvalReportPath 评测基线报告路径（ARGUS_EVAL_REPORT，#27 质量趋势面数据源）：
+	// P2-02 artifact（eval/results/baseline-latest.json）只读投影，/console 渲染
+	// 按月 FP 率/漏检率曲线；文件缺位 = 趋势面占位（常态，不构成错误）。
+	EvalReportPath string
+
 	// RelatedRepos 跨仓契约快照（v3.90.0）：允许 .reviewagents.yaml related 段
 	// 生效——审查时拉取关联仓契约文件注入 R4。服务级总门（仓库声明只是必要
 	// 条件）：跨仓读取扩大数据访问面，由部署方显式授权。ARGUS_RELATED_REPOS=1 开。
@@ -501,6 +506,7 @@ func Load() *Config {
 		ImpactCoupling:           envInt("ARGUS_IMPACT_COUPLING", 100),
 		SemSearch:                envBool("ARGUS_SEMSEARCH", false),
 		GraphPrecise:             envBool("ARGUS_GRAPH_PRECISE", false),
+		EvalReportPath:           envStr("ARGUS_EVAL_REPORT", "eval/results/baseline-latest.json"),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),

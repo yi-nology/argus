@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -92,4 +93,51 @@ func TestConsoleMetricsWhitelist(t *testing.T) {
 			t.Errorf("验收指标 %s 掉出白名单", name)
 		}
 	}
+}
+
+// TestQualityConsoleTrend 两态（#27 质量趋势验收）：基线文件在 → 总指标卡
+// 与分语言表渲染；缺位 → 占位文案且不 500（趋势面缺位属常态）。
+func TestQualityConsoleTrend(t *testing.T) {
+	st := openVisStore(t)
+	ctx := context.Background()
+
+	t.Run("缺位占位", func(t *testing.T) {
+		s := &Service{Cfg: &config.Config{EvalReportPath: t.TempDir() + "/nope.json"}, Store: st}
+		page, code := s.QualityConsoleHTML(ctx)
+		if code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", code)
+		}
+		if !strings.Contains(page, "质量趋势") {
+			t.Error("趋势段标题缺失")
+		}
+		if !strings.Contains(page, "暂无基线") {
+			t.Error("缺位占位文案缺失")
+		}
+	})
+
+	t.Run("基线在", func(t *testing.T) {
+		path := t.TempDir() + "/baseline.json"
+		raw := `{"generated_at":"2026-11-13T18:53:37+08:00","model":"mimo-v2.6-pro",` +
+			`"stability":0.952,"overall":{"fp_rate":0.727,"miss_rate":0.0,` +
+			`"precision":0.805,"recall":1.0},` +
+			`"by_language":[{"language":"go","fp_rate":1.0,"miss_rate":0.0}]}`
+		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s := &Service{Cfg: &config.Config{EvalReportPath: path}, Store: st}
+		page, code := s.QualityConsoleHTML(ctx)
+		if code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", code)
+		}
+		for _, want := range []string{
+			"mimo-v2.6-pro", "72.7%", "100.0%", "95.2%", "分语言", "go",
+		} {
+			if !strings.Contains(page, want) {
+				t.Errorf("趋势面缺 %q", want)
+			}
+		}
+		if strings.Contains(page, "暂无基线") {
+			t.Error("基线在时不应渲染缺位占位")
+		}
+	})
 }

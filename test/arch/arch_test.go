@@ -77,7 +77,8 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/evalq": {},
 	// P3-02（#27）：审查质量控制台（只读聚合 + 静态页/CLI 输出形态）。
 	// L0 零 internal 依赖——自带轻量解析直拉既有 API 面（/stats /usage /metrics），
-	// 不复用 service DTO（反向依赖不可能发生）；在线链路不 import（旁路形态）。
+	// 不复用 service DTO（反向依赖不可能发生）；#27 趋势面起 service→qconsole
+	// 单向消费 LoadEvalTrend（只读报告投影），qconsole 本体仍零依赖。
 	"github.com/yi-nology/argus/internal/qconsole": {},
 	// v5.10.0：go/types 精确调用边抽取器（semsearch.EdgeAugmenter 档二实现，
 	// bootstrap 经 ARGUS_GRAPH_PRECISE opt-in 注入）——唯一 internal 依赖是
@@ -178,6 +179,9 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/impactview",
 		"github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/obs",
 		"github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/qa",
+		// #27 质量趋势面：/console 读评测基线报告（qconsole.LoadEvalTrend 只读
+		// 投影单源）——qconsole 仍零 internal 依赖，方向 service→qconsole 单向。
+		"github.com/yi-nology/argus/internal/qconsole",
 		// v6.11.0：--template 任务级覆盖的词表校验（reporttmpl 消费，commentcmd 保持零依赖）。
 		"github.com/yi-nology/argus/internal/reporttmpl",
 		"github.com/yi-nology/argus/internal/reposettings", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage",

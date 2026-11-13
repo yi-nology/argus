@@ -6,7 +6,8 @@
 // 无写路径；本包 L0 零 internal 依赖（自带轻量解析，不复用 service DTO，
 // 反向依赖不可能发生）。消费形态：
 //   - cmd/qconsole：admin 档 token 拉 API → 落静态页/CLI 报告（离线查看）；
-//   - 后续批次可接服务端路由直出（数据源同一聚合面）。
+//   - service /console（#27 趋势面）：LoadEvalTrend 只读投影直出（数据源同一
+//     聚合面；service→qconsole 单向，本包仍零 internal 依赖）。
 package qconsole
 
 import (
