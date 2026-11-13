@@ -23,7 +23,7 @@
 **评审两处不精确，本 spec 按核实结果纠偏：**
 
 1. **fail-open 只针对"判定不可得"**（存储/租约故障，`runner_lifecycle.go:60-63`）；额度不足本来就是 fail-closed（:64-81 落 failed 终态）。`ARGUS_BUDGET_ENFORCEMENT` 只需覆盖前者，不改既有语义。
-2. **探查副发现**：`deploy/migrations/schema.sql` 与 `autoMigrateModels()` 漂移——缺 `usage_events`/`budget_reservations`/`repo_settings`/`outbox_events` 四张表 DDL。纳入 Phase 1。
+2. **探查副发现**：`deploy/migrations/schema.sql` 与 `autoMigrateModels()` 漂移——缺 `usage_events`/`budget_reservations`/`repo_settings`/`event_outbox` 四张表 DDL（注意 OutboxEvent 的 `TableName()` 是 `event_outbox`）。纳入 Phase 1。
 
 ---
 
@@ -75,7 +75,7 @@
 
 **原则**：不把 unlabeled 塞进 FP（未判定 ≠ 误报），但绝不静默丢弃；指标改名去"标准 Precision"的冒充。
 
-1. **`CaseResult` 增 `Unlabeled []int`**（`evalq.go`）：非 clean 样例上未匹配、非 `must_not_find` 的 Finding 显式入列。
+1. **`CaseResult` 增 `Unlabeled []Finding` + `UnlabeledKinds []string`**（`evalq.go`，镜像 FPs/FPKinds 形态便于钻取）：非 clean 样例上未匹配、非 `must_not_find` 的 Finding 显式入列。
 2. **指标三分**：
    - `Precision` 全面改称**受限标注口径 Precision**（report 表格 `report.go:142-146`、JSON 注释 `evalq.go:129-136`、`docs/eval-baseline.md`、包文档 `evalq.go:12-16` 同步）；
    - 新增 `unlabeled_count`（report + JSON）；
@@ -94,7 +94,7 @@
 1. **主路（argus 本地）**：接上游已有 `WithCallCounter` 使 `UsageRecord.Iteration` 有值，稳定键 = `u-<taskID>-<attempt>-<iteration>`，**调用发起前定型**、ctx 贯穿到 `recordUsageEvent`（`runner_usage.go:40-42` 不再现场铸 uuid）。
    - **实施前置探针**：先写测试验证 counter 粒度语义（并发 client、`generateRetry` 重试环下是否稳定、是否 per-物理调用递增）——本项唯一技术风险点。
 2. **兜底**：counter 语义不满足 → 保持现铸 uuid，**修掉 `runner_usage.go:26-29` 自相矛盾注释**，端到端幂等明确降级为"依赖上游 CallID"，同步提 oagentkit issue。
-3. **副产物（schema 漂移门禁）**：补 `deploy/migrations/schema.sql` 四张表 DDL（`usage_events`/`budget_reservations`/`repo_settings`/`outbox_events`）+ 门禁测试钉"schema.sql 表清单 == `autoMigrateModels()` 清单"，防再漂移。
+3. **副产物（schema 漂移门禁）**：补 `deploy/migrations/schema.sql` 四张表 DDL（`usage_events`/`budget_reservations`/`repo_settings`/`event_outbox`）+ 门禁测试钉"schema.sql 表清单 == `autoMigrateModels()` 清单"（双向相等），防再漂移。
 
 **测试**：同 invocation_id 重放收敛（既有 `runner_usage_test.go:141-166` 保留）+ 新增"同物理调用重复投递撞唯一索引"用例（主路落地后）+ schema 清单一致性门禁。
 
