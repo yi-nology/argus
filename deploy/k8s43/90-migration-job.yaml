@@ -30,7 +30,7 @@ spec:
         kubernetes.io/hostname: ubuntu-2404-k3s-master01   # 与主 Deployment 同 pin（local-path 约束）
       containers:
         - name: migrate
-          image: argus:v6.17.0-arm64   # ⚠️ 与 50-deployment.yaml 同步修改
+          image: argus:v7.1.0   # ⚠️ 与 50-deployment.yaml 同步修改
           imagePullPolicy: IfNotPresent
           command: ["/app/argus"]
           envFrom:
