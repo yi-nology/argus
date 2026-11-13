@@ -48,6 +48,27 @@ jobs:
       - name: Arch guards
         run: make arch
 
+  # Helm Chart 最低验收（P3-04 #29 欠账：deploy-production.md 自述「CI 未接
+  # helm job，PR 内本地跑」——本 job 兑现）：lint + template 冒烟（含
+  # pgRestore.enabled=true 恢复演练 Job 一并渲染）。ubuntu-latest 预装 helm。
+  helm:
+    name: helm (lint / template)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Helm version
+        run: helm version --short
+
+      - name: Lint
+        run: helm lint deploy/helm/argus
+
+      - name: Template smoke (default + restore drill)
+        run: |
+          helm template argus deploy/helm/argus > /dev/null
+          helm template argus deploy/helm/argus --set pgRestore.enabled=true > /dev/null
+
   # 镜像发布（push main + tag v*）。
   # Dockerfile 形态判定：仓内 Dockerfile 是完整 multi-stage（golang:1.27-alpine builder
   # 产出 argus + ocrshim，alpine:3.20 运行层附带 plugins.yaml 与 skills）——docker build 直出，

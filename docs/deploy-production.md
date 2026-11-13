@@ -16,8 +16,9 @@
 | 存储 | 共享 PVC（memory/knowledge/ocr-home）+ per-pod `emptyDir` work 盘（8Gi） | `persistence` / `workDiskSize` |
 | 敏感配置 | 一律 `existingSecret`（DSN/token），values 明面只放非敏感 env | `existingSecret` / `config` |
 
-`helm lint` 与 `helm template` 是本 Chart 的最低验收（CI 未接 helm job，
-PR 内本地跑；`pgRestore.enabled=true` 时恢复演练 Job 一并渲染）。
+`helm lint` 与 `helm template` 是本 Chart 的最低验收——**CI `helm` job 已接**
+（P3-04 #29 实装：`ci.yml` lint + template 冒烟双路径，`pgRestore.enabled=true`
+时恢复演练 Job 一并渲染；本地同款命令可复跑）。
 
 ## 2. Migration Job 拆分（联动 v6.7.0 迁移语义）
 
