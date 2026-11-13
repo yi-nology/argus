@@ -35,6 +35,38 @@ const (
 	analystFindingLineMax  = 160
 )
 
+// changedPaths 从 task.Diff 提取改动文件清单（证据交叉校验用）。
+func changedPaths(task plugin.Task) []string {
+	if task.Diff == nil {
+		return nil
+	}
+	out := make([]string, 0, len(task.Diff.Files))
+	for _, f := range task.Diff.Files {
+		if f.Path != "" {
+			out = append(out, f.Path)
+		}
+	}
+	return out
+}
+
+// touchedPaths 从 ArtifactCodegraphTouched 渲染面提取 file:line 触达集
+//（证据交叉校验用；该 artifact 是 RenderTouchedSymbols 渲染的提示词文本，
+// 用 ParseEvidenceRefs 抽出文件路径）。无 codegraph 时返回 nil。
+func touchedPaths(task plugin.Task) []string {
+	s := task.Artifacts[plugin.ArtifactCodegraphTouched]
+	if s == "" {
+		return nil
+	}
+	refs := plugin.ParseEvidenceRefs(s)
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r.File != "" {
+			out = append(out, r.File)
+		}
+	}
+	return out
+}
+
 // synthesisAnalyst 按仓模板条件触发分析师综合段。返回 nil = 不触发或失败降级
 // （失败已记日志 + 降级注明，调用方照常组装 Output）。
 func (w *Workflow) synthesisAnalyst(ctx context.Context, task plugin.Task,
@@ -66,6 +98,12 @@ func (w *Workflow) synthesisAnalyst(ctx context.Context, task plugin.Task,
 		return nil
 	}
 	sec := plugin.SanitizeAnalyst(&wire)
+	// v6.17.0 方向 A 证据可信度：Claims 证据交叉校验 + 高风险状态降级。
+	// 校验面 = 改动集（Diff.Files.Path）+ 触达集（ArtifactCodegraphTouched 渲染面
+	// 提取的 file:line 引用）；无引用的纯文字差距说明不算证据缺陷；证据不可验证
+	// 时 Evidence 追加 ⚠️ 注记（软标注）；高风险状态（missing/inconsistent）证据
+	// 不可验证时降级 partial（状态错误比缺失更有害，但降级而非删除保留线索）。
+	plugin.VerifyClaimsEvidence(&sec, changedPaths(task), touchedPaths(task))
 	// 全空产出（模型按纪律对空洞输入返回零值段）= 未产出，降级注明。design
 	// 的 triggered=false 是「判定未命中」语义——只有连同内容全空才算空产出。
 	if len(sec.Claims) == 0 && len(sec.TestGaps) == 0 && len(sec.OpenQuestions) == 0 && designEmpty(sec.Design) {
