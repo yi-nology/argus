@@ -3,7 +3,7 @@
 - 日期：2026-11-14
 - 状态：已获用户批准（设计六节 yes），待实施计划
 - 依据：第五轮技术评审（基准 `eef394d8`，对比 `54b3335`，48 提交）
-- 上游清单：`docs/execution-13items.md`（批 A 完成、批 B 进行中）——本 spec 与之**合并为新总纲**，见 §1
+- 上游清单：`docs/execution-13items.md`（批 A ✅、批 B ✅ 2026-11-14 收官——终轮基线 F1=1.000 归档，A/B 对照已用旧口径跑完）——本 spec 与之**合并为新总纲**，见 §1
 
 ---
 
@@ -37,7 +37,7 @@
 
 | 阶段 | 内容 | 关键依赖 | 估时 |
 |---|---|---|---|
-| **批 B 收尾** | 治理后 A/B 对照跑完 + 趋势面实测（B2）+ 文档回写（B3/B4） | 无（进行中） | 本周 |
+| **批 B 收尾** ✅ | 治理后 A/B 对照跑完 + 趋势面实测（B2）+ 文档回写（B3/B4）——2026-11-14 完成（终轮 F1=1.000，3 commit） | 无 | 已完成 |
 | **Phase 1** 预算与语义修复 | ①GrantedTokens 接线+enforcement ②评测口径三分 ③稳定 invocation_id ④Helm verify+探针分离 ⑤schema.sql 漂移门禁 | 批 B 收尾（都动 evalq） | 1–2 周 |
 | **批 C** 容器级 chaos | testcontainers pg/MySQL 故障注入 + 门禁（原 13 项批 C） | Phase 1（storage 文件面交集） | bounded 大 |
 | **批 D** 长函数全拆 | 重扫真清单→全拆 + 覆盖率 40%（原 13 项批 D，A 方案已拍板） | Phase 1（避免拆了又改） | bounded 大 |
@@ -82,7 +82,8 @@
    - 新增 `clean_case_fp_rate` = **有 FP 的干净样例数 / 干净样例数**（样例单位，真正的"干净 PR 误报发生率"）；旧 `fp_rate` 保留现公式标 `deprecated`（`/console` 趋势面在读，不破坏历史曲线），下个基线周期淘汰。
 3. **消费方同步清单**（探查实锤）：`evalq.go` / `report.go:142-146,198` / `service_console.go:197-226` / `qconsole/render.go:63-67` / `qconsole/qconsole.go:63-70,356-363` / `docs/eval-baseline.md`。
 4. **口径切换点协议**：Phase 1 完成后用新口径**重跑一次基线**作为验收，归档标注"此处口径切换，前后数字不可直接比"——否则趋势断层无法解读。
-5. **与批 B 衔接**：进行中的 A/B 对照**用旧口径跑完**（对照变量单一），Phase 1 再动 `ScoreResult`。
+5. **与批 B 衔接** ✅：A/B 对照已用旧口径跑完（对照变量单一，2026-11-14
+   收官归档）——Phase 1 现在可以动 `ScoreResult`。
 
 **测试**：unlabeled 计数用例、`clean_case_fp_rate` 单位用例（分子分母同为样例数）、既有 `TestScoreResultFindingMatching` 断言改写（多报进 Unlabeled 而非丢弃）。
 
