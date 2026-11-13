@@ -318,6 +318,8 @@ func (s *Service) publishCommentReplied(status, platform, owner, repo, number st
 
 // UsageMonthly 本月各仓库 token 用量（GET /usage/monthly；🔒，v3.1）。
 // v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出（跨仓用量元数据）。
+// #32 验收⑤：三口径并列——total=配额账（done 任务行）、real_total=实销
+// （usage_event 逐调用）、reserved_total=活跃预留（执行前已承诺未花出）。
 func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 	since := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Now().Location())
 	usage, err := s.Store.MonthlyTokensByRepo(ctx, since)
@@ -337,8 +339,10 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 		items = append(items, u)
 		total += u.Tokens
 	}
-	// 双账本（v6.9.0 P1-06，#11）：quota=done 口径（配额判定与报表，平台故障误烧
-	// 不占额）+ real=全部终态（含 failed/stale，真实消费可观测可设上限）。
+	// 双账本（v6.9.0 P1-06，#11 → #32 逐调用升级）：quota=done 口径（配额判定
+	// 与报表，平台故障误烧不占额）+ real=usage_event 逐调用实销（含运行中/失败/
+	// 重试的每次调用）。#32 验收⑤：reserved=活跃预留（执行前已承诺、尚未花出），
+	// 与实销并列透出——「预留 vs 实销」的在途消耗可见面。
 	var realTotal int64
 	realItems := make([]storage.RepoTokenUsage, 0, len(usage))
 	if usageReal, err := s.Store.MonthlyTokensByRepoReal(ctx, since); err == nil {
@@ -352,14 +356,29 @@ func (s *Service) UsageMonthly(ctx context.Context) (map[string]any, int) {
 	} else {
 		s.log().Warn("argus.api.usage_real_failed", "error", err.Error())
 	}
+	var reservedTotal int64
+	reservedItems := make([]storage.RepoTokenUsage, 0)
+	if reserved, err := s.Store.MonthlyReservedByRepo(ctx); err == nil {
+		for _, u := range reserved {
+			if filter != nil && !filter(u.Platform, u.Owner, u.Repo) {
+				continue
+			}
+			reservedItems = append(reservedItems, u)
+			reservedTotal += u.Tokens
+		}
+	} else {
+		s.log().Warn("argus.api.usage_reserved_failed", "error", err.Error())
+	}
 	return map[string]any{
-		"month":       since.Format("2006-01"),
-		"total":       total,
-		"budget":      s.Cfg.RepoMonthlyTokenBudget,
-		"repos":       items,
-		"real_total":  realTotal,
-		"real_budget": s.Cfg.RealTokenBudget,
-		"real_repos":  realItems,
+		"month":          since.Format("2006-01"),
+		"total":          total,
+		"budget":         s.Cfg.RepoMonthlyTokenBudget,
+		"repos":          items,
+		"real_total":     realTotal,
+		"real_budget":    s.Cfg.RealTokenBudget,
+		"real_repos":     realItems,
+		"reserved_total": reservedTotal,
+		"reserved_repos": reservedItems,
 	}, http.StatusOK
 }
 

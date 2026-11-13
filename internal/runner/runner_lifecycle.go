@@ -1,8 +1,8 @@
-// runner_lifecycle.go —— 单任务生命周期的四个命名子步骤与两道闸（v3.167.0 自
-// runner.go 拆出；零逻辑变更，顺序语义见 runner.go run() 的四步注释）：
+// runner_lifecycle.go —— 单任务生命周期的四个命名子步骤与预算闸（v3.167.0 自
+// runner.go 拆出，顺序语义见 runner.go run() 的四步注释）：
 // prepareContext（PR 上下文/stale 判定）→ buildPluginTask（任务组装+注入）→
-// recordRegret（学习环记账）→ finalizeAndAnnounce（终态/播报）；repoBudgetGate
-// （仓库月度预算闸）与 handleRunFailure（失败终态）为 Execute 的旁路。
+// recordRegret（学习环记账）→ finalizeAndAnnounce（终态/播报）；budgetGate
+// （执行前预算预留闸，#32）与 handleRunFailure（失败终态）为 Execute 的旁路。
 
 package runner
 
@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,64 +29,62 @@ import (
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
-// realBudgetGate 真实消费账月度上限门（v6.9.0 P1-06，#11）：全部终态任务（含
-// failed/stale）token 聚合超 ARGUS_REAL_TOKEN_BUDGET → 新任务失败终态告知。
-// 与配额账（repoBudgetGate，done 口径）双闸并存：平台故障误烧不占配额（配额
-// 语义不回退），但真实消费可观测、可设上限。budget<=0 = 关。
-func (r *Runner) realBudgetGate(ctx context.Context, task *storage.Task, budget int) bool {
-	if budget <= 0 {
+// budgetGate 执行前预算闸（v3.1/v6.9.0 双闸 → #32 预留判定单临界区）：配额账
+// （done 口径）与真实消费账（usage_event 实销）各自把「他任务活跃预留」计入
+// 已承诺额度，本任务预留额度 = min(任务预算, 各自剩余额度)——判定与落预留行在
+// storage.ReserveRepoBudget 的租约临界区内原子完成，多副本并发启动「都看到
+// used=0 都放行」的超支窗口闭合（#32 验收③：新任务超限拒绝在启动前，非终态
+// 后）。语义对齐旧双闸：
+//   - 任一账本剩余额度 ≤0 → failed 终态 + start marker + 播报（预算路径不重试，
+//     v3.30.1），返回 true 表示已拦截；
+//   - 判定不可得（存储/租约故障）→ fail-open 放行（沿用旧闸「查询失败放行」）；
+//   - 双账本全关（budget<=0）→ 零开销直通不落预留。
+//
+// 与旧实现的口径差：配额账/真实账的 used 均含在途任务的活跃预留（旧口径只看
+// 终态聚合，在途消费与并发启动不可见）；真实账的实销来自逐调用 usage_event
+// （含运行中/失败/重试的每一次调用）。
+func (r *Runner) budgetGate(ctx context.Context, task *storage.Task, knobs taskKnobs, realBudget int) bool {
+	if knobs.monthlyBudget <= 0 && realBudget <= 0 {
 		return false
 	}
 	now := time.Now()
-	used, err := r.Store.RepoMonthlyTokensReal(ctx, task.Platform, task.Owner, task.Repo,
-		time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
+	res, err := r.Store.ReserveRepoBudget(ctx, storage.ReserveInput{
+		TaskID: task.ID, AttemptID: strconv.Itoa(task.Attempt),
+		Platform: task.Platform, Owner: task.Owner, Repo: task.Repo,
+		TaskBudget:  knobs.taskTokenBudget,
+		QuotaBudget: knobs.monthlyBudget, RealBudget: realBudget,
+		Since: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()),
+	})
 	if err != nil {
-		r.Log.Warn("argus.runner.real_budget_check_failed", "task", task.ID, "error", err.Error())
+		r.Log.Warn("argus.runner.budget_reserve_failed", "task", task.ID, "error", err.Error())
 		return false
 	}
-	if used < int64(budget) {
-		return false
+	switch res.Verdict {
+	case storage.ReserveQuotaExceeded:
+		obs.IncrBudgetExceeded("quota")
+		r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
+			"repo", task.Owner+"/"+task.Repo, "used", res.QuotaUsed, "budget", knobs.monthlyBudget)
+		r.rejectByBudget(ctx, task,
+			fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", res.QuotaUsed, knobs.monthlyBudget),
+			"下月预算重置后 push 新提交可重新触发审查。")
+		return true
+	case storage.ReserveRealExceeded:
+		obs.IncrBudgetExceeded("real")
+		r.Log.Warn("argus.runner.real_budget_exceeded", "task", task.ID,
+			"repo", task.Owner+"/"+task.Repo, "used", res.RealUsed, "budget", realBudget)
+		r.rejectByBudget(ctx, task,
+			fmt.Sprintf("仓库本月真实 token 实销+预留已达上限（used=%d, budget=%d）", res.RealUsed, realBudget),
+			"下月重置后 push 新提交可重新触发审查；如需立即恢复请调整 ARGUS_REAL_TOKEN_BUDGET。")
+		return true
 	}
-	obs.IncrBudgetExceeded("real")
-	r.Log.Warn("argus.runner.real_budget_exceeded", "task", task.ID,
-		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", budget)
-	reason := fmt.Sprintf("仓库本月真实 token 消费（含失败/重试）已达上限（used=%d, budget=%d）", used, budget)
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
-		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-	} else if fenced {
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
-	}
-	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"❌ Argus 审查失败：%s——下月重置后 push 新提交可重新触发审查；如需立即恢复请调整 ARGUS_REAL_TOKEN_BUDGET。\n\n<!-- argus:start task_id=%s -->",
-		reason, task.ID))
-	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
-	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
-	return true
+	return false
 }
 
-// repoBudgetGate 仓库级月度预算门（v3.1）：超限在调 LLM 前短路——落 failed
-// 终态（fenced）、start marker 与 IM 播报，返回 true 表示已拦截。monthlyBudget
-// 为按仓旋钮合并后的生效值（v3.187.0 taskKnobs；0 = 关）。预算路径不重试
-// （刻意）→ 直接终态告知（v3.30.1）。
-func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task, monthlyBudget int) bool {
-	if monthlyBudget <= 0 {
-		return false
-	}
-	now := time.Now()
-	used, err := r.Store.RepoMonthlyTokens(ctx, task.Platform, task.Owner, task.Repo,
-		time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()))
-	if err != nil {
-		r.Log.Warn("argus.runner.budget_check_failed", "task", task.ID, "error", err.Error())
-		return false
-	}
-	if used < int64(monthlyBudget) {
-		return false
-	}
-	obs.IncrBudgetExceeded("quota")
-	r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
-		"repo", task.Owner+"/"+task.Repo, "used", used, "budget", monthlyBudget)
-	reason := fmt.Sprintf("仓库本月 token 预算已耗尽（used=%d, budget=%d）", used, monthlyBudget)
+// rejectByBudget 预算拒绝统一收口（原 repoBudgetGate/realBudgetGate 失败体
+// 合并，#32）：failed 终态（fenced）+ start marker 失败告知 + 终态播报 + 指标。
+// markerTail 为两账本文案差分（真实账带 ARGUS_REAL_TOKEN_BUDGET 恢复提示）。
+// tokens=0：拒绝发生在开跑前，本执行无消耗；预留行也不存在（仅判定通过才落）。
+func (r *Runner) rejectByBudget(ctx context.Context, task *storage.Task, reason, markerTail string) {
 	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 	} else if fenced {
@@ -93,11 +92,10 @@ func (r *Runner) repoBudgetGate(ctx context.Context, task *storage.Task, monthly
 			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
 	}
 	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"❌ Argus 审查失败：%s——下月预算重置后 push 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
-		reason, task.ID))
+		"❌ Argus 审查失败：%s——%s\n\n<!-- argus:start task_id=%s -->",
+		reason, markerTail, task.ID))
 	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
 	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
-	return true
 }
 
 // handleRunFailure 任务失败收尾：停机硬取消显式保持 running（依赖心跳过期重置

@@ -125,15 +125,22 @@ type Runner struct {
 // InitCallbacks 注入；UsageHandler 只补 ReAct/RawModel 旁路，Generate 直连已由
 // llm.Client.OnUsage 记账，handler 内防重跳过，两侧不双计）。旁路用量回灌任务
 // 预算（v3.36.0）并记任务级/进程级成本。PreviewLen 刻意留 0（不落消息内容）。
-func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, taskCost *llm.CostTracker) context.Context {
+// #32：本 sink 同时是逐调用实销埋点（recordUsageEvent）——全任务唯一的用量
+// 汇聚面，Generate 与旁路两条路径都到此，运行中消费即时入账。
+func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget, taskCost *llm.CostTracker) context.Context {
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
-	if r.Cost != nil {
+	// 用量 handler 装配条件含 Store（#32）：逐调用实销埋点是计费账本、不随
+	// 成本指标开关（r.Cost）缺席而失效；Cost 为空时仅跳过进程级成本行。
+	if r.Cost != nil || r.Store != nil {
 		handlers = append(handlers, llm.NewUsageHandler(func(rec llm.UsageRecord) {
 			// v3.94.0：agentkit v0.12 起校准内化为 FitModel 实例槽（主路径自动
 			// 校准），原 wrap.RecordUsage 回灌调用点删除。旁路无 stage 语义
 			//（RunInfo 仅组件类型），stage 记空、模型按组件类型归账。
 			budget.Add(rec.PromptTokens + rec.CompletionTokens)
+			// #32 逐调用实销埋点：与预算回灌同点落账（best-effort，写失败只告警，
+			// 终态差额兜底补账）——运行中/失败/重试的每次调用都进 usage_event。
+			r.recordUsageEvent(ctx, task, rec)
 			// v3.150.0：Record → RecordPriced（旧 Record 按 1K 计费已退役，
 			// 新接口单位写在类型上=每 1M token；argus 配置侧仍是 per-1K，×1000 换算）。
 			rate := r.costRate(rec.Model)
@@ -146,7 +153,9 @@ func (r *Runner) execContext(ctx context.Context, budget *plugin.TokenBudget, ta
 			inputPerM := cacheAdjustedInput(rate[0]*1000, rec.PromptTokens, rec.CachedTokens, r.Cfg.CacheReadRatio())
 			price := port.Price{InputPerM: inputPerM, OutputPerM: rate[1] * 1000}
 			taskCost.RecordPricedCached(rec.Model, "", rec.PromptTokens, rec.CachedTokens, rec.CompletionTokens, price)
-			r.Cost.RecordPricedCached(rec.Model, "", rec.PromptTokens, rec.CachedTokens, rec.CompletionTokens, price)
+			if r.Cost != nil {
+				r.Cost.RecordPricedCached(rec.Model, "", rec.PromptTokens, rec.CachedTokens, rec.CompletionTokens, price)
+			}
 			// 缓存命中率观测（前缀缓存命中率=cached/prompt）：argus 侧 Prometheus 时序
 			// 监控面（Grafana），与上游 CostTracker 的 pull 式 Summary 互补不冗余。
 			plugin.ReportLLMCache(rec.Model, rec.CachedTokens, rec.PromptTokens)
@@ -224,7 +233,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	knobs := r.loadTaskKnobs(ctx, task)
 	budget := dispatch.NewTokenBudget(knobs.taskTokenBudget)
 	taskCost := llm.NewCostTracker()
-	ctx = r.execContext(ctx, budget, taskCost)
+	ctx = r.execContext(ctx, task, budget, taskCost)
 	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
 	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
 	ctx = toolpool.WithCallMeta(ctx, map[string]any{
@@ -244,10 +253,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
 		r.postStartMarker(ctx, task)
 
-		if r.repoBudgetGate(ctx, task, knobs.monthlyBudget) {
-			return nil
-		}
-		if r.realBudgetGate(ctx, task, r.Cfg.RealTokenBudget) {
+		if r.budgetGate(ctx, task, knobs, r.Cfg.RealTokenBudget) {
 			return nil
 		}
 

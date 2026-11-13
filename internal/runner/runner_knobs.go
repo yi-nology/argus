@@ -15,7 +15,7 @@ import (
 
 // taskKnobs 单任务生效旋钮（服务侧 repo_settings 覆盖后的合并结果）。
 type taskKnobs struct {
-	// monthlyBudget 仓库月度 token 预算闸（repoBudgetGate；0 = 关）。
+	// monthlyBudget 仓库月度 token 预算闸（budgetGate 配额账；0 = 关）。
 	monthlyBudget int
 	// taskTokenBudget 单任务 token 预算（budget 初值）。
 	taskTokenBudget int

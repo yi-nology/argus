@@ -104,7 +104,7 @@ func TestRepoBudgetGateUsesRepoKnob(t *testing.T) {
 	if _, ok, err := q.ClaimNextPending(ctx); err != nil || !ok {
 		t.Fatalf("claim target: ok=%v err=%v", ok, err)
 	}
-	if r.repoBudgetGate(ctx, target, 0) {
+	if r.budgetGate(ctx, target, r.loadTaskKnobs(ctx, target), 0) {
 		t.Fatal("全局关 + 无覆盖不应拦截")
 	}
 
@@ -114,7 +114,7 @@ func TestRepoBudgetGateUsesRepoKnob(t *testing.T) {
 	if knobs.monthlyBudget != 1 {
 		t.Fatalf("合并生效预算应为 1: %+v", knobs)
 	}
-	if !r.repoBudgetGate(ctx, target, knobs.monthlyBudget) {
+	if !r.budgetGate(ctx, target, knobs, 0) {
 		t.Fatal("按仓覆盖预算应拦截（used=1 >= budget=1）")
 	}
 	row, err := store.GetTask(ctx, target.ID)
