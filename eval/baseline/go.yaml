@@ -1,0 +1,188 @@
+# Go 语言审查基准起步集（P2-02，#25；多语言扩容与现网 MR 样例归 P3-03 #28）。
+#
+# 出处口径（诚实标注，禁止把合成夹具说成现网已裁决 MR）：
+#   - 本文件全部样例为**合成夹具**：由 eval/golden 集的 diff 夹具改写，或自行
+#     编写的现实形态 Go diff；`source` 字段逐条标注改写来源；
+#   - 现网在役仓的已裁决 MR 样例（P3-03 #28）落地前，本文件不冒充现网数据。
+#
+# 标签口径：known_miss/known_fp 在起步集是**预设形态**（按标签结构约束标注：
+# 漏检正例必有 must_find、误报正例必须零 must_find），其「历史模型漏报/误报」
+# 的实证归 #28 现网 MR 样例回填。
+#
+# 金标准 kind 与真实模型评测协议（test/evalq/real_model_test.go 单发审查 prompt）
+# 同风格：kebab-case 类别词；匹配规则（kind 主键、file 可选收窄）见
+# docs/eval-baseline.md。
+language: go
+description: Go 语言审查基准（合成夹具起步集：golden 改写 + 自编写，非现网 MR）
+cases:
+  - id: go-001
+    repo: acme/pay-gateway
+    title: 登录口令硬编码进源码
+    label: standard
+    source: golden 08-high-finding-rc 改写（合成夹具）
+    diff: |
+      diff --git a/auth/login.go b/auth/login.go
+      --- a/auth/login.go
+      +++ b/auth/login.go
+      @@ -1,5 +1,5 @@
+       package auth
+
+       func login(user, password string) bool {
+      -	return password == lookupPassword(user)
+      +	return password == "admin@123"
+       }
+    expect:
+      verdict: request_changes
+      must_find:
+        - file: auth/login.go
+          kind: hardcoded-secret
+          severity: high
+
+  - id: go-002
+    repo: acme/order-hub
+    title: 下单落库失败只打日志继续返回成功
+    label: standard
+    source: golden 09-medium-finding-comment 改写（合成夹具）
+    diff: |
+      diff --git a/order/service.go b/order/service.go
+      --- a/order/service.go
+      +++ b/order/service.go
+      @@ -12,6 +12,7 @@
+       func (s *Service) Submit(o Order) error {
+       	if err := s.repo.Insert(o); err != nil {
+      -		return err
+      +		log.Printf("insert order %s: %v", o.ID, err)
+       	}
+       	return nil
+       }
+    expect:
+      verdict: comment
+      must_find:
+        - file: order/service.go
+          kind: error-swallow
+          severity: medium
+
+  - id: go-003
+    repo: acme/mathutil
+    title: 新增导出函数缺 doc comment
+    label: standard
+    source: golden 10-low-finding-comment 改写（合成夹具）
+    diff: |
+      diff --git a/mathutil/add.go b/mathutil/add.go
+      new file mode 100644
+      --- /dev/null
+      +++ b/mathutil/add.go
+      @@ -0,0 +1,5 @@
+      +package mathutil
+      +
+      +func Add(a, b int) int {
+      +	return a + b
+      +}
+    expect:
+      verdict: comment
+      must_find:
+        - kind: missing-doc-comment
+          severity: low
+
+  - id: go-004
+    repo: acme/ledger-svc
+    title: 批量写分录无事务包裹
+    label: known_miss
+    source: 自行编写（合成夹具）
+    diff: |
+      diff --git a/ledger/batch.go b/ledger/batch.go
+      --- a/ledger/batch.go
+      +++ b/ledger/batch.go
+      @@ -8,3 +8,13 @@
+       func (r *Repo) Balance(id string) (int, error) {
+       	return r.db.QueryBalance(id)
+       }
+      +
+      +// PostBatch 逐条写入分录
+      +func (r *Repo) PostBatch(entries []Entry) error {
+      +	for _, e := range entries {
+      +		if err := r.db.Insert(e); err != nil {
+      +			return err
+      +		}
+      +	}
+      +	return nil
+      +}
+    expect:
+      verdict: request_changes
+      must_find:
+        - file: ledger/batch.go
+          kind: missing-tx
+          severity: high
+
+  - id: go-005
+    repo: acme/reporting
+    title: 导出读文件句柄未关闭
+    label: known_miss
+    source: 自行编写（合成夹具）
+    diff: |
+      diff --git a/report/export.go b/report/export.go
+      --- a/report/export.go
+      +++ b/report/export.go
+      @@ -14,6 +14,9 @@
+       func Export(path string) ([]byte, error) {
+       	f, err := os.Open(path)
+       	if err != nil {
+       		return nil, err
+       	}
+      +	data := make([]byte, 4096)
+      +	n, _ := f.Read(data)
+      +	return data[:n], nil
+       }
+    expect:
+      verdict: comment
+      must_find:
+        - file: report/export.go
+          kind: resource-leak
+          severity: medium
+
+  - id: go-006
+    repo: acme/user-service
+    title: 补充登录表驱动单元测试（纯测试新增）
+    label: known_fp
+    source: golden 30-clean-tests-approve 改写（合成夹具）
+    diff: |
+      diff --git a/auth/login_test.go b/auth/login_test.go
+      new file mode 100644
+      --- /dev/null
+      +++ b/auth/login_test.go
+      @@ -0,0 +1,12 @@
+      +package auth
+      +
+      +import "testing"
+      +
+      +func TestLoginWithPassword(t *testing.T) {
+      +	cases := map[string]bool{"": false, "secret": true}
+      +	for pw, want := range cases {
+      +		if err := loginWithPassword(pw); (err == nil) != want {
+      +			t.Errorf("password %q: err = %v", pw, err)
+      +		}
+      +	}
+      +}
+    expect:
+      verdict: approve
+
+  - id: go-007
+    repo: acme/docs-site
+    title: README 补 Add 用法说明（纯文档变更）
+    label: known_fp
+    source: golden 29-clean-docs-approve 改写（合成夹具）
+    diff: |
+      diff --git a/README.md b/README.md
+      --- a/README.md
+      +++ b/README.md
+      @@ -1,3 +1,8 @@
+       # mathutil
+
+      +## 用法
+      +
+      +调用 `mathutil.Add(a, b)` 求两数之和；例如 `Add(1, 2)`
+      +返回 `3`。
+      +
+       基础算术工具集。
+    expect:
+      verdict: approve
