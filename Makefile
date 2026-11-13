@@ -72,8 +72,8 @@ eval-real:
 	ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v -timeout 150m
 
 # 基准集评测跑批（P2-02，#25）：装载 eval/baseline 打桩跑批出指标报告样例
-# （artifact 面 eval/results/baseline-latest.*）；指标口径单源见
-# docs/eval-baseline.md（不联网，CI 常跑）。
+# （artifact 面 eval/results/baseline-sample.md，与真实跑批 baseline-latest.*
+# 分名防覆盖）；指标口径单源见 docs/eval-baseline.md（不联网，CI 常跑）。
 eval-baseline:
 	go test ./test/evalq/ -run TestEvalPipelineStub -count=1 -v
 

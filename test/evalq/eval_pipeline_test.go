@@ -85,8 +85,10 @@ cases:
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "baseline-latest.md"), md.Bytes(), 0o644); err != nil {
+	// 打桩样例与真实跑批分名（baseline-sample vs baseline-latest）：同名会让
+	// `make eval-baseline` 覆盖真实基线归档（#25 验收交付物），B 线收尾时钉住。
+	if err := os.WriteFile(filepath.Join(outDir, "baseline-sample.md"), md.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Log("打桩跑批报告样例已写 eval/results/baseline-latest.md（artifact 面示例）")
+	t.Log("打桩跑批报告样例已写 eval/results/baseline-sample.md（artifact 面示例）")
 }

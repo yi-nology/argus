@@ -20,7 +20,7 @@ const maxKnobValue = 1_000_000_000
 // 在 Parse 拒绝（预算/上限旋钮取 0 无意义，删除覆盖走 DELETE API 而非写 0）。
 type Settings struct {
 	// MonthlyTokenBudget 覆盖全局 ARGUS_REPO_MONTHLY_TOKEN_BUDGET（仓库月度
-	// token 预算闸；runner repoBudgetGate 消费）。
+	// token 预算闸；runner budgetGate 消费，#32 起含预留账本判定）。
 	MonthlyTokenBudget *int `json:"monthly_token_budget,omitempty"`
 	// TaskTokenBudget 覆盖 EffectiveTaskTokenBudget()（单任务 token 预算，
 	// runner Execute 消费——显式值绕过窗口公式派生）。
