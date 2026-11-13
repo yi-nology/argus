@@ -18,6 +18,7 @@ package evalq
 
 import (
 	"context"
+	"sort"
 	"strings"
 )
 
@@ -229,6 +230,117 @@ func Score(results []CaseResult) Metrics {
 		m.VerdictAccuracy = float64(m.VerdictHit) / float64(m.Cases)
 	}
 	return m
+}
+
+// SeverityReport 分严重度聚合面（issue #25「分严重度报表」）：期望条数按金标准
+// must_find 的 severity 归桶，实际上报按实际上报 severity 归桶，TP/FP/FN 分档
+// 对账；比率零分母置 0（与 Metrics 同口径）。
+type SeverityReport struct {
+	Severity string `json:"severity"`
+	// Expected 金标准 must_find 条数（按 FindingExpect.Severity 归桶）。
+	Expected int `json:"expected"`
+	// Reported 实际上报意见条数（按实际上报 Finding.Severity 归桶；含未计 FP 的
+	// 意见——上报量与误报量是两个口径）。
+	Reported int `json:"reported"`
+	TP       int `json:"tp"`
+	FP       int `json:"fp"`
+	FN       int `json:"fn"`
+	// Precision TP/(TP+FP)；Recall TP/(TP+FN)；MissRate FN/(TP+FN)——分母 0 置 0。
+	Precision float64 `json:"precision"`
+	Recall    float64 `json:"recall"`
+	MissRate  float64 `json:"miss_rate"`
+}
+
+// severityOrder 分严重度表行序：词表按严重度降序在前（critical 自 v5.5.0 起在
+// 域词表内，数据出现才出行），其余（含未标注 unspecified / 模型自造档位）按
+// 字典序垫底。
+var severityOrder = []string{"critical", "high", "medium", "low"}
+
+// severityAlways 恒出行的词表行：即使无样本报该档也出行（表形态稳定，零分母
+// 置 0 口径与 Metrics 一致）。
+var severityAlways = []string{"high", "medium", "low"}
+
+// sevKey severity 归桶键：去空白转小写（计分匹配同为大小写不敏感）；空值归
+// unspecified——未标注不猜档位，诚实计量。
+func sevKey(s string) string {
+	k := strings.ToLower(strings.TrimSpace(s))
+	if k == "" {
+		return "unspecified"
+	}
+	return k
+}
+
+// ScoreSeverity 分严重度聚合：cases 与 results 按 CaseID 配对（期望 severity 在
+// Case 上，CaseResult 只存下标——聚合面需要两侧）。TP/FN 按期望条目 severity
+// 归桶、FP 与实际上报按实际上报 severity 归桶；出错样例的保守计分（全记 FN）
+// 自然落到其期望档。词表行恒出，其余键按字典序补在词表后。
+func ScoreSeverity(cases []Case, results []CaseResult) []SeverityReport {
+	byID := make(map[string]Case, len(cases))
+	for _, c := range cases {
+		byID[c.ID] = c
+	}
+	agg := map[string]*SeverityReport{}
+	get := func(key string) *SeverityReport {
+		if r, ok := agg[key]; ok {
+			return r
+		}
+		r := &SeverityReport{Severity: key}
+		agg[key] = r
+		return r
+	}
+	for _, s := range severityAlways {
+		get(s)
+	}
+	for _, res := range results {
+		c, ok := byID[res.CaseID]
+		if !ok {
+			continue // 配不上的结果不计（聚合面只认同批 cases 的样例）
+		}
+		hit := make(map[int]bool, len(res.TPs))
+		for _, i := range res.TPs {
+			hit[i] = true
+		}
+		for i, e := range c.Expect.MustFind {
+			r := get(sevKey(e.Severity))
+			r.Expected++
+			if hit[i] {
+				r.TP++
+			} else {
+				r.FN++
+			}
+		}
+		for _, f := range res.Outcome.Findings {
+			get(sevKey(f.Severity)).Reported++
+		}
+		for _, f := range res.FPs {
+			get(sevKey(f.Severity)).FP++
+		}
+	}
+	keys := make([]string, 0, len(agg))
+	listed := map[string]bool{}
+	for _, s := range severityOrder {
+		if _, ok := agg[s]; ok {
+			keys = append(keys, s)
+			listed[s] = true
+		}
+	}
+	rest := make([]string, 0, len(agg))
+	for k := range agg {
+		if !listed[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	keys = append(keys, rest...)
+	rows := make([]SeverityReport, 0, len(keys))
+	for _, k := range keys {
+		r := *agg[k]
+		r.Precision = ratio(r.TP, r.TP+r.FP)
+		r.Recall = ratio(r.TP, r.TP+r.FN)
+		r.MissRate = ratio(r.FN, r.TP+r.FN)
+		rows = append(rows, r)
+	}
+	return rows
 }
 
 func ratio(num, den int) float64 {

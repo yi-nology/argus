@@ -37,9 +37,12 @@ type Report struct {
 	Errored     int               `json:"errored"`
 	Overall     Metrics           `json:"overall"`
 	ByLanguage  []LanguageReport  `json:"by_language"`
-	Stability   float64           `json:"stability"`
-	Runs        int               `json:"stability_runs"`
-	Results     []CaseResult      `json:"results"`
+	// BySeverity 分严重度聚合面（issue #25「分严重度报表」：期望/实际上报/TP·FP·FN
+	// 分档）——ScoreSeverity(cases, results)，词表行恒出。
+	BySeverity []SeverityReport `json:"by_severity"`
+	Stability  float64          `json:"stability"`
+	Runs       int              `json:"stability_runs"`
+	Results    []CaseResult     `json:"results"`
 }
 
 // Evaluate 评测跑批：逐案调 Reviewer（串行——真实模型限速与 token 成本可控，
@@ -84,6 +87,9 @@ func Evaluate(ctx context.Context, cases []Case, rev Reviewer, opts Options) (*R
 		rep.ByLanguage = append(rep.ByLanguage, LanguageReport{Language: lang, Metrics: Score(byLang[lang])})
 	}
 
+	// 分严重度聚合（与分语言同批：首轮结果 + 全量 cases 配对）
+	rep.BySeverity = ScoreSeverity(cases, firstPass)
+
 	// 裁决稳定性：k 轮重复跑批（第 1 轮复用 firstPass 结果，省一半成本）
 	if opts.StabilityRuns > 1 {
 		runs := []map[string]string{verdictMap(firstPass)}
@@ -119,7 +125,7 @@ func (rep *Report) WriteJSON(w io.Writer) error {
 	return enc.Encode(rep)
 }
 
-// WriteMarkdown 人读报告：总指标 + 分语言表 + 逐案明细。
+// WriteMarkdown 人读报告：总指标 + 分语言表 + 分严重度表 + 逐案明细。
 func (rep *Report) WriteMarkdown(w io.Writer) error {
 	o := rep.Overall
 	head := fmt.Sprintf(`# 基准集质量评测报告
@@ -160,6 +166,19 @@ func (rep *Report) WriteMarkdown(w io.Writer) error {
 		m := lr.Metrics
 		line := fmt.Sprintf("| %s | %d | %.1f%% | %.3f | %.3f | %.3f | %.3f |\n",
 			lr.Language, m.Cases, 100*m.VerdictAccuracy, m.Precision, m.Recall, m.FPRate, m.MissRate)
+		if _, err := fmt.Fprint(w, line); err != nil {
+			return err
+		}
+	}
+	// 分严重度表（issue #25「分严重度报表」：期望条数/实际上报/TP·FP·FN 分档，
+	// 词表行恒出、零分母置 0）
+	if _, err := fmt.Fprint(w, "\n## 分严重度指标\n\n| 严重度 | 期望条数 | 实际上报 | TP | FP | FN | Precision | Recall | 漏检率 |\n|---|---|---|---|---|---|---|---|---|\n"); err != nil {
+		return err
+	}
+	for _, s := range rep.BySeverity {
+		line := fmt.Sprintf("| %s | %d | %d | %d | %d | %d | %.3f | %.3f | %.3f |\n",
+			mdCell(s.Severity), s.Expected, s.Reported, s.TP, s.FP, s.FN,
+			s.Precision, s.Recall, s.MissRate)
 		if _, err := fmt.Fprint(w, line); err != nil {
 			return err
 		}
