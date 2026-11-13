@@ -25,6 +25,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
@@ -194,18 +195,18 @@ type rawFinding struct {
 // 并以 jsonrepair 修复全角标点/尾逗号/截断；severity 经词表归一化，越界归 low）。
 // 区分两种空：(nil, err) = 输出完全不可解析（模型产出垃圾，调用方按失败上抛进
 // 熔断）；(空切片, nil) = 合法解析出的空数组 = 真零 findings。
-func parseFindings(text string) ([]plugin.Finding, error) {
+func parseFindings(text string) ([]domain.Finding, error) {
 	var items []rawFinding
 	if err := jsonrepair.Unmarshal(plugin.NormalizeFence(text), &items); err != nil {
 		return nil, err
 	}
-	out := make([]plugin.Finding, 0, len(items))
+	out := make([]domain.Finding, 0, len(items))
 	for _, it := range items {
 		if it.File == "" || it.Comment == "" {
 			continue
 		}
 		sev, _ := reportutil.Normalize(it.Severity)
-		out = append(out, plugin.Finding{
+		out = append(out, domain.Finding{
 			File: it.File, Line: it.Line, Severity: sev, Comment: it.Comment,
 		})
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/oagentkit/textx/reportutil"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -25,16 +26,16 @@ func acSpec(acStatuses ...string) (*plugin.RequirementSpec, *plugin.ComplianceRe
 	return spec, rep
 }
 
-func finding(sev string) plugin.Finding {
-	return plugin.Finding{File: "a.go", Line: 1, Severity: sev, Comment: "x"}
+func finding(sev string) domain.Finding {
+	return domain.Finding{File: "a.go", Line: 1, Severity: sev, Comment: "x"}
 }
 
 // v3.8.0 回归：VerdictScoped 的 scope 闸门——越界 high 不触发 R5.2（降计
 // COMMENT 级并报越界数）；nil scope 与 Verdict 完全等价。
 func TestVerdictScoped(t *testing.T) {
 	scope := map[string]bool{"a.go": true}
-	inScope := []plugin.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "x"}}
-	outOfScopeF := []plugin.Finding{{File: "unrelated.go", Line: 9, Severity: "high", Comment: "y"}}
+	inScope := []domain.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "x"}}
+	outOfScopeF := []domain.Finding{{File: "unrelated.go", Line: 9, Severity: "high", Comment: "y"}}
 
 	if v, rule, n := VerdictScoped(nil, nil, inScope, scope); v != VerdictRequestChanges || rule != "R5.2" || n != 0 {
 		t.Fatalf("范围内 high 应照常 R5.2: %s %s n=%d", v, rule, n)
@@ -43,7 +44,7 @@ func TestVerdictScoped(t *testing.T) {
 		t.Fatalf("越界 high 应降级 COMMENT 且计数: %s %s n=%d", v, rule, n)
 	}
 	// file 为空的意见不受 scope 闸门影响（保守：无法判定归属时维持原语义）
-	if _, rule, n := VerdictScoped(nil, nil, []plugin.Finding{{File: "", Severity: "high"}}, scope); rule != "R5.2" || n != 0 {
+	if _, rule, n := VerdictScoped(nil, nil, []domain.Finding{{File: "", Severity: "high"}}, scope); rule != "R5.2" || n != 0 {
 		t.Fatalf("无 file 的 high 不应被 scope 闸门拦截: rule=%s n=%d", rule, n)
 	}
 	// nil scope（inScope=nil）不受闸门影响：裁决不变且越界计数恒 0
@@ -63,14 +64,14 @@ func TestVerdictTruthTable(t *testing.T) {
 	})
 	t.Run("R5.1_优先于R5.2_high", func(t *testing.T) {
 		s, r := acSpec(plugin.ACMissing)
-		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("high")}, nil)
+		v, rule, _ := VerdictScoped(s, r, []domain.Finding{finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.1" {
 			t.Fatalf("want R5.1 短路，got %s/%s", v, rule)
 		}
 	})
 	t.Run("R5.2_high_finding", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
-		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("medium"), finding("high")}, nil)
+		v, rule, _ := VerdictScoped(s, r, []domain.Finding{finding("medium"), finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.2" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
@@ -105,7 +106,7 @@ func TestVerdictTruthTable(t *testing.T) {
 	})
 	t.Run("R5.4_medium_low", func(t *testing.T) {
 		s, r := acSpec(plugin.ACImplemented)
-		v, rule, _ := VerdictScoped(s, r, []plugin.Finding{finding("low")}, nil)
+		v, rule, _ := VerdictScoped(s, r, []domain.Finding{finding("low")}, nil)
 		if v != "comment" || rule != "R5.4" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
@@ -118,7 +119,7 @@ func TestVerdictTruthTable(t *testing.T) {
 		}
 	})
 	t.Run("code_review_only_无清单_high", func(t *testing.T) {
-		v, rule, _ := VerdictScoped(nil, nil, []plugin.Finding{finding("high")}, nil)
+		v, rule, _ := VerdictScoped(nil, nil, []domain.Finding{finding("high")}, nil)
 		if v != "request_changes" || rule != "R5.2" {
 			t.Fatalf("got %s/%s", v, rule)
 		}
@@ -297,7 +298,7 @@ func TestVerdict_BenignEmptyACExemption(t *testing.T) {
 	}
 	// 有意见（哪怕 low）：豁免关闭 → AC=0 先短路 R5.3（有意见的 docs 变更同样
 	// 落人工确认，比 R5.4 更保守，语义正确）
-	low := []plugin.Finding{{File: "README.md", Line: 1, Severity: reportutil.Low, Comment: "typo"}}
+	low := []domain.Finding{{File: "README.md", Line: 1, Severity: reportutil.Low, Comment: "typo"}}
 	if v, r, _ := VerdictScoped(spec, nil, low, docsOnly); v != VerdictComment || r != "R5.3" {
 		t.Errorf("docs-only 带 low 意见应 R5.3, got %s/%s", v, r)
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // writeHistory：OCR 原始 stdout（合法 JSON 原样嵌入）+ 归一化 findings 落盘，
@@ -17,7 +17,7 @@ func TestWriteHistory(t *testing.T) {
 	p := shimPayload{Platform: "gitea", Owner: "o", Repo: "r", Number: "7",
 		HeadSHA: "abc", BaseBranch: "main"}
 	raw := `{"comments":[{"path":"a.go","content":"竞态","start_line":7,"severity":"critical"}]}`
-	findings := []plugin.Finding{{File: "a.go", Line: 7, Severity: "high", Comment: "竞态"}}
+	findings := []domain.Finding{{File: "a.go", Line: 7, Severity: "high", Comment: "竞态"}}
 
 	writeHistory(hdir, p, raw, findings)
 
@@ -35,7 +35,7 @@ func TestWriteHistory(t *testing.T) {
 	var got struct {
 		PR       string           `json:"pr"`
 		OcrRaw   json.RawMessage  `json:"ocr_raw"`
-		Findings []plugin.Finding `json:"findings"`
+		Findings []domain.Finding `json:"findings"`
 	}
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("留档应为合法 JSON: %v\n%s", err, b)

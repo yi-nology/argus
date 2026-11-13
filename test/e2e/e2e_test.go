@@ -114,7 +114,7 @@ func TestScenario05_PluginTimeout_Degraded(t *testing.T) {
 	s := newStack(t, stackOpts{})
 	// 注册一个必然超时的假插件（code-review 技能，50ms 超时，睡 2s）
 	s.reg.Register(&dispatch.Registration{
-		Manifest: dispatch.AgentManifest{
+		Manifest: plugin.AgentManifest{
 			Name: "slow-expert", Kind: plugin.KindBuiltin,
 			Skills: []string{plugin.SkillCodeReview}, Cost: plugin.CostStandard,
 			Timeout: 50 * time.Millisecond,
@@ -138,8 +138,8 @@ func TestScenario05_PluginTimeout_Degraded(t *testing.T) {
 
 type slowPlugin struct{}
 
-func (slowPlugin) Manifest() dispatch.AgentManifest {
-	return dispatch.AgentManifest{Name: "slow-expert", Kind: plugin.KindBuiltin}
+func (slowPlugin) Manifest() plugin.AgentManifest {
+	return plugin.AgentManifest{Name: "slow-expert", Kind: plugin.KindBuiltin}
 }
 
 func (slowPlugin) Invoke(ctx context.Context, _ plugin.Task) (plugin.Result, error) {

@@ -20,6 +20,7 @@ import (
 	"github.com/oagentkit/guardx/sandbox"
 	"github.com/oagentkit/runtime/procx"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -31,7 +32,7 @@ type Config struct {
 
 // Result 单条 finding 的验证结果。
 type Result struct {
-	Finding plugin.Finding
+	Finding domain.Finding
 	Applied bool   // patch 是否成功写入文件（定位失败/文件缺失 = false）
 	OK      bool   // 包装命令通过
 	Skipped string // 非空 = 未验证原因（无修复建议/文件不在副本/配置缺失）
@@ -75,7 +76,7 @@ func resolveSafePath(dir, rel string) (string, error) {
 
 // Verify 对 findings 中带 SuggestedFix 的条目做应用→验证→还原。
 // dir 为工作副本根；每条验证独立进行（前一条的文件修改已还原，互不污染）。
-func Verify(ctx context.Context, cfg Config, dir string, findings []plugin.Finding) []Result {
+func Verify(ctx context.Context, cfg Config, dir string, findings []domain.Finding) []Result {
 	results := make([]Result, 0, len(findings))
 	if cfg.Cmd == "" {
 		for _, f := range findings {
@@ -95,7 +96,7 @@ func Verify(ctx context.Context, cfg Config, dir string, findings []plugin.Findi
 }
 
 // verifyOne 单条验证：读文件 → 锚定行替换为建议 → 跑包装命令 → 还原。
-func verifyOne(ctx context.Context, cfg Config, dir string, f plugin.Finding) (res Result) {
+func verifyOne(ctx context.Context, cfg Config, dir string, f domain.Finding) (res Result) {
 	path, perr := resolveSafePath(dir, f.File)
 	if perr != nil {
 		return Result{Finding: f, Skipped: perr.Error()}
@@ -151,7 +152,7 @@ func verifyOne(ctx context.Context, cfg Config, dir string, f plugin.Finding) (r
 
 // Apply 把已验证通过的修复应用进工作副本（不还原——push 环专用，Verify 的
 // 每条会还原，两者不可混用于同一批文件）。返回实际写入的文件集合。
-func Apply(_ context.Context, dir string, findings []plugin.Finding) (map[string]bool, error) {
+func Apply(_ context.Context, dir string, findings []domain.Finding) (map[string]bool, error) {
 	written := map[string]bool{}
 	for _, f := range findings {
 		if !f.Verified || strings.TrimSpace(f.SuggestedFix) == "" {

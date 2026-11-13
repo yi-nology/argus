@@ -20,6 +20,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -102,7 +103,7 @@ const findingCommentMaxRunes = 2000
 // comment/message），且输出可能是裸数组或 {comments:[...]} 包装——全部做容错归一。
 
 // ParseFindings 解析 cli 的 JSON 输出为 Findings（severity 经词表归一化）。
-func ParseFindings(stdout string) ([]plugin.Finding, error) {
+func ParseFindings(stdout string) ([]domain.Finding, error) {
 	trimmed := strings.TrimSpace(stdout)
 	if trimmed == "" {
 		return nil, fmt.Errorf("cli 无输出")
@@ -111,7 +112,7 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []plugin.Finding
+	var out []domain.Finding
 	for _, it := range items {
 		obj, ok := it.(map[string]any)
 		if !ok {
@@ -135,7 +136,7 @@ func ParseFindings(stdout string) ([]plugin.Finding, error) {
 		// v6.18.0 证据字段变体（缺省空）：外部 CLI 插件可选产出 file:line 证据，
 		// 进 Finding.Evidence 走同一交叉校验面（可选透传，不参与必填判定）。
 		evidence := firstString(obj, "evidence", "Evidence")
-		out = append(out, plugin.Finding{File: file, Line: line, Severity: sev, Comment: comment,
+		out = append(out, domain.Finding{File: file, Line: line, Severity: sev, Comment: comment,
 			SuggestedFix: suggestedFix, Evidence: evidence})
 	}
 	if len(out) == 0 {

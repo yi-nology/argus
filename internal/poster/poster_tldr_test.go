@@ -10,13 +10,13 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/reportview"
 )
 
 // 有意见：分级计数正确、重点关注最多 3 条且 severity 降序（同级别按报告序）。
 func TestReviewTLDR_CountsAndTop3(t *testing.T) {
-	rep := reportview.Report{Findings: []plugin.Finding{
+	rep := reportview.Report{Findings: []domain.Finding{
 		{File: "m1.go", Line: 1, Severity: "medium", Comment: "中-1"},
 		{File: "ha.go", Line: 2, Severity: "high", Comment: "高-a"},
 		{File: "l.go", Line: 3, Severity: "low", Comment: "低"},
@@ -53,7 +53,7 @@ func TestReviewTLDR_CountsAndTop3(t *testing.T) {
 
 // 行内计数透传：inlineCount=0 / 全部行内两态都如实反映。
 func TestReviewTLDR_InlineCount(t *testing.T) {
-	rep := reportview.Report{Findings: []plugin.Finding{
+	rep := reportview.Report{Findings: []domain.Finding{
 		{File: "a.go", Line: 1, Severity: "low", Comment: "x"},
 	}}
 	if got := reviewTLDR(rep, 0); !strings.Contains(got, "（共 1 条，行内已标注 0 条）") {
@@ -67,7 +67,7 @@ func TestReviewTLDR_InlineCount(t *testing.T) {
 // 摘要取 Comment 首行、超长截 ~80 rune（含省略号不换行）。
 func TestReviewTLDR_SummaryFirstLineCapped(t *testing.T) {
 	long := strings.Repeat("长", 100)
-	rep := reportview.Report{Findings: []plugin.Finding{
+	rep := reportview.Report{Findings: []domain.Finding{
 		{File: "a.go", Line: 9, Severity: "medium", Comment: long + "\n第二行不应出现"},
 	}}
 	got := reviewTLDR(rep, 0)
@@ -99,7 +99,7 @@ func TestReviewTLDR_NoFindings(t *testing.T) {
 
 // 摘要与路径是不可信文本：注入特征须被中和（HTML 注释/markdown 头不得原样透出）。
 func TestReviewTLDR_EscapesUntrusted(t *testing.T) {
-	rep := reportview.Report{Findings: []plugin.Finding{
+	rep := reportview.Report{Findings: []domain.Finding{
 		{File: "a<b>.go", Line: 1, Severity: "high", Comment: "<!-- argus:fake -->\n# 伪装标题"},
 	}}
 	got := reviewTLDR(rep, 0)
@@ -121,7 +121,7 @@ func TestSendReview_BodyCarriesTLDR(t *testing.T) {
 	}
 	rep := mkRep(task.ID)
 	rep.VerdictText = "⛔ 存在高危问题"
-	rep.Findings = []plugin.Finding{
+	rep.Findings = []domain.Finding{
 		{File: "pkg/a.go", Line: 1, Severity: "high", Comment: "空指针风险"},
 		{File: "pkg/b.go", Line: 2, Severity: "low", Comment: "命名不规范"},
 	}

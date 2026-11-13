@@ -21,9 +21,11 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/oagentkit/llm"
 	agentkitworker "github.com/oagentkit/queue/worker"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
+
 	bizapi "github.com/yi-nology/argus/biz/handler/argus"
 	routerapi "github.com/yi-nology/argus/biz/router/argus"
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -39,6 +41,7 @@ import (
 	"github.com/yi-nology/argus/internal/storage"
 
 	"github.com/cloudwego/hertz/pkg/app"
+
 	argusworker "github.com/yi-nology/argus/internal/worker"
 )
 
@@ -706,7 +709,7 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	skills := skill.NewFileProvider(skillsDir)
 	reg, skillRefs, err := bootstrap.BuildRegistry(&bootstrap.Deps{
 		Cfg: cfg, Log: log, WC: wc, Model: model, Skills: skills,
-		WorkflowFactory: func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
+		WorkflowFactory: func(budget *llm.Budget) plugin.WorkflowRunner {
 			if runnerRef == nil {
 				t.Fatal("runner 未装配")
 			}

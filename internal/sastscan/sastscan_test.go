@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oagentkit/textx/reportutil"
+	"github.com/oagentkit/tools/sast"
 )
 
 type nopLogger struct{}
@@ -40,7 +41,7 @@ done
 exit 0
 `)
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
+		sast.Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
 	if len(outcomes) != 1 {
 		t.Fatalf("应产出 1 个 outcome: %d", len(outcomes))
 	}
@@ -69,14 +70,14 @@ func TestRunToolFailureOutcome(t *testing.T) {
 	dir := t.TempDir()
 	bin := fakeBin(t, dir, "gitleaks", `echo "boom" >&2; exit 1`)
 	outcomes := Run(context.Background(),
-		Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
+		sast.Config{GitleaksBin: bin, Timeout: 30 * time.Second}, dir, "main", nil, nopLogger{})
 	if len(outcomes) != 1 || outcomes[0].Err == nil {
 		t.Fatalf("失败应产出带 Err 的 outcome: %+v", outcomes)
 	}
 }
 
 func TestRunDisabled(t *testing.T) {
-	if out := Run(context.Background(), Config{}, "/tmp", "", nil, nopLogger{}); out != nil {
+	if out := Run(context.Background(), sast.Config{}, "/tmp", "", nil, nopLogger{}); out != nil {
 		t.Fatalf("未配置应产出 nil: %+v", out)
 	}
 }

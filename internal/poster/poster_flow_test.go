@@ -14,6 +14,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
@@ -258,7 +259,7 @@ func mkDiff() *plugin.DiffContext {
 func TestPrepareInline_FilterNormalizeSortClamp(t *testing.T) {
 	p, _ := newTestPoster(t, newFakePlatform())
 	rep := mkRep("t-1")
-	rep.Findings = []plugin.Finding{
+	rep.Findings = []domain.Finding{
 		{File: "a.go", Line: 0, Severity: "high", Comment: "无行号"},            // 剔除
 		{File: "", Line: 3, Severity: "high", Comment: "无文件"},                // 剔除
 		{File: "pkg/a.go", Line: 10, Severity: "medium", Comment: "精确命中"},    // 保留
@@ -293,7 +294,7 @@ func TestPrepareInline_FilterNormalizeSortClamp(t *testing.T) {
 func TestPrepareInline_SuffixAmbiguityKeptOut(t *testing.T) {
 	p, _ := newTestPoster(t, newFakePlatform())
 	rep := mkRep("t-1")
-	rep.Findings = []plugin.Finding{
+	rep.Findings = []domain.Finding{
 		{File: "a.go", Line: 1, Severity: "high", Comment: "多义"},
 	}
 	diff := &plugin.DiffContext{Files: []plugin.DiffFile{
@@ -306,7 +307,7 @@ func TestPrepareInline_SuffixAmbiguityKeptOut(t *testing.T) {
 	}
 	// 段边界：a.go 不应误配 ba.go
 	rep2 := mkRep("t-1")
-	rep2.Findings = []plugin.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "段边界"}}
+	rep2.Findings = []domain.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "段边界"}}
 	diff2 := &plugin.DiffContext{Files: []plugin.DiffFile{
 		{Path: "pkg/ba.go", Included: true},
 	}}
@@ -320,7 +321,7 @@ func TestPrepareInline_MaxCommentsClamp(t *testing.T) {
 	p, _ := newTestPoster(t, newFakePlatform())
 	rep := mkRep("t-1")
 	rep.MaxInlineComments = 1
-	rep.Findings = []plugin.Finding{
+	rep.Findings = []domain.Finding{
 		{File: "pkg/a.go", Line: 1, Severity: "low", Comment: "low"},
 		{File: "pkg/b.go", Line: 2, Severity: "high", Comment: "high"},
 	}
@@ -674,7 +675,7 @@ func TestPost_HappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := mkRep("t-ok")
-	rep.Findings = []plugin.Finding{
+	rep.Findings = []domain.Finding{
 		{File: "pkg/a.go", Line: 3, Severity: "high", Comment: "问题", By: "correctness"},
 	}
 	res, err := p.Post(context.Background(), task, mkPR(), mkDiff(), "comment", rep)

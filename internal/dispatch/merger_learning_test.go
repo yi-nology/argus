@@ -2,18 +2,22 @@ package dispatch
 
 import (
 	"context"
-	"github.com/yi-nology/argus/internal/learning"
 	"strings"
 	"testing"
 
-	"github.com/oekit/logx"
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/plugin"
+
 	"time"
+
+	"github.com/oekit/logx"
 )
 
-// fakePatternStore 内存版 PatternStore：预置低置信模式表，记录 Posted 调用。
+// fakePatternStore 内存版 domain.PatternStore：预置低置信模式表，记录 Posted 调用。
 type fakePatternStore struct {
 	low      []learning.PatternState
-	posted   []Finding
+	posted   []domain.Finding
 	postedBy []string // PatternPosted 的 pluginName 实参（键的 plugin 分量）
 	listErr  error
 }
@@ -23,7 +27,7 @@ func (f *fakePatternStore) ListLowConfidencePatterns(_ context.Context, _, _, _ 
 	return f.low, f.listErr
 }
 
-func (f *fakePatternStore) PatternPosted(_ context.Context, _, _, _, pluginName string, finding Finding, _ time.Time) error {
+func (f *fakePatternStore) PatternPosted(_ context.Context, _, _, _, pluginName string, finding domain.Finding, _ time.Time) error {
 	f.posted = append(f.posted, finding)
 	f.postedBy = append(f.postedBy, pluginName)
 	return nil
@@ -53,11 +57,11 @@ func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{
-			{Name: "style", Result: &Result{Findings: []Finding{
-				{File: "a.go", Line: 1, Severity: SeverityLow, Comment: commentLow},
+			{Name: "style", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "a.go", Line: 1, Severity: plugin.SeverityLow, Comment: commentLow},
 			}}},
-			{Name: "security", Result: &Result{Findings: []Finding{
-				{File: "b.go", Line: 2, Severity: SeverityMedium, Comment: commentMid},
+			{Name: "security", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "b.go", Line: 2, Severity: plugin.SeverityMedium, Comment: commentMid},
 			}}},
 		}, time.Now())
 	if err != nil {
@@ -66,7 +70,7 @@ func TestMergeLearningHardFloorDropsLowOnly(t *testing.T) {
 	if len(mf.Findings) != 1 {
 		t.Fatalf("hard floor 应只留 medium: findings=%d degraded=%v", len(mf.Findings), mf.Degraded)
 	}
-	if mf.Findings[0].Severity != SeverityMedium {
+	if mf.Findings[0].Severity != plugin.SeverityMedium {
 		t.Fatalf("保留条应为 medium: %+v", mf.Findings[0])
 	}
 	if len(mf.Degraded) == 0 || !strings.Contains(strings.Join(mf.Degraded, ";"), "学习环抑制") {
@@ -87,8 +91,8 @@ func TestMergeLearningDisabledIsNoop(t *testing.T) {
 	}}}
 	m := NewMerger(nil, logx.Nop()).WithLearning(ps, learning.DefaultConfig())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t2",
-		[]Outcome{{Name: "style", Result: &Result{Findings: []Finding{
-			{File: "a.go", Line: 1, Severity: SeverityLow, Comment: comment, By: "style"},
+		[]Outcome{{Name: "style", Result: &plugin.Result{Findings: []domain.Finding{
+			{File: "a.go", Line: 1, Severity: plugin.SeverityLow, Comment: comment, By: "style"},
 		}}}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +119,8 @@ func TestMergeLearningMinSamplesGuards(t *testing.T) {
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t3",
-		[]Outcome{{Name: "style", Result: &Result{Findings: []Finding{
-			{File: "a.go", Line: 1, Severity: SeverityLow, Comment: comment, By: "style"},
+		[]Outcome{{Name: "style", Result: &plugin.Result{Findings: []domain.Finding{
+			{File: "a.go", Line: 1, Severity: plugin.SeverityLow, Comment: comment, By: "style"},
 		}}}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -133,8 +137,8 @@ func TestMergeLearningRecordsPosted(t *testing.T) {
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	_, err := m.Merge(context.Background(), regretTestPR(), "t4",
-		[]Outcome{{Name: "security", Result: &Result{Findings: []Finding{
-			{File: "a.go", Line: 1, Severity: SeverityHigh, Comment: "存在空指针解引用风险", By: "security"},
+		[]Outcome{{Name: "security", Result: &plugin.Result{Findings: []domain.Finding{
+			{File: "a.go", Line: 1, Severity: plugin.SeverityHigh, Comment: "存在空指针解引用风险", By: "security"},
 		}}}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -158,8 +162,8 @@ func TestMergeSoftFloorPostsPreAnnotationKey(t *testing.T) {
 		Enabled: true, MinSamples: 3, SoftFloor: 0.35, HardFloor: 0.20,
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-softfloor",
-		[]Outcome{{Name: "security", Result: &Result{Findings: []Finding{
-			{File: "a.go", Line: 1, Severity: SeverityMedium, Comment: comment},
+		[]Outcome{{Name: "security", Result: &plugin.Result{Findings: []domain.Finding{
+			{File: "a.go", Line: 1, Severity: plugin.SeverityMedium, Comment: comment},
 		}}}}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -180,8 +184,8 @@ func TestMergeSoftFloorPostsPreAnnotationKey(t *testing.T) {
 // 两键不一致 = posted/regret 错账（真实模式行只缺不涨）。
 func TestMergeMergedEntryPostsAuthoritativeComment(t *testing.T) {
 	base := "空指针风险"
-	fp := Fingerprint("a.go", base, 1)
-	prints := &fakePrintStore{prior: map[string]*PrintState{
+	fp := plugin.Fingerprint("a.go", base, 1)
+	prints := &fakePrintStore{prior: map[string]*domain.PrintState{
 		fp: {Status: "open", TimesSeen: 1, Comment: base},
 	}}
 	ps := &fakePatternStore{}
@@ -190,11 +194,11 @@ func TestMergeMergedEntryPostsAuthoritativeComment(t *testing.T) {
 	})
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-merged",
 		[]Outcome{
-			{Name: "sec", Result: &Result{Findings: []Finding{
-				{File: "a.go", Line: 1, Severity: SeverityHigh, Comment: base},
+			{Name: "sec", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "a.go", Line: 1, Severity: plugin.SeverityHigh, Comment: base},
 			}}},
-			{Name: "aux", Result: &Result{Findings: []Finding{
-				{File: "a.go", Line: 1, Severity: SeverityMedium, Comment: "判空缺失另一种措辞"},
+			{Name: "aux", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "a.go", Line: 1, Severity: plugin.SeverityMedium, Comment: "判空缺失另一种措辞"},
 			}}},
 		}, time.Now())
 	if err != nil {

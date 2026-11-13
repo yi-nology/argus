@@ -197,7 +197,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 		matched      bool
 		suppressDone bool
 		// resolvedFinding 模式一解析出的入库原始身份（模式二为零值，仍用请求身份）
-		resolvedFinding plugin.Finding
+		resolvedFinding domain.Finding
 	)
 	switch {
 	case str(req.Fingerprint) != "":
@@ -212,7 +212,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 		fp = rec.Print
 		pluginName = rec.Plugin
 		file = rec.File
-		resolvedFinding = plugin.Finding{
+		resolvedFinding = domain.Finding{
 			File: rec.File, Line: rec.Line, Severity: rec.Severity,
 			Comment: rec.Comment, By: rec.Plugin,
 		}
@@ -233,7 +233,7 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 	// 学习环/知识飞轮/回写统一用入库原始身份（模式一 resolvedFinding；模式二用请求身份）
 	ledgerFinding := resolvedFinding
 	if ledgerFinding.Comment == "" && ledgerFinding.File == "" {
-		ledgerFinding = plugin.Finding{File: file, Comment: comment, By: pluginName}
+		ledgerFinding = domain.Finding{File: file, Comment: comment, By: pluginName}
 	}
 	if !suppressDone {
 		var err error

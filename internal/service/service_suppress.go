@@ -15,7 +15,7 @@ import (
 	"time"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // SuppressFindingScoped 单条意见的误报抑制（MCP suppress_finding 数据面）：
@@ -95,12 +95,12 @@ func (s *Service) restoreFindingCore(ctx context.Context, platform, owner, repo,
 	// 学习环：解析完整行——restore 的 pattern 键必须由入库原始评语派生
 	//（固定 "restore:"+短码会让 hex 被剥离后塌缩到垃圾键，v3.8.0 教训）
 	var pluginName, fullFP string
-	var resolvedFinding plugin.Finding
+	var resolvedFinding domain.Finding
 	if s.Cfg != nil && s.Cfg.RegretLearning {
 		if rec, ok := s.Store.ResolvePrintRecord(ctx, platform, owner, repo, number, fpPrefix); ok {
 			fullFP = rec.Print
 			pluginName = rec.Plugin
-			resolvedFinding = plugin.Finding{
+			resolvedFinding = domain.Finding{
 				File: rec.File, Line: rec.Line, Severity: rec.Severity,
 				Comment: rec.Comment, By: rec.Plugin,
 			}

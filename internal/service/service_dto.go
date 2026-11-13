@@ -49,9 +49,9 @@ func kindFromIDL(k argus.TaskKind) (string, error) {
 // taskFindings 任务 ResultJSON 的 findings 载荷解码单源（GetTask/Findings 两个
 // 投影共用；写侧在 runner 落库，wire 契约形变只改这里）。解析失败返回
 // (nil, false)，空 findings 数组返回 (空切片, true)——两态语义对消费方可区分。
-func taskFindings(resultJSON string) ([]plugin.Finding, bool) {
+func taskFindings(resultJSON string) ([]domain.Finding, bool) {
 	var payload struct {
-		Findings []plugin.Finding `json:"findings"`
+		Findings []domain.Finding `json:"findings"`
 	}
 	if json.Unmarshal([]byte(resultJSON), &payload) != nil {
 		return nil, false

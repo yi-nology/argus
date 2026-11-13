@@ -5,8 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oekit/logx"
 	"time"
+
+	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 位置合并兜底：不同专家对同一 file:line 用不同措辞描述同一问题时（指纹必不同），
@@ -17,12 +21,12 @@ func TestMergeGroupsSameLocationAcrossPlugins(t *testing.T) {
 	m := NewMerger(nil, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{
-			{Name: "correctness", Result: &Result{Findings: []Finding{
-				{File: "main.go", Line: 19, Severity: SeverityHigh,
+			{Name: "correctness", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "main.go", Line: 19, Severity: plugin.SeverityHigh,
 					Comment: "os.Args[1][:10] 切片越界 panic"},
 			}}},
-			{Name: "security", Result: &Result{Findings: []Finding{
-				{File: "main.go", Line: 19, Severity: SeverityMedium,
+			{Name: "security", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "main.go", Line: 19, Severity: plugin.SeverityMedium,
 					Comment: "参数长度未校验，短参数将触发 slice bounds out of range"},
 			}}},
 		}, time.Now())
@@ -33,7 +37,7 @@ func TestMergeGroupsSameLocationAcrossPlugins(t *testing.T) {
 		t.Fatalf("同位置应合并为 1 条，实际 %d: %+v", len(mf.Findings), mf.Findings)
 	}
 	f := mf.Findings[0]
-	if f.Severity != SeverityHigh {
+	if f.Severity != plugin.SeverityHigh {
 		t.Fatalf("severity 应取高(high)，实际 %s", f.Severity)
 	}
 	if !strings.Contains(f.By, "correctness") || !strings.Contains(f.By, "security") {
@@ -50,12 +54,12 @@ func TestMergeKeepsDistinctLocationsSeparate(t *testing.T) {
 	m := NewMerger(nil, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
 		[]Outcome{
-			{Name: "correctness", Result: &Result{Findings: []Finding{
-				{File: "a.go", Line: 31, Severity: SeverityMedium, Comment: "问题甲"},
-				{File: "b.go", Line: 19, Severity: SeverityMedium, Comment: "问题乙"},
+			{Name: "correctness", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "a.go", Line: 31, Severity: plugin.SeverityMedium, Comment: "问题甲"},
+				{File: "b.go", Line: 19, Severity: plugin.SeverityMedium, Comment: "问题乙"},
 			}}},
-			{Name: "security", Result: &Result{Findings: []Finding{
-				{File: "a.go", Line: 32, Severity: SeverityLow, Comment: "问题甲的变体"},
+			{Name: "security", Result: &plugin.Result{Findings: []domain.Finding{
+				{File: "a.go", Line: 32, Severity: plugin.SeverityLow, Comment: "问题甲的变体"},
 			}}},
 		}, time.Now())
 	if err != nil {

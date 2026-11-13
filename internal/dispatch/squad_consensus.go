@@ -6,7 +6,7 @@
 // "Blackboard 该用"：多视角分析同一材料且视角间要互看、贡献顺序不可预知、
 // 需要共识收敛信号）。
 //
-// 互看通道 = Task.Artifacts["squad_board"]（逐轮重建的增量视图），消费方为
+// 互看通道 = plugin.Task.Artifacts["squad_board"]（逐轮重建的增量视图），消费方为
 // builtin Reviewer 与 acpx 适配器的提示词装配。纪律：
 //   - 成员失败不中止召集（blackboard.Convene 的 Act 出错会中止整轮——这里把
 //     成员失败转成黑板 note 条目 + 降级注明，返回"本轮未贡献"）；
@@ -26,10 +26,14 @@ import (
 
 	"github.com/oagentkit/agent/blackboard"
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
-// ArtifactSquadBoard 共享黑板视图在 Task.Artifacts 中的注入键（v3.4）。
+// ArtifactSquadBoard 共享黑板视图在 plugin.Task.Artifacts 中的注入键（v3.4）。
 const ArtifactSquadBoard = "squad_board"
 
 // consensusMaxRounds 黑板共识轮次上限：首轮全量 + 一轮互看补漏。
@@ -47,14 +51,14 @@ const seedMaxRunes = 2000
 
 // ConsensusSquads 返回触发条件命中的 consensus 模式编队（Select 的编队段对应物；
 // 这些编队的成员不进 fan-out，由 RunConsensus 单独召集）。
-func (d *Dispatcher) ConsensusSquads(pr *PRContext, changedFiles []string) []SquadDecl {
-	var out []SquadDecl
+func (d *Dispatcher) ConsensusSquads(pr *plugin.PRContext, changedFiles []string) []plugin.SquadDecl {
+	var out []plugin.SquadDecl
 	for _, sq := range d.squads {
-		if sq.Mode != SquadModeConsensus {
+		if sq.Mode != plugin.SquadModeConsensus {
 			continue
 		}
-		if (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-			(len(sq.Labels) > 0 && listOverlap(sq.Labels, pr.Labels)) {
+		if (len(sq.Paths) > 0 && plugin.MatchAnyGlob(sq.Paths, changedFiles)) ||
+			(len(sq.Labels) > 0 && plugin.ListOverlap(sq.Labels, pr.Labels)) {
 			out = append(out, sq)
 		}
 	}
@@ -64,8 +68,8 @@ func (d *Dispatcher) ConsensusSquads(pr *PRContext, changedFiles []string) []Squ
 // consensusMember 单个共识成员的运行期状态（Outcome 组装依据）。
 type consensusMember struct {
 	reg       *Registration
-	collected []Finding // 跨轮累计的新发现（已在黑板上的不重复收）
-	ran       bool      // 至少完整执行过一次
+	collected []domain.Finding // 跨轮累计的新发现（已在黑板上的不重复收）
+	ran       bool             // 至少完整执行过一次
 	lastErr   error
 	skipped   string // 非空 = 全程未执行（预算/熔断/解析失败）
 }
@@ -74,9 +78,9 @@ type consensusMember struct {
 // context——teardown 判定（取消/终止≠插件故障）用的是它而非 actCtx（成员自身
 // 超时派生），二者刻意区分。
 type consensusEnv struct {
-	task    Task
+	task    plugin.Task
 	squad   string
-	budget  *TokenBudget
+	budget  *llm.Budget
 	boardFP map[string]bool
 	st      *consensusMember
 	name    string
@@ -85,7 +89,7 @@ type consensusEnv struct {
 
 // RunConsensus 召集一个 consensus 编队：黑板种子 → 成员轮转互看 → 共识收敛，
 // 返回按成员归属拆分的 Outcome（进 Merger 走既有合并管线）。
-func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, budget *TokenBudget) []Outcome {
+func (d *Dispatcher) RunConsensus(ctx context.Context, task plugin.Task, sq plugin.SquadDecl, budget *llm.Budget) []Outcome {
 	members, outcomes := d.resolveConsensusMembers(sq)
 	if len(members) == 0 {
 		return outcomes
@@ -144,7 +148,7 @@ func (d *Dispatcher) RunConsensus(ctx context.Context, task Task, sq SquadDecl, 
 // 仓库 use/disable 约束）；声明重复的成员名只保留首个。返回成员状态与同序占位
 // outcomes（未注册成员的 SkippedReason 已填）。单成员告警（无互看对象，仍按共识
 // 流程跑——行为正确）；零成员时 outcomes 即最终结果。
-func (d *Dispatcher) resolveConsensusMembers(sq SquadDecl) ([]*consensusMember, []Outcome) {
+func (d *Dispatcher) resolveConsensusMembers(sq plugin.SquadDecl) ([]*consensusMember, []Outcome) {
 	var members []*consensusMember
 	var outcomes []Outcome
 	seen := map[string]bool{}
@@ -216,7 +220,7 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 	invStart := d.Now()
 	res, err := safeInvoke(cctx, st.reg.Plugin, t)
 	dur := d.Now().Sub(invStart)
-	obsPluginDuration(name, dur)
+	plugin.ObsPluginDuration(name, dur)
 	if err != nil {
 		st.lastErr = err
 		if teardown(err, env.taskCtx) {
@@ -245,7 +249,7 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 	// 指纹差分：只把新发现写上黑板（成员自述的重复报告在此拦下）
 	added := 0
 	for _, f := range res.Findings {
-		fp := Fingerprint(f.File, f.Comment, f.Line)
+		fp := plugin.Fingerprint(f.File, f.Comment, f.Line)
 		if env.boardFP[fp] {
 			continue
 		}
@@ -259,8 +263,8 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 	return added > 0, nil
 }
 
-// fillConsensusOutcomes 收尾回填 Outcome：有发现 → Result；执行失败 → Err（Notes
-// 渲染降级注明）；全程未执行 → SkippedReason；跑了但零新发现 → 空 Result（参与过，
+// fillConsensusOutcomes 收尾回填 Outcome：有发现 → plugin.Result；执行失败 → Err（Notes
+// 渲染降级注明）；全程未执行 → SkippedReason；跑了但零新发现 → 空 plugin.Result（参与过，
 // 计入 PluginsRun）。
 func fillConsensusOutcomes(members []*consensusMember, outcomes []Outcome) {
 	// 名字 → outcomes 下标（收尾回填）
@@ -273,15 +277,15 @@ func fillConsensusOutcomes(members []*consensusMember, outcomes []Outcome) {
 		o := &outcomes[i]
 		switch {
 		case len(m.collected) > 0:
-			o.Result = &Result{Findings: m.collected}
+			o.Result = &plugin.Result{Findings: m.collected}
 		case m.lastErr != nil:
 			// 跑过但后续轮次失败同样按失败终态回填——此前该分支静默落成
-			// 空 Result（"参与了但没新发现"），失败被吞、Degraded 无注明（深挖修复）
+			// 空 plugin.Result（"参与了但没新发现"），失败被吞、Degraded 无注明（深挖修复）
 			o.Err = m.lastErr
 		case !m.ran && m.skipped != "":
 			o.SkippedReason = m.skipped
 		default:
-			o.Result = &Result{}
+			o.Result = &plugin.Result{}
 		}
 	}
 }
@@ -297,7 +301,7 @@ func anyConsensusContribution(members []*consensusMember) bool {
 }
 
 // squadSeed 黑板种子：任务素材摘要（变更摘要 + 文件清单，截断防黑板膨胀）。
-func squadSeed(task Task, sq SquadDecl) string {
+func squadSeed(task plugin.Task, sq plugin.SquadDecl) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "编队 %s 共识审查任务（%s）：%s#%s\n", sq.Name, task.Kind,
 		task.PR.Owner, task.PR.Number)
@@ -310,7 +314,7 @@ func squadSeed(task Task, sq SquadDecl) string {
 		b.WriteString(strings.Join(paths, ", "))
 		b.WriteString("\n")
 	}
-	if s := task.Artifacts[ArtifactChangeSummary]; s != "" {
+	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
 		b.WriteString("变更摘要：\n")
 		t, _ := textutil.TruncRunes(s, seedMaxRunes)
 		b.WriteString(t)
@@ -319,7 +323,7 @@ func squadSeed(task Task, sq SquadDecl) string {
 }
 
 // findingBoardLine 发现 → 黑板文本行（成员是 LLM，纯文本比 JSON 稳）。
-func findingBoardLine(f Finding) string {
+func findingBoardLine(f domain.Finding) string {
 	sev := f.Severity
 	if sev == "" {
 		sev = "low"
@@ -331,7 +335,7 @@ func findingBoardLine(f Finding) string {
 	return fmt.Sprintf("%s:%d (%s) %s", f.File, line, sev, f.Comment)
 }
 
-// renderBoardView 黑板条目 → 成员可见的增量视图（adapter 用 DataFence 包裹后注入）。
+// renderBoardView 黑板条目 → 成员可见的增量视图（adapter 用 plugin.DataFence 包裹后注入）。
 func renderBoardView(entries []blackboard.Entry) string {
 	if len(entries) == 0 {
 		return "（尚无任何发现）"

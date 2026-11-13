@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // Registration 注册表中一个插件的完整登记。
 type Registration struct {
-	Manifest AgentManifest
-	Plugin   AgentPlugin
+	Manifest plugin.AgentManifest
+	Plugin   plugin.AgentPlugin
 
 	// 配置侧属性（不在 manifest 里，因为是 Hub 管控面而非契约面）
 	LockRepoConfig bool     // §3.4 红线 3：仓库配置不可关闭
@@ -78,7 +80,7 @@ func (r *Registry) Snapshot() []*Registration {
 //   - 未知名：忽略并返回告警（§3.4 红线 2：只能"选"不能"增"）；
 //   - disable/排除 lockRepoConfig 插件：无效并告警（红线 3）；
 //   - routing 只允许引用已注册插件名（不新增 endpoint —— endpoint 只能来自 Hub 全局配置）。
-func ResolveRepoConfig(rc *RepoConfig, reg *Registry) (warnings []string) {
+func ResolveRepoConfig(rc *plugin.RepoConfig, reg *Registry) (warnings []string) {
 	if rc == nil || !rc.Loaded {
 		return nil
 	}

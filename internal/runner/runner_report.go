@@ -12,13 +12,13 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/notify"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
-	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
 // costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。
@@ -46,7 +46,7 @@ func cacheAdjustedInput(inputPerM float64, prompt, cached int, cacheRatio float6
 }
 
 // buildReport 报告输入组装（模板渲染交给 reportview）。taskCost 非 nil 时附成本摘要。
-func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requirement.Output,
+func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *plugin.WorkflowOutput,
 	taskCost *llm.CostTracker) reportview.Report {
 	rep := reportview.Report{
 		TaskID:  task.ID,
@@ -109,7 +109,7 @@ func (r *Runner) buildReport(task *storage.Task, pr *plugin.PRContext, out *requ
 type ResultPayload struct {
 	Verdict    string                   `json:"verdict"`
 	Rule       string                   `json:"rule"`
-	Findings   []plugin.Finding         `json:"findings"`
+	Findings   []domain.Finding         `json:"findings"`
 	Report     *plugin.ComplianceReport `json:"compliance_report,omitempty"`
 	ScopeCreep []plugin.ScopeCreepItem  `json:"scope_creep,omitempty"`
 	Summary    string                   `json:"change_summary,omitempty"`
@@ -127,7 +127,7 @@ type ResultPayload struct {
 	ReportTemplate string `json:"report_template,omitempty"`
 }
 
-func toResultPayload(out *requirement.Output, diffText string) *ResultPayload {
+func toResultPayload(out *plugin.WorkflowOutput, diffText string) *ResultPayload {
 	p := &ResultPayload{Verdict: out.Verdict, Rule: out.Rule, Plugins: out.PluginsRun, Summary: out.Summary, DiffText: diffText}
 	if out.Merged != nil {
 		p.Findings = out.Merged.Findings
@@ -305,7 +305,7 @@ func (r *Runner) setStartMarker(ctx context.Context, task *storage.Task, body st
 }
 
 // finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
-func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *requirement.Output, failReason string) {
+func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *plugin.WorkflowOutput, failReason string) {
 	r.publish(progress.EventTaskFinished, task, status, verdict)
 	// 审计留痕（v3.86.0）：verdict 终态是审查链路的关键可审计动作
 	r.Audit.Log("verdict.posted", "task", task.ID, "platform", task.Platform,
@@ -338,7 +338,7 @@ func findingsCount(m *plugin.MergedFindings) int {
 }
 
 // ruleOf 审计字段用：终态命中的 R5 规则（out 为 nil 时空串）。
-func ruleOf(out *requirement.Output) string {
+func ruleOf(out *plugin.WorkflowOutput) string {
 	if out == nil {
 		return ""
 	}

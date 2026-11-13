@@ -10,6 +10,7 @@ import (
 	"github.com/oagentkit/guardx/fence"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 )
@@ -68,7 +69,7 @@ type Report struct {
 	ACs            []ACCheckView
 	ScopeCreep     []ScopeView
 
-	Findings []plugin.Finding
+	Findings []domain.Finding
 
 	// ImpactSection 影响面段（v3.183.0）：runner 从影响面快照预渲染
 	//（impactview.RenderReportSection——details 折叠 + mermaid/列表），空 = 整段
@@ -284,7 +285,7 @@ func renderFindings(b *strings.Builder, r Report) {
 // 「📎 证据：」续行（⚠️ 校验标注随之透出），空返回 ""——标准意见列表/风险链/
 // 坏味组三面共用。转义与 comment 同纪律（敌对输入），换行折叠保列表结构。
 // 渲染属性不入指纹，本行只读 Finding.Evidence。
-func evidenceLine(f plugin.Finding, indent string) string {
+func evidenceLine(f domain.Finding, indent string) string {
 	ev := strings.TrimSpace(fence.EscapeUntrusted(f.Evidence))
 	if ev == "" {
 		return ""
@@ -385,7 +386,7 @@ func renderMinimal(r Report) string {
 	b.WriteString(r.VerdictText)
 	b.WriteString("**\n")
 
-	var highs []plugin.Finding
+	var highs []domain.Finding
 	for _, f := range r.Findings {
 		if f.Severity == "high" || f.Severity == "critical" {
 			highs = append(highs, f)
@@ -500,7 +501,7 @@ func renderClaimsTable(b *strings.Builder, claims []plugin.Claim) {
 
 // splitFindings 按严重度切风险链/坏味两组（high/critical = 风险链主体；
 // 其余 = 坏味组，编号渲染）。merger 已降序，切片保持序。
-func splitFindings(findings []plugin.Finding) (risks, smells []plugin.Finding) {
+func splitFindings(findings []domain.Finding) (risks, smells []domain.Finding) {
 	for _, f := range findings {
 		if f.Severity == "high" || f.Severity == "critical" {
 			risks = append(risks, f)
@@ -512,7 +513,7 @@ func splitFindings(findings []plugin.Finding) (risks, smells []plugin.Finding) {
 }
 
 // renderRiskChain 风险链（🔴🟠 分级，chain 证据链缩进子段 + 建议修复块）。
-func renderRiskChain(b *strings.Builder, r Report, risks []plugin.Finding) {
+func renderRiskChain(b *strings.Builder, r Report, risks []domain.Finding) {
 	if len(risks) == 0 {
 		return
 	}
@@ -545,7 +546,7 @@ func renderRiskChain(b *strings.Builder, r Report, risks []plugin.Finding) {
 }
 
 // renderSmells 代码坏味（🟡🟢 组，编号渲染，例文「三、代码坏味」形态）。
-func renderSmells(b *strings.Builder, r Report, smells []plugin.Finding) {
+func renderSmells(b *strings.Builder, r Report, smells []domain.Finding) {
 	if len(smells) == 0 {
 		return
 	}

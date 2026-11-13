@@ -16,13 +16,13 @@ import (
 )
 
 type fakeStore struct {
-	repos   []storage.RepoRef
+	repos   []learning.RepoRef
 	pattern map[string][]storage.PatternSignal // key owner/repo
 	low     map[string][]learning.PatternState
 	merged  [][3]any // keepID, dupID, repo
 }
 
-func (f *fakeStore) ListPatternRepos(context.Context) ([]storage.RepoRef, error) {
+func (f *fakeStore) ListPatternRepos(context.Context) ([]learning.RepoRef, error) {
 	return f.repos, nil
 }
 
@@ -58,7 +58,7 @@ func TestDedupRepoMergesSimilarPatterns(t *testing.T) {
 	c := storage.PatternSignal{ID: 3, Plugin: "style", Pattern: "ccc", PatternText: prefix + " 版本a"}
 
 	st := &fakeStore{
-		repos:   []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
+		repos:   []learning.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
 		pattern: map[string][]storage.PatternSignal{"acme/app": {a, b, c}},
 	}
 	d := &Dream{Store: st, Learning: learning.DefaultConfig()}
@@ -79,7 +79,7 @@ func TestDedupRepoMergesSimilarPatterns(t *testing.T) {
 func TestExportRepoWritesLocalMarkdown(t *testing.T) {
 	dir := t.TempDir()
 	st := &fakeStore{
-		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
+		repos: []learning.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
 		low: map[string][]learning.PatternState{
 			"acme/app": {{
 				Plugin: "style", Pattern: "p1", PatternText: "建议提取魔法数字",
@@ -145,7 +145,7 @@ func TestExportRepoWritesMemoryFacts(t *testing.T) {
 	}
 	defer k.Close()
 	st := &fakeStore{
-		repos: []storage.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
+		repos: []learning.RepoRef{{Platform: "gitea", Owner: "acme", Repo: "app"}},
 		low: map[string][]learning.PatternState{
 			"acme/app": {
 				{Plugin: "style", Pattern: "p1", PatternText: "建议提取魔法数字\n第二行应压平",
@@ -181,7 +181,7 @@ func TestExportOrgMemoryCrossRepoAggregation(t *testing.T) {
 	// 同一 pattern 文本在两个仓出现 → 组织桶应聚合出一条跨仓模式
 	shared := "未检查 err 就继续使用返回值"
 	st := &fakeStore{
-		repos: []storage.RepoRef{
+		repos: []learning.RepoRef{
 			{Platform: "gitea", Owner: "acme", Repo: "app"},
 			{Platform: "gitea", Owner: "acme", Repo: "web"},
 		},

@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
-func sampleFindings() []plugin.Finding {
-	return []plugin.Finding{
+func sampleFindings() []domain.Finding {
+	return []domain.Finding{
 		{FP: "fp-1", File: "a.go", Line: 3, Severity: "high", Comment: "竞态", SuggestedFix: "加锁", By: "ocr"},
 		{FP: "fp-2", File: "b.go", Line: 9, Severity: "low", Comment: "命名"},
 	}
@@ -46,9 +47,9 @@ func TestBuildPayloadContract(t *testing.T) {
 
 // 意见超上限截断（保序）。
 func TestBuildPayloadTruncates(t *testing.T) {
-	fs := make([]plugin.Finding, MaxFindings+10)
+	fs := make([]domain.Finding, MaxFindings+10)
 	for i := range fs {
-		fs[i] = plugin.Finding{FP: "x", File: "f.go", Severity: "low", Comment: "c"}
+		fs[i] = domain.Finding{FP: "x", File: "f.go", Severity: "low", Comment: "c"}
 	}
 	p := BuildPayload("t", &plugin.PRContext{}, fs, "comment", nil, 0, 0, time.Now())
 	if len(p.Findings) != MaxFindings {

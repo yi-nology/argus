@@ -9,6 +9,7 @@ import (
 
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -24,8 +25,8 @@ func TestPrevFindingsSection(t *testing.T) {
 	ctx := context.Background()
 	at := time.Now().UTC()
 	pr := &plugin.PRContext{Platform: "gitlab", Owner: "o", Repo: "r", Number: "1"}
-	f := func(comment string) plugin.Finding {
-		return plugin.Finding{File: "src/a.go", Line: 10, Severity: "medium", Comment: comment}
+	f := func(comment string) domain.Finding {
+		return domain.Finding{File: "src/a.go", Line: 10, Severity: "medium", Comment: comment}
 	}
 	for i, c := range []string{"意见一", "意见二"} {
 		fp := "fp000" + string(rune('a'+i)) + "bbbb"
@@ -35,7 +36,7 @@ func TestPrevFindingsSection(t *testing.T) {
 	}
 	// 被抑制意见放不同文件（src/b.go）：v3.133.0 起 suppress 家族传播一键全压，
 	// 同文件同行号的近重复措辞会被连带抑制，夹具必须与之解耦才能保住「open 保留」断言。
-	sup := plugin.Finding{File: "src/b.go", Line: 20, Severity: "low", Comment: "已抑制意见"}
+	sup := domain.Finding{File: "src/b.go", Line: 20, Severity: "low", Comment: "已抑制意见"}
 	if _, err := store.UpsertPrint(ctx, "gitlab", "o", "r", "1", "fp0009zzzz", sup, "t1", at); err != nil {
 		t.Fatal(err)
 	}

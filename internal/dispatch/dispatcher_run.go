@@ -10,16 +10,19 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/llm"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/concurrency/syncx"
+
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // costRank 越大越贵（预算裁剪按降序裁：heavy 先裁）。
 func costRank(cost string) int {
 	switch cost {
-	case CostHeavy:
+	case plugin.CostHeavy:
 		return 3
-	case CostStandard:
+	case plugin.CostStandard:
 		return 2
 	default:
 		return 1
@@ -28,7 +31,7 @@ func costRank(cost string) int {
 
 // PruneByBudget 预算吃紧时按 Cost 降序裁剪非锁定插件（heavy 先裁，§10.3）。
 // 返回保留的 Selection 与被裁名单（供降级注明）。
-func (d *Dispatcher) PruneByBudget(sel []Selection, budget *TokenBudget) (keep []Selection, pruned []string) {
+func (d *Dispatcher) PruneByBudget(sel []Selection, budget *llm.Budget) (keep []Selection, pruned []string) {
 	if budget == nil {
 		return sel, nil
 	}
@@ -67,21 +70,21 @@ func (d *Dispatcher) PruneByBudget(sel []Selection, budget *TokenBudget) (keep [
 }
 
 // OutcomeHook 单插件产物落定回调（v3.154.0 R4 逐插件 checkpoint）。
-// 仅在 Result 非 nil（成功/部分成功）时触发；失败/跳过/取消不触发。
+// 仅在 plugin.Result 非 nil（成功/部分成功）时触发；失败/跳过/取消不触发。
 // 契约：实现方必须快速返回（在 fan-out 热路径上被同步调用）。
 type OutcomeHook func(o Outcome)
 
 // Run fan-out 并发执行选中的插件（各带超时），部分失败容忍。
 // 返回顺序与输入 Selection 顺序一致。
-func (d *Dispatcher) Run(ctx context.Context, task Task, sel []Selection, budget *TokenBudget) []Outcome {
+func (d *Dispatcher) Run(ctx context.Context, task plugin.Task, sel []Selection, budget *llm.Budget) []Outcome {
 	return d.RunWithHook(ctx, task, sel, budget, nil)
 }
 
 // RunWithHook 同 Run，逐插件产物落定（成功）时同步触发 hook。
 // hook=nil 与 Run 完全等价；hook 实现方须快速返回（热路径同步调用）。
-func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection, budget *TokenBudget, hook OutcomeHook) []Outcome {
+func (d *Dispatcher) RunWithHook(ctx context.Context, task plugin.Task, sel []Selection, budget *llm.Budget, hook OutcomeHook) []Outcome {
 	outcomes := make([]Outcome, len(sel))
-	// 预算随 Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
+	// 预算随 plugin.Task 注入：插件内 LLM 调用（Reviewer 等）计入任务累计器。
 	task.Budget = budget
 
 	// 并发闸门（v3.174.0 手写信号量收编 oekit/concurrency/syncx.Gate）：
@@ -140,7 +143,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 
 			// best-of-N 路径（v3.10.0）：N 份采样并发执行、逐采样独立超时，
 			// 聚合后按一次插件执行配对熔断（Allow 一次 → Success/Failure/Abandon
-			// 恰好其一）；部分成功照常产结果，降级注记随 Result.Notes 透出。
+			// 恰好其一）；部分成功照常产结果，降级注记随 plugin.Result.Notes 透出。
 			if n := ClampReviewN(reg.Manifest.ReviewN); n > 1 {
 				start := d.Now()
 				res, k, canceled, sampleErr := d.runSampled(ctx, reg.Plugin, task, n, timeout)
@@ -169,7 +172,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 					d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 						"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
 				}
-				obsPluginDuration(reg.Manifest.Name, o.Duration)
+				plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
 				return
 			}
 
@@ -201,7 +204,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 					"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
 			}
-			obsPluginDuration(reg.Manifest.Name, o.Duration)
+			plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
 		})
 	}
 	wg.Wait()
@@ -212,9 +215,9 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task Task, sel []Selection
 // 成功采样经 aggregateSamples 聚合（复现计数/严重度升级/降级注记）。
 // 返回聚合结果、成功采样数 k、是否发生任务级取消、失败采样错误（k>0 时为 nil）。
 // 熔断配对由调用方按 (k, canceled) 统一决策——本函数不触碰 breaker。
-func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n int, timeout time.Duration) (Result, int, bool, error) {
+func (d *Dispatcher) runSampled(ctx context.Context, p plugin.AgentPlugin, task plugin.Task, n int, timeout time.Duration) (plugin.Result, int, bool, error) {
 	type sampleRes struct {
-		res Result
+		res plugin.Result
 		err error
 	}
 	results := make([]sampleRes, n)
@@ -230,7 +233,7 @@ func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n
 	}
 	wg.Wait()
 
-	var ok []Result
+	var ok []plugin.Result
 	canceled := false
 	var lastErr error
 	for _, r := range results {
@@ -247,7 +250,7 @@ func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n
 		if lastErr == nil && canceled {
 			lastErr = context.Canceled
 		}
-		return Result{}, 0, canceled, lastErr
+		return plugin.Result{}, 0, canceled, lastErr
 	}
 	agg := aggregateSamples(n, len(ok), ok)
 	return agg, len(ok), canceled, nil
@@ -255,7 +258,7 @@ func (d *Dispatcher) runSampled(ctx context.Context, p AgentPlugin, task Task, n
 
 // safeInvoke 防插件 panic 拖垮 worker（超时由 ctx + 适配器内部尊重 ctx 实现；
 // cli/remote 适配器自己保证子进程随 ctx 终止）。
-func safeInvoke(ctx context.Context, p AgentPlugin, task Task) (res Result, err error) {
+func safeInvoke(ctx context.Context, p plugin.AgentPlugin, task plugin.Task) (res plugin.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("插件 panic: %v", r)

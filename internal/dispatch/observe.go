@@ -3,6 +3,8 @@ package dispatch
 import (
 	"slices"
 	"strings"
+
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 仓库侧生效状态词表（GET /agents 可观测，v3.0.1 评审项）。
@@ -26,7 +28,7 @@ type PluginRepoStatus struct {
 // ObserveRepoConfig 计算仓库配置对注册表的可观测视图（幂等，不改变注册表状态）。
 // 先跑 ResolveRepoConfig 做信任边界规范化（未知名剔除/lock 保护），再逐一判定生效状态。
 // 追加参数：resolveWarns 透出给调用方展示。
-func ObserveRepoConfig(reg *Registry, rc *RepoConfig) (statuses []PluginRepoStatus, warnings []string) {
+func ObserveRepoConfig(reg *Registry, rc *plugin.RepoConfig) (statuses []PluginRepoStatus, warnings []string) {
 	if rc == nil || !rc.Loaded {
 		// 无仓库配置：全部 default
 		for _, r := range reg.Snapshot() {

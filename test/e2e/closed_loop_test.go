@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // v3.5 review 闭环 e2e：两轮任务验证 regret 学习环 + 证据门。
@@ -121,7 +121,7 @@ func TestScenario18_LearningHardFloorDropsLow(t *testing.T) {
 	// 预热：suppress + regret，把置信度压到 HardFloor 以下
 	// Confidence(1 posted, 2 regret, 1 suppress, 0) = 3/(3+4+3)=0.30 —— 需再压
 	// Confidence(1, 3, 1) = 3/(3+6+3)=0.25 < 0.30
-	f := plugin.Finding{File: "b.go", Line: 3, Severity: "low", Comment: comment}
+	f := domain.Finding{File: "b.go", Line: 3, Severity: "low", Comment: comment}
 	for range 3 {
 		if err := s.store.PatternRegret(ctx, "gitea", "acme", "app", "correctness", f, time.Now()); err != nil {
 			t.Fatal(err)

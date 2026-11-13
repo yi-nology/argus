@@ -8,12 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	_ "github.com/jackc/pgx/v5/stdlib" // pg 测试管理面（sql.Open("pgx")）
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // pg 测试管理面（sql.Open("pgx")）
 
 	_ "github.com/go-sql-driver/mysql"
 

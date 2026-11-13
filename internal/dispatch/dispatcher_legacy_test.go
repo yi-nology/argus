@@ -12,6 +12,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func TestBreaker(t *testing.T) {
@@ -60,11 +61,11 @@ type fakeStore struct {
 	prints map[string]string // fp → status
 }
 
-func (f *fakeStore) GetPrintState(_ context.Context, _, _, _, _, _ string) (*PrintState, error) {
+func (f *fakeStore) GetPrintState(_ context.Context, _, _, _, _, _ string) (*domain.PrintState, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) UpsertPrint(_ context.Context, _, _, _, _, fp string, _ Finding, _ string, _ time.Time) (bool, error) {
+func (f *fakeStore) UpsertPrint(_ context.Context, _, _, _, _, fp string, _ domain.Finding, _ string, _ time.Time) (bool, error) {
 	st, ok := f.prints[fp]
 	if ok && st == "suppressed" {
 		return true, nil
@@ -85,13 +86,13 @@ func (f *fakeStore) UpsertPrints(_ context.Context, _, _, _, _, _ string,
 
 func TestMerger(t *testing.T) {
 	fs := &fakeStore{prints: map[string]string{
-		Fingerprint("dup.go", "同一问题", 3): "suppressed", // 预置：历史误报
+		plugin.Fingerprint("dup.go", "同一问题", 3): "suppressed", // 预置：历史误报
 	}}
 	m := NewMerger(fs, logx.Nop())
 	outcomes := []Outcome{
 		{
 			Name: "correctness",
-			Result: &Result{Findings: []Finding{
+			Result: &plugin.Result{Findings: []domain.Finding{
 				{File: "a.go", Line: 10, Severity: "High", Comment: "空指针"},  // 大写 → 归一化
 				{File: "a.go", Line: 12, Severity: "high", Comment: "空 指针"}, // 同指纹（±2 行容差）
 				{File: "dup.go", Line: 3, Severity: "low", Comment: "同一问题"}, // 历史误报 → 抑制
@@ -99,7 +100,7 @@ func TestMerger(t *testing.T) {
 		},
 		{
 			Name: "ocr",
-			Result: &Result{Findings: []Finding{
+			Result: &plugin.Result{Findings: []domain.Finding{
 				{File: "a.go", Line: 10, Severity: "medium", Comment: "空指针"}, // 跨插件同指纹 → severity 取高
 				{File: "b.go", Line: 1, Severity: "weird", Comment: "越界词表"},  // 归 low
 			}},
@@ -108,7 +109,7 @@ func TestMerger(t *testing.T) {
 			Name: "broken", Err: context.DeadlineExceeded,
 		},
 	}
-	merged, err := m.Merge(context.Background(), PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"},
+	merged, err := m.Merge(context.Background(), plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"},
 		"task-1", outcomes, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -117,13 +118,13 @@ func TestMerger(t *testing.T) {
 		t.Fatalf("期望 2 条（同指纹合并+误报抑制），got %d: %+v", len(merged.Findings), merged.Findings)
 	}
 	first := merged.Findings[0]
-	if first.Severity != SeverityHigh {
+	if first.Severity != plugin.SeverityHigh {
 		t.Fatalf("冲突取高失败: %+v", first)
 	}
 	if first.By != "correctness,ocr" {
 		t.Fatalf("by 合并失败: %q", first.By)
 	}
-	if merged.Findings[1].Severity != SeverityLow {
+	if merged.Findings[1].Severity != plugin.SeverityLow {
 		t.Fatalf("越界词表应归 low: %+v", merged.Findings[1])
 	}
 	if merged.Suppressed != 1 {

@@ -24,6 +24,7 @@ import (
 	"github.com/oagentkit/llm/port"
 	"github.com/oagentkit/rag"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -63,10 +64,10 @@ type Runner struct {
 	Knowledge  rag.KnowledgeService
 	// WC 工作副本池（OCR delegate 前置使用；nil = 委托前置不生效）。
 	WC        *workcopy.Pool
-	Bus       *progress.Bus    // 任务进度事件（v3.1 SSE；nil 安全）
-	EventSeen *progress.Dedup  // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
-	Notify    *notify.Notifier // 终态 IM 推送（v3.1 octopus；nil 安全）
-	Sink      *sink.Reporter   // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
+	Bus       *oagentprogress.Bus[progress.Event] // 任务进度事件（v3.1 SSE；nil 安全）
+	EventSeen *progress.Dedup                     // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
+	Notify    *notify.Notifier                    // 终态 IM 推送（v3.1 octopus；nil 安全）
+	Sink      *sink.Reporter                      // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
 	Poster    *poster.Poster
 	Log       logx.Logger
 	Version   string
@@ -127,7 +128,7 @@ type Runner struct {
 // 预算（v3.36.0）并记任务级/进程级成本。PreviewLen 刻意留 0（不落消息内容）。
 // #32：本 sink 同时是逐调用实销埋点（recordUsageEvent）——全任务唯一的用量
 // 汇聚面，Generate 与旁路两条路径都到此，运行中消费即时入账。
-func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget, taskCost *llm.CostTracker) context.Context {
+func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *llm.Budget, taskCost *llm.CostTracker) context.Context {
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	// 用量 handler 装配条件含 Store（#32）：逐调用实销埋点是计费账本、不随
@@ -166,7 +167,7 @@ func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *pl
 
 // wireWorkflow 组装任务级工作流并接线任务侧注入：评审记忆索引（dream 导出）/
 // 外部工具调用上限/仓库级评审规范（.argus/REVIEW.md）/阶段进度事件。
-func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget) *requirement.Workflow {
+func (r *Runner) wireWorkflow(ctx context.Context, task *storage.Task, budget *llm.Budget) *requirement.Workflow {
 	wf := r.buildWorkflow(budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出，此处装载注入 R3。
 	// v5.0.0 文件面退役：内核是唯一路径；未装配（ARGUS_MEMORY_KERNEL 关）=
@@ -299,7 +300,7 @@ func guardPanic(log logx.Logger, taskID string, body func() error) (err error) {
 // finalizeAndAnnounce（终态落库/sink/marker/播报）。此前 202 行单体是
 // 勘察在案的可读性债（finish/r3Tools 同款清偿）。
 func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Workflow,
-	budget *plugin.TokenBudget, start time.Time, taskCost *llm.CostTracker, knobs taskKnobs) error {
+	budget *llm.Budget, start time.Time, taskCost *llm.CostTracker, knobs taskKnobs) error {
 
 	// CI 失败归因（v3.71.0）：不依赖 MR 语义（push 的 commit 无 CR 可拉），
 	// 在 prepareContext 之前分派——输入是失败 job 日志而非 diff。
@@ -340,7 +341,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 		ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplateChain(rc, knobs)
 	}
 
-	var out *requirement.Output
+	var out *plugin.WorkflowOutput
 	switch task.Kind {
 	case domain.TaskKindRequirementCompliance:
 		out, err = wf.Run(ctx, ptask, budget)

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/oagentkit/textx/reportutil"
+
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 func TestParseRepoConfigReviewSection(t *testing.T) {
@@ -96,7 +98,7 @@ func TestParseRepoConfigReviewDefaults(t *testing.T) {
 }
 
 func TestFilterByMinSeverity(t *testing.T) {
-	fs := []Finding{
+	fs := []domain.Finding{
 		{Severity: reportutil.Low},
 		{Severity: reportutil.High},
 		{Severity: reportutil.Medium},

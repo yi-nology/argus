@@ -98,7 +98,7 @@ func DefaultConfig() Config {
 }
 
 // RepoRef 仓库三元组（学习环域的仓库标识：pattern_signals 按 repo 聚合）。
-// storage.RepoRef 是本类型的别名——域类型放本包（纯叶子），存储层跟随。
+// 域类型放本包（纯叶子）；storage 侧曾留同名别名，已随接线别名清仓删除。
 type RepoRef struct {
 	Platform, Owner, Repo string
 }

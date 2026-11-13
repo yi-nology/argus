@@ -5,7 +5,7 @@
 // 方向 A 落地：Evidence 证据记录 + 代码级校验（文件在改动集/触达集、行号有效），
 // 高风险声明（missing/inconsistent）证据不可验证时降级标注——提高每条意见的
 // 可采信程度，而非增加 Reviewer 数量。
-// v6.18.0 扩展 Finding 级同族：Finding.Evidence 字段 + VerifyFindingEvidence/
+// v6.18.0 扩展 domain.Finding 级同族：domain.Finding.Evidence 字段 + VerifyFindingEvidence/
 // VerifyFindingsEvidence（高危 critical/high 证据不可验证降级 medium 退出 R5
 // 否决面），Claim 级语义不变。
 //
@@ -16,7 +16,7 @@
 //     ——声明本身可能是真问题，只是证据形态无法确认（不静默丢弃真问题）；
 //   - 高风险状态降级：missing/inconsistent（深度评审最高危信号）证据格式解析失败
 //     时 Status 降级 partial——状态错误的声明比缺失更有害（NormalizeClaimStatus 同
-//     纪律），但降级而非删除（保留线索）。Finding 级同纪律：critical/high → medium。
+//     纪律），但降级而非删除（保留线索）。domain.Finding 级同纪律：critical/high → medium。
 package plugin
 
 import (
@@ -75,7 +75,7 @@ func parseOneRef(s string) *EvidenceRef {
 	return &EvidenceRef{File: file, Line: line}
 }
 
-// EvidenceResult 单条 Claim/Finding 的证据校验结论。
+// EvidenceResult 单条 Claim/domain.Finding 的证据校验结论。
 type EvidenceResult struct {
 	Refs     []EvidenceRef // 解析出的引用（空 = 无 file:line）
 	Verified bool          // 全部引用可交叉验证（或无引用时=纯文字，不判）
@@ -85,7 +85,7 @@ type EvidenceResult struct {
 // evidenceWarnMark 证据不可验证的软标注锚（幂等判定用：已含此锚不再叠加）。
 const evidenceWarnMark = "⚠️ 证据待验证"
 
-// verifyEvidenceText 自由文本证据的引用解析 + 交叉校验核心（Claim/Finding 级
+// verifyEvidenceText 自由文本证据的引用解析 + 交叉校验核心（Claim/domain.Finding 级
 // 共用）：file 在 changed 集或 touched 集内且行号 > 0 才可验证。无 file:line
 // 引用时判定为「纯文字差距说明」——不算证据缺陷（Verified=true 且无注记）。
 // changed：改动文件清单（Diff.Files 的 Path 列表）；touched：ArtifactCodegraphTouched
@@ -131,11 +131,11 @@ func VerifyClaimEvidence(c Claim, changed, touched []string) EvidenceResult {
 	return verifyEvidenceText(c.Evidence, changed, touched)
 }
 
-// VerifyFindingEvidence 校验单条 Finding 的证据（v6.18.0，与 Claim 级同口径）。
-// Finding.Evidence 是可选字段：为空/无引用不判（模型未给证据引用不算缺陷，
+// VerifyFindingEvidence 校验单条 domain.Finding 的证据（v6.18.0，与 Claim 级同口径）。
+// domain.Finding.Evidence 是可选字段：为空/无引用不判（模型未给证据引用不算缺陷，
 // 与 reflection 证据门的「空 evidence 剔除」不同面——本校验只针对已给出的引用
 // 是否真实成立，不强制必填）。
-func VerifyFindingEvidence(f Finding, changed, touched []string) EvidenceResult {
+func VerifyFindingEvidence(f domain.Finding, changed, touched []string) EvidenceResult {
 	return verifyEvidenceText(f.Evidence, changed, touched)
 }
 
@@ -203,11 +203,11 @@ func HighRiskFindingSeverity(sev string) bool {
 }
 
 // VerifyFindingsEvidence 批量校验 mf.Findings 证据并就地更新（v6.18.0，
-// VerifyClaimsEvidence 的 Finding 级同族）：
+// VerifyClaimsEvidence 的 domain.Finding 级同族）：
 //   - Evidence 追加 ⚠️ 软标注（幂等：已含标注锚不再叠加，重复调用零变化）；
 //   - 高危（critical/high）证据不可验证 → 降级 medium——退出 R5 一票否决面，
 //     状态错误的高危比缺失更有害，但降级而非删除（保留线索，medium/low 只标注）；
-//   - 空证据/纯文字不判（Finding.Evidence 可选，模型未给引用不算缺陷）。
+//   - 空证据/纯文字不判（domain.Finding.Evidence 可选，模型未给引用不算缺陷）。
 //
 // 返回校验通过/总数（通过=含纯文字与空证据，与 Claim 级口径一致）。
 func VerifyFindingsEvidence(mf *MergedFindings, changed, touched []string) (verified, total int) {

@@ -25,7 +25,6 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
-	"github.com/yi-nology/argus/internal/workflow/requirement"
 	"github.com/yi-nology/argus/internal/writing"
 )
 
@@ -57,7 +56,7 @@ func (r *Runner) runWriting(ctx context.Context, task *storage.Task, pr *plugin.
 		return fmt.Errorf("获取平台 provider 失败: %w", err)
 	}
 
-	var out *requirement.Output
+	var out *plugin.WorkflowOutput
 	var commentID int64
 	switch task.Kind {
 	case domain.TaskKindDescribe:
@@ -104,7 +103,7 @@ func (r *Runner) runWriting(ctx context.Context, task *storage.Task, pr *plugin.
 
 // writeDescribe describe 写作 + 描述写回（管理段替换/追加，不覆盖作者内容）。
 func (r *Runner) writeDescribe(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
-	svc *writing.Service, in writing.Input, prov provider.Provider) (*requirement.Output, error) {
+	svc *writing.Service, in writing.Input, prov provider.Provider) (*plugin.WorkflowOutput, error) {
 
 	d, err := svc.Describe(ctx, in)
 	if err != nil {
@@ -118,7 +117,7 @@ func (r *Runner) writeDescribe(ctx context.Context, task *storage.Task, pr *plug
 	}
 	r.Log.Info("argus.runner.describe_written", "task", task.ID,
 		"pr", fmt.Sprintf("%s/%s#%s", pr.Owner, pr.Repo, pr.Number), "title", d.Title)
-	return &requirement.Output{
+	return &plugin.WorkflowOutput{
 		Verdict:    "comment",
 		PluginsRun: []string{"writing"},
 		Summary:    "**" + d.Title + "**\n\n" + d.Body,
@@ -128,7 +127,7 @@ func (r *Runner) writeDescribe(ctx context.Context, task *storage.Task, pr *plug
 
 // writeChangelog changelog 条目写作 + 评论发布。
 func (r *Runner) writeChangelog(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
-	svc *writing.Service, in writing.Input, prov provider.Provider) (*requirement.Output, int64, error) {
+	svc *writing.Service, in writing.Input, prov provider.Provider) (*plugin.WorkflowOutput, int64, error) {
 
 	entry, err := svc.Changelog(ctx, in)
 	if err != nil {
@@ -144,7 +143,7 @@ func (r *Runner) writeChangelog(ctx context.Context, task *storage.Task, pr *plu
 	} else {
 		commentID = parseCommentID(idStr)
 	}
-	return &requirement.Output{
+	return &plugin.WorkflowOutput{
 		Verdict:    "comment",
 		PluginsRun: []string{"writing"},
 		Summary:    entry,
@@ -214,7 +213,7 @@ func (r *Runner) runCIAnalysis(ctx context.Context, task *storage.Task, start ti
 	}
 	r.Log.Info("argus.runner.ci_analysis_done", "task", task.ID, "jobs", len(ciJobs))
 
-	out := &requirement.Output{
+	out := &plugin.WorkflowOutput{
 		Verdict:    "comment",
 		PluginsRun: []string{"writing"},
 		Summary:    analysis.Conclusion,
@@ -251,7 +250,7 @@ func (r *Runner) runDiffPreview(ctx context.Context, task *storage.Task, start t
 	if err != nil {
 		return err
 	}
-	out := &requirement.Output{
+	out := &plugin.WorkflowOutput{
 		Verdict:    "comment", // 预审无合并门语义，只出意见报告
 		PluginsRun: []string{"writing"},
 		Summary:    report,
@@ -277,7 +276,7 @@ func (r *Runner) runDiffPreview(ctx context.Context, task *storage.Task, start t
 // verifyFixes 修复验证环（v3.74.0）：fixverifier 对带 suggested_fix 的意见做
 // 沙箱应用+编译验证并回写 f.Verified。未配置包装命令 / 无工作副本 / 全失败
 // 均静默跳过——功能是加分项，永不阻断审查主链路。
-func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin.PRContext, out *requirement.Output) {
+func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin.PRContext, out *plugin.WorkflowOutput) {
 	if r.Cfg == nil || r.Cfg.FixVerifyCmd == "" || out.Merged == nil || len(out.Merged.Findings) == 0 || r.WC == nil {
 		return
 	}
@@ -339,7 +338,7 @@ func isFixBranch(branch string) bool { return strings.HasPrefix(branch, fixBranc
 // commit message 带任务 ID 与条数可追溯。branch 形态要求 PR 源分支非空
 // （CreateCR 的目标分支），与 direct 的既有守卫同点。
 func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
-	pr *plugin.PRContext, dir string, findings []plugin.Finding, verified int) {
+	pr *plugin.PRContext, dir string, findings []domain.Finding, verified int) {
 
 	mode := r.Cfg.FixPushMode
 	if mode == "" { // FixPush=true 但 mode 空（装配期手工置位）：按旧形态兜底

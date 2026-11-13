@@ -16,15 +16,10 @@ import (
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
-// PrintStore / PatternStore 持久化契约住在 internal/domain（storage 实现、Merger 消费），
-// 此处别名保持既有 API，避免 39 个消费方一次性改引用。
-type PrintStore = domain.PrintStore
-type PatternStore = domain.PatternStore
-type PrintState = domain.PrintState
-
-// MergedFindings Merger 产出。
+// plugin.MergedFindings Merger 产出。
 // Merger 合并器（design §3.3，全部确定性）：
 //  1. severity 入口归一化（越界归 low + 告警）；
 //  2. 轮内精确指纹去重（规范化评论文本哈希 + file；冲突 severity 取高）；
@@ -32,18 +27,18 @@ type PrintState = domain.PrintState
 //  4. 插件失败/跳过 → 降级注明，不拖垮整体；
 //  5. 学习环开启时：低置信模式标注 + 仅 low 条目按 HardFloor 丢弃。
 type Merger struct {
-	store    PrintStore
-	patterns PatternStore
+	store    domain.PrintStore
+	patterns domain.PatternStore
 	learn    learning.Config
 	log      logx.Logger
 }
 
-func NewMerger(store PrintStore, log logx.Logger) *Merger {
+func NewMerger(store domain.PrintStore, log logx.Logger) *Merger {
 	return &Merger{store: store, log: log, learn: learning.DefaultConfig()}
 }
 
 // WithLearning 接入模式级后悔学习环（nil store 或 Enabled=false 时旁路）。
-func (m *Merger) WithLearning(ps PatternStore, cfg learning.Config) *Merger {
+func (m *Merger) WithLearning(ps domain.PatternStore, cfg learning.Config) *Merger {
 	m.patterns = ps
 	m.learn = cfg
 	return m
@@ -52,7 +47,7 @@ func (m *Merger) WithLearning(ps PatternStore, cfg learning.Config) *Merger {
 // AnnotateCrossReview 交叉审查分歧标注（v3.3）：编队成员（≥2）对同一文件
 // ±5 行内各自报告了不同指纹的意见时，给"仅一方报告"的意见追加分歧标注——
 // 人审时优先看专家意见不一致的区域。幂等：重复调用不叠加标注。
-func (m *Merger) AnnotateCrossReview(mf *MergedFindings, members []string) {
+func (m *Merger) AnnotateCrossReview(mf *plugin.MergedFindings, members []string) {
 	if mf == nil || len(members) < 2 {
 		return
 	}
@@ -73,7 +68,7 @@ func linesCompatible(a, b int) bool {
 }
 
 // annotateCross 实际标注（AnnotateCrossReview 的实现体，独立便于测试）。
-func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
+func (m *Merger) annotateCross(mf *plugin.MergedFindings, memberSet map[string]bool) {
 	const crossMark = "⚠️ 交叉审查分歧"
 	// 先剥离旧标注（幂等）
 	for i := range mf.Findings {
@@ -156,7 +151,7 @@ func (m *Merger) annotateCross(mf *MergedFindings, memberSet map[string]bool) {
 // AnnotateLowConfidence 在 R3.5 之后重放学习环低置信标注。
 // 原因：R3.5 按 id 回写 comment 时会用模型修订稿覆盖 Merger 阶段追加的后缀，
 // 「历史置信度低」提示在终审后丢失。幂等：已含标注则跳过。
-func (m *Merger) AnnotateLowConfidence(ctx context.Context, pr PRContext, mf *MergedFindings) {
+func (m *Merger) AnnotateLowConfidence(ctx context.Context, pr plugin.PRContext, mf *plugin.MergedFindings) {
 	if mf == nil || !m.learn.Enabled || m.patterns == nil {
 		return
 	}
@@ -181,7 +176,7 @@ func (m *Merger) AnnotateLowConfidence(ctx context.Context, pr PRContext, mf *Me
 
 // mergeAcc 轮内归并 accumulator：同一问题多插件/多措辞命中时共享一个 acc。
 type mergeAcc struct {
-	finding Finding
+	finding domain.Finding
 	fp      string // 该条目的指纹（linesCompatible 分裂后各行有独立 acc）
 	bys     map[string]bool
 	byOrder []string // 来源插件按合并发生序（首见者=评语作者，学习环记账键依赖此序）
@@ -189,14 +184,14 @@ type mergeAcc struct {
 
 // mergePending 待入库条目及其入库结果（跨轮历史/抑制判定在此回填）。
 type mergePending struct {
-	f   Finding
+	f   domain.Finding
 	res domain.PrintUpsertResult
 }
 
 // mergeInto 把后到的同类发现并入既有条目：severity 冲突取高、行号 ±2 内采纳新行号、
 // by 追加来源插件；意见文本不同且非互相包含时拼接（不同专家措辞各保留）。
-func (a *mergeAcc) mergeInto(f Finding) {
-	a.finding.Severity = HigherSeverity(a.finding.Severity, f.Severity)
+func (a *mergeAcc) mergeInto(f domain.Finding) {
+	a.finding.Severity = plugin.HigherSeverity(a.finding.Severity, f.Severity)
 	if abs(a.finding.Line-f.Line) <= 2 && f.Line > 0 {
 		a.finding.Line = f.Line
 	}
@@ -217,7 +212,7 @@ func (a *mergeAcc) mergeInto(f Finding) {
 // mergeInRound 轮内归并：三通道探测（指纹 / file+规范化评语 / file+line），
 // 命中既有条目即并入，否则新建。返回按首见序排列的 acc 清单，同时把插件
 // 失败/降级注记写进 out.Degraded。
-func (m *Merger) mergeInRound(outcomes []Outcome, out *MergedFindings) []*mergeAcc {
+func (m *Merger) mergeInRound(outcomes []Outcome, out *plugin.MergedFindings) []*mergeAcc {
 	byFP := map[string]*mergeAcc{} // fp → 首个 acc（轮内指纹去重探测）
 	byNC := map[string]*mergeAcc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
 	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
@@ -234,12 +229,12 @@ func (m *Merger) mergeInRound(outcomes []Outcome, out *MergedFindings) []*mergeA
 		// 插件自报的审查降级（如 builtin ReAct 失败落回单轮）透出为 Degraded——
 		// 此前同一 "by xxx" 标签掩盖两种审查强度，报告消费者无法区分（v3.8.0）。
 		for _, line := range strings.Split(o.Result.Notes, "\n") {
-			if strings.Contains(line, DegradationMarker) {
+			if strings.Contains(line, plugin.DegradationMarker) {
 				out.Degraded = append(out.Degraded, o.Name+"："+strings.TrimSpace(line))
 			}
 		}
 		for _, f := range o.Result.Findings {
-			sev, ok := NormalizeSeverity(f.Severity)
+			sev, ok := plugin.NormalizeSeverity(f.Severity)
 			if !ok {
 				m.log.Warn("argus.merger.severity_unknown",
 					"plugin", o.Name, "raw", f.Severity, "mapped", sev)
@@ -250,11 +245,11 @@ func (m *Merger) mergeInRound(outcomes []Outcome, out *MergedFindings) []*mergeA
 			}
 			f.Severity = sev
 			f.By = o.Name
-			obsFindings(sev, o.Name, 1)
+			plugin.ObsFindings(sev, o.Name, 1)
 
 			// 规范指纹写定于此（原始 comment/行号，先于任何标注与 R3.5 修订），
 			// 之后只读贯穿到渲染/反馈层——身份唯一化（v3.8.0，勿在下游重算）。
-			f.FP = Fingerprint(f.File, f.Comment, f.Line)
+			f.FP = plugin.Fingerprint(f.File, f.Comment, f.Line)
 			fp := f.FP
 			if a, dup := byFP[fp]; dup && linesCompatible(a.finding.Line, f.Line) {
 				// 轮内去重：severity 冲突取高；行号 ±2 内采纳新行号（匹配辅助）；
@@ -300,7 +295,7 @@ func (m *Merger) mergeInRound(outcomes []Outcome, out *MergedFindings) []*mergeA
 
 // persistPrints 先归一化 By 并批量入库：整批共用一次 writeMu（SQLite 多意见 PR
 // 显著降锁竞争），返回逐条 Prior/suppressed 待消费清单。
-func (m *Merger) persistPrints(ctx context.Context, pr PRContext, taskID string, at time.Time,
+func (m *Merger) persistPrints(ctx context.Context, pr plugin.PRContext, taskID string, at time.Time,
 	order []*mergeAcc) []mergePending {
 	pendings := make([]mergePending, 0, len(order))
 	batch := make([]domain.PrintUpsert, 0, len(order))
@@ -329,8 +324,8 @@ func (m *Merger) persistPrints(ctx context.Context, pr PRContext, taskID string,
 
 // applyLearning 学习环闸门与标注（顺序不变量：HardFloor 丢弃 → PatternPosted 记账
 // → SoftFloor 标注 → 展示标注，错账史见 v3.9.0/v3.9.1）。
-func (m *Merger) applyLearning(ctx context.Context, pr PRContext, at time.Time,
-	out *MergedFindings, pendings []mergePending) {
+func (m *Merger) applyLearning(ctx context.Context, pr plugin.PRContext, at time.Time,
+	out *plugin.MergedFindings, pendings []mergePending) {
 	// 学习环：一次性拉本仓库低置信模式（HardFloor），供丢弃与标注共用；
 	// 建 key 索引后循环内 O(1) 查表（原 matchLowPattern 为 O(n·m) 线扫 + 每条
 	// finding 重算 PatternKey，意见多的 PR 在热路径上）。
@@ -372,7 +367,7 @@ func (m *Merger) applyLearning(ctx context.Context, pr PRContext, at time.Time,
 
 		// 学习环硬闸门：样本充足且置信度低于 HardFloor 的 low 条目直接丢弃。
 		// medium/high 不丢——误杀代价不对称（design D4）。
-		if m.learn.Enabled && f.Severity == SeverityLow {
+		if m.learn.Enabled && f.Severity == plugin.SeverityLow {
 			if hit := lookupLow(lowIdx, pkey, m.learn.HardFloor); hit != nil {
 				out.Degraded = append(out.Degraded, fmt.Sprintf(
 					"学习环抑制：%s/%s（模式置信度 %.2f）", hit.Plugin, textutil.TruncEllipsis(hit.PatternText, 40), hit.Confidence))
@@ -414,15 +409,15 @@ func (m *Merger) applyLearning(ctx context.Context, pr PRContext, at time.Time,
 }
 
 // Merge 执行合并。pluginNameOf 提供 finding 归属（ Outcome 遍历时注入）。
-func (m *Merger) Merge(ctx context.Context, pr PRContext, taskID string, outcomes []Outcome, at time.Time) (*MergedFindings, error) {
-	defer ReportLayerExec(LayerMerger)
-	out := &MergedFindings{}
+func (m *Merger) Merge(ctx context.Context, pr plugin.PRContext, taskID string, outcomes []Outcome, at time.Time) (*plugin.MergedFindings, error) {
+	defer ReportLayerExec(plugin.LayerMerger)
+	out := &plugin.MergedFindings{}
 	order := m.mergeInRound(outcomes, out)
 	pendings := m.persistPrints(ctx, pr, taskID, at, order)
 	m.applyLearning(ctx, pr, at, out, pendings)
 
-	slices.SortStableFunc(out.Findings, func(a, b Finding) int {
-		if c := cmp.Compare(SeverityRank(a.Severity), SeverityRank(b.Severity)); c != 0 {
+	slices.SortStableFunc(out.Findings, func(a, b domain.Finding) int {
+		if c := cmp.Compare(plugin.SeverityRank(a.Severity), plugin.SeverityRank(b.Severity)); c != 0 {
 			return -c
 		}
 		if c := strings.Compare(a.File, b.File); c != 0 {

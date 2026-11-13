@@ -10,6 +10,7 @@ import (
 
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -17,11 +18,11 @@ import (
 
 func TestAggregateSamples_ReplicationAndBump(t *testing.T) {
 	// 3 采样：2 份报同一 medium 问题（同 file:line 同评语），1 份报另一 low 问题
-	same := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "错误处理缺失"}
-	results := []Result{
-		{Findings: []Finding{same, {File: "b.go", Line: 1, Severity: SeverityLow, Comment: "命名风格"}}},
-		{Findings: []Finding{same}},
-		{Findings: []Finding{same}},
+	same := domain.Finding{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "错误处理缺失"}
+	results := []plugin.Result{
+		{Findings: []domain.Finding{same, {File: "b.go", Line: 1, Severity: plugin.SeverityLow, Comment: "命名风格"}}},
+		{Findings: []domain.Finding{same}},
+		{Findings: []domain.Finding{same}},
 	}
 	agg := aggregateSamples(3, 3, results)
 	if len(agg.Findings) != 2 {
@@ -31,27 +32,27 @@ func TestAggregateSamples_ReplicationAndBump(t *testing.T) {
 	if first.File != "a.go" {
 		t.Fatalf("首条应保持采样序 a.go，got %s", first.File)
 	}
-	if first.Severity != SeverityHigh {
+	if first.Severity != plugin.SeverityHigh {
 		t.Fatalf("复现 3/3 应升一级 medium→high，got %s", first.Severity)
 	}
 	if first.Samples != "3/3" {
 		t.Fatalf("Samples=3/3，got %q", first.Samples)
 	}
-	if Fingerprint(first.File, first.Comment, first.Line) == "" {
+	if plugin.Fingerprint(first.File, first.Comment, first.Line) == "" {
 		t.Fatal("指纹可计算（评语未被标注污染）")
 	}
 	second := agg.Findings[1]
-	if second.Samples != "1/3" || second.Severity != SeverityLow {
+	if second.Samples != "1/3" || second.Severity != plugin.SeverityLow {
 		t.Fatalf("单次 low 应保留并标注 1/3，got sev=%s samples=%q", second.Severity, second.Samples)
 	}
 }
 
 func TestAggregateSamples_WordDriftMerges(t *testing.T) {
 	// 措辞漂移（规范化后同评语、行号相容）→ 同题合并计数；不相容行号独立成条
-	results := []Result{
-		{Findings: []Finding{{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "Error handling missing."}}},
-		{Findings: []Finding{{File: "a.go", Line: 4, Severity: SeverityMedium, Comment: "error handling missing"}}},
-		{Findings: []Finding{{File: "a.go", Line: 30, Severity: SeverityLow, Comment: "error handling missing"}}},
+	results := []plugin.Result{
+		{Findings: []domain.Finding{{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "Error handling missing."}}},
+		{Findings: []domain.Finding{{File: "a.go", Line: 4, Severity: plugin.SeverityMedium, Comment: "error handling missing"}}},
+		{Findings: []domain.Finding{{File: "a.go", Line: 30, Severity: plugin.SeverityLow, Comment: "error handling missing"}}},
 	}
 	agg := aggregateSamples(3, 3, results)
 	if len(agg.Findings) != 2 {
@@ -66,12 +67,12 @@ func TestAggregateSamples_WordDriftMerges(t *testing.T) {
 }
 
 func TestAggregateSamples_PartialFailureNote(t *testing.T) {
-	results := []Result{
-		{Findings: []Finding{{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "x"}}},
-		{Findings: []Finding{{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "x"}}},
+	results := []plugin.Result{
+		{Findings: []domain.Finding{{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "x"}}},
+		{Findings: []domain.Finding{{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "x"}}},
 	}
 	agg := aggregateSamples(3, 2, results)
-	if !strings.Contains(agg.Notes, DegradationMarker) || !strings.Contains(agg.Notes, "2/3") {
+	if !strings.Contains(agg.Notes, plugin.DegradationMarker) || !strings.Contains(agg.Notes, "2/3") {
 		t.Fatalf("部分成功应有降级注记，notes=%q", agg.Notes)
 	}
 	if agg.Findings[0].Samples != "2/3" {
@@ -89,23 +90,23 @@ func TestClampReviewN(t *testing.T) {
 }
 
 func TestBumpSeverity(t *testing.T) {
-	if BumpSeverity(SeverityLow) != SeverityMedium || BumpSeverity(SeverityMedium) != SeverityHigh ||
-		BumpSeverity(SeverityHigh) != SeverityHigh {
+	if BumpSeverity(plugin.SeverityLow) != plugin.SeverityMedium || BumpSeverity(plugin.SeverityMedium) != plugin.SeverityHigh ||
+		BumpSeverity(plugin.SeverityHigh) != plugin.SeverityHigh {
 		t.Fatal("升级链 low→medium→high→high 不符")
 	}
 }
 
 func TestSamplesAnnotation(t *testing.T) {
-	if ann := SamplesAnnotation(Finding{Samples: "2/3"}); !strings.Contains(ann, "2/3") {
+	if ann := SamplesAnnotation(domain.Finding{Samples: "2/3"}); !strings.Contains(ann, "2/3") {
 		t.Fatalf("复现标注错误: %q", ann)
 	}
-	if ann := SamplesAnnotation(Finding{Samples: "1/3"}); !strings.Contains(ann, "单次") {
+	if ann := SamplesAnnotation(domain.Finding{Samples: "1/3"}); !strings.Contains(ann, "单次") {
 		t.Fatalf("单次标注错误: %q", ann)
 	}
-	if ann := SamplesAnnotation(Finding{}); ann != "" {
+	if ann := SamplesAnnotation(domain.Finding{}); ann != "" {
 		t.Fatalf("无采样应空标注，got %q", ann)
 	}
-	if ann := SamplesAnnotation(Finding{Samples: "bad"}); ann != "" {
+	if ann := SamplesAnnotation(domain.Finding{Samples: "bad"}); ann != "" {
 		t.Fatalf("非法格式应空标注，got %q", ann)
 	}
 }
@@ -114,33 +115,33 @@ func TestSamplesAnnotation(t *testing.T) {
 
 // seqPlugin 按调用序返回预设结果（并发采样用原子序；failOn 命中的轮次返回错误）。
 type seqPlugin struct {
-	manifest AgentManifest
+	manifest plugin.AgentManifest
 	mu       sync.Mutex
 	calls    int
-	outputs  []Result
+	outputs  []plugin.Result
 	failOn   map[int]bool
 }
 
-func (p *seqPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *seqPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
+func (p *seqPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *seqPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
 	p.mu.Lock()
 	i := p.calls
 	p.calls++
 	fail := p.failOn[i]
-	var out Result
+	var out plugin.Result
 	if len(p.outputs) > 0 {
 		out = p.outputs[i%len(p.outputs)]
 	}
 	p.mu.Unlock()
 	if fail {
-		return Result{}, errors.New("sample boom")
+		return plugin.Result{}, errors.New("sample boom")
 	}
 	return out, nil
 }
 
-func sampleReg(name string, n int, p AgentPlugin) *Registration {
+func sampleReg(name string, n int, p plugin.AgentPlugin) *Registration {
 	return &Registration{
-		Manifest: AgentManifest{Name: name, Skills: []string{plugin.SkillCodeReview}, ReviewN: n, Timeout: 5 * time.Second},
+		Manifest: plugin.AgentManifest{Name: name, Skills: []string{plugin.SkillCodeReview}, ReviewN: n, Timeout: 5 * time.Second},
 		Plugin:   p,
 		Enabled:  true,
 	}
@@ -148,16 +149,16 @@ func sampleReg(name string, n int, p AgentPlugin) *Registration {
 
 func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
-	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, outputs: []Result{
-		{Findings: []Finding{finding}},
-		{Findings: []Finding{finding}},
-		{Findings: []Finding{}},
+	finding := domain.Finding{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "同题发现"}
+	p := &seqPlugin{manifest: plugin.AgentManifest{Name: "expert", ReviewN: 3}, outputs: []plugin.Result{
+		{Findings: []domain.Finding{finding}},
+		{Findings: []domain.Finding{finding}},
+		{Findings: []domain.Finding{}},
 	}}
 	_ = d.reg.Register(sampleReg("expert", 3, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
-	outcomes := d.Run(context.Background(), Task{}, sel, nil)
+	sel := d.Select(&plugin.PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
 	if len(outcomes) != 1 || outcomes[0].Err != nil || outcomes[0].Result == nil {
 		t.Fatalf("应单 Outcome 成功: %+v", outcomes)
 	}
@@ -173,13 +174,13 @@ func TestDispatcher_RunBestOfN_Aggregated(t *testing.T) {
 
 func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	finding := Finding{File: "a.go", Line: 3, Severity: SeverityMedium, Comment: "同题发现"}
-	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 3}, failOn: map[int]bool{1: true},
-		outputs: []Result{{Findings: []Finding{finding}}, {Findings: []Finding{finding}}, {Findings: []Finding{finding}}}}
+	finding := domain.Finding{File: "a.go", Line: 3, Severity: plugin.SeverityMedium, Comment: "同题发现"}
+	p := &seqPlugin{manifest: plugin.AgentManifest{Name: "expert", ReviewN: 3}, failOn: map[int]bool{1: true},
+		outputs: []plugin.Result{{Findings: []domain.Finding{finding}}, {Findings: []domain.Finding{finding}}, {Findings: []domain.Finding{finding}}}}
 	_ = d.reg.Register(sampleReg("expert", 3, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
-	outcomes := d.Run(context.Background(), Task{}, sel, nil)
+	sel := d.Select(&plugin.PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
 	o := outcomes[0]
 	if o.Err != nil || o.Result == nil {
 		t.Fatalf("部分成功应照常产结果: %+v", o)
@@ -194,12 +195,12 @@ func TestDispatcher_RunBestOfN_PartialFailure(t *testing.T) {
 
 func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	p := &seqPlugin{manifest: AgentManifest{Name: "expert", ReviewN: 2},
+	p := &seqPlugin{manifest: plugin.AgentManifest{Name: "expert", ReviewN: 2},
 		failOn: map[int]bool{0: true, 1: true}}
 	_ = d.reg.Register(sampleReg("expert", 2, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
-	outcomes := d.Run(context.Background(), Task{}, sel, nil)
+	sel := d.Select(&plugin.PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
 	if outcomes[0].Err == nil || outcomes[0].Result != nil {
 		t.Fatalf("全失败应透出错误: %+v", outcomes[0])
 	}
@@ -211,13 +212,13 @@ func TestDispatcher_RunBestOfN_AllFail(t *testing.T) {
 func TestDispatcher_RunBestOfN_OffByDefault(t *testing.T) {
 	// ReviewN=0/1：单次执行语义不变（只 invoke 一次）
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	p := &seqPlugin{manifest: AgentManifest{Name: "expert"}, outputs: []Result{{Findings: []Finding{
-		{File: "a.go", Line: 3, Severity: SeverityLow, Comment: "x"},
+	p := &seqPlugin{manifest: plugin.AgentManifest{Name: "expert"}, outputs: []plugin.Result{{Findings: []domain.Finding{
+		{File: "a.go", Line: 3, Severity: plugin.SeverityLow, Comment: "x"},
 	}}}}
 	_ = d.reg.Register(sampleReg("expert", 1, p))
 
-	sel := d.Select(&PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
-	outcomes := d.Run(context.Background(), Task{}, sel, nil)
+	sel := d.Select(&plugin.PRContext{Platform: "gitea"}, nil, []string{plugin.SkillCodeReview}, nil)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
 	fs := outcomes[0].Result.Findings
 	if len(fs) != 1 || fs[0].Samples != "" {
 		t.Fatalf("reviewN=1 不应有采样标注: %+v", fs)
@@ -230,13 +231,13 @@ func TestDispatcher_RunBestOfN_OffByDefault(t *testing.T) {
 }
 
 func TestConfidenceAnnotation(t *testing.T) {
-	if ann := ConfidenceAnnotation(Finding{Confidence: 0}); ann != "" {
+	if ann := ConfidenceAnnotation(domain.Finding{Confidence: 0}); ann != "" {
 		t.Fatalf("未提供信心应无标注: %q", ann)
 	}
-	if ann := ConfidenceAnnotation(Finding{Confidence: 0.9}); ann != "" {
+	if ann := ConfidenceAnnotation(domain.Finding{Confidence: 0.9}); ann != "" {
 		t.Fatalf("高信心应无标注: %q", ann)
 	}
-	ann := ConfidenceAnnotation(Finding{Confidence: 0.4})
+	ann := ConfidenceAnnotation(domain.Finding{Confidence: 0.4})
 	if ann == "" || !strings.Contains(ann, "40%") {
 		t.Fatalf("低信心应有百分比标注: %q", ann)
 	}

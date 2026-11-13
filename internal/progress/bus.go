@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	oagentprogress "github.com/oagentkit/runtime/progress"
 )
 
 // 事件 Type 词表（v3.109.0 常量化——此前 5 处发布点裸字面量，词表只活在
@@ -45,12 +43,4 @@ func NewEventID() string {
 		return id.String()
 	}
 	return fmt.Sprintf("ev-%d", time.Now().UnixNano())
-}
-
-// Bus 类型别名：委托给 oagentkit 泛型总线。
-type Bus = oagentprogress.Bus[Event]
-
-// NewBus 创建事件总线。
-func NewBus() *Bus {
-	return oagentprogress.NewBus[Event]()
 }

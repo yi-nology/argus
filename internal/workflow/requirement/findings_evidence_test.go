@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -15,7 +16,7 @@ import (
 func TestVerifyFindingsEvidenceWiring(t *testing.T) {
 	task := analystTask("standard") // Diff.Files = [x.go]
 	task.Artifacts[plugin.ArtifactCodegraphTouched] = "命中 x.go:3 与 touch.go:7"
-	merged := &plugin.MergedFindings{Findings: []plugin.Finding{
+	merged := &plugin.MergedFindings{Findings: []domain.Finding{
 		{File: "x.go", Line: 3, Severity: "high", Comment: "a",
 			Evidence: "x.go:3 改动侧缺判空"}, // 改动集内 → 不动
 		{File: "x.go", Line: 4, Severity: "critical", Comment: "b",

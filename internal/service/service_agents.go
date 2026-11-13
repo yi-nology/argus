@@ -10,6 +10,7 @@ import (
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -190,7 +191,7 @@ func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any
 
 // findingDTO 单条意见的 MCP/副驾直出载荷（出口面单源，v6.18.0 起含 evidence：
 // Finding 级证据随结构化清单直出——schema 有字段而出口不带，消费面等于看不到）。
-func findingDTO(f plugin.Finding) map[string]any {
+func findingDTO(f domain.Finding) map[string]any {
 	return map[string]any{
 		"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
 		"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,

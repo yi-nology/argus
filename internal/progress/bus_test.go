@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	oagentprogress "github.com/oagentkit/runtime/progress"
 )
 
 // TestBusFanOut 多订阅者各收到一份事件。
 func TestBusFanOut(t *testing.T) {
-	b := NewBus()
+	b := oagentprogress.NewBus[Event]()
 	ctx := context.Background()
 	ch1, c1 := b.Subscribe(ctx)
 	ch2, c2 := b.Subscribe(ctx)
@@ -29,7 +31,7 @@ func TestBusFanOut(t *testing.T) {
 
 // TestBusDropOnSlow 订阅者积压时发布不阻塞、事件有损丢弃。
 func TestBusDropOnSlow(t *testing.T) {
-	b := NewBus()
+	b := oagentprogress.NewBus[Event]()
 	ch, cancel := b.Subscribe(context.Background())
 	defer cancel()
 	_ = ch

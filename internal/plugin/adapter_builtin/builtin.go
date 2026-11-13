@@ -22,6 +22,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 )
@@ -37,14 +38,10 @@ const diffPathDiscipline = "【路径纪律】下方 git diff 中出现的文件
 // R4 分派时不会递归选中它（它的 skills= requirement-compliance，R4 只选 code-review）。
 type CompliancePlugin struct {
 	manifest plugin.AgentManifest
-	factory  WorkflowFactory // 每次 Invoke 构造独立 workflow 实例（LLM 预算随调用方注入）
+	factory  plugin.WorkflowFactory // 每次 Invoke 构造独立 workflow 实例（LLM 预算随调用方注入）
 }
 
-// WorkflowFactory 边界契约自 v3.5.6 上提 plugin（runner 装配 factory 时不再为拿
-// 类型名 import 本适配器）；WorkflowRunner 无包内使用者，直接引用 plugin 源头。
-type WorkflowFactory = plugin.WorkflowFactory
-
-func NewCompliance(m plugin.AgentManifest, factory WorkflowFactory) (*CompliancePlugin, error) {
+func NewCompliance(m plugin.AgentManifest, factory plugin.WorkflowFactory) (*CompliancePlugin, error) {
 	if m.Timeout <= 0 {
 		m.Timeout = 600 * time.Second
 	}
@@ -68,7 +65,7 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 	if err != nil {
 		return plugin.Result{}, err
 	}
-	var findings []plugin.Finding
+	var findings []domain.Finding
 	if out.Merged != nil {
 		findings = out.Merged.Findings
 	}
@@ -84,11 +81,6 @@ func (p *CompliancePlugin) Invoke(ctx context.Context, task plugin.Task) (plugin
 	}, nil
 }
 
-// ToolsHook R4 复用审查工具表的钩子（bootstrap 由 runner 注入；nil = 单轮调用模式）。
-// 返回 (工具表, 策略提示, 错误)；每次调用应重建工具表（toolprior 限流计数按尝试重置）。
-// canonical 定义自 v3.5.6 上提 plugin.ToolsHook。
-type ToolsHook = plugin.ToolsHook
-
 // Reviewer 通用 LLM 审查 agent（correctness / security…同一结构不同人设）。
 type Reviewer struct {
 	manifest  plugin.AgentManifest
@@ -98,7 +90,7 @@ type Reviewer struct {
 	skills    skill.Provider
 	// toolsHook 非 nil 时走 ReAct 模式（agentrun + 工具表，模型可自查代码上下文）；
 	// ReAct 失败自动落回单轮 GenerateJSON——审查不因工具链故障而失败。
-	toolsHook ToolsHook
+	toolsHook plugin.ToolsHook
 	// reactModel ReAct 专用模型（已 Failover 装饰）；nil = llm.RawModel()。
 	reactModel model.BaseChatModel
 	// reactMaxIterations ReAct 迭代上限（WithReactMaxIterations 注入）；
@@ -140,7 +132,7 @@ func NewReviewer(m plugin.AgentManifest, focus string, client llm.Generator,
 type ReviewerOption func(*Reviewer)
 
 // WithToolsHook 启用 ReAct 模式（工具表由 runner 侧提供，复用 R3 基础设施）。
-func WithToolsHook(h ToolsHook) ReviewerOption { return func(r *Reviewer) { r.toolsHook = h } }
+func WithToolsHook(h plugin.ToolsHook) ReviewerOption { return func(r *Reviewer) { r.toolsHook = h } }
 
 // WithLogger 注入日志（ReAct 工具轨迹观测用；nil = 静默）。
 func WithLogger(log logx.Logger) ReviewerOption { return func(r *Reviewer) { r.log = log } }

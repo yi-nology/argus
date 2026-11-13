@@ -15,11 +15,9 @@ import (
 	"github.com/oagentkit/tools/sast"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
-
-// Config SAST 工具配置（SDK 形态别名；全部来自服务级 env，默认全空 = 关闭）。
-type Config = sast.Config
 
 // sastEnvAllow SAST 子进程环境白名单（按名透传当前进程变量，叠加在 procx
 // 基础集之上）——部署纪律留在 argus（§8 供应链：绝不继承 ARGUS_*/OPENAI_*）。
@@ -46,7 +44,7 @@ func filterRegularFiles(dir string, paths []string) []string {
 // Run 执行全部已配置工具，产出 dispatch.Outcome（失败置 Err，不 panic 不中断）。
 // dir 为工作副本根；baseRef 非空时 gitleaks 按提交范围扫描；paths 为 diffprep
 // Included 的聚焦清单（nil/空 = 全仓）。
-func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, log sast.Logger) []dispatch.Outcome {
+func Run(ctx context.Context, cfg sast.Config, dir, baseRef string, paths []string, log sast.Logger) []dispatch.Outcome {
 	cfg.EnvAllow = sastEnvAllow
 	if len(paths) > 0 {
 		paths = filterRegularFiles(dir, paths)
@@ -60,9 +58,9 @@ func Run(ctx context.Context, cfg Config, dir, baseRef string, paths []string, l
 		o := dispatch.Outcome{Name: res.Tool, Manifest: manifest(res.Tool, cfg.TimeoutResolved())}
 		o.Err = res.Err
 		if len(res.Findings) > 0 || res.Err == nil {
-			findings := make([]plugin.Finding, 0, len(res.Findings))
+			findings := make([]domain.Finding, 0, len(res.Findings))
 			for _, f := range res.Findings {
-				findings = append(findings, plugin.Finding{
+				findings = append(findings, domain.Finding{
 					File: f.File, Line: f.Line, Severity: f.Severity,
 					Comment: f.Comment, By: f.Tool,
 				})

@@ -14,6 +14,7 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
@@ -38,7 +39,7 @@ type Poller struct {
 	// 两条任务源对 draft 的行为保持一致。
 	SkipDraft bool
 	Log       logx.Logger
-	Bus       *progress.Bus // task.created 事件（SSE；nil 安全）
+	Bus       *oagentprogress.Bus[progress.Event] // task.created 事件（SSE；nil 安全）
 	// IsLeader 选主门控（多副本部署：worker.LeaderElector.IsLeader 注入；
 	// nil = 单实例语义恒为 leader）。非 leader 的 tick 直接跳过——轮询任务源
 	// 本身幂等（同 SHA 双查），双跑无害只浪费，收敛为单份省 API 配额。

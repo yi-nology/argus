@@ -6,21 +6,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oekit/logx"
 	"time"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
-// fakePrintStore 内存版 PrintStore：预置 prior 状态与抑制表，用于 Merger
+// fakePrintStore 内存版 domain.PrintStore：预置 prior 状态与抑制表，用于 Merger
 // 跨轮标注逻辑的单测（不触库）。
 type fakePrintStore struct {
-	prior      map[string]*PrintState
+	prior      map[string]*domain.PrintState
 	suppressed map[string]bool
 	getErr     error
 }
 
-func (f *fakePrintStore) GetPrintState(_ context.Context, _, _, _, _, fp string) (*PrintState, error) {
+func (f *fakePrintStore) GetPrintState(_ context.Context, _, _, _, _, fp string) (*domain.PrintState, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -28,7 +30,7 @@ func (f *fakePrintStore) GetPrintState(_ context.Context, _, _, _, _, fp string)
 }
 
 func (f *fakePrintStore) UpsertPrint(_ context.Context, _, _, _, _, fp string,
-	_ Finding, _ string, _ time.Time) (bool, error) {
+	_ domain.Finding, _ string, _ time.Time) (bool, error) {
 	return f.suppressed[fp], nil
 }
 
@@ -44,21 +46,21 @@ func (f *fakePrintStore) UpsertPrints(_ context.Context, _, _, _, _, _ string,
 	return out
 }
 
-func regretTestPR() PRContext {
-	return PRContext{Platform: "github", Owner: "o", Repo: "r", Number: "1"}
+func regretTestPR() plugin.PRContext {
+	return plugin.PRContext{Platform: "github", Owner: "o", Repo: "r", Number: "1"}
 }
 
 // 正常：既有复现（TimesSeen>=2）与 regret（RegretCount>=2）标注到 comment；
 // 无历史的指纹不得带任何标注。
 func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
-	fpA := Fingerprint("a.go", "空指针风险", 1)
-	_ = Fingerprint("b.go", "命名不佳", 2) // 无历史指纹：负控（不得带标注）
-	store := &fakePrintStore{prior: map[string]*PrintState{
+	fpA := plugin.Fingerprint("a.go", "空指针风险", 1)
+	_ = plugin.Fingerprint("b.go", "命名不佳", 2) // 无历史指纹：负控（不得带标注）
+	store := &fakePrintStore{prior: map[string]*domain.PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}
 	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1",
-		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
+		[]Outcome{{Name: "s1", Result: &plugin.Result{Findings: []domain.Finding{
 			{File: "a.go", Line: 1, Severity: "high", Comment: "空指针风险"},
 			{File: "b.go", Line: 2, Severity: "low", Comment: "命名不佳"},
 		}}}}, time.Now())
@@ -87,14 +89,14 @@ func TestMergeAnnotatesRecurrenceAndRegret(t *testing.T) {
 
 // 负控：suppressed 指纹依旧被剔除——标注逻辑不得复活被人工抑制的条目。
 func TestMergeSuppressedPriorStillDropped(t *testing.T) {
-	fp := Fingerprint("c.go", "误报历史", 9)
+	fp := plugin.Fingerprint("c.go", "误报历史", 9)
 	store := &fakePrintStore{
-		prior:      map[string]*PrintState{fp: {Status: "suppressed", TimesSeen: 5}},
+		prior:      map[string]*domain.PrintState{fp: {Status: "suppressed", TimesSeen: 5}},
 		suppressed: map[string]bool{fp: true},
 	}
 	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t2",
-		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
+		[]Outcome{{Name: "s1", Result: &plugin.Result{Findings: []domain.Finding{
 			{File: "c.go", Line: 9, Severity: "medium", Comment: "误报历史"},
 		}}}}, time.Now())
 	if err != nil {
@@ -110,7 +112,7 @@ func TestMergeGetStateErrorKeepsMerge(t *testing.T) {
 	store := &fakePrintStore{getErr: errors.New("db down")}
 	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t3",
-		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
+		[]Outcome{{Name: "s1", Result: &plugin.Result{Findings: []domain.Finding{
 			{File: "d.go", Line: 3, Severity: "high", Comment: "越界访问"},
 		}}}}, time.Now())
 	if err != nil {
@@ -124,13 +126,13 @@ func TestMergeGetStateErrorKeepsMerge(t *testing.T) {
 // v3.8.0 回归：即使 comment 被复现/regret 标注改写，Findings[].FP 也必须等于
 // 入库指纹——渲染短码与人工反馈都消费它，重算必漂移（漂移=被标注条目无法抑制）。
 func TestMergeFindingCarriesStoredFingerprint(t *testing.T) {
-	fpA := Fingerprint("a.go", "空指针风险", 1)
-	store := &fakePrintStore{prior: map[string]*PrintState{
+	fpA := plugin.Fingerprint("a.go", "空指针风险", 1)
+	store := &fakePrintStore{prior: map[string]*domain.PrintState{
 		fpA: {Status: "open", TimesSeen: 2, RegretCount: 3},
 	}}
 	m := NewMerger(store, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t-fp",
-		[]Outcome{{Name: "s1", Result: &Result{Findings: []Finding{
+		[]Outcome{{Name: "s1", Result: &plugin.Result{Findings: []domain.Finding{
 			{File: "a.go", Line: 1, Severity: "high", Comment: "空指针风险"},
 		}}}}, time.Now())
 	if err != nil {
@@ -144,7 +146,7 @@ func TestMergeFindingCarriesStoredFingerprint(t *testing.T) {
 		t.Fatalf("FP = %q, want 入库指纹 %q", f.FP, fpA)
 	}
 	// 负控：标注后的终稿文本重算指纹必然不同——短码绝不允许走这条路。
-	if drift := Fingerprint(f.File, f.Comment, f.Line); drift == fpA {
+	if drift := plugin.Fingerprint(f.File, f.Comment, f.Line); drift == fpA {
 		t.Fatal("标注未改写 comment，测试前置失效")
 	}
 }

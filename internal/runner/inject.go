@@ -15,6 +15,7 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/textx/textutil"
+	"github.com/oagentkit/tools/sast"
 	"github.com/oagentkit/tools/workcopy"
 
 	"github.com/yi-nology/argus/internal/domain"
@@ -136,7 +137,7 @@ func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext,
 	if base == "" {
 		base = pr.DefaultBranch
 	}
-	cfg := sastscan.Config{
+	cfg := sast.Config{
 		GitleaksBin:   r.Cfg.SASTGitleaksBin,
 		SemgrepBin:    r.Cfg.SASTSemgrepBin,
 		SemgrepConfig: r.Cfg.SASTSemgrepConfig,

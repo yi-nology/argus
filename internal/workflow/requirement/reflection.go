@@ -25,14 +25,11 @@ import (
 	"github.com/oagentkit/agent/reflection"
 	"github.com/oagentkit/textx/reportutil"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
 )
-
-// ReflectSummary R3.5 反思结果（Output.Reflect；nil = 未启用或无 findings）。
-// canonical 定义自 v3.5.6 随 WorkflowOutput 一起上提 plugin；别名保包内兼容。
-type ReflectSummary = plugin.ReflectSummary
 
 // reflectMaxRounds 轮次上限：与 agentkit reflection 缺省一致（3）。
 // 审查场景更多轮数收益递减而成本线性上涨，配置侧不放开。
@@ -103,10 +100,10 @@ func (w *Workflow) reflectModel() model.BaseChatModel {
 // 逐字段校验回退（防篡改越界）；证据门后验在此执行。原位更新 merged.Findings
 // 并返回反思摘要。
 func (w *Workflow) applyReflectRevisions(merged *plugin.MergedFindings, changed map[string]bool,
-	revised []reflectFindingWire, evidenceOn bool, res *reflection.Result) *ReflectSummary {
-	info := &ReflectSummary{Rounds: len(res.Rounds), Converged: res.Converged}
+	revised []reflectFindingWire, evidenceOn bool, res *reflection.Result) *plugin.ReflectSummary {
+	info := &plugin.ReflectSummary{Rounds: len(res.Rounds), Converged: res.Converged}
 	seen := map[int]bool{}
-	out := make([]plugin.Finding, 0, len(merged.Findings))
+	out := make([]domain.Finding, 0, len(merged.Findings))
 	for _, rv := range revised {
 		if rv.ID < 0 || rv.ID >= len(merged.Findings) || seen[rv.ID] {
 			continue // 编造/越界/重复的 id：丢弃
@@ -164,8 +161,8 @@ func (w *Workflow) applyReflectRevisions(merged *plugin.MergedFindings, changed 
 }
 
 // reflectFindings 对合并后的 findings 跑批判→修订收敛，原位更新 merged.Findings，
-// 返回反思摘要（调用方写进 Output；nil = 未执行）。
-func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summary string, merged *plugin.MergedFindings) *ReflectSummary {
+// 返回反思摘要（调用方写进 plugin.WorkflowOutput；nil = 未执行）。
+func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summary string, merged *plugin.MergedFindings) *plugin.ReflectSummary {
 	if len(merged.Findings) == 0 {
 		return nil
 	}
@@ -247,9 +244,9 @@ func (w *Workflow) buildReflectInput(merged *plugin.MergedFindings, changed map[
 // origFP/origFinding，那是 UpsertPrint / PatternPosted 的记账身份，改写后指纹永远
 // 对不上账）并返回 dropped=true。soft：强制 low + 评论标注（不记 regret）。
 // gateAdjusted 表示 soft 路径是否改动过 finding（计入 Adjusted）。
-func (w *Workflow) applyEvidenceGate(rv reflectFindingWire, f *plugin.Finding,
-	origFP string, origFinding plugin.Finding, changed map[string]bool, strict bool,
-	info *ReflectSummary) (dropped, gateAdjusted bool) {
+func (w *Workflow) applyEvidenceGate(rv reflectFindingWire, f *domain.Finding,
+	origFP string, origFinding domain.Finding, changed map[string]bool, strict bool,
+	info *plugin.ReflectSummary) (dropped, gateAdjusted bool) {
 	reason := evidenceFailure(rv, f.File, changed, strict)
 	if reason == "" {
 		return false, false
@@ -280,7 +277,7 @@ func (w *Workflow) applyEvidenceGate(rv reflectFindingWire, f *plugin.Finding,
 
 // reconcileRemoved 剔除对账：strict 证据门已单独记过 RemovedPrints 的条目，此处只补
 // Rubric/幻觉 id 剔除的，且避免与 evidence_drop 重复累加（以指纹去重）。
-func reconcileRemoved(merged *plugin.MergedFindings, out []plugin.Finding, seen map[int]bool, info *ReflectSummary) {
+func reconcileRemoved(merged *plugin.MergedFindings, out []domain.Finding, seen map[int]bool, info *plugin.ReflectSummary) {
 	info.Removed = len(merged.Findings) - len(out)
 	if info.Removed <= 0 {
 		return
@@ -312,7 +309,7 @@ func reconcileRemoved(merged *plugin.MergedFindings, out []plugin.Finding, seen 
 // 已带「（跨轮复现 N 次）」等展示标注，对它现算必然错账：恰是惯犯条目（最需要
 // regret 归因的人群）对不上 prints 行（v3.9.0 审查修复）。FP 为空（理论不发生，
 // 防御兜底）才回退现场重算。
-func printFP(f plugin.Finding) string {
+func printFP(f domain.Finding) string {
 	if f.FP != "" {
 		return f.FP
 	}

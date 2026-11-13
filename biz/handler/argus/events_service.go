@@ -1,5 +1,5 @@
 // events_service.go GET /events SSE 任务进度流（v3.1；🔒 复用 Bearer 鉴权；v6.3.0 起路由由 IDL 声明，本文件为 hz 保留区手写体）。
-// 数据源 = progress.Bus（service 发布 created，runner 发布 running/finished）。
+// 数据源 = oagentprogress.Bus[Event]（service 发布 created，runner 发布 running/finished）。
 // 流式写入走 ekit hertz.NewStream（底层 hertzsse.Writer：自动设头、逐事件 flush、
 // 断连时写失败返回 error 自然退出，消灭 io.Pipe + 手拼帧 + 专用 goroutine）。
 package argus

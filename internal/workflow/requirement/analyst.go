@@ -68,7 +68,7 @@ func touchedPaths(task plugin.Task) []string {
 }
 
 // synthesisAnalyst 按仓模板条件触发分析师综合段。返回 nil = 不触发或失败降级
-// （失败已记日志 + 降级注明，调用方照常组装 Output）。
+// （失败已记日志 + 降级注明，调用方照常组装 plugin.WorkflowOutput）。
 func (w *Workflow) synthesisAnalyst(ctx context.Context, task plugin.Task,
 	merged *plugin.MergedFindings, summary string) *plugin.AnalystSections {
 	if task.Artifacts[plugin.ArtifactReportTemplate] != reporttmpl.Analyst {

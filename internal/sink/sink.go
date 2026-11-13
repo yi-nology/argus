@@ -16,6 +16,7 @@ import (
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/httpjson"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -73,7 +74,7 @@ func (r *Reporter) Enabled() bool { return r != nil && r.URL != "" }
 // BuildPayload 从审查输出组装上报契约。
 // findings 取合并且带规范指纹的条目（Merger 写定 FP；无 FP 的旧数据照报，对端兜底）。
 // 意见超 MaxFindings 截断（保序，前面的优先）。
-func BuildPayload(taskID string, pr *plugin.PRContext, findings []plugin.Finding,
+func BuildPayload(taskID string, pr *plugin.PRContext, findings []domain.Finding,
 	verdict string, plugins []string, durationMS int64, tokenUsage int, occurredAt time.Time) *Payload {
 	p := &Payload{
 		ArgusTaskID: taskID,
