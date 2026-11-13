@@ -9,6 +9,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/qconsole"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -140,4 +141,34 @@ func TestQualityConsoleTrend(t *testing.T) {
 			t.Error("基线在时不应渲染缺位占位")
 		}
 	})
+}
+
+// TestQualityConsoleRealBaseline 真实基线整页渲染（批 B2）：仓内
+// eval/results/baseline-latest.json 在时（gitignored，本地/跑批后），/console
+// 趋势段渲染真数值——A1 渲染单测（合成）与 qconsole 投影单测（真实文件）
+// 之上的端到端拼接验证；文件缺位跳过。
+func TestQualityConsoleRealBaseline(t *testing.T) {
+	path := "../../eval/results/baseline-latest.json"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("真实基线文件不在（gitignored），跳过")
+	}
+	// 打桩占位守卫：make test 全量会先写 baseline-stub，本测试只认真实模型。
+	tr := qconsole.LoadEvalTrend(path)
+	if tr == nil || tr.Model == "stub" {
+		t.Skip("文件缺位或是打桩占位（stub），非真实基线")
+	}
+	st := openVisStore(t)
+	s := &Service{Cfg: &config.Config{EvalReportPath: path}, Store: st}
+	page, code := s.QualityConsoleHTML(context.Background())
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	for _, want := range []string{"质量趋势（评测基线）", tr.Model, "分语言"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("真数据趋势面缺 %q", want)
+		}
+	}
+	if strings.Contains(page, "暂无基线") {
+		t.Error("真文件在场却渲染缺位占位")
+	}
 }

@@ -72,8 +72,9 @@ func TestBaselineDataset(t *testing.T) {
 }
 
 // TestBaselineStubRun 全集打桩跑批：分语言指标产出 + 报告 artifact 落盘
-// （eval/results/baseline-latest.{json,md}，gitignore，CI artifact 面——
-// 分语言评测报告的固定产物形态）。
+// （eval/results/baseline-stub.{json,md}）。⚠️ 分名纪律：打桩写 stub、
+// 真实跑批写 latest——共用 latest 会让每次 make test 把真实基线覆盖成
+// stub（2026-11-14 实锤：门禁跑完真实基线被冲掉，消费测试连锁红）。
 func TestBaselineStubRun(t *testing.T) {
 	ds, err := evalq.LoadDir(baselineDir)
 	if err != nil {
@@ -112,15 +113,15 @@ func TestBaselineStubRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "baseline-latest.json"), jsonBytes, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "baseline-stub.json"), jsonBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var md strings.Builder
 	if err := rep.WriteMarkdown(&md); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "baseline-latest.md"), []byte(md.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "baseline-stub.md"), []byte(md.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("基准集打桩跑批报告已落盘: eval/results/baseline-latest.{json,md}（分语言 %d 组）", len(rep.ByLanguage))
+	t.Logf("基准集打桩跑批报告已落盘: eval/results/baseline-stub.{json,md}（分语言 %d 组）", len(rep.ByLanguage))
 }
