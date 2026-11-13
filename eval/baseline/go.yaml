@@ -1,4 +1,5 @@
-# Go 语言审查基准起步集（P2-02，#25；多语言扩容与现网 MR 样例归 P3-03 #28）。
+# Go 语言审查基准（P2-02 #25 起步集 7 条 + P3-03 #28 扩容 4 条，共 11 条；
+# 现网在役仓已裁决 MR 样例仍待回填——见下出处口径）。
 #
 # 出处口径（诚实标注，禁止把合成夹具说成现网已裁决 MR）：
 #   - 本文件全部样例为**合成夹具**：由 eval/golden 集的 diff 夹具改写，或自行
@@ -186,3 +187,97 @@ cases:
        基础算术工具集。
     expect:
       verdict: approve
+
+  - id: go-008
+    repo: acme/pay-gateway
+    title: sync.Mutex 结构体按值接收者传递
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      diff --git a/pay/limiter.go b/pay/limiter.go
+      --- a/pay/limiter.go
+      +++ b/pay/limiter.go
+      @@ -6,7 +6,7 @@ type Limiter struct {
+       	mu sync.Mutex
+       	n  int
+       }
+
+      -func (l *Limiter) Allow() bool {
+      +func (l Limiter) Allow() bool {
+       	l.mu.Lock()
+       	defer l.mu.Unlock()
+       	return l.n < 100
+       }
+    expect:
+      verdict: request_changes
+      must_find:
+        - file: pay/limiter.go
+          kind: mutex-copy
+          severity: high
+
+  - id: go-009
+    repo: acme/admin-portal
+    title: 并发 map 写入无锁（另起 goroutine 绕过锁）
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      diff --git a/cache/memo.go b/cache/memo.go
+      --- a/cache/memo.go
+      +++ b/cache/memo.go
+      @@ -17,6 +17,7 @@ type Cache struct {
+       }
+
+       func (c *Cache) Set(k, v string) {
+      +	go func() { c.m[k] = v }()
+       	c.mu.Lock()
+       	defer c.mu.Unlock()
+       	c.m[k] = v
+       }
+    expect:
+      verdict: request_changes
+      must_find:
+        - file: cache/memo.go
+          kind: data-race
+          severity: high
+
+  - id: go-010
+    repo: acme/admin-portal
+    title: 订单查询条件字符串拼接进 SQL
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      diff --git a/api/orders.go b/api/orders.go
+      --- a/api/orders.go
+      +++ b/api/orders.go
+      @@ -41,7 +41,8 @@ func ListOrders(w http.ResponseWriter, r *http.Request) {
+      -	q := "SELECT * FROM orders WHERE status = 'paid'"
+      +	status := r.URL.Query().Get("status")
+      +	q := "SELECT * FROM orders WHERE status = '" + status + "'"
+       	rows, err := db.Query(q)
+       	if err != nil {
+       		http.Error(w, "query failed", http.StatusInternalServerError)
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: sql-inject
+          severity: high
+
+  - id: go-011
+    repo: acme/pay-gateway
+    title: 金额分单位乘法无溢出防护（known_miss 预设）
+    label: known_miss
+    source: 自行编写（合成夹具；known_miss 预设形态）
+    diff: |
+      diff --git a/pay/amount.go b/pay/amount.go
+      --- a/pay/amount.go
+      +++ b/pay/amount.go
+      @@ -7,6 +7,6 @@ func Amount(yuan float64, qty int) int {
+      -	return int(yuan * 100)
+      +	return int(yuan*100) * qty
+       }
+    expect:
+      verdict: request_changes
+      must_find:
+        - file: pay/amount.go
+          kind: int-overflow
+          severity: medium

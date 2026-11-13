@@ -214,7 +214,7 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 
 ### 5.7 副驾参考客户端（v3.22.0）
 
-`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)；脚本
+`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)（固定 Release 版本安装 + sha256 校验和 + 兼容性声明的发布管理见 [docs/skills-release.md](docs/skills-release.md)）；脚本
 集成的参考实现：
 
 ```bash
@@ -314,6 +314,8 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
   插件耗时/失败、阶段耗时、golden 评测命中率（`argus_eval_verdict_match_ratio`，v3.14.0）；
   `GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
   `ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
+  只读质量控制台 `cmd/qconsole` 把误报/插件表现/Token 消费/失败原因聚成一屏
+  （全走既有聚合面、无新表，见 [docs/qconsole.md](docs/qconsole.md)）；
 - **平台降级**：平台不可达时启动只告警降级（启动日志 + `/reports/health` 可见；`/readyz` 只看 db/llm 硬依赖），不会 crash loop；
 - **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
   分阶段模型路由（P6）可按 R1/R2/R3/R3.5/Reviewer/QA/Router 各配各的模型与窗口；
@@ -560,6 +562,11 @@ SQLite 为单写模型（replicas=1 + Recreate），横向扩副本切 MySQL + �
 容量公式与验证清单见 **[deploy/k8s/README-scaling.md](deploy/k8s/README-scaling.md)**）；
 磁盘监控 `/data`（SQLite + 工作副本沙箱，后者 1h TTL 兜底回收）。
 
+**生产部署规范（P3-04）**：HA 双副本 Helm Chart（`deploy/helm/argus`）、升级先行
+Migration Job、pg 定时备份与恢复演练、滚动升级 runbook 收口在
+**[docs/deploy-production.md](docs/deploy-production.md)**；k3s43 双副本在役实弹
+记录与手工形态等价步骤见 [deploy/k8s43/README.md](deploy/k8s43/README.md)。
+
 ---
 
 ## 六、插件声明（plugins.yaml 要点）
@@ -634,6 +641,7 @@ v3.11 完备性裁判+健康报告、v3.12 长会话记忆+断点续审、v3.13 
 ## 九、目录导览
 
 ```
+cmd/                           argus-copilot（MCP 参考客户端）+ qconsole（只读质量控制台）
 idl/argus.thrift               接口唯一事实来源（hz 生成路由/DTO）
 biz/                           hz 生成壳：handler 薄实现调 internal/service
 internal/
@@ -663,11 +671,17 @@ internal/
   runner/ worker/              任务执行编排 + DB 即队列的 worker pool
   toolpool/ obs/ notify/       MCP 工具池 / 指标+成本记账 / octopus IM 推送
   progress/                    SSE 任务进度事件流
+  qconsole/                    审查质量控制台聚合器（只读 HTTPSource + 静态页/CLI 双渲染）
 test/e2e/                      双打桩 E2E 场景集 + 真实 LLM 集成测试
+test/{arch,skills,evalq,shellpit}/  架构分层 / 技能发布物 / 基准集装载 / shell 坑门禁
+eval/                          golden 场景集 + 多语言审查基准集（eval/baseline）+ 跑批结果
 deploy/                        docker-compose + k8s kustomize 双形态（+ 多副本指南）
+                               + Helm HA Chart（deploy/helm/argus，P3-04 生产规范）
 scripts/                       setup-webhook.sh（一键注册）+ install-ocr.sh
+                               + install-skills.sh / release-skills.sh（技能发布物，P3-01）
 skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR 加载）
                                + agent 技能（argus-mcp 直驱审查 / argus-precommit 提交前自查）
+                               + checksums.txt（sha256 发布物清单）
 knowledge/                     本地知识库（markdown，R3 search_knowledge 检索）
 ```
 

@@ -1,0 +1,10 @@
+Argus（{{ .Chart.AppVersion }}）已部署 {{ .Release.Namespace }}/{{ include "argus.fullname" . }}
+
+副本数: {{ .Values.replicaCount }}（策略 {{ .Values.updateStrategy.type }}，maxUnavailable={{ .Values.updateStrategy.rollingUpdate.maxUnavailable }} maxSurge={{ .Values.updateStrategy.rollingUpdate.maxSurge }}）
+Migration Job: {{ if .Values.migrationJob.enabled }}enabled（pre-upgrade hook；缺省 command 为 fail-closed 占位——接入点见 values.migrationJob.command）{{ else }}disabled{{ end }}
+pg 备份: {{ if .Values.pgBackup.enabled }}CronJob {{ .Values.pgBackup.schedule }}，保留 {{ .Values.pgBackup.retention }} 份{{ else }}disabled{{ end }}
+
+滚动升级（规范顺序，docs/deploy-production.md）：
+  1. helm upgrade（pre-upgrade hook 自动先跑 Migration Job）
+  2. kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "argus.fullname" . }}
+备份恢复演练：helm upgrade --set pgRestore.enabled=true，Job 日志看 drill: PASSED

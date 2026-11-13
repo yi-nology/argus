@@ -1,0 +1,4 @@
+8bcf74626a209f943fd79d095dd5ab7a5d5e065c8f281bae9e858519f468c348  skills/argus-mcp/SKILL.md
+61507c87ff7aee3bf088dabc6f66bccea85274c078e2c5038f35dcd2a851c210  skills/argus-mcp/references/tools.md
+665cf570c43a54bd7f70d15651baf734f99b825ea0442c018a1caf47d2e9df56  skills/argus-triage/SKILL.md
+d9d3f202a5b6e33b2319d0d314c90164bfb97e7de61a0ec0a0c90b202a9d9ee4  skills/argus-precommit/SKILL.md

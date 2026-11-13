@@ -1,0 +1,58 @@
+{{- if .Values.pgRestore.enabled }}
+{{/* 恢复演练 Job（手动触发）：最新 dump 恢复进 scratch 库 → 行数对账 → 收尾。
+     完整演练脚本与判定口径见 deploy/k8s43/90-pg-restore-drill.sh 与
+     docs/deploy-production.md §备份恢复。*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "argus.fullname" . }}-pg-restore-drill
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 7200
+  template:
+    metadata:
+      labels:
+        {{- include "argus.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.pgBackup.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: restore-drill
+        image: {{ .Values.pgRestore.image }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.pgBackup.pgSecret }}
+              key: POSTGRES_PASSWORD
+        - name: DRILL_DB
+          value: {{ .Values.pgRestore.drillDB | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          LATEST=$(ls -1t /backup/argus-*.dump | head -n1)
+          echo "drill: restoring $LATEST -> $DRILL_DB"
+          dropdb --if-exists -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} "$DRILL_DB"
+          createdb -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} "$DRILL_DB"
+          pg_restore -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} -d "$DRILL_DB" --no-owner --exit-on-error "$LATEST"
+          ROWS=$(psql -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} -d "$DRILL_DB" -tAc "SELECT COUNT(*) FROM tasks")
+          echo "drill: tasks rows in restored db = $ROWS"
+          test "$ROWS" -ge 0
+          dropdb -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} "$DRILL_DB"
+          echo "drill: PASSED（scratch 库已清理）"
+        volumeMounts:
+        - name: backup
+          mountPath: /backup
+      volumes:
+      - name: backup
+        persistentVolumeClaim:
+          claimName: {{ include "argus.fullname" . }}-pg-backup
+{{- end }}

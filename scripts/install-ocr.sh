@@ -35,7 +35,7 @@ install_from_source() {
   install -m 0755 "$tmp/ocr" "$DEST"
   echo "产物 sha256: $(shasum -a 256 "$DEST" | awk '{print $1}')"
   rm -rf "$tmp"
-  echo "已安装（源码构建 @ $commit）: $DEST"
+  echo "已安装（源码构建 @ ${commit}）: $DEST"
 }
 
 verify_checksum() {
@@ -59,7 +59,7 @@ main() {
   echo "验证: $DEST --help"
   if "$DEST" --help >/dev/null 2>&1; then
     echo "OCR 安装完成。"
-    echo "  MCP 通道（推荐，v3.9）: ocrshim -ocr-bin $DEST（compose 侧挂 ./bin/ocr-amd64）"
+    echo "  MCP 通道（推荐，v3.9）: ocrshim -ocr-bin ${DEST}（compose 侧挂 ./bin/ocr-amd64）"
     echo "  cli 回退通道: plugins.yaml cmd 填: [\"$DEST\", \"review\", \"--format\", \"json\"]"
     echo "  （注意：上游 v1.12+ 无 diff 子命令；range 审查由 ocrshim 按工作副本自动传 --from/--to）"
   fi

@@ -1,0 +1,41 @@
+{{- if .Values.migrationJob.enabled }}
+{{/* 升级先行 Migration Job（helm hook：新副本滚动前完成迁移）。
+     语义联动 v6.7.0：迁移租约串行 + fail-closed——Job 与滚动副本不会并发 DDL；
+     副本侧 Open 只校验不回写（回写迁移在 Job 内先行动完成）。
+     缺省 command 是 fail-closed 占位（见 values.migrationJob.command 注释）。*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "argus.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrationJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "argus.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: migrate
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+{{ toYaml .Values.migrationJob.command | indent 8 }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.existingSecret }}
+        resources:
+          {{- toYaml .Values.migrationJob.resources | nindent 10 }}
+{{- end }}

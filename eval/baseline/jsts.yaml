@@ -1,0 +1,184 @@
+# JS/TS 语言审查基准（P3-03，#28）——合成夹具起步集，金标准标注。
+# 维度对齐 P2-02（#25）指标；验证「审查结论质量」：漏检与误报。
+# 出处口径同 eval/baseline/go.yaml：全部样例为合成夹具（自编写现实形态 JS/TS diff），
+# 现网在役仓已裁决 MR 样例落地前不冒充现网数据。
+language: jsts
+description: JS/TS 审查结论质量基准（合成夹具：自编写，非现网 MR）
+cases:
+  - id: ts-001
+    repo: acme/console-web
+    title: 循环内 await 串行拉接口
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/pages/orders/api.ts
+      +++ b/src/pages/orders/api.ts
+      @@ -12,4 +12,5 @@ export async function loadAll(ids: string[]) {
+      -  return Promise.all(ids.map((id) => fetchOne(id)));
+      +  const out = [];
+      +  for (const id of ids) { out.push(await fetchOne(id)); }
+      +  return out;
+    expect:
+      verdict: comment
+      must_find:
+        - kind: serial-await
+          severity: medium
+  - id: ts-002
+    repo: acme/console-web
+    title: 异步写入未 await（丢错误）
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/store/prefs.ts
+      +++ b/src/store/prefs.ts
+      @@ -9,3 +9,3 @@ export function save(p: Prefs) {
+      -  await persist(p);
+      +  persist(p);
+       }
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: unawaited-promise
+          severity: high
+  - id: ts-003
+    repo: acme/console-web
+    title: 富文本 innerHTML 直插用户输入
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/components/Rich.tsx
+      +++ b/src/components/Rich.tsx
+      @@ -14,3 +14,4 @@ export function Rich({ text }: { text: string }) {
+      -    return <pre>{text}</pre>;
+      +    return <div dangerouslySetInnerHTML={{ __html: text }} />;
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: xss
+          severity: high
+  - id: ts-004
+    repo: acme/console-web
+    title: 宽松相等比较状态码
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/api/client.ts
+      +++ b/src/api/client.ts
+      @@ -20,2 +20,3 @@
+      -    if (res.status === 404) return null;
+      +    if (res.status == "404") return null;
+    expect:
+      verdict: comment
+      must_find:
+        - kind: loose-eq
+          severity: low
+  - id: ts-005
+    repo: acme/report-node
+    title: async 迭代器里未 await 错误面
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/jobs/sync.ts
+      +++ b/src/jobs/sync.ts
+      @@ -16,4 +16,4 @@ export async function sync(rows: Row[]) {
+             for await (const row of rows) {
+      -        await upsert(row);
+      +        upsert(row).catch(() => {});
+             }
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: error-swallow
+          severity: high
+  - id: ts-006
+    repo: acme/report-node
+    title: webhook 签名密钥硬编码
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/webhook/verify.ts
+      +++ b/src/webhook/verify.ts
+      @@ -5,2 +5,3 @@
+      -const secret = process.env.WEBHOOK_SECRET!;
+      +const secret = "whsec_5f4dcc3b5aa765d61d8327deb882cf99";
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: hardcode-secret
+          severity: high
+  - id: ts-007
+    repo: acme/console-web
+    title: catch 空块吞错
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/api/client.ts
+      +++ b/src/api/client.ts
+      @@ -27,4 +27,5 @@ export async function load(): Promise<Item[]> {
+      +  try {
+      +    return await http.get("/items");
+      +  } catch { return []; }
+    expect:
+      verdict: comment
+      must_find:
+        - kind: error-swallow
+          severity: medium
+  - id: ts-008
+    repo: acme/console-web
+    title: 可选链风格统一（历史误报：style）
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设形态）
+    diff: |
+      --- a/src/pages/orders/index.tsx
+      +++ b/src/pages/orders/index.tsx
+      @@ -8,2 +8,3 @@
+      -    const name = user && user.profile && user.profile.name;
+      +    const name = user?.profile?.name;
+    expect:
+      verdict: approve
+      must_find: []
+  - id: ts-009
+    repo: acme/report-node
+    title: 深合并未过滤 __proto__（历史漏检：原型污染）
+    label: known_miss
+    source: 自行编写（合成夹具；known_miss 预设形态）
+    diff: |
+      --- a/src/util/merge.ts
+      +++ b/src/util/merge.ts
+      @@ -10,3 +10,4 @@ export function merge(base: any, patch: any): any {
+             for (const k of Object.keys(patch)) {
+      +        base[k] = merge(base[k] ?? {}, patch[k]);
+             }
+    expect:
+      verdict: request_changes
+      must_find:
+        - kind: prototype-pollution
+          severity: high
+  - id: ts-010
+    repo: acme/console-web
+    title: 变量重命名（可读性）
+    label: standard
+    source: 自行编写（合成夹具）
+    diff: |
+      --- a/src/store/prefs.ts
+      +++ b/src/store/prefs.ts
+      @@ -6,3 +6,3 @@
+      -  const d = await load();
+      +  const defaults = await load();
+    expect:
+      verdict: approve
+      must_find: []
+  - id: ts-011
+    repo: acme/report-node
+    title: 删除调试日志（历史误报：dead-code）
+    label: known_fp
+    source: 自行编写（合成夹具；known_fp 预设形态）
+    diff: |
+      --- a/src/jobs/sync.ts
+      +++ b/src/jobs/sync.ts
+      @@ -20,3 +20,2 @@
+      -  console.log("sync start", rows.length);
+       for await (const row of rows) {
+    expect:
+      verdict: approve
+      must_find: []
