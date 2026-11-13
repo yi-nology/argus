@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/llm"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -60,7 +61,7 @@ func (f *reflectFakeModel) Stream(context.Context, []*schema.Message, ...model.O
 
 func reflectTaskFixture() (plugin.Task, *plugin.MergedFindings) {
 	task := plugin.Task{Diff: &plugin.DiffContext{Files: []plugin.DiffFile{{Path: "a.go"}, {Path: "b.go"}}}}
-	merged := &plugin.MergedFindings{Findings: []plugin.Finding{
+	merged := &plugin.MergedFindings{Findings: []domain.Finding{
 		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针解引用"},
 		{File: "b.go", Line: 3, Severity: "low", Comment: "变量命名不贴合语义"},
 	}}

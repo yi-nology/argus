@@ -4,13 +4,15 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 func mkObsRegistry() *Registry {
 	reg := NewRegistry()
 	mk := func(name string, lock bool) *Registration {
 		return &Registration{
-			Manifest:       AgentManifest{Name: name, Kind: KindBuiltin, Skills: []string{SkillCodeReview}},
+			Manifest:       plugin.AgentManifest{Name: name, Kind: plugin.KindBuiltin, Skills: []string{plugin.SkillCodeReview}},
 			Plugin:         nopAgentPlugin{},
 			LockRepoConfig: lock,
 			Enabled:        true,
@@ -25,18 +27,20 @@ func mkObsRegistry() *Registry {
 
 type nopAgentPlugin struct{}
 
-func (nopAgentPlugin) Manifest() AgentManifest { return AgentManifest{} }
+func (nopAgentPlugin) Manifest() plugin.AgentManifest { return plugin.AgentManifest{} }
 
-func (nopAgentPlugin) Invoke(_ context.Context, _ Task) (Result, error) { return Result{}, nil }
+func (nopAgentPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
+	return plugin.Result{}, nil
+}
 
 // 验证各生效状态 + 信任边界告警进入可观测视图（v3.0.1 评审项锚点）。
 func TestObserveRepoConfig(t *testing.T) {
 	reg := mkObsRegistry()
-	rc := &RepoConfig{
+	rc := &plugin.RepoConfig{
 		Loaded:  true,
 		Use:     []string{"requirement-compliance", "ocr"}, // 未知名 requirement-compliance → 告警
 		Disable: []string{"security"},                      // 锁定 → 拒绝 + 告警
-		Routing: []RoutingRule{{Paths: []string{"web/**"}, Use: []string{"frontend-visual"}}},
+		Routing: []plugin.RoutingRule{{Paths: []string{"web/**"}, Use: []string{"frontend-visual"}}},
 	}
 	statuses, warnings := ObserveRepoConfig(reg, rc)
 	byName := map[string]PluginRepoStatus{}
@@ -83,7 +87,7 @@ func TestObserveRepoConfig(t *testing.T) {
 
 func TestObserveRepoConfigNotLoaded(t *testing.T) {
 	reg := mkObsRegistry()
-	statuses, warnings := ObserveRepoConfig(reg, EmptyRepoConfig())
+	statuses, warnings := ObserveRepoConfig(reg, plugin.EmptyRepoConfig())
 	if len(warnings) != 0 || len(statuses) != 4 {
 		t.Fatalf("无仓库配置应全 default 且无告警: %d %v", len(statuses), warnings)
 	}

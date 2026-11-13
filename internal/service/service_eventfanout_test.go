@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -27,7 +28,7 @@ func TestOutboxFanoutCrossInstance(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storeB.Close() })
 
-	busA, busB := progress.NewBus(), progress.NewBus()
+	busA, busB := oagentprogress.NewBus[progress.Event](), oagentprogress.NewBus[progress.Event]()
 	svcA := &Service{Bus: busA, Store: storeA, Cfg: nil, Log: testLogger{}}
 	svcB := &Service{Bus: busB, Store: storeB, Cfg: nil, Log: testLogger{}}
 
@@ -88,7 +89,7 @@ func TestOutboxFanoutSameInstanceNoDup(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	bus := progress.NewBus()
+	bus := oagentprogress.NewBus[progress.Event]()
 	svc := &Service{Bus: bus, Store: store, Cfg: nil, Log: testLogger{},
 		EventSeen: progress.NewDedup(0)} // v6.12：共享环注入（修复点）
 

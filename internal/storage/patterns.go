@@ -43,10 +43,6 @@ type PatternSignal struct {
 
 func (PatternSignal) TableName() string { return "pattern_signals" }
 
-// PatternSignalOut 读侧投影（含推导置信度与样本量）。
-// 消费方（Merger/Runner）直接吃 learning.PatternState，避免双结构转换。
-type PatternSignalOut = learning.PatternState
-
 func (p *PatternSignal) project() learning.PatternState {
 	return learning.PatternState{
 		Plugin: p.Plugin, Pattern: p.Pattern, PatternText: p.PatternText,
@@ -196,7 +192,7 @@ func (s *Store) ListRepoPatterns(ctx context.Context, platform, owner, repo stri
 }
 
 // ListPatternRepos 列出出现过模式信号的仓库（dream 周期遍历）。
-func (s *Store) ListPatternRepos(ctx context.Context) ([]RepoRef, error) {
+func (s *Store) ListPatternRepos(ctx context.Context) ([]learning.RepoRef, error) {
 	type row struct {
 		Platform string
 		Owner    string
@@ -208,16 +204,12 @@ func (s *Store) ListPatternRepos(ctx context.Context) ([]RepoRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]RepoRef, 0, len(rows))
+	out := make([]learning.RepoRef, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, RepoRef(r))
+		out = append(out, learning.RepoRef(r))
 	}
 	return out, nil
 }
-
-// RepoRef 仓库坐标（跨表遍历用）。v3.54.0 起为 learning.RepoRef 的别名——
-// 域类型归 learning 纯叶子包，dream/health 等消费方不再因它依赖 storage。
-type RepoRef = learning.RepoRef
 
 // MergePatternInto 把 dup 行的计数并入 keep 行并删除 dup（dream 去重）。
 // keep 必须存在；事务内完成，失败整体回滚。

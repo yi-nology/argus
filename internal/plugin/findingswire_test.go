@@ -36,7 +36,7 @@ func TestDecodeFindingsJSONAnalystFields(t *testing.T) {
 	if len(w.TestGaps) != 1 || len(w.OpenQuestions) != 1 {
 		t.Fatalf("gaps/questions 解析: %+v / %+v", w.TestGaps, w.OpenQuestions)
 	}
-	// Finding.chain 字段透传（analyst 模式下 R4 产出）。
+	// domain.Finding.chain 字段透传（analyst 模式下 R4 产出）。
 	w2, err := DecodeFindingsJSON(`{"findings":[{"file":"a.go","line":1,"severity":"high","comment":"c","chain":"消费侧 b.go:9 依赖旧语义"}]}`)
 	if err != nil {
 		t.Fatal(err)

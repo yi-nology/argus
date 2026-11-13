@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -32,7 +32,7 @@ const (
 
 // ViewOpts 渲染可选面（v5.8.1 收口：findings/演化对比,避免签名继续膨胀）。
 type ViewOpts struct {
-	Findings []plugin.Finding
+	Findings []domain.Finding
 	Compare  *ImpactCompare // 同 MR 上一轮快照的集合差(nil=无对比面)
 	// History 文件意见历史档案(v5.8.2 惯犯文件热力;key=file 相对路径)
 	History map[string]storage.FindingFileHistory
@@ -1250,7 +1250,7 @@ func taskMeta(taskID string) string {
 }
 
 // findingsByFile 文件→意见数(徽标渲染输入)。
-func findingsByFile(findings []plugin.Finding) map[string]int {
+func findingsByFile(findings []domain.Finding) map[string]int {
 	m := map[string]int{}
 	for _, f := range findings {
 		if f.File != "" {
@@ -1261,7 +1261,7 @@ func findingsByFile(findings []plugin.Finding) map[string]int {
 }
 
 // findingsJSON 渲染面瘦身子集(file/line/severity/fp/comment 摘要/by)。
-func findingsJSON(findings []plugin.Finding) string {
+func findingsJSON(findings []domain.Finding) string {
 	if len(findings) == 0 {
 		return ""
 	}

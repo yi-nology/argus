@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
+	"github.com/oagentkit/llm"
 	"github.com/oagentkit/textx/textutil"
 
 	"github.com/yi-nology/argus/internal/argusctx"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/learning"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -103,7 +105,7 @@ func (r *Runner) rejectByBudget(ctx context.Context, task *storage.Task, reason,
 // 其余落 failed 终态（fenced）+ PR 侧失败告知（未超重试上限=中断将自动重试，
 // 超限/禁用=最终失败，v3.30.1：失败必须显式告之，不许 MR 作者只见「审查中」
 // 挂死）+ 终态播报。错误链可能携带带凭据 URL，三路消费统一先脱敏（logredact）。
-func (r *Runner) handleRunFailure(ctx context.Context, task *storage.Task, budget *plugin.TokenBudget, runErr error) {
+func (r *Runner) handleRunFailure(ctx context.Context, task *storage.Task, budget *llm.Budget, runErr error) {
 	if ctx.Err() != nil {
 		r.Log.Warn("argus.runner.task_cancelled", "task", task.ID,
 			"action", "保持 running，待心跳过期重置回 pending")
@@ -289,14 +291,14 @@ func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *pl
 
 // recordRegret 学习环记账：R3.5 反思剔除的条目分别落指纹级误报历史与模式级
 // regret（失败只告警，不影响主流程）。
-func (r *Runner) recordRegret(ctx context.Context, out *requirement.Output, pr *plugin.PRContext) {
+func (r *Runner) recordRegret(ctx context.Context, out *plugin.WorkflowOutput, pr *plugin.PRContext) {
 	// regret 跨轮入库：R3.5 反思剔除的指纹记录误报历史（产出 vs 终审的差值即
 	// regret），后续轮次由 Merger 读取标注可信度。失败只告警，不影响主流程。
 	// RemovedPrints[i] 与 RemovedFindings[i] 按索引一一对应（reflection 组装保证）：
 	// 行不存在时按原始身份内容建行，不再产生空内容幽灵行（v3.8.0）。
 	if out.Reflect != nil && len(out.Reflect.RemovedPrints) > 0 {
 		for i, fp := range out.Reflect.RemovedPrints {
-			var finding plugin.Finding
+			var finding domain.Finding
 			if i < len(out.Reflect.RemovedFindings) {
 				finding = out.Reflect.RemovedFindings[i]
 			}
@@ -335,7 +337,7 @@ func (r *Runner) recordRegret(ctx context.Context, out *requirement.Output, pr *
 // 上报 → start marker 收口 → 终态播报与指标。finish 落库失败返回 error 由
 // 主失败路径接手（task=failed），fenced 则静默返回（写入已被新执行体接管）。
 func (r *Runner) finalizeAndAnnounce(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
-	out *requirement.Output, res *poster.Result, rep reportview.Report, diff *plugin.DiffContext, start time.Time) error {
+	out *plugin.WorkflowOutput, res *poster.Result, rep reportview.Report, diff *plugin.DiffContext, start time.Time) error {
 
 	resultJSON, _ := json.Marshal(toResultPayload(out, diff.Text))
 	status := storage.StatusDone
@@ -365,7 +367,7 @@ func (r *Runner) finalizeAndAnnounce(ctx context.Context, task *storage.Task, pr
 	// 异步且失败只告警——绝不阻断/拖慢审查终态路径。argus 独立运行（未配置）时
 	// 整段跳过、零开销，不依赖 review-service 的任何存在。
 	if r.Sink.Enabled() {
-		merged := []plugin.Finding{}
+		merged := []domain.Finding{}
 		if out.Merged != nil {
 			merged = out.Merged.Findings
 		}

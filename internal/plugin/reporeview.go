@@ -2,6 +2,8 @@ package plugin
 
 import (
 	"github.com/oagentkit/textx/reportutil"
+
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // 仓库级评审行为过滤（v3.15.0 P0-2：.reviewagents.yaml review 段的运行时消费）。
@@ -40,12 +42,12 @@ func RepoSettingsFilter(rc *RepoConfig) func(path string) bool {
 // 语义：Rank 低于阈值者剔除；空阈值原样返回。high 意见任何合法阈值下都保留
 // （词表只有 low|medium|high，阈值取 high 时仅保留 high）。
 // 返回保留切片（保序）与剔除数，供降级注明。
-func FilterByMinSeverity(fs []Finding, min string) (kept []Finding, dropped int) {
+func FilterByMinSeverity(fs []domain.Finding, min string) (kept []domain.Finding, dropped int) {
 	if min == "" || len(fs) == 0 {
 		return fs, 0
 	}
 	floor := reportutil.Rank(min)
-	out := make([]Finding, 0, len(fs))
+	out := make([]domain.Finding, 0, len(fs))
 	for _, f := range fs {
 		if reportutil.Rank(f.Severity) < floor {
 			dropped++

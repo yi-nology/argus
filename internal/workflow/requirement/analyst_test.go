@@ -50,7 +50,7 @@ func analystTask(templateKey string) plugin.Task {
 }
 
 func analystMerged() *plugin.MergedFindings {
-	return &plugin.MergedFindings{Findings: []plugin.Finding{
+	return &plugin.MergedFindings{Findings: []domain.Finding{
 		{File: "x.go", Line: 3, Severity: "high", Comment: "off_cpu 口径变更"},
 	}}
 }

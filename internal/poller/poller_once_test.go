@@ -11,6 +11,7 @@ import (
 
 	"github.com/oekit/logx"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
@@ -50,7 +51,7 @@ func newTestStore(t *testing.T) *storage.Store {
 	return store
 }
 
-func newPoller(t *testing.T, plat *listFakePR, store *storage.Store, bus *progress.Bus, skipDraft bool) *Poller {
+func newPoller(t *testing.T, plat *listFakePR, store *storage.Store, bus *oagentprogress.Bus[progress.Event], skipDraft bool) *Poller {
 	t.Helper()
 	return &Poller{
 		SDK:       argusctx.NewSDKCtxStubbed(nil, map[string]provider.Provider{"gitea": plat}),
@@ -64,7 +65,7 @@ func newPoller(t *testing.T, plat *listFakePR, store *storage.Store, bus *progre
 }
 
 // subscribeEvents 先订阅（Bus 只投递发布时已在册的消费者，发布后订阅收不到）。
-func subscribeEvents(t *testing.T, bus *progress.Bus) (<-chan progress.Event, func()) {
+func subscribeEvents(t *testing.T, bus *oagentprogress.Bus[progress.Event]) (<-chan progress.Event, func()) {
 	t.Helper()
 	ch, stop := bus.Subscribe(context.Background())
 	return ch, stop
@@ -98,7 +99,7 @@ func TestPollOnce_DiscoverAndDedup(t *testing.T) {
 		{cr("7", "sha-7", provider.CRStateOpened, false)},
 	}}
 	store := newTestStore(t)
-	bus := progress.NewBus()
+	bus := oagentprogress.NewBus[progress.Event]()
 	evCh, stopEv := subscribeEvents(t, bus)
 	defer stopEv()
 	p := newPoller(t, plat, store, bus, false)
@@ -140,7 +141,7 @@ func TestPollOnce_Filters(t *testing.T) {
 		},
 	}}
 	store := newTestStore(t)
-	p := newPoller(t, plat, store, progress.NewBus(), true)
+	p := newPoller(t, plat, store, oagentprogress.NewBus[progress.Event](), true)
 	p.pollOnce(context.Background())
 
 	tasks := pendingTasks(t, store)
@@ -161,7 +162,7 @@ func TestPollOnce_PagingTruncated(t *testing.T) {
 	}
 	plat := &listFakePR{pages: [][]*provider.ChangeRequest{full("a"), full("b"), full("c")}}
 	store := newTestStore(t)
-	p := newPoller(t, plat, store, progress.NewBus(), false)
+	p := newPoller(t, plat, store, oagentprogress.NewBus[progress.Event](), false)
 	p.pollOnce(context.Background())
 
 	if tasks := pendingTasks(t, store); len(tasks) != 90 {
@@ -175,7 +176,7 @@ func TestPollOnce_PagingTruncated(t *testing.T) {
 // TestPollOnce_ListFailed 平台查询失败（未配置的 Provider）：不建任务不 panic。
 func TestPollOnce_ListFailed(t *testing.T) {
 	store := newTestStore(t)
-	p := newPoller(t, &listFakePR{}, store, progress.NewBus(), false)
+	p := newPoller(t, &listFakePR{}, store, oagentprogress.NewBus[progress.Event](), false)
 	p.Targets = []Target{{Platform: "nope", Owner: "o", Repo: "r"}}
 	p.pollOnce(context.Background())
 	if tasks := pendingTasks(t, store); len(tasks) != 0 {

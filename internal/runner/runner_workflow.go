@@ -95,7 +95,7 @@ func (r *Runner) loadSkillText(bgCtx context.Context) string {
 
 // WorkflowFor 导出每任务 Workflow 构造（ReviewTools 钩子复用 R3 的工具基础设施；
 // 构造成本可忽略——字段全部共享引用）。
-func (r *Runner) WorkflowFor(budget *plugin.TokenBudget) *requirement.Workflow {
+func (r *Runner) WorkflowFor(budget *llm.Budget) *requirement.Workflow {
 	return r.buildWorkflow(budget)
 }
 
@@ -103,14 +103,14 @@ func (r *Runner) WorkflowFor(budget *plugin.TokenBudget) *requirement.Workflow {
 // budget 决定该任务 LLM 客户端的预算累计器；nil = 不限（协议重入路径）。
 // 契约类型用 plugin.WorkflowFactory（v3.5.6 上提）——编排层不再 import 具体适配器。
 func (r *Runner) WorkflowFactory() plugin.WorkflowFactory {
-	return func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
+	return func(budget *llm.Budget) plugin.WorkflowRunner {
 		return r.buildWorkflow(budget)
 	}
 }
 
 // buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
 // 其余字段全部共享引用，构造成本可忽略。
-func (r *Runner) buildWorkflow(budget *plugin.TokenBudget) *requirement.Workflow {
+func (r *Runner) buildWorkflow(budget *llm.Budget) *requirement.Workflow {
 	// 决策使用模式：use_skill 工具进 R3 工具表（与静态注入互斥，ARGUS_SKILL_MODE）
 	var skillTool tool.BaseTool
 	if r.Cfg.SkillMode == "tool" && r.SkillProvider != nil && len(r.SkillRefs) > 0 {

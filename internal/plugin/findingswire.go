@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/oekit/pkg/jsonrepair"
+
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // FindingsWire 审查产出的 findings JSON schema 单源（v3.64.0）：builtin ReAct/
@@ -13,8 +15,8 @@ import (
 // 常规插件路径不产出这些字段（omitempty 零值），仅 workflow 分析师综合段解码
 // 消费——同一解码函数宽容解析，旧输出零影响。
 type FindingsWire struct {
-	Findings []Finding `json:"findings"`
-	Notes    string    `json:"notes"`
+	Findings []domain.Finding `json:"findings"`
+	Notes    string           `json:"notes"`
 	// 以下四字段为 analyst 模板综合段产物（spec §4.2），常规路径忽略。
 	Claims        []Claim  `json:"claims,omitempty"`
 	Design        *Design  `json:"design,omitempty"`

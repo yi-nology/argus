@@ -40,10 +40,6 @@ const (
 	VerdictRequestChanges = "request_changes"
 )
 
-// Output workflow 产出。canonical 定义自 v3.5.6 上提 plugin.WorkflowOutput
-// （compliance 插件外壳与 runner 的边界契约）；别名保包内与既有调用方兼容。
-type Output = plugin.WorkflowOutput
-
 // Workflow R1→R5 编排器（首个 Workflow 接口实现，§9.4：接口随 v3.0 抽出）。
 type Workflow struct {
 	// 输入通道契约（v3.54.0 文档化，防三通道漂移；此前勘察在案「八字段外部预写」）：
@@ -169,7 +165,7 @@ func skillsForKind(kind string) []string {
 }
 
 // Run 完整链路 R1→R5（requirement_compliance 任务）。
-func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
+func (w *Workflow) Run(ctx context.Context, task plugin.Task, budget *llm.Budget) (*plugin.WorkflowOutput, error) {
 	start := time.Now()
 	task.Budget = budget // R3 重试的预算门读取（深挖修复：R1-R3 此前完全不受预算约束）
 	// LLM 降级链基线（v6.9.0 P2-04，#15）：run 起点的主备切换计数——judgeAndGate
@@ -282,7 +278,7 @@ func (w *Workflow) summaryWithCheckpoint(ctx context.Context, task plugin.Task) 
 }
 
 // RunReviewOnly 仅 R4+R5（code_review / visual_check 任务：无需求清单，R5.1/R5.3 需求条件跳过）。
-func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) (*Output, error) {
+func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *llm.Budget) (*plugin.WorkflowOutput, error) {
 	start := time.Now()
 	task.Budget = budget
 	rc := w.loadRepoConfig(ctx, task)
@@ -307,9 +303,9 @@ func (w *Workflow) RunReviewOnly(ctx context.Context, task plugin.Task, budget *
 // finish = R4 专家委派 + R5 确定性裁决的编排壳。v3.55.0 拆分为四个命名子步骤，
 // 顺序即语义（委派 → 合并/反思/标注 → 仓库主权过滤 → 裁决与门），步骤间只传
 // 显式产物——此前 210 行单体函数是勘察在案的最大可读性债。
-func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
+func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *llm.Budget,
 	rc *plugin.RepoConfig, start time.Time, spec *plugin.RequirementSpec, report *plugin.ComplianceReport,
-	summary string) (*Output, error) {
+	summary string) (*plugin.WorkflowOutput, error) {
 
 	changedFiles := diffPaths(task.Diff)
 	skills := skillsForKind(task.Kind)
@@ -329,12 +325,12 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *plugin.
 
 	// v6.10.0 分析师综合段：仅 analyst 模板触发，产出失败降级不阻断（analyst.go）。
 	analyst := w.synthesisAnalyst(ctx, task, merged, summary)
-	// 模板键回声到 Output（runner 装配时写入 Artifacts）供 buildReport 渲染分发。
+	// 模板键回声到 plugin.WorkflowOutput（runner 装配时写入 Artifacts）供 buildReport 渲染分发。
 	reportTemplate := task.Artifacts[plugin.ArtifactReportTemplate]
 
 	verdict, rule, completeness := w.judgeAndGate(task, spec, report, merged, sel, outcomes, pruned, retryNotes)
 
-	out := &Output{
+	out := &plugin.WorkflowOutput{
 		Verdict:        verdict,
 		Rule:           rule,
 		Spec:           spec,
@@ -364,7 +360,7 @@ func verifyFindingsEvidence(merged *plugin.MergedFindings, task plugin.Task) {
 // dispatchR4 R4 专家委派：确定性路由 → 预算裁剪 → fan-out → 编队共识 → SAST
 // 并入 → G4 受限补审。返回裁决所需的全量产物（sel 供完备性裁判、retryNotes
 // 供降级注明）。
-func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
+func (w *Workflow) dispatchR4(ctx context.Context, task plugin.Task, budget *llm.Budget,
 	rc *plugin.RepoConfig, changedFiles, skills []string) (sel []dispatch.Selection,
 	outcomes []dispatch.Outcome, pruned, retryNotes []string) {
 
@@ -496,7 +492,7 @@ func (w *Workflow) applyRepoPolicies(merged *plugin.MergedFindings, rc *plugin.R
 // 重试一次。约束：剩余预算 >0 才补审；重试经 Dispatcher.Run 照常过预算门/熔断门
 // （已熔断插件会被跳过，保留原错误）；重试成功**替换**原 outcome——不叠加 findings，
 // 不产生双重指纹。consensus 产物不重试（黑板轮转语义由 RunConsensus 自管）。
-func (w *Workflow) retryFailedPlugins(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget,
+func (w *Workflow) retryFailedPlugins(ctx context.Context, task plugin.Task, budget *llm.Budget,
 	sel []dispatch.Selection, outcomes []dispatch.Outcome) ([]dispatch.Outcome, []string) {
 
 	selByName := make(map[string]dispatch.Selection, len(sel))

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -24,7 +25,7 @@ func r4sel(names ...string) []dispatch.Selection {
 }
 
 func TestRestoreR4Outcomes_HitMissCorrupt(t *testing.T) {
-	good := plugin.Result{Notes: "cached", Findings: []plugin.Finding{{Comment: "f1"}}}
+	good := plugin.Result{Notes: "cached", Findings: []domain.Finding{{Comment: "f1"}}}
 	goodJSON, _ := json.Marshal(good)
 	arts := map[string]string{
 		plugin.ArtifactCkptR4Prefix + "sec":     string(goodJSON),

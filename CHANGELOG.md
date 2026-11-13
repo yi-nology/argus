@@ -2,6 +2,18 @@
 
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
+
+## [v7.1.0] — 2026-11-13
+
+### 重构(refactor)：仓内 internal 接线别名清零——无外部 API 影响
+
+- 删 `internal/dispatch/contract_alias.go`（9 类型别名 + 常量/函数值批共 42 符号）：dispatch 门体与外部消费方改直引 `internal/plugin`（Finding→`domain.Finding`、TokenBudget→`llm.Budget`）
+- 删 `dispatch/merger.go` PrintStore/PatternStore/PrintState 三别名 → 引用改 `domain.*`
+- 删 `internal/progress/bus.go` Bus 别名与 NewBus 转发 → 消费方直用 `oagentprogress.Bus[progress.Event]` / `oagentprogress.NewBus[progress.Event]()`
+- 删 `internal/plugin/types.go` Finding 别名、`contracts.go` TokenBudget 别名 → 全仓引用改 `domain.Finding` / `llm.Budget`
+- 删 `sastscan.Config`（→`sast.Config`）、`storage.PatternSignalOut`（零引用）与 `storage.RepoRef`（→`learning.RepoRef`）、`requirement.ReflectSummary`/`Output`（→`plugin.ReflectSummary`/`plugin.WorkflowOutput`）、`adapter_builtin.WorkflowFactory`/`ToolsHook`（→`plugin.*`）
+- test/arch layering 白名单同步扩集：能力层（poster/sastscan/sink/impactview/reportview/fixverifier/ocrshim、plugin/adapter_*）新增 domain 叶子依赖；docs/architecture-deep-dive.md 记档
+- `internal/storage/printalias.go`（LLM 措辞漂移指纹特性）与 `dispatcher_legacy_test.go`（测现行为，仅 import 面跟随）保留
 ## [v6.14.0] — 2026-11-12
 
 - 与 v6.13.0 相比无代码差异（版本号/打包变更）

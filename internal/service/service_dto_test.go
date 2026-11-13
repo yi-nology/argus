@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // TestTaskFindings 往返钉 ResultJSON findings 载荷契约（读写两端必须同步演化；
 // 此前 marker 契约漂移的教训——往返测试是防漂移的硬门）。
 func TestTaskFindings(t *testing.T) {
-	in := []plugin.Finding{{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast"}}
+	in := []domain.Finding{{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast"}}
 	raw, err := json.Marshal(map[string]any{"findings": in})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -35,7 +35,7 @@ func TestTaskFindings(t *testing.T) {
 // 结构化清单直出（MCP 副驾消费面与 schema 同步演化——字段入 schema 而出口
 // 不带，等于消费面看不到）。
 func TestFindingDTO(t *testing.T) {
-	f := plugin.Finding{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast",
+	f := domain.Finding{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast",
 		SuggestedFix: "if v == nil { return }", Evidence: "a.go:3 判空缺失"}
 	m := findingDTO(f)
 	if m["evidence"] != "a.go:3 判空缺失" {

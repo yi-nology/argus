@@ -7,8 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oekit/logx"
 	"time"
+
+	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ---------- 编队黑板共识模式测试（blackboard 架构原语，v3.4） ----------
@@ -16,66 +20,66 @@ import (
 // scriptedPlugin 脚本化插件：每次 Invoke 依次返回预设 findings，并捕获注入的
 // 黑板视图（互看通道验证）。
 type scriptedPlugin struct {
-	manifest AgentManifest
-	script   [][]Finding
+	manifest plugin.AgentManifest
+	script   [][]domain.Finding
 	boards   []string // 每次 Invoke 看到的 squad_board 视图
 	calls    int
 }
 
-func (p *scriptedPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *scriptedPlugin) Invoke(_ context.Context, t Task) (Result, error) {
+func (p *scriptedPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *scriptedPlugin) Invoke(_ context.Context, t plugin.Task) (plugin.Result, error) {
 	p.boards = append(p.boards, t.Artifacts[ArtifactSquadBoard])
 	i := p.calls
 	p.calls++
 	if i < len(p.script) {
-		return Result{Findings: p.script[i]}, nil
+		return plugin.Result{Findings: p.script[i]}, nil
 	}
-	return Result{}, nil
+	return plugin.Result{}, nil
 }
 
 // failOnCallPlugin 第 N 次 Invoke 起失败（模拟首轮成功、后续轮次故障）。
 type failOnCallPlugin struct {
-	manifest AgentManifest
+	manifest plugin.AgentManifest
 	failAt   int
 	calls    int
 }
 
-func (p *failOnCallPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *failOnCallPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
+func (p *failOnCallPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *failOnCallPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
 	i := p.calls
 	p.calls++
 	if i >= p.failAt {
-		return Result{}, errors.New("simulated later-round failure")
+		return plugin.Result{}, errors.New("simulated later-round failure")
 	}
-	return Result{}, nil
+	return plugin.Result{}, nil
 }
 
 // cancelInvokePlugin Invoke 即阻塞至 ctx 取消并返回取消错误（模拟优雅停机
 // 打断共识成员执行）。
 type cancelInvokePlugin struct {
-	manifest AgentManifest
+	manifest plugin.AgentManifest
 }
 
-func (p *cancelInvokePlugin) Manifest() AgentManifest { return p.manifest }
-func (p *cancelInvokePlugin) Invoke(ctx context.Context, _ Task) (Result, error) {
+func (p *cancelInvokePlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *cancelInvokePlugin) Invoke(ctx context.Context, _ plugin.Task) (plugin.Result, error) {
 	<-ctx.Done()
-	return Result{}, fmt.Errorf("reAct 中断: %w", ctx.Err())
+	return plugin.Result{}, fmt.Errorf("reAct 中断: %w", ctx.Err())
 }
 
-func regWith(p AgentPlugin) *Registration {
+func regWith(p plugin.AgentPlugin) *Registration {
 	return &Registration{Manifest: p.Manifest(), Plugin: p, Enabled: true}
 }
 
-func findingOf(file, comment, sev string, line int) Finding {
-	return Finding{File: file, Line: line, Severity: sev, Comment: comment}
+func findingOf(file, comment, sev string, line int) domain.Finding {
+	return domain.Finding{File: file, Line: line, Severity: sev, Comment: comment}
 }
 
 // newScriptedMember 构造编队成员：触发器刻意不命中（排除 base 选择路径，
 // 确保测试只观察 squad/consensus 语义）。
-func newScriptedMember(name string, script ...[]Finding) *scriptedPlugin {
+func newScriptedMember(name string, script ...[]domain.Finding) *scriptedPlugin {
 	return &scriptedPlugin{
-		manifest: AgentManifest{Name: name, Skills: []string{"code-review"},
-			Triggers: Trigger{Paths: []string{"excluded/*"}}},
+		manifest: plugin.AgentManifest{Name: name, Skills: []string{"code-review"},
+			Triggers: plugin.Trigger{Paths: []string{"excluded/*"}}},
 		script: script,
 	}
 }
@@ -83,21 +87,21 @@ func newScriptedMember(name string, script ...[]Finding) *scriptedPlugin {
 // 共识收敛 + 指纹互看去重：B 轮内看到 A 的发现后不重复报告，只补新问题。
 func TestRunConsensus_ConvergeAndDedup(t *testing.T) {
 	pa := newScriptedMember("expert-a",
-		[]Finding{findingOf("a.go", "空指针解引用", "high", 10)},
-		[]Finding{findingOf("a.go", "空指针解引用", "high", 10)}, // 第 2 轮重复报告 → 黑板去重
+		[]domain.Finding{findingOf("a.go", "空指针解引用", "high", 10)},
+		[]domain.Finding{findingOf("a.go", "空指针解引用", "high", 10)}, // 第 2 轮重复报告 → 黑板去重
 	)
 	pb := newScriptedMember("expert-b",
-		[]Finding{findingOf("a.go", "空指针解引用", "high", 10), findingOf("b.go", "goroutine 泄漏", "medium", 22)},
-		[]Finding{}, // 第 2 轮无补充 → 共识信号
+		[]domain.Finding{findingOf("a.go", "空指针解引用", "high", 10), findingOf("b.go", "goroutine 泄漏", "medium", 22)},
+		[]domain.Finding{}, // 第 2 轮无补充 → 共识信号
 	)
 
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(pb))
-	d = d.WithSquads([]SquadDecl{{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
+	d = d.WithSquads([]plugin.SquadDecl{{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
 
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"},
-		Diff: &DiffContext{Files: []DiffFile{{Path: "a.go"}, {Path: "b.go"}}}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"},
+		Diff: &plugin.DiffContext{Files: []plugin.DiffFile{{Path: "a.go"}, {Path: "b.go"}}}}
 
 	// Select：consensus 成员不进 fan-out
 	sel := d.Select(&task.PR, []string{"a.go", "b.go"}, []string{"code-review"}, nil)
@@ -115,7 +119,7 @@ func TestRunConsensus_ConvergeAndDedup(t *testing.T) {
 	}
 
 	outcomes := d.RunConsensus(context.Background(), task, sqs[0], nil)
-	byName := map[string]*Result{}
+	byName := map[string]*plugin.Result{}
 	for _, o := range outcomes {
 		if o.Err != nil || o.SkippedReason != "" {
 			t.Fatalf("成员 %s 不应失败/跳过（err=%v skipped=%s）", o.Name, o.Err, o.SkippedReason)
@@ -155,14 +159,14 @@ func TestRunConsensus_ConvergeAndDedup(t *testing.T) {
 // 成员失败不中止召集：失败者降级注明，其余成员照常互看。
 func TestRunConsensus_MemberFailureDegrades(t *testing.T) {
 	pb := newScriptedMember("expert-b",
-		[]Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)})
+		[]domain.Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)})
 
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	_ = d.reg.Register(regWith(&failPlugin{manifest: AgentManifest{Name: "expert-a", Skills: []string{"code-review"}}}))
+	_ = d.reg.Register(regWith(&failPlugin{manifest: plugin.AgentManifest{Name: "expert-a", Skills: []string{"code-review"}}}))
 	_ = d.reg.Register(regWith(pb))
 
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 	outcomes := d.RunConsensus(context.Background(), task, sq, nil)
 
 	var aFailed, bOK bool
@@ -182,13 +186,13 @@ func TestRunConsensus_MemberFailureDegrades(t *testing.T) {
 // 预算耗尽：成员全程跳过并降级注明，不产生发现。
 func TestRunConsensus_BudgetExhaustedSkips(t *testing.T) {
 	pa := newScriptedMember("expert-a",
-		[]Finding{findingOf("a.go", "空指针解引用", "high", 10)})
+		[]domain.Finding{findingOf("a.go", "空指针解引用", "high", 10)})
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(newScriptedMember("expert-b")))
 
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 	outcomes := d.RunConsensus(context.Background(), task, sq, NewTokenBudget(0))
 
 	for _, o := range outcomes {
@@ -204,8 +208,8 @@ func TestRunConsensus_BudgetExhaustedSkips(t *testing.T) {
 // 未注册/未启用成员 → 降级注明；全部无效时返回空 outcomes 不 panic。
 func TestRunConsensus_UnregisteredMember(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	sq := SquadDecl{Name: "ghost", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"nobody"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	sq := plugin.SquadDecl{Name: "ghost", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"nobody"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 	outcomes := d.RunConsensus(context.Background(), task, sq, nil)
 	if len(outcomes) != 1 || outcomes[0].SkippedReason == "" {
 		t.Fatalf("未注册成员应降级注明，got %+v", outcomes)
@@ -217,9 +221,9 @@ func TestSelect_IndependentSquadUnchanged(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(newScriptedMember("expert-a")))
 	_ = d.reg.Register(regWith(newScriptedMember("expert-b")))
-	d = d.WithSquads([]SquadDecl{{Name: "duo", Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
+	d = d.WithSquads([]plugin.SquadDecl{{Name: "duo", Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}})
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, []string{"a.go"}, []string{"code-review"}, nil)
 	if len(sel) != 2 {
 		t.Fatalf("独立编队成员应进 fan-out，got %v", selNames(sel))
@@ -244,10 +248,10 @@ func containsAll(s string, subs ...string) bool {
 // 编队共识的重复召集边界：同一 dispatcher 多轮召集不串状态（冒烟）。
 func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	// 每次召集消耗 2 轮脚本（首轮贡献 + 次轮重复靠指纹去重收敛），3 次召集深度给足 6
-	sameA := []Finding{findingOf("a.go", "空指针解引用", "high", 10)}
-	sameB := []Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)}
-	scriptA := make([][]Finding, 6)
-	scriptB := make([][]Finding, 6)
+	sameA := []domain.Finding{findingOf("a.go", "空指针解引用", "high", 10)}
+	sameB := []domain.Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)}
+	scriptA := make([][]domain.Finding, 6)
+	scriptB := make([][]domain.Finding, 6)
 	for i := range 6 {
 		scriptA[i] = sameA
 		scriptB[i] = sameB
@@ -257,8 +261,8 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(pa))
 	_ = d.reg.Register(regWith(pb))
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 
 	for i := range 3 {
 		outcomes := d.RunConsensus(context.Background(), task, sq, nil)
@@ -274,25 +278,25 @@ func TestRunConsensus_RepeatedConvene(t *testing.T) {
 	}
 }
 
-// 深挖修复回归：第 1 轮成功（无发现）、第 2 轮失败的成员此前静默落成空 Result
+// 深挖修复回归：第 1 轮成功（无发现）、第 2 轮失败的成员此前静默落成空 plugin.Result
 // （"参与了但没新发现"），lastErr 被吞、Degraded 无注明。现在按失败终态回填。
 func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
 	lateFail := &failOnCallPlugin{
-		manifest: AgentManifest{Name: "expert-a", Skills: []string{"code-review"},
-			Triggers: Trigger{Paths: []string{"excluded/*"}}},
+		manifest: plugin.AgentManifest{Name: "expert-a", Skills: []string{"code-review"},
+			Triggers: plugin.Trigger{Paths: []string{"excluded/*"}}},
 		failAt: 1, // 第 2 次 Invoke（第 2 轮）起失败
 	}
 	pb := newScriptedMember("expert-b",
-		[]Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)},
-		[]Finding{},
+		[]domain.Finding{findingOf("b.go", "goroutine 泄漏", "medium", 22)},
+		[]domain.Finding{},
 	)
 
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regWith(lateFail))
 	_ = d.reg.Register(regWith(pb))
 
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"expert-a", "expert-b"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 	outcomes := d.RunConsensus(context.Background(), task, sq, nil)
 
 	var aFailed bool
@@ -311,12 +315,12 @@ func TestRunConsensus_LateRoundFailureNotSwallowed(t *testing.T) {
 // security 类成员误熔断 5 分钟。
 func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
-	_ = d.reg.Register(regWith(&cancelInvokePlugin{manifest: AgentManifest{
+	_ = d.reg.Register(regWith(&cancelInvokePlugin{manifest: plugin.AgentManifest{
 		Name: "blocker", Skills: []string{"code-review"},
-		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))
-	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []Finding{}, []Finding{})))
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
-	task := Task{PR: PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
+		Triggers: plugin.Trigger{Paths: []string{"excluded/*"}}}}))
+	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []domain.Finding{}, []domain.Finding{})))
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
+	task := plugin.Task{PR: plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -337,11 +341,11 @@ func TestRunConsensus_CancelNotCountedAsBreakerFailure(t *testing.T) {
 func TestRunConsensus_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	now := time.Now()
 	d := newDispatcher(NewRegistry(), logx.Nop(), func() time.Time { return now })
-	_ = d.reg.Register(regWith(&canceledPlugin{manifest: AgentManifest{
+	_ = d.reg.Register(regWith(&canceledPlugin{manifest: plugin.AgentManifest{
 		Name: "blocker", Skills: []string{"code-review"},
-		Triggers: Trigger{Paths: []string{"excluded/*"}}}}))
-	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []Finding{}, []Finding{})))
-	sq := SquadDecl{Name: "duo", Mode: SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
+		Triggers: plugin.Trigger{Paths: []string{"excluded/*"}}}}))
+	_ = d.reg.Register(regWith(newScriptedMember("expert-b", []domain.Finding{}, []domain.Finding{})))
+	sq := plugin.SquadDecl{Name: "duo", Mode: plugin.SquadModeConsensus, Paths: []string{"**"}, Members: []string{"blocker", "expert-b"}}
 
 	bs := d.BreakerFor("blocker")
 	for range breakerTripThreshold {
@@ -353,7 +357,7 @@ func TestRunConsensus_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	}
 	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
 
-	_ = d.RunConsensus(context.Background(), Task{}, sq, nil)
+	_ = d.RunConsensus(context.Background(), plugin.Task{}, sq, nil)
 
 	if _, _, berr := bs.AllowGen(context.Background()); berr != nil {
 		t.Fatal("共识成员取消后应经 AbandonGen 立即放行新探测")

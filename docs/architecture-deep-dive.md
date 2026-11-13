@@ -71,6 +71,14 @@ Argus 是一个**可插拔多 Agent 代码审查平台**，核心形态是 PR �
 └─────────────────────────────────────────────────────────────┘
 ```
 
+> v7.1.0 接线别名清仓：dispatch 契约别名桥（contract_alias.go）、plugin 侧
+> Finding/TokenBudget 域别名、storage RepoRef/PatternSignalOut、requirement
+> Output/ReflectSummary、adapter_builtin WorkflowFactory/ToolsHook、progress
+> Bus、sastscan Config 等仓内转发别名全部删除——消费方直引 plugin/domain/
+> learning/llm/sast/oagentprogress 真身。能力层（poster/sastscan/sink/
+> impactview/reportview/fixverifier/ocrshim 与 plugin/adapter_*）因此新增
+> domain 叶子依赖（test/arch 白名单已同步扩集）；domain 仍只依赖 learning。
+
 **三条设计原则**：
 
 1. **形态是 L1 适配器** —— 加新形态（MCP/A2A/IM）不动核心

@@ -1,9 +1,10 @@
 package service
 
 import (
-	"github.com/yi-nology/argus/internal/commentcmd"
 	"strings"
 	"testing"
+
+	"github.com/yi-nology/argus/internal/commentcmd"
 )
 
 func TestExtractDescribe(t *testing.T) {

@@ -1,10 +1,11 @@
 package impactview
 
 import (
-	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/argus/internal/storage"
 	"strings"
 	"testing"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // TestRenderHTMLFuncDiffNodes v5.7.4:函数级变更一等节点融入主图(视图层合成,
@@ -47,7 +48,7 @@ func TestRenderHTMLFuncDiffNodes(t *testing.T) {
 func TestRenderHTMLFindingsOverlay(t *testing.T) {
 	s := &Snapshot{Version: SnapshotVersion, Changed: []string{"a.go"},
 		Nodes: []Node{{ID: "file:a.go", Kind: KindFile, Label: "a.go", Changed: true, Detail: "a.go"}}}
-	fs := []plugin.Finding{
+	fs := []domain.Finding{
 		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针解引用", FP: "071298e9abcd"},
 		{File: "other/b.go", Line: 2, Severity: "low", Comment: "未检查错误"},
 	}

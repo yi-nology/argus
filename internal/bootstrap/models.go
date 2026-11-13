@@ -16,6 +16,7 @@ import (
 
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/llm/wrap"
+
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"

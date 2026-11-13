@@ -30,6 +30,7 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -189,7 +190,7 @@ func mapMCPFindings(raw, summary string) (plugin.Result, error) {
 		if f.Title != "" && f.Title != f.Body {
 			comment = f.Title + "\n\n" + f.Body
 		}
-		out.Findings = append(out.Findings, plugin.Finding{
+		out.Findings = append(out.Findings, domain.Finding{
 			File:         f.Path,
 			Line:         f.Line,
 			Severity:     f.Severity,

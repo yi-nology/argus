@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 )
@@ -18,7 +19,7 @@ func analystFixture() Report {
 		Rule:        "R5.2",
 		Meta:        true,
 		Plugins:     []string{"correctness"},
-		Findings: []plugin.Finding{
+		Findings: []domain.Finding{
 			{File: "b.rs", Line: 350, Severity: "critical", Comment: "pid 复用串数据", By: "correctness"},
 			{File: "a.rs", Line: 444, Severity: "high", Comment: "off_cpu 口径从微秒变事件个数",
 				Chain: "改动侧 JstackProbeAgent.java:162 恒记 1；消费侧 ebpf_dispatcher.rs:454 直接当微秒", By: "correctness",
@@ -124,7 +125,7 @@ func TestRenderMinimal(t *testing.T) {
 func TestRenderMinimalHighCap(t *testing.T) {
 	r := Report{TaskID: "t", Template: reporttmpl.Minimal, VerdictText: "✅ 通过", Meta: true}
 	for i := 0; i < 15; i++ {
-		r.Findings = append(r.Findings, plugin.Finding{File: "f.go", Line: i, Severity: "high", Comment: "h"})
+		r.Findings = append(r.Findings, domain.Finding{File: "f.go", Line: i, Severity: "high", Comment: "h"})
 	}
 	out := Render(r)
 	if !strings.Contains(out, "另有 5 条高危/严重意见从略") {
@@ -138,7 +139,7 @@ func TestRenderMinimalHighCap(t *testing.T) {
 func TestRenderStandardUnchangedByTemplateField(t *testing.T) {
 	// Template=standard / 空 / 未知：与缺省行为一致（standard 渲染不读 Template）。
 	base := Report{TaskID: "t", HeadSHA: "h", Version: "v", VerdictText: "✅ 通过", Meta: true,
-		Findings: []plugin.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "x"}}}
+		Findings: []domain.Finding{{File: "a.go", Line: 1, Severity: "high", Comment: "x"}}}
 	ref := Render(base)
 	for _, tmpl := range []string{"", "standard", "bogus", "STANDARD"} {
 		r := base

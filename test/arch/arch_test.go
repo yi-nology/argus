@@ -86,11 +86,11 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/goedges": {"github.com/yi-nology/argus/internal/semsearch"},
 	// v3.183.0：影响面管线（外部依赖仅 textx/procx，包装接线在 runner）
 	// v5.4.7 funcdiff 浅克隆先 deepen（补录：d0db25c 引入消费未同步白名单，门禁已在 v6.3.0 补录转绿）
-	// v5.8.0 findings 挂图：渲染层消费 plugin.Finding 契约（findingswire 同向）
+	// v5.8.0 findings 挂图：渲染层消费 domain.Finding 契约（findingswire 同向）
 	// v5.8.2 惯犯热力：ViewOpts.History 用 storage.FindingFileHistory 聚合结果类型
 	// v6.0.0 L2 调用方升级：消歧符号图优先解析调用方（semsearch.NodeKey 键契约
 	// + SymbolContext 邻接；纯底座消费，方向与 goedges 同款）
-	"github.com/yi-nology/argus/internal/impactview": {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/impactview": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/langcap", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
 	// v3.187.0：服务侧按仓配置（类型+Parse 校验纯函数，消费方 storage/runner/service）
 	"github.com/yi-nology/argus/internal/reposettings": {},
 
@@ -118,10 +118,10 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/notify/octopus": {},
 
 	// ---- 能力层：可依赖核心域与基座，禁编排/入口 ----
-	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
+	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
 	"github.com/yi-nology/argus/internal/toolpool":   {"github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
 	// v6.9.0 P1-05（#10）：outbox 事件载荷复用 progress.Event（领域事件类型单源）——
 	// storage 序列化/反序列化 outbox 行需要它；progress 零依赖，方向安全。
 	"github.com/yi-nology/argus/internal/storage": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/progress"},
@@ -131,18 +131,18 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/argusctx": {"github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/qa":       {"github.com/yi-nology/argus/internal/codesearch", "github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/semsearch", "github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/dream":    {"github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/memorykernel", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/storage"},
-	"github.com/yi-nology/argus/internal/poster":   {"github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/reportview", "github.com/yi-nology/argus/internal/storage"},
+	"github.com/yi-nology/argus/internal/poster":   {"github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/reportview", "github.com/yi-nology/argus/internal/storage"},
 	// v6.2.x 架构卫生批 B：销死边 plugin（poller 实际未 import plugin）。
 	"github.com/yi-nology/argus/internal/poller":   {"github.com/yi-nology/argus/internal/argusctx", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/obs", "github.com/yi-nology/argus/internal/progress", "github.com/yi-nology/argus/internal/storage"},
 	"github.com/yi-nology/argus/internal/ocrdeleg": {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/ocrshim":  {"github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/plugin/adapter_cli"},
+	"github.com/yi-nology/argus/internal/ocrshim":  {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/gitdeepen", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/plugin/adapter_cli"},
 
 	// ---- v6.2.x 架构卫生批 B 补边（原 layering 盲区 4 包，此前纯靠自觉）----
 	// 允许集 = 现状 import 快照（2026-11-11 go list 实测）：四包均有稳定消费方
 	// （service→commentcmd、runner→fixverifier/writing、dream/service→memorykernel），
 	// 当前依赖面恰好干净——立此约束后新增 internal 依赖须显式扩集并记档。
 	"github.com/yi-nology/argus/internal/commentcmd":   {},
-	"github.com/yi-nology/argus/internal/fixverifier":  {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/fixverifier":  {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/memorykernel": {},
 	"github.com/yi-nology/argus/internal/writing":      {},
 
@@ -191,10 +191,10 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/channel/mcpserver": {},
 
 	// ---- 适配器子包：单向依赖核心域（plugin 不得反向 import 适配器）----
-	"github.com/yi-nology/argus/internal/plugin/adapter_acpx":    {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/plugin/adapter_builtin": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
-	"github.com/yi-nology/argus/internal/plugin/adapter_cli":     {"github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/plugin/adapter_remote":  {"github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_acpx":    {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_builtin": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_cli":     {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
+	"github.com/yi-nology/argus/internal/plugin/adapter_remote":  {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
 }
 
 // TestLayering 分层白名单守卫。

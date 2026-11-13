@@ -13,6 +13,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/oagentkit/textx/codeintel"
+
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/semsearch"
 )

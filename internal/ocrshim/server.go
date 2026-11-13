@@ -17,6 +17,7 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -136,10 +137,10 @@ func handleReview(cfg Config) server.ToolHandlerFunc {
 			writeHistory(cfg.HistoryDir, p, stdout, findings) // 失败仅记日志，不影响审查
 		}
 		if findings == nil {
-			findings = []plugin.Finding{} // 零意见输出空数组而非 null（契约稳定）
+			findings = []domain.Finding{} // 零意见输出空数组而非 null（契约稳定）
 		}
 		b, err := json.Marshal(struct {
-			Findings []plugin.Finding `json:"findings"`
+			Findings []domain.Finding `json:"findings"`
 		}{Findings: findings})
 		if err != nil {
 			return mcp.NewToolResultError("findings 序列化失败: " + err.Error()), nil
@@ -163,7 +164,7 @@ type shimPayload struct {
 
 // writeHistory OCR 原始 stdout（嵌入为合法 JSON：原文本就是 JSON，异常时降级为
 // 字符串字段）+ 归一化 findings 落盘。文件名纳秒时间戳防同秒互覆。
-func writeHistory(dir string, p shimPayload, rawStdout string, findings []plugin.Finding) {
+func writeHistory(dir string, p shimPayload, rawStdout string, findings []domain.Finding) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		log.Printf("[warn] OCR 历史目录创建失败: %v", err)
 		return

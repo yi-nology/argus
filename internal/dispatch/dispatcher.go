@@ -10,6 +10,8 @@ import (
 	"github.com/oagentkit/llm"
 	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // 熔断参数。旧 agentkit/breaker（已退役）导出了 DefaultTripThreshold / DefaultCooldown /
@@ -43,7 +45,7 @@ func genBreaker(name string, opts ...breaker.BreakerOption) breaker.GenBreaker {
 }
 
 // NewTokenBudget 创建任务预算累计器。
-func NewTokenBudget(limit int) *TokenBudget { return llm.NewBudget(limit) }
+func NewTokenBudget(limit int) *llm.Budget { return llm.NewBudget(limit) }
 
 // Selection 一条被选中的插件及其入选原因（可观测）。
 type Selection struct {
@@ -54,8 +56,8 @@ type Selection struct {
 // Outcome 单插件执行结果（含跳过/失败原因，供降级注明）。
 type Outcome struct {
 	Name          string
-	Manifest      AgentManifest
-	Result        *Result
+	Manifest      plugin.AgentManifest
+	Result        *plugin.Result
 	Err           error
 	SkippedReason string // 非空 = 未执行（熔断/预算/裁剪）
 	Duration      time.Duration
@@ -76,7 +78,7 @@ func (o Outcome) Notes() string {
 
 // Dispatcher 确定性路由 + fan-out 执行（design §3.3）。
 type Dispatcher struct {
-	squads []SquadDecl
+	squads []plugin.SquadDecl
 	reg    *Registry
 	// brkNS 是本 Dispatcher 的熔断命名空间前缀。熔断器按插件名惰性获取，
 	// 同一 Dispatcher 内同名共享状态，跨 Dispatcher 互相隔离。
@@ -151,10 +153,10 @@ func (d *Dispatcher) BreakerFor(name string) breaker.GenBreaker { return d.break
 // WithSquads 注入交叉审查编队声明（plugins.yaml squads 段；链式）。
 // 启动期静态校验（深挖修复）：未知 mode 静默按互盲跑（与用户预期的共识语义
 // 完全不同）、paths+labels 双空的编队永不触发——此前都是无声死配置。
-func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
+func (d *Dispatcher) WithSquads(sq []plugin.SquadDecl) *Dispatcher {
 	for i := range sq {
 		s := &sq[i]
-		if s.Mode != "" && s.Mode != SquadModeConsensus {
+		if s.Mode != "" && s.Mode != plugin.SquadModeConsensus {
 			d.log.Warn("argus.squad.unknown_mode", "squad", s.Name,
 				"mode", string(s.Mode), "effect", "按独立（互盲）模式处理")
 			s.Mode = ""
@@ -174,22 +176,22 @@ func (d *Dispatcher) WithSquads(sq []SquadDecl) *Dispatcher {
 
 // squadTriggered 编队触发谓词：paths 命中变更文件或 labels 命中 PR 标签
 // （ActiveSquadMembers 与 Select 的 consensus 排除/编队追加共用单源）。
-func squadTriggered(sq SquadDecl, changedFiles []string, labels []string) bool {
-	return (len(sq.Paths) > 0 && matchAnyGlob(sq.Paths, changedFiles)) ||
-		(len(sq.Labels) > 0 && listOverlap(sq.Labels, labels))
+func squadTriggered(sq plugin.SquadDecl, changedFiles []string, labels []string) bool {
+	return (len(sq.Paths) > 0 && plugin.MatchAnyGlob(sq.Paths, changedFiles)) ||
+		(len(sq.Labels) > 0 && plugin.ListOverlap(sq.Labels, labels))
 }
 
 // ActiveSquadMembers 命中触发条件的编队成员名（去重、保序；交叉审查分歧标注用）。
 // 仅统计独立（互盲）模式编队——consensus 编队成员互看过彼此发现，不存在
 // "盲审分歧"，标注反而误导（v3.4）。
-func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []string {
+func (d *Dispatcher) ActiveSquadMembers(pr *plugin.PRContext, changedFiles []string) []string {
 	if len(d.squads) == 0 {
 		return nil
 	}
 	seen := map[string]bool{}
 	var members []string
 	for _, sq := range d.squads {
-		if sq.Mode == SquadModeConsensus {
+		if sq.Mode == plugin.SquadModeConsensus {
 			continue // consensus 编队成员互看过彼此发现，无盲审分歧可标
 		}
 		// 空 mode 与未知 mode 一律按独立模式处理（配置宽容，行为可预期）
@@ -210,10 +212,10 @@ func (d *Dispatcher) ActiveSquadMembers(pr *PRContext, changedFiles []string) []
 // （v3.98.0 由 Select 单体收口，语义逐行保真）。
 type selector struct {
 	d            *Dispatcher
-	pr           *PRContext
+	pr           *plugin.PRContext
 	changedFiles []string
 	skills       []string
-	rc           *RepoConfig
+	rc           *plugin.RepoConfig
 	out          []Selection
 	seen         map[string]bool
 	consensus    map[string]bool // consensus 编队成员不进 fan-out（v3.4 语义）
@@ -221,7 +223,7 @@ type selector struct {
 	disableSet   map[string]bool
 }
 
-func (d *Dispatcher) newSelector(pr *PRContext, changedFiles, skills []string, rc *RepoConfig) *selector {
+func (d *Dispatcher) newSelector(pr *plugin.PRContext, changedFiles, skills []string, rc *plugin.RepoConfig) *selector {
 	s := &selector{d: d, pr: pr, changedFiles: changedFiles, skills: skills, rc: rc,
 		seen: map[string]bool{}, consensus: map[string]bool{},
 		useSet: map[string]bool{}, disableSet: map[string]bool{}}
@@ -244,7 +246,7 @@ func (s *selector) add(reg *Registration, reason string) {
 	if s.consensus[reg.Manifest.Name] {
 		return
 	}
-	if !listOverlap(reg.Manifest.Skills, s.skills) {
+	if !plugin.ListOverlap(reg.Manifest.Skills, s.skills) {
 		return
 	}
 	if s.seen[reg.Manifest.Name] { // 保留首个原因
@@ -261,7 +263,7 @@ func (s *selector) base() {
 		if !reg.Enabled {
 			continue
 		}
-		if !listOverlap(reg.Manifest.Skills, s.skills) {
+		if !plugin.ListOverlap(reg.Manifest.Skills, s.skills) {
 			continue
 		}
 		triggered := reg.Manifest.Triggers.Empty() ||
@@ -290,7 +292,7 @@ func (s *selector) routing() {
 		return
 	}
 	for i, rule := range s.rc.Routing {
-		if !matchAnyGlob(rule.Paths, s.changedFiles) && !listOverlap(rule.Labels, s.pr.Labels) {
+		if !plugin.MatchAnyGlob(rule.Paths, s.changedFiles) && !plugin.ListOverlap(rule.Labels, s.pr.Labels) {
 			continue
 		}
 		for _, n := range rule.Use {
@@ -316,7 +318,7 @@ func (s *selector) routing() {
 // （workflow 在 fan-out 后单独召集），盲审并发对它们反而是错误语义。
 func (s *selector) squads() {
 	for _, sq := range s.d.squads {
-		if sq.Mode == SquadModeConsensus {
+		if sq.Mode == plugin.SquadModeConsensus {
 			continue
 		}
 		if !squadTriggered(sq, s.changedFiles, s.pr.Labels) {
@@ -342,13 +344,13 @@ func (s *selector) squads() {
 //   - routing 命中（paths/labels）追加其 use 引用的插件。
 //
 // 稳定顺序：lock > base/use > routing > squad，同类按名称字母序（Registry.Snapshot 已排序）。
-func (d *Dispatcher) Select(pr *PRContext, changedFiles []string, skills []string, rc *RepoConfig) []Selection {
+func (d *Dispatcher) Select(pr *plugin.PRContext, changedFiles []string, skills []string, rc *plugin.RepoConfig) []Selection {
 	s := d.newSelector(pr, changedFiles, skills, rc)
 	// consensus 编队成员不进 fan-out（v3.4 语义）：此前注释声称 Select 已排除、
 	// 代码却漏了——同一专家会被盲审一次、黑板共识再跑一次（双倍 token + 结果
 	// 双路径入库）。触发条件命中才排除：编队未触发时成员照常走基础选择。
 	for _, sq := range d.squads {
-		if sq.Mode != SquadModeConsensus {
+		if sq.Mode != plugin.SquadModeConsensus {
 			continue
 		}
 		if squadTriggered(sq, changedFiles, pr.Labels) {

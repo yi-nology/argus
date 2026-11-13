@@ -10,7 +10,7 @@ import (
 
 	"github.com/oagentkit/guardx/sandbox"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // setupFenceFixtures 工作副本围栏夹具：合法文件 + 副本内 symlink + 逃逸 symlink
@@ -46,7 +46,7 @@ func TestVerify(t *testing.T) {
 	// 包装命令：验证目标是「文件能编译」——用 gofmt 代替真实编译（无工具链依赖
 	// 差异；命令失败即验证失败）
 	cfg := Config{Cmd: "gofmt -l . | grep -q . && exit 1 || exit 0", Timeout: 0}
-	findings := []plugin.Finding{
+	findings := []domain.Finding{
 		{File: "main.go", Line: 4, Severity: "low", Comment: "x", SuggestedFix: "\tprintln(\"hello\")"},
 		{File: "main.go", Line: 99, SuggestedFix: "\tx"},     // 行越界
 		{File: "missing.go", Line: 1, SuggestedFix: "\tx"},   // 文件缺失（围栏放行、读文件失败跳过）
@@ -115,7 +115,7 @@ func TestResolveSafePathFence(t *testing.T) {
 }
 
 func TestVerifyNoCmd(t *testing.T) {
-	results := Verify(context.Background(), Config{}, "/tmp", []plugin.Finding{{SuggestedFix: "x"}})
+	results := Verify(context.Background(), Config{}, "/tmp", []domain.Finding{{SuggestedFix: "x"}})
 	if results[0].OK || results[0].Skipped == "" {
 		t.Fatalf("未配置命令应整体跳过: %+v", results[0])
 	}

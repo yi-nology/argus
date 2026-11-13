@@ -15,10 +15,10 @@ func TestScenario22_TriggerEventsFilter(t *testing.T) {
 
 	// 注册一个只在 cr.opened 参与的 fake 插件（code-review 技能，无超时直通）
 	s.reg.Register(&dispatch.Registration{
-		Manifest: dispatch.AgentManifest{
+		Manifest: plugin.AgentManifest{
 			Name:     "open-only",
-			Kind:     dispatch.KindBuiltin,
-			Skills:   []string{dispatch.SkillCodeReview},
+			Kind:     plugin.KindBuiltin,
+			Skills:   []string{plugin.SkillCodeReview},
 			Cost:     plugin.CostFast,
 			Timeout:  0, // 默认 120s
 			Triggers: plugin.Trigger{Events: []string{"cr.opened"}},
@@ -81,11 +81,11 @@ var countPlugin counting
 
 type counting struct{ invoked int }
 
-func (c *counting) Manifest() dispatch.AgentManifest {
-	return dispatch.AgentManifest{Name: "open-only", Kind: dispatch.KindBuiltin}
+func (c *counting) Manifest() plugin.AgentManifest {
+	return plugin.AgentManifest{Name: "open-only", Kind: plugin.KindBuiltin}
 }
 
-func (c *counting) Invoke(_ context.Context, _ dispatch.Task) (dispatch.Result, error) {
+func (c *counting) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
 	c.invoked++
-	return dispatch.Result{}, nil
+	return plugin.Result{}, nil
 }

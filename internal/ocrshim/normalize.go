@@ -14,7 +14,7 @@ import (
 
 	"github.com/oagentkit/textx/reportutil"
 
-	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin/adapter_cli"
 )
 
@@ -32,7 +32,7 @@ type ocrComment struct {
 //   - 新 schema（path/content/start_line/severity）本地映射，critical 归 high；
 //   - 旧 schema（path/comment/line/level 变体）回退 adapter_cli 容错解析；
 //   - 空数组 = 合法零意见；解析不出 = 错误上抛（Merger 部分失败容忍）。
-func normalizeFindings(stdout string) ([]plugin.Finding, error) {
+func normalizeFindings(stdout string) ([]domain.Finding, error) {
 	items, found := extractCommentsArray(strings.TrimSpace(stdout))
 	if !found {
 		return adapter_cli.ParseFindings(stdout)
@@ -40,7 +40,7 @@ func normalizeFindings(stdout string) ([]plugin.Finding, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	var out []plugin.Finding
+	var out []domain.Finding
 	for _, raw := range items {
 		var c ocrComment
 		if err := json.Unmarshal(raw, &c); err != nil {
@@ -54,7 +54,7 @@ func normalizeFindings(stdout string) ([]plugin.Finding, error) {
 			line = c.EndLine
 		}
 		sev, _ := reportutil.Normalize(c.Severity) // critical→high；越界归 low（Merger 兜底告警）
-		out = append(out, plugin.Finding{
+		out = append(out, domain.Finding{
 			File:         c.Path,
 			Line:         line,
 			Severity:     sev,

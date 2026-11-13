@@ -19,6 +19,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 )
@@ -217,7 +218,7 @@ type fakeRunner struct {
 	err error
 }
 
-func (f *fakeRunner) Run(context.Context, plugin.Task, *plugin.TokenBudget) (*plugin.WorkflowOutput, error) {
+func (f *fakeRunner) Run(context.Context, plugin.Task, *llm.Budget) (*plugin.WorkflowOutput, error) {
 	return f.out, f.err
 }
 
@@ -225,7 +226,7 @@ func TestNewCompliance_DefaultsAndNilFactory(t *testing.T) {
 	if _, err := NewCompliance(plugin.AgentManifest{}, nil); err == nil {
 		t.Fatal("nil factory 应报错")
 	}
-	p, err := NewCompliance(plugin.AgentManifest{}, func(*plugin.TokenBudget) plugin.WorkflowRunner {
+	p, err := NewCompliance(plugin.AgentManifest{}, func(*llm.Budget) plugin.WorkflowRunner {
 		return &fakeRunner{}
 	})
 	if err != nil {
@@ -245,9 +246,9 @@ func TestComplianceInvoke_MapsWorkflowOutput(t *testing.T) {
 		Rule:    "R5.3",
 		Summary: "变更摘要文本",
 		Report:  &plugin.ComplianceReport{Summary: "t"},
-		Merged:  &plugin.MergedFindings{Findings: []plugin.Finding{{File: "a.go", Comment: "c"}}},
+		Merged:  &plugin.MergedFindings{Findings: []domain.Finding{{File: "a.go", Comment: "c"}}},
 	}
-	p, err := NewCompliance(plugin.AgentManifest{Name: "req"}, func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
+	p, err := NewCompliance(plugin.AgentManifest{Name: "req"}, func(budget *llm.Budget) plugin.WorkflowRunner {
 		if budget == nil {
 			t.Fatal("Task.Budget 应透传给 factory")
 		}
@@ -272,7 +273,7 @@ func TestComplianceInvoke_MapsWorkflowOutput(t *testing.T) {
 	}
 
 	// 上游失败原样上抛
-	p2, _ := NewCompliance(plugin.AgentManifest{Name: "req"}, func(*plugin.TokenBudget) plugin.WorkflowRunner {
+	p2, _ := NewCompliance(plugin.AgentManifest{Name: "req"}, func(*llm.Budget) plugin.WorkflowRunner {
 		return &fakeRunner{err: errors.New("workflow boom")}
 	})
 	if _, err := p2.Invoke(context.Background(), plugin.Task{}); err == nil {
@@ -306,7 +307,7 @@ func TestReviewerOptionsAndReactModelResolution(t *testing.T) {
 		WithLogger(logx.Nop()),
 		WithReactMaxIterations(3),
 		WithReactModel(errModel{}),
-		WithToolsHook(func(context.Context, plugin.Task, *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+		WithToolsHook(func(context.Context, plugin.Task, *llm.Budget) ([]tool.BaseTool, string, error) {
 			return nil, "", nil
 		}),
 	)
@@ -330,15 +331,15 @@ func TestReviewerOptionsAndReactModelResolution(t *testing.T) {
 func TestInvoke_ReActFailuresDegradeToSingle(t *testing.T) {
 	cases := []struct {
 		name string
-		hook ToolsHook
+		hook plugin.ToolsHook
 	}{
-		{"工具表构造失败", func(context.Context, plugin.Task, *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+		{"工具表构造失败", func(context.Context, plugin.Task, *llm.Budget) ([]tool.BaseTool, string, error) {
 			return nil, "", errors.New("hook boom")
 		}},
-		{"工具表为空", func(context.Context, plugin.Task, *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+		{"工具表为空", func(context.Context, plugin.Task, *llm.Budget) ([]tool.BaseTool, string, error) {
 			return nil, "", nil
 		}},
-		{"ReAct 运行失败", func(context.Context, plugin.Task, *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+		{"ReAct 运行失败", func(context.Context, plugin.Task, *llm.Budget) ([]tool.BaseTool, string, error) {
 			return []tool.BaseTool{&fakeInvokableTool{name: "noop"}}, "策略", nil
 		}},
 	}

@@ -3,6 +3,8 @@ package plugin
 import (
 	"strings"
 	"testing"
+
+	"github.com/yi-nology/argus/internal/domain"
 )
 
 // TestParseEvidenceRefs 自由文本解析 file:line（含中文/多引用/无引用三形态）。
@@ -105,20 +107,20 @@ func contains(s, sub string) bool {
 	}())
 }
 
-// TestVerifyFindingEvidence Finding 级证据交叉校验（v6.18.0，与 Claim 级同口径）：
+// TestVerifyFindingEvidence domain.Finding 级证据交叉校验（v6.18.0，与 Claim 级同口径）：
 // 集内引用可验证 / 集外引用标 ⚠️ / 无引用（空或纯文字）不判。
 func TestVerifyFindingEvidence(t *testing.T) {
 	changed := []string{"src/foo.go"}
 	touched := []string{"src/touch.go"}
 
-	f := Finding{File: "src/foo.go", Line: 12, Severity: "high", Comment: "缺判空",
+	f := domain.Finding{File: "src/foo.go", Line: 12, Severity: "high", Comment: "缺判空",
 		Evidence: "src/foo.go:12 未做空值检查"}
 	res := VerifyFindingEvidence(f, changed, touched)
 	if !res.Verified {
 		t.Fatalf("改动集内引用应验证通过: %+v", res)
 	}
 
-	f2 := Finding{File: "src/foo.go", Line: 20, Severity: "high", Comment: "越权",
+	f2 := domain.Finding{File: "src/foo.go", Line: 20, Severity: "high", Comment: "越权",
 		Evidence: "external/lib.go:99 未鉴权"}
 	res2 := VerifyFindingEvidence(f2, changed, touched)
 	if res2.Verified {
@@ -128,15 +130,15 @@ func TestVerifyFindingEvidence(t *testing.T) {
 		t.Fatalf("证据待验证注记缺失: %q", res2.Note)
 	}
 
-	// 空证据：无引用可校验，不判（Finding.Evidence 是可选字段）
-	f3 := Finding{File: "src/foo.go", Line: 1, Severity: "low", Comment: "命名"}
+	// 空证据：无引用可校验，不判（domain.Finding.Evidence 是可选字段）
+	f3 := domain.Finding{File: "src/foo.go", Line: 1, Severity: "low", Comment: "命名"}
 	res3 := VerifyFindingEvidence(f3, changed, touched)
 	if !res3.Verified || res3.Note != "" {
 		t.Fatalf("空证据不应判缺陷: %+v", res3)
 	}
 
 	// 纯文字差距说明（无 file:line）同 Claim 级纪律：不判
-	f4 := Finding{File: "src/foo.go", Line: 2, Severity: "medium", Comment: "口径不一",
+	f4 := domain.Finding{File: "src/foo.go", Line: 2, Severity: "medium", Comment: "口径不一",
 		Evidence: "改动与既有模块口径存在差距"}
 	res4 := VerifyFindingEvidence(f4, changed, touched)
 	if !res4.Verified || res4.Note != "" {
@@ -149,7 +151,7 @@ func TestVerifyFindingEvidence(t *testing.T) {
 func TestVerifyFindingsEvidence(t *testing.T) {
 	changed := []string{"src/foo.go"}
 	touched := []string{"src/touch.go"}
-	mf := &MergedFindings{Findings: []Finding{
+	mf := &MergedFindings{Findings: []domain.Finding{
 		// 1. 可验证 critical → 不动
 		{File: "src/foo.go", Line: 1, Severity: "critical", Comment: "a",
 			Evidence: "src/foo.go:1 数据损坏路径"},

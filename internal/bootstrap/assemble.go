@@ -25,6 +25,8 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/yi-nology/agent-memory/ports"
 	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
+
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -50,7 +52,7 @@ type System struct {
 	WC        *workcopy.Pool
 	Skills    skill.Provider
 	Knowledge rag.KnowledgeService
-	Bus       *progress.Bus
+	Bus       *oagentprogress.Bus[progress.Event]
 	EventSeen *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
 	Notify    *notify.Notifier // nil = 未配置 octopus
 
@@ -117,7 +119,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	sys.Knowledge = buildKnowledge(ctx, cfg, log)
 
 	// ---- L1 扩展：进度事件总线 + octopus IM 推送（v3.1）----
-	sys.Bus = progress.NewBus()
+	sys.Bus = oagentprogress.NewBus[progress.Event]()
 	// v6.12 P1：实例级事件去重环（同实例 at-most-once）——Bus 广播与 outbox
 	// 回灌双源经共享环去重；Service 与 Runner 注入同一实例。
 	sys.EventSeen = progress.NewDedup(0)
@@ -140,7 +142,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	var runnerRef *runner.Runner
 	reg, complianceSkillRefs, err := BuildRegistry(&Deps{
 		Cfg: cfg, Log: log, WC: wc, Model: models.React, Skills: sys.Skills, Plugins: pf,
-		WorkflowFactory: func(budget *plugin.TokenBudget) plugin.WorkflowRunner {
+		WorkflowFactory: func(budget *llm.Budget) plugin.WorkflowRunner {
 			if runnerRef == nil {
 				return nil // 装配完成前不该被调用；调用方 panic=明确报错
 			}
@@ -148,7 +150,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		},
 		// R4 builtin ReAct 化：Reviewer 复用 R3 工具基础设施（get_file/get_diff/
 		// 知识/技能/MCP），失败自动落回单轮调用
-		ReviewTools: func(ctx context.Context, task plugin.Task, budget *plugin.TokenBudget) ([]tool.BaseTool, string, error) {
+		ReviewTools: func(ctx context.Context, task plugin.Task, budget *llm.Budget) ([]tool.BaseTool, string, error) {
 			if runnerRef == nil {
 				return nil, "", fmt.Errorf("runner 未就绪")
 			}

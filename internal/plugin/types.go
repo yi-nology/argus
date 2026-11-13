@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/oagentkit/llm"
+
 	"github.com/yi-nology/argus/internal/domain"
 )
 
@@ -267,16 +269,15 @@ type Task struct {
 	SessionID   string            // 会话形态才有（v3.2）
 	// Budget 任务级 token 预算（Dispatcher.Run 注入）。插件内的 LLM 调用应计入，
 	// 否则 R4 审查插件（成本大头）对预算不可见，PruneByBudget/预算门形同虚设。
-	Budget *TokenBudget
+	Budget *llm.Budget
 }
 
-// Finding 单条审查意见（领域模型住在 internal/domain；此处别名保持既有 API）。
+// Finding 单条审查意见（领域模型住在 internal/domain）。
 // Severity 必须经过 NormalizeSeverity 归一化。
-type Finding = domain.Finding
 
 // Result 插件输出。
 type Result struct {
-	Findings []Finding
+	Findings []domain.Finding
 	Verdict  string            // approve|comment|request_changes（可空；R5 不读模型自评 verdict）
 	Artifact map[string]string // 插件特有结构化产物（如 ComplianceReport JSON）
 	Notes    string

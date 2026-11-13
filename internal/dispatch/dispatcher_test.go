@@ -6,28 +6,34 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oekit/logx"
 	"time"
+
+	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // ---- test helpers ----
 
-type nopPlugin struct{ manifest AgentManifest }
+type nopPlugin struct{ manifest plugin.AgentManifest }
 
-func (p *nopPlugin) Manifest() AgentManifest                          { return p.manifest }
-func (p *nopPlugin) Invoke(_ context.Context, _ Task) (Result, error) { return Result{}, nil }
+func (p *nopPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *nopPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
+	return plugin.Result{}, nil
+}
 
-type failPlugin struct{ manifest AgentManifest }
+type failPlugin struct{ manifest plugin.AgentManifest }
 
-func (p *failPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *failPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
-	return Result{}, errors.New("boom")
+func (p *failPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *failPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
+	return plugin.Result{}, errors.New("boom")
 }
 
 func reg(name string, skills []string, opts ...func(*Registration)) *Registration {
 	r := &Registration{
-		Manifest: AgentManifest{Name: name, Skills: skills},
-		Plugin:   &nopPlugin{manifest: AgentManifest{Name: name, Skills: skills}},
+		Manifest: plugin.AgentManifest{Name: name, Skills: skills},
+		Plugin:   &nopPlugin{manifest: plugin.AgentManifest{Name: name, Skills: skills}},
 		Enabled:  true,
 	}
 	for _, o := range opts {
@@ -52,7 +58,7 @@ func TestSelect_Basic(t *testing.T) {
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, nil, []string{"security"}, nil)
 	if len(sel) != 1 || sel[0].Reg.Manifest.Name != "security" {
 		t.Fatalf("应只选中 security，got %v", selNames(sel))
@@ -63,7 +69,7 @@ func TestSelect_NoSkillMatch(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("security", []string{"security"}))
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, nil, []string{"nonexistent"}, nil)
 	if len(sel) != 0 {
 		t.Fatalf("无技能匹配应为空，got %v", selNames(sel))
@@ -74,7 +80,7 @@ func TestSelect_Disabled(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("security", []string{"security"}, withDisabled))
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, nil, []string{"security"}, nil)
 	if len(sel) != 0 {
 		t.Fatalf("disabled 插件不应入选，got %v", selNames(sel))
@@ -85,9 +91,9 @@ func TestSelect_LockBypassesDisable(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("security", []string{"security"}, withLock))
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	// lock 插件在 disableSet 中也应入选（Select 不看 disableSet 对 lock）
-	rc := &RepoConfig{Disable: []string{"security"}}
+	rc := &plugin.RepoConfig{Disable: []string{"security"}}
 	sel := d.Select(pr, nil, []string{"security"}, rc)
 	if len(sel) != 1 {
 		t.Fatalf("lock 插件应绕过 disable，got %v", selNames(sel))
@@ -102,8 +108,8 @@ func TestSelect_RepoConfigUseWhitelist(t *testing.T) {
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
-	rc := &RepoConfig{Use: []string{"security"}}
-	pr := &PRContext{Platform: "gitea"}
+	rc := &plugin.RepoConfig{Use: []string{"security"}}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, nil, []string{"security", "correctness"}, rc)
 	if len(sel) != 1 || sel[0].Reg.Manifest.Name != "security" {
 		t.Fatalf("use 白名单应只选 security，got %v", selNames(sel))
@@ -115,8 +121,8 @@ func TestSelect_RepoConfigDisableBlacklist(t *testing.T) {
 	_ = d.reg.Register(reg("security", []string{"security"}))
 	_ = d.reg.Register(reg("correctness", []string{"correctness"}))
 
-	rc := &RepoConfig{Disable: []string{"correctness"}}
-	pr := &PRContext{Platform: "gitea"}
+	rc := &plugin.RepoConfig{Disable: []string{"correctness"}}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, nil, []string{"security", "correctness"}, rc)
 	if len(sel) != 1 || sel[0].Reg.Manifest.Name != "security" {
 		t.Fatalf("disable 应排除 correctness，got %v", selNames(sel))
@@ -127,7 +133,7 @@ func TestSelect_TriggerMatch(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("security", []string{"security"}, withTrigger([]string{"src/**"})))
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	// 不匹配 → 不选
 	sel := d.Select(pr, []string{"README.md"}, []string{"security"}, nil)
 	if len(sel) != 0 {
@@ -144,9 +150,9 @@ func TestSelect_Dedup(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("security", []string{"security"}, withLock))
 	// routing 也引用 security → 应去重
-	rc := &RepoConfig{Routing: []RoutingRule{{Paths: []string{"**"}, Use: []string{"security"}}}}
+	rc := &plugin.RepoConfig{Routing: []plugin.RoutingRule{{Paths: []string{"**"}, Use: []string{"security"}}}}
 
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	sel := d.Select(pr, []string{"a.go"}, []string{"security"}, rc)
 	if len(sel) != 1 {
 		t.Fatalf("去重后应只有 1 个 security，got %v", selNames(sel))
@@ -174,8 +180,8 @@ func TestPruneByBudget_HeavyPrunedFirst(t *testing.T) {
 	budget.Add(950) // 剩余 50，低于 10% reserve (100)
 
 	sel := []Selection{
-		{Reg: reg("heavy", nil, withCost(CostHeavy))},
-		{Reg: reg("standard", nil, withCost(CostStandard))},
+		{Reg: reg("heavy", nil, withCost(plugin.CostHeavy))},
+		{Reg: reg("standard", nil, withCost(plugin.CostStandard))},
 	}
 	keep, pruned := d.PruneByBudget(sel, budget)
 	// heavy 先裁（costRank 更高），然后 standard 也被裁（remaining 仍 < reserve）
@@ -193,8 +199,8 @@ func TestPruneByBudget_LockExempt(t *testing.T) {
 	budget.Add(999) // 剩余 1，几乎耗尽
 
 	sel := []Selection{
-		{Reg: reg("locked-heavy", nil, withCost(CostHeavy), func(r *Registration) { r.LockRepoConfig = true })},
-		{Reg: reg("normal", nil, withCost(CostStandard))},
+		{Reg: reg("locked-heavy", nil, withCost(plugin.CostHeavy), func(r *Registration) { r.LockRepoConfig = true })},
+		{Reg: reg("normal", nil, withCost(plugin.CostStandard))},
 	}
 	keep, pruned := d.PruneByBudget(sel, budget)
 	// locked 应豁免，normal 被裁
@@ -211,28 +217,28 @@ func TestPruneByBudget_LockExempt(t *testing.T) {
 func TestRun_CircuitBreakerSkips(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(&Registration{
-		Manifest: AgentManifest{Name: "fail-plugin"},
-		Plugin:   &failPlugin{manifest: AgentManifest{Name: "fail-plugin"}},
+		Manifest: plugin.AgentManifest{Name: "fail-plugin"},
+		Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
 		Enabled:  true,
 	})
 
 	// 触发熔断：连续失败 3 次
 	for range 3 {
 		sel := []Selection{{Reg: &Registration{
-			Manifest: AgentManifest{Name: "fail-plugin"},
-			Plugin:   &failPlugin{manifest: AgentManifest{Name: "fail-plugin"}},
+			Manifest: plugin.AgentManifest{Name: "fail-plugin"},
+			Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
 			Enabled:  true,
 		}}}
-		d.Run(context.Background(), Task{}, sel, nil)
+		d.Run(context.Background(), plugin.Task{}, sel, nil)
 	}
 
 	// 第 4 次应被熔断跳过
 	sel := []Selection{{Reg: &Registration{
-		Manifest: AgentManifest{Name: "fail-plugin"},
-		Plugin:   &failPlugin{manifest: AgentManifest{Name: "fail-plugin"}},
+		Manifest: plugin.AgentManifest{Name: "fail-plugin"},
+		Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
 		Enabled:  true,
 	}}}
-	outcomes := d.Run(context.Background(), Task{}, sel, nil)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
 	if outcomes[0].SkippedReason == "" {
 		t.Fatal("熔断后应跳过")
 	}
@@ -244,17 +250,17 @@ func TestRun_BudgetExhaustedSkips(t *testing.T) {
 	budget.Add(100) // 耗尽
 
 	_ = d.reg.Register(&Registration{
-		Manifest: AgentManifest{Name: "normal"},
-		Plugin:   &nopPlugin{manifest: AgentManifest{Name: "normal"}},
+		Manifest: plugin.AgentManifest{Name: "normal"},
+		Plugin:   &nopPlugin{manifest: plugin.AgentManifest{Name: "normal"}},
 		Enabled:  true,
 	})
 
 	sel := []Selection{{Reg: &Registration{
-		Manifest: AgentManifest{Name: "normal"},
-		Plugin:   &nopPlugin{manifest: AgentManifest{Name: "normal"}},
+		Manifest: plugin.AgentManifest{Name: "normal"},
+		Plugin:   &nopPlugin{manifest: plugin.AgentManifest{Name: "normal"}},
 		Enabled:  true,
 	}}}
-	outcomes := d.Run(context.Background(), Task{}, sel, budget)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, budget)
 	if outcomes[0].SkippedReason == "" {
 		t.Fatal("预算耗尽应跳过非锁定插件")
 	}
@@ -267,19 +273,19 @@ func TestRun_LockBudgetExempt(t *testing.T) {
 	budget.Add(100) // 耗尽
 
 	_ = d.reg.Register(&Registration{
-		Manifest:       AgentManifest{Name: "locked"},
-		Plugin:         &nopPlugin{manifest: AgentManifest{Name: "locked"}},
+		Manifest:       plugin.AgentManifest{Name: "locked"},
+		Plugin:         &nopPlugin{manifest: plugin.AgentManifest{Name: "locked"}},
 		Enabled:        true,
 		LockRepoConfig: true,
 	})
 
 	sel := []Selection{{Reg: &Registration{
-		Manifest:       AgentManifest{Name: "locked"},
-		Plugin:         &nopPlugin{manifest: AgentManifest{Name: "locked"}},
+		Manifest:       plugin.AgentManifest{Name: "locked"},
+		Plugin:         &nopPlugin{manifest: plugin.AgentManifest{Name: "locked"}},
 		Enabled:        true,
 		LockRepoConfig: true,
 	}}}
-	outcomes := d.Run(context.Background(), Task{}, sel, budget)
+	outcomes := d.Run(context.Background(), plugin.Task{}, sel, budget)
 	if outcomes[0].SkippedReason != "" {
 		t.Fatalf("锁定插件不应被预算跳过，got %q", outcomes[0].SkippedReason)
 	}
@@ -304,11 +310,11 @@ func TestSelect_SquadAppendsMembers(t *testing.T) {
 	registry.Register(reg("claude", []string{"code-review"}))
 	registry.Register(reg("kimi", []string{"code-review"}))
 	d := NewDispatcher(registry, logx.Nop()).
-		WithSquads([]SquadDecl{{
+		WithSquads([]plugin.SquadDecl{{
 			Name: "sec", Paths: []string{"**/auth/**"}, Members: []string{"claude", "kimi"},
 		}})
 
-	pr := &PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}
+	pr := &plugin.PRContext{Platform: "gitea", Owner: "o", Repo: "r", Number: "1"}
 	sel := d.Select(pr, []string{"pkg/auth/login.go"}, []string{"code-review"}, nil)
 
 	names := map[string]string{}
@@ -333,7 +339,7 @@ func TestSelect_SquadAppendsMembers(t *testing.T) {
 
 func TestMergerAnnotateCrossReview(t *testing.T) {
 	m := NewMerger(nil, logx.Nop())
-	mf := &MergedFindings{Findings: []Finding{
+	mf := &plugin.MergedFindings{Findings: []domain.Finding{
 		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针风险", By: "claude"},
 		{File: "a.go", Line: 12, Severity: "medium", Comment: "边界未检查", By: "kimi"},
 		{File: "b.go", Line: 30, Severity: "low", Comment: "命名", By: "claude"}, // kimi 未复现 → 标注
@@ -361,32 +367,32 @@ func TestMergerAnnotateCrossReview(t *testing.T) {
 }
 
 type blockingPlugin struct {
-	manifest AgentManifest
+	manifest plugin.AgentManifest
 	release  chan struct{}
 }
 
-func (p *blockingPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *blockingPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
+func (p *blockingPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *blockingPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
 	<-p.release
-	return Result{}, nil
+	return plugin.Result{}, nil
 }
 
 // ---- 深挖修复回归：任务级取消不计熔断 ----
 
-type canceledPlugin struct{ manifest AgentManifest }
+type canceledPlugin struct{ manifest plugin.AgentManifest }
 
-func (p *canceledPlugin) Manifest() AgentManifest { return p.manifest }
-func (p *canceledPlugin) Invoke(_ context.Context, _ Task) (Result, error) {
-	return Result{}, context.Canceled
+func (p *canceledPlugin) Manifest() plugin.AgentManifest { return p.manifest }
+func (p *canceledPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
+	return plugin.Result{}, context.Canceled
 }
 
 // 连续 3 次任务取消（如滚动发布）不应熔断插件——取消是任务级 teardown，
 // 不是插件故障。真失败 3 次仍照常熔断。
 func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
-	reg1 := &Registration{Manifest: AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
-		Plugin: &canceledPlugin{manifest: AgentManifest{Name: "canceled-agent"}}, Enabled: true}
-	reg2 := &Registration{Manifest: AgentManifest{Name: "fail-agent", Skills: []string{"correctness"}},
-		Plugin: &failPlugin{manifest: AgentManifest{Name: "fail-agent"}}, Enabled: true}
+	reg1 := &Registration{Manifest: plugin.AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
+		Plugin: &canceledPlugin{manifest: plugin.AgentManifest{Name: "canceled-agent"}}, Enabled: true}
+	reg2 := &Registration{Manifest: plugin.AgentManifest{Name: "fail-agent", Skills: []string{"correctness"}},
+		Plugin: &failPlugin{manifest: plugin.AgentManifest{Name: "fail-agent"}}, Enabled: true}
 
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg1)
@@ -396,14 +402,14 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 	ctx := context.Background()
 
 	for range breakerTripThreshold {
-		d.Run(ctx, Task{}, sel1, nil)
+		d.Run(ctx, plugin.Task{}, sel1, nil)
 	}
 	if _, _, berr := d.BreakerFor("canceled-agent").AllowGen(ctx); berr != nil {
 		t.Fatal("连续取消不应熔断插件")
 	}
 
 	for range breakerTripThreshold {
-		d.Run(ctx, Task{}, sel2, nil)
+		d.Run(ctx, plugin.Task{}, sel2, nil)
 	}
 	if _, _, berr := d.BreakerFor("fail-agent").AllowGen(ctx); berr == nil {
 		t.Fatal("连续真失败应熔断插件")
@@ -415,8 +421,8 @@ func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
 // 探测位滞留至 probeTimeout，健康插件被"熔断中"误跳过最长约 10 分钟。
 func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	now := time.Now()
-	reg1 := &Registration{Manifest: AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
-		Plugin: &canceledPlugin{manifest: AgentManifest{Name: "canceled-agent"}}, Enabled: true}
+	reg1 := &Registration{Manifest: plugin.AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
+		Plugin: &canceledPlugin{manifest: plugin.AgentManifest{Name: "canceled-agent"}}, Enabled: true}
 	d := newDispatcher(NewRegistry(), logx.Nop(), func() time.Time { return now })
 	_ = d.reg.Register(reg1)
 	sel := []Selection{{Reg: reg1, Reason: "base"}}
@@ -432,7 +438,7 @@ func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
 	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
 
 	// Run 内 Allow 放行半开探测 → 插件返回 Canceled → teardown → AbandonGen
-	_ = d.Run(context.Background(), Task{}, sel, nil)
+	_ = d.Run(context.Background(), plugin.Task{}, sel, nil)
 
 	if _, _, berr := bs.AllowGen(context.Background()); berr != nil {
 		t.Fatal("teardown 应经 AbandonGen 释放半开探测位，下一次 Allow 立即放行新探测")
@@ -462,11 +468,11 @@ func TestTeardown_Classification(t *testing.T) {
 // 深挖修复回归：任务取消后排队中的插件应跳过而非傻等槽位。
 func TestRun_QueuedWaitCancellable(t *testing.T) {
 	release := make(chan struct{})
-	blocker := &blockingPlugin{manifest: AgentManifest{Name: "blocker"}, release: release}
-	regB := &Registration{Manifest: AgentManifest{Name: "blocker", Skills: []string{"security"}},
+	blocker := &blockingPlugin{manifest: plugin.AgentManifest{Name: "blocker"}, release: release}
+	regB := &Registration{Manifest: plugin.AgentManifest{Name: "blocker", Skills: []string{"security"}},
 		Plugin: blocker, Enabled: true}
-	queued := &Registration{Manifest: AgentManifest{Name: "queued", Skills: []string{"security"}},
-		Plugin: &nopPlugin{manifest: AgentManifest{Name: "queued"}}, Enabled: true}
+	queued := &Registration{Manifest: plugin.AgentManifest{Name: "queued", Skills: []string{"security"}},
+		Plugin: &nopPlugin{manifest: plugin.AgentManifest{Name: "queued"}}, Enabled: true}
 
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(regB)
@@ -476,7 +482,7 @@ func TestRun_QueuedWaitCancellable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sel := []Selection{{Reg: regB, Reason: "base"}, {Reg: queued, Reason: "base"}}
 	done := make(chan []Outcome, 1)
-	go func() { done <- d.Run(ctx, Task{}, sel, nil) }()
+	go func() { done <- d.Run(ctx, plugin.Task{}, sel, nil) }()
 	close(release) // blocker 放行；取消发生在排队者拿到槽位前后均可能——这里直接取消任务
 	cancel()
 	outcomes := <-done
@@ -489,7 +495,7 @@ func TestRun_QueuedWaitCancellable(t *testing.T) {
 // 一致的证据）此前进不了 recs，反而被误标「另一专家未复现」，标注方向反了。
 func TestMergerAnnotateCrossReview_MergedByCountsAsReplicated(t *testing.T) {
 	m := NewMerger(nil, logx.Nop())
-	mf := &MergedFindings{Findings: []Finding{
+	mf := &plugin.MergedFindings{Findings: []domain.Finding{
 		// 双专家命中同题被 Merge 合并：By 已拼为 "claude,kimi"
 		{File: "a.go", Line: 10, Severity: "high", Comment: "同位置同问题", By: "claude,kimi"},
 		// 仅 claude 报的独立问题：附近无其他编队意见 → 应标注
@@ -510,9 +516,9 @@ func TestMergerAnnotateCrossReview_MergedByCountsAsReplicated(t *testing.T) {
 func TestMerge_SameFingerprintFarLinesKeptSeparate(t *testing.T) {
 	m := NewMerger(nil, logx.Nop())
 	mf, err := m.Merge(context.Background(), regretTestPR(), "t1", []Outcome{
-		{Name: "ocr", Result: &Result{Findings: []Finding{
-			{File: "a.go", Line: 10, Severity: SeverityMedium, Comment: "error 未检查"},
-			{File: "a.go", Line: 200, Severity: SeverityMedium, Comment: "error 未检查"},
+		{Name: "ocr", Result: &plugin.Result{Findings: []domain.Finding{
+			{File: "a.go", Line: 10, Severity: plugin.SeverityMedium, Comment: "error 未检查"},
+			{File: "a.go", Line: 200, Severity: plugin.SeverityMedium, Comment: "error 未检查"},
 		}}},
 	}, time.Now())
 	if err != nil {
@@ -532,11 +538,11 @@ func TestSelect_ConsensusMembersExcludedFromFanout(t *testing.T) {
 	d := NewDispatcher(NewRegistry(), logx.Nop())
 	_ = d.reg.Register(reg("correctness", []string{"code-review"}))
 	_ = d.reg.Register(reg("security", []string{"code-review"}))
-	d.WithSquads([]SquadDecl{{
-		Name: "core-consensus", Mode: SquadModeConsensus,
+	d.WithSquads([]plugin.SquadDecl{{
+		Name: "core-consensus", Mode: plugin.SquadModeConsensus,
 		Paths: []string{"internal/**"}, Members: []string{"correctness", "security"},
 	}})
-	pr := &PRContext{Platform: "gitea"}
+	pr := &plugin.PRContext{Platform: "gitea"}
 	// 编队触发：成员全被排除
 	if sel := d.Select(pr, []string{"internal/a.go"}, []string{"code-review"}, nil); len(sel) != 0 {
 		t.Fatalf("consensus 成员不应进 fan-out，got %v", selNames(sel))

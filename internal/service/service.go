@@ -22,6 +22,7 @@ import (
 	"github.com/oekit/logx"
 	"github.com/oekit/pkg/container"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
@@ -62,11 +63,11 @@ type Service struct {
 	Registry  *dispatch.Registry
 	Log       Logger
 	Version   string
-	Bus       *progress.Bus        // 任务进度事件（v3.1 SSE 数据源；nil 安全）
-	EventSeen *progress.Dedup      // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环，同实例 at-most-once；nil = 旧语义）
-	Knowledge rag.KnowledgeService // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
-	QAModel   model.BaseChatModel  // Q&A 专用模型（P6 覆盖；nil = 用 Model）
-	Model     model.BaseChatModel  // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
+	Bus       *oagentprogress.Bus[progress.Event] // 任务进度事件（v3.1 SSE 数据源；nil 安全）
+	EventSeen *progress.Dedup                     // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环，同实例 at-most-once；nil = 旧语义）
+	Knowledge rag.KnowledgeService                // 知识库（误报反馈回流；nil/Noop = 只抑制不回流）
+	QAModel   model.BaseChatModel                 // Q&A 专用模型（P6 覆盖；nil = 用 Model）
+	Model     model.BaseChatModel                 // LLM 模型（Q&A 直接调用；nil = Q&A 禁用）
 	// LLM 生成器（v3.123.0，models.Generate 同源接线）：diff 预审等单轮写作
 	// 委派 writing.Service 消费；nil = ReviewDiff/CreateDiffTask 禁用。
 	LLM llm.Generator

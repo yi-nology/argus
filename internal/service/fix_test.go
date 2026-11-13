@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"github.com/yi-nology/argus/internal/commentcmd"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yi-nology/argus/internal/commentcmd"
 
 	"github.com/oagentkit/tools/acpx"
 )

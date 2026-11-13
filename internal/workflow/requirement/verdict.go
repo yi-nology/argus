@@ -14,6 +14,7 @@ import (
 	"github.com/oagentkit/textx/reportutil"
 
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -31,7 +32,7 @@ import (
 //
 // 注意：R5.3 的 Ambiguous/AC 总数条件取自 R1 的 spec（而非 R3 report）——R3 失败/缺席时
 // 空清单与模糊需求仍必须落入人工确认路径，不能漏进 R5.5（二轮评审修掉的注入洞）。
-func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, findings []plugin.Finding,
+func VerdictScoped(spec *plugin.RequirementSpec, report *plugin.ComplianceReport, findings []domain.Finding,
 	inScope map[string]bool) (verdict, rule string, outOfScope int) {
 	var high, midLow, unverifiable int
 	for _, f := range findings {
@@ -181,7 +182,7 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 	w.onStage(plugin.LayerR5)
 
 	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
-	// 降级审查）。失败项经 Output.Completeness 进报告独立「完备性检查」段
+	// 降级审查）。失败项经 plugin.WorkflowOutput.Completeness 进报告独立「完备性检查」段
 	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
 	completeness = JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
 	merged.Degraded = append(merged.Degraded, retryNotes...)

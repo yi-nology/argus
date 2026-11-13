@@ -23,6 +23,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
@@ -100,7 +101,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 // 时唯一尾段匹配修正（v3.51.0 路径归一化）；剔除数追加进 rep.Degraded 用户可见。
 // 返回按严重度排序、经 max_comments 钳制后的评论表。
 func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep *reportview.Report) []provider.ReviewComment {
-	var inlineFindings []plugin.Finding
+	var inlineFindings []domain.Finding
 	for _, f := range rep.Findings {
 		if f.Line > 0 && f.File != "" {
 			inlineFindings = append(inlineFindings, f)
@@ -143,7 +144,7 @@ func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep
 				"%d 条意见的文件路径无法对应 diff 中的文件（模型路径引用偏差），仅在总结中展示、未行内标注", dropped))
 		}
 	}
-	slices.SortStableFunc(inlineFindings, func(a, b plugin.Finding) int {
+	slices.SortStableFunc(inlineFindings, func(a, b domain.Finding) int {
 		return -cmp.Compare(reportutil.Rank(a.Severity), reportutil.Rank(b.Severity))
 	})
 	inlineFindings = clampInlineByMaxComments(inlineFindings, rep)
@@ -293,8 +294,8 @@ func reviewTLDR(rep reportview.Report, inlineCount int) string {
 		len(rep.Findings), inlineCount)
 	// 重点关注：排序纪律与 prepareInline 一致（Rank 降序 + 稳定排序保报告序）。
 	// 摘要是不可信模型文本，经 fence.EscapeUntrusted 注入中和后展示。
-	top := append([]plugin.Finding(nil), rep.Findings...)
-	slices.SortStableFunc(top, func(a, b plugin.Finding) int {
+	top := append([]domain.Finding(nil), rep.Findings...)
+	slices.SortStableFunc(top, func(a, b domain.Finding) int {
 		return -cmp.Compare(reportutil.Rank(a.Severity), reportutil.Rank(b.Severity))
 	})
 	if len(top) > reviewTLDRMaxTop {
@@ -474,7 +475,7 @@ func (p *Poster) repointIfSwapped(ctx context.Context, pr plugin.PRContext, requ
 // SuggestedFix 非空时渲染为 ```suggestion 围栏（Gitea/GitHub 渲染出"一键应用"按钮），
 // 建议内容是代码原文，不做 HTML 转义——否则 Apply 后代码被污染。围栏安全：
 // 建议含 ``` 或超长时退化为纯文本意见（完整建议仍在总结评论中展示），不让围栏断裂。
-func inlineCommentBody(f plugin.Finding) string {
+func inlineCommentBody(f domain.Finding) string {
 	body := "**[" + strings.ToUpper(f.Severity) + "]** " + fence.EscapeUntrusted(f.Comment)
 	if ann := dispatch.SamplesAnnotation(f); ann != "" {
 		// best-of-N 复现计数（结构化字段渲染，非评语后缀——指纹身份不受影响）
@@ -507,7 +508,7 @@ const summaryScanTimeout = 60 * time.Second
 // clampInlineByMaxComments 仓库级行内评论上限（v3.15.0 review.max_comments；
 // 0 = 不限）：调用方已按严重度降序排好，这里保留 top N，其余仅在总结评论列出
 // （Findings 段完整，透明可查），超限事实以降级注明写入报告。
-func clampInlineByMaxComments(inlineFindings []plugin.Finding, rep *reportview.Report) []plugin.Finding {
+func clampInlineByMaxComments(inlineFindings []domain.Finding, rep *reportview.Report) []domain.Finding {
 	if rep.MaxInlineComments <= 0 || len(inlineFindings) <= rep.MaxInlineComments {
 		return inlineFindings
 	}

@@ -3,9 +3,10 @@
 package obs
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/oekit/metrics"
 
