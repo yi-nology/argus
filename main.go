@@ -126,6 +126,13 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 		return err
 	}
 	app.AddResource("store", func(context.Context) error { return store.Close() })
+	// Migration Job 形态（#29 P3-04）：ARGUS_MIGRATE_MODE=job 时 storage.Open
+	// 已完成 schema+数据回写迁移，此处干净退出（exit 0）——k8s Job 先行迁移，
+	// 副本以 verify 模式只校验不迁移。装配/HTTP/子系统全部跳过。
+	if mode, merr := storage.MigrateMode(); merr == nil && mode == "job" {
+		log.Info("argus.boot.migrate_job_done", "hint", "迁移完成，进程退出（ARGUS_MIGRATE_MODE=job）")
+		return nil
+	}
 	// claim 归属 + 心跳 + 选主身份（多副本滚动发布安全）。uuid 失败退化为
 	// hostname:pid——RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被
 	// reaper 反复重置重跑。

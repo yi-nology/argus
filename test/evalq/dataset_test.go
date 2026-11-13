@@ -137,10 +137,11 @@ func TestLoadDirEmpty(t *testing.T) {
 	}
 }
 
-// TestEvalBaselineStarterSet eval/baseline 起步集门禁（P2-02 #25 交付 3）：
-// LoadDir+Validate 装载通过之外，守规模（≥6）、标签混合（standard/known_miss/
-// known_fp）、must_find 三档严重度齐、分仓（≥3 仓）与出处（source 如实标注）
-// ——合成夹具不得冒充现网已裁决 MR（现网 MR 样例归 P3-03 #28）。
+// TestEvalBaselineStarterSet eval/baseline 起步集门禁（P2-02 #25 交付 3，
+// P3-03 #28 并入四语言扩容门禁）：LoadDir+Validate 装载通过之外，守规模（≥6）、
+// 标签混合（standard/known_miss/known_fp）、must_find 三档严重度齐、分仓（≥3 仓）
+// 与出处（source 如实标注）——合成夹具不得冒充现网已裁决 MR（现网 MR 样例另行回填）；
+// 四语言（go/java/python/js-ts）各 ≥4 条且各自标签/出处面齐（#28 验收）。
 func TestEvalBaselineStarterSet(t *testing.T) {
 	ds, err := evalq.LoadDir(filepath.Join("..", "..", "eval", "baseline"))
 	if err != nil {
@@ -152,9 +153,16 @@ func TestEvalBaselineStarterSet(t *testing.T) {
 	labels := map[string]int{}
 	sevs := map[string]bool{}
 	repos := map[string]bool{}
+	perLang := map[string]int{}
+	perLangLabels := map[string]map[string]int{}
 	for _, c := range ds.Cases {
 		labels[c.Label]++
 		repos[c.Repo] = true
+		perLang[c.Language]++
+		if perLangLabels[c.Language] == nil {
+			perLangLabels[c.Language] = map[string]int{}
+		}
+		perLangLabels[c.Language][c.Label]++
 		if strings.TrimSpace(c.Repo) == "" {
 			t.Errorf("样例 %s 缺 repo（分仓维度）", c.ID)
 		}
@@ -184,6 +192,18 @@ func TestEvalBaselineStarterSet(t *testing.T) {
 	}
 	if len(repos) < 3 {
 		t.Errorf("起步集应覆盖 ≥3 个仓（分仓维度），当前 %d: %v", len(repos), repos)
+	}
+	// #28 四语言扩容门禁：语言齐 + 各语言 ≥4 条 + 各语言自带标签混合面
+	//（分语言报告可独立计量，不依赖其他语言文件补标签）。
+	for _, lang := range []string{"go", "java", "python", "js-ts"} {
+		if perLang[lang] < 4 {
+			t.Errorf("语言 %s 应 ≥4 条样例，当前 %d（四语言扩容门禁 #28）", lang, perLang[lang])
+		}
+		for _, l := range []string{evalq.LabelStandard, evalq.LabelKnownMiss, evalq.LabelKnownFP} {
+			if perLangLabels[lang][l] == 0 {
+				t.Errorf("语言 %s 缺 %s 标签样例（分语言标签混合面）: %v", lang, l, perLangLabels[lang])
+			}
+		}
 	}
 }
 

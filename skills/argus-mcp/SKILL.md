@@ -7,6 +7,8 @@ description: This skill should be used when the user asks to "用 Argus 审查�
 
 Argus 是 PR 自动审查 bot：多 agent 编队审查（R1 需求解析 → R2 变更理解 → R3 完成度判定 → R3.5 反思 → R4 专家委派 → R5 确定性裁决），报告回帖到 PR。它把全部审查能力以 MCP 工具暴露在 `/mcp`（streamable HTTP + Bearer），任何 MCP 客户端或本 skill 的调用方都能直接驱动。本文件是工作流与判定规则；参数级细节（每个字段的类型/默认值/错误语义）见 [references/tools.md](references/tools.md)。
 
+**版本兼容性**（#26 发布管理）：本技能快照对应 **argus 服务 v7.0.0+**（`get_capabilities` 全量键面，含 `fix_push_mode`）。对 v6.9.0–v6.x 服务**向下兼容**——能力面缺键即对应功能未启用（`get_capabilities` 先查再调的纪律覆盖此场景）；低于 v6.9.0 未验证。固定版本安装：`install-skills.sh --version v7.0.0 --verify`（sha256 核验）。
+
 ## 连接
 
 | 项 | 值 |

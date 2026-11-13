@@ -1,0 +1,27 @@
+# k3s43 生产拓扑固化（#29 P3-04）：双副本 Deployment + Service + PVC +
+# pg 双副本/备份 + Migration Job 一个入口管理——`kubectl apply -k deploy/k8s43`
+# 即全套收敛（此前散文件逐个 apply，漏文件=拓扑漂移）。
+#
+# 刻意不进 kustomization 的文件：
+#   - 40-staging2.yaml —— 一次性预演 Pod（升级前 staging 验证用，非常驻拓扑；
+#     需要时单独 apply，验完删）
+#   - Dockerfile.ocr / ocr-config.json / swap*.sh —— 构建与部署脚本面，非 manifest
+#
+# Secret（argus-env / argus-pg）与 ConfigMap（argus-plugins）不在仓内（凭证不落
+# git）——集群里先建好再 apply；kustomize 不校验引用存在性，缺失会在 Pod 起来时
+# 才报 CreateContainerConfigError。
+#
+# 镜像 tag：50-deployment 与 90-migration-job 内嵌同 tag（迁移随二进制版本走），
+# 换芯时两处同步改，或用 kustomize images 字段统一覆写：
+#   kustomize edit set image argus=argus:vX.Y.Z-arm64
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-ns.yaml
+  - 20-pvc.yaml
+  - 50-deployment.yaml
+  - 60-service.yaml
+  - 72-pg-standby.yaml
+  - 80-pg-backup.yaml
+  - 90-migration-job.yaml

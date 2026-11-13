@@ -308,16 +308,25 @@ func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin
 		// push 环（opt-in，形态由 FixPushMode 分派）：验证通过的修复自动 commit
 		// 并推送。任一步失败静默降级为不 push——下轮审查在新的 head 上重新验证
 		// 再战，绝不阻塞主链路。
-		if r.Cfg.FixPush {
+		// 防循环护栏（v7.0 阶段 2）：被审 PR 的源分支是 argus/fix/* = 本环自己
+		// 产出的修复 PR——再进 push 环会无限开修复 PR。修复 PR 只评审不合流，
+		// 验证标注照常（渲染面），push/开 PR 跳过。
+		if r.Cfg.FixPush && !isFixBranch(pr.HeadBranch) {
 			r.pushVerifiedFixes(ctx, task, pr, dir, out.Merged.Findings, verified)
 		}
 	}
 }
 
+// fixBranchPrefix 修复分支命名空间（fixBranchName 与防循环护栏共用单源）。
+const fixBranchPrefix = "argus/fix/"
+
 // fixBranchName 修复分支名（v7.0 Verified Fix Loop）：argus/fix/<taskID>。
 // argus/ 前缀自有命名空间与常见保护分支（main/master/release/*）无交集——
 // branch 形态任何失败都不可能触碰保护分支（阶段 2 验收线）。
-func fixBranchName(taskID string) string { return "argus/fix/" + taskID }
+func fixBranchName(taskID string) string { return fixBranchPrefix + taskID }
+
+// isFixBranch 源分支是否属于修复分支命名空间（防循环护栏判定）。
+func isFixBranch(branch string) bool { return strings.HasPrefix(branch, fixBranchPrefix) }
 
 // pushVerifiedFixes 把验证通过的修复 commit 并按 FixPushMode 分派推送：
 //   - "branch"（v7.0 缺省形态）：推 argus/fix/<taskID> 修复分支，再 CreateCR
@@ -446,6 +455,33 @@ func (r *Runner) openFixPR(ctx context.Context, task *storage.Task,
 		"url", cr.WebURL)
 	r.Log.Info("argus.runner.fix_cr_created", "task", task.ID, "branch", branch,
 		"cr", cr.Number, "url", cr.WebURL)
+	r.notifyFixPR(ctx, task, pr, cr)
+}
+
+// notifyFixPR 原 PR 通知评论（v7.0 阶段 2 Review 环入口）：修复 PR 创建成功后
+// 在原 PR 回帖带链接——评审人从原审查线一键进入修复 PR。best-effort：评论失败
+// 只留痕不重试（修复 PR 本身已在，链接可从审计/分支列表找回），不阻塞主链路。
+func (r *Runner) notifyFixPR(ctx context.Context, task *storage.Task,
+	pr *plugin.PRContext, cr *provider.ChangeRequest) {
+	if r.SDK == nil {
+		return
+	}
+	link := cr.WebURL
+	if link == "" && cr.Number != "" {
+		link = fmt.Sprintf("%s/%s/pull/%s", pr.Owner, pr.Repo, cr.Number) // 无 URL 时退化为号链
+	}
+	body := fmt.Sprintf("🔧 已生成修复 PR #%s：%s\n\n"+
+		"每条修改均已在隔离沙箱通过编译验证（Task `%s`）；合并即进入本分支，"+
+		"回滚=关闭该 PR。<!-- argus:fix_cr task_id=%s -->",
+		cr.Number, link, task.ID, task.ID)
+	if _, err := r.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body); err != nil {
+		r.Log.Warn("argus.runner.fix_notify_failed", "task", task.ID, "error", err.Error())
+		r.Audit.Log("fix.cr", "task", task.ID, "result", "notify_failed",
+			"platform", pr.Platform, "owner", pr.Owner, "repo", pr.Repo, "error", err.Error())
+		return
+	}
+	r.Audit.Log("fix.cr", "task", task.ID, "result", "notified", "platform", pr.Platform,
+		"owner", pr.Owner, "repo", pr.Repo, "number", pr.Number, "cr", cr.Number)
 }
 
 // gitRun 单条 git 命令执行（2min 超时；ok=false = 非零退出或启动失败）。

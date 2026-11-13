@@ -42,6 +42,9 @@ service TaskService {
     task.RepoMapResponse RepoMap(1: string owner (api.query="owner"), 2: string repo (api.query="repo"), 3: optional string platform (api.query="platform")) (api.get="/repos/map")
     // 健康报告查询面（v3.13.0，与周期 IM 推送同数据源）。
     task.HealthReportResponse HealthReport() (api.get="/reports/health")
+    // 质量控制台（#27，v7.1 生产运营）：误报/插件表现/Token 消费/失败原因
+    // 聚合 HTML 页——数据来自既有 stats/usage/Registry 面，零新表。
+    task.QualityConsoleResponse QualityConsole() (api.get="/console")
 }
 
 service FindingFeedbackService {

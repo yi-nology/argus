@@ -185,3 +185,7 @@ func _repomapMw() []app.HandlerFunc {
 		}
 	}}
 }
+
+func _qualityconsoleMw() []app.HandlerFunc {
+	return authMw() // 🔒 #27 质量控制台（聚合 stats/usage 面；行过滤在 service 层）
+}

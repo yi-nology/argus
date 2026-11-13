@@ -22,7 +22,32 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 - kubectl：本地 `~/.kube/config-k3s43`（VPN 直连 6443），断连时走 215 隧道：`ssh -N -L 16443:10.0.0.43:6443 10.0.0.215` + config-k3s43 server→https://127.0.0.1:16443
 - 日志：`kubectl -n argus logs deploy/argus -f`
 - 升级：Mac `make docker` 同款 Dockerfile + `--platform linux/arm64`，save→scp→import→`kubectl set image`
-- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。滚动升级照旧即可；规范形态是升级前先跑一次性 Migration Job（独立 Pod 执行同一镜像启动即退出，业务副本随后滚动）——待 P3-04 拆分落地
+- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。
+- **Migration Job 拆分（v7.0 #29 落地）**：`ARGUS_MIGRATE_MODE` 三态——缺省=启动期迁移（旧行为不变）；`job`=迁移完成即退出（`90-migration-job.yaml` 一次性 Job 先行）；`verify`=只读校验（关键表/回写哨兵/在飞防线三面复核，**零 DDL**），缺失 fail-closed 拒绝启动（副本侧形态）。拓扑收口：`kubectl apply -k deploy/k8s43`（kustomization 单入口；40-staging2 一次性 Pod 刻意不进）。
+
+## 滚动升级 runbook（#29 验收，v7.0 起规范形态）
+
+前置：新镜像已 import 到 43（swap-deploy.sh 前半段或手动 save→scp→ctr import）；`90-migration-job.yaml` 与 `50-deployment.yaml` 的 image tag 同步改为新版本。
+
+```bash
+# 1. Migration Job 先行（schema+数据回写，独立 Pod 完成即退出；迁移幂等可重跑）
+kubectl -n argus apply -f deploy/k8s43/90-migration-job.yaml
+kubectl -n argus wait --for=condition=complete job/argus-migrate --timeout=5m
+#    失败 → kubectl -n argus logs job/argus-migrate 排查；delete job 后重跑
+
+# 2. 副本滚动（verify 模式只校验不迁移——Job 已把库迁到位，副本零 DDL 起服务）
+kubectl -n argus apply -f deploy/k8s43/50-deployment.yaml   # 或 kubectl set image
+kubectl -n argus rollout status deploy/argus --timeout=180s
+
+# 3. 验收
+kubectl -n argus get pods                          # 2/2 Running
+curl -s http://<node>:30899/version                # 新版本号
+kubectl -n argus logs deploy/argus --since=2m | grep http_ready
+```
+
+- **回滚**：`kubectl -n argus rollout undo deploy/argus`（二进制回滚；新 Job 已迁的 schema 对旧二进制兼容——AutoMigrate 增量、旧代码不读新表列）；**数据回滚无自动路径**，靠备份（下节演练）
+- **跳过 Job 直接滚动**：缺省模式副本自行迁移（旧行为保留）；verify 模式副本 fail-closed 拒绝启动——设计如此（半迁移态服务比不服务更危险）
+- **恢复演练**：`./deploy/k8s43/restore-drill.sh`——最新备份恢复进一次性 drill 库（在役库零写入），完整性查询（表行数 + 迁移哨兵 2/2）全过才绿；`KEEP=1` 保留 Pod 事后 psql 检查
 
 ## 多副本形态（v5.4.9 实弹验证 2026-11-06）
 

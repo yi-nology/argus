@@ -200,3 +200,18 @@ func RepoMap(ctx context.Context, c *app.RequestContext) {
 	}
 	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
+
+// QualityConsole 质量控制台（#27，v7.1）：误报/插件表现/Token 消费/失败原因
+// 聚合 HTML 页（text/html 直写，同 TaskImpact 形态；数据全来自既有聚合面）。
+// @router /console [GET]
+func QualityConsole(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	page, status := Svc.QualityConsoleHTML(ctx)
+	if status != consts.StatusOK {
+		mw.ErrorResp(c, status, "控制台聚合失败")
+		return
+	}
+	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
+}

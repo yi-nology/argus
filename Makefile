@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos check docker compose-up compose-down k8s-apply clean skills-checksums
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -127,3 +127,10 @@ k8s-apply:
 
 clean:
 	rm -rf bin argus.db argus.db-shm argus.db-wal
+
+# Skills 发布校验清单（#26 P3-01）：技能文件 sha256（路径相对 skills/），
+# 落 scripts/skills-checksums.txt——install-skills.sh --verify 与 release
+# workflow 共用同一口径（清单格式单源=sha256sum 标准两列）。
+skills-checksums:
+	cd skills && find argus-mcp argus-triage argus-precommit -type f | sort | xargs sha256sum > ../scripts/skills-checksums.txt
+	@wc -l scripts/skills-checksums.txt

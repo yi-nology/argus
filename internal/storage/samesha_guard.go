@@ -60,6 +60,47 @@ func (s *Store) EnsureInFlightGuard() (active bool, err error) {
 // 专属扩为三方言在飞唯一约束）。
 func (s *Store) EnsureSameSHAGuard() (bool, error) { return s.EnsureInFlightGuard() }
 
+// checkInFlightGuard 在飞防线只读复核（#29 verify 模式专用）：查索引/生成列
+// 是否已建立，不执行任何 DDL——verify 的「只校验不迁移」承诺由本函数承担。
+// 返回 (active, err)：active=false + err=nil = 防线不存在（历史重复未建或
+// Job 未跑），语义与 EnsureInFlightGuard 的未建立态对齐；err≠nil = 探测本身失败。
+func (s *Store) checkInFlightGuard() (bool, error) {
+	switch {
+	case s.isSQLite():
+		var n int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
+			sameSHAIndexV2).Scan(&n).Error; err != nil {
+			return false, fmt.Errorf("storage: 探测 SQLite 防线索引失败: %w", err)
+		}
+		return n > 0, nil
+	case s.dialect == DialectPostgres:
+		var n int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM pg_indexes WHERE tablename='tasks' AND indexname=?",
+			inFlightIndexPG).Scan(&n).Error; err != nil {
+			return false, fmt.Errorf("storage: 探测 PG 防线索引失败: %w", err)
+		}
+		return n > 0, nil
+	case s.dialect == DialectMySQL:
+		var colCnt int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
+			"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = ?",
+			inFlightColumnMySQL).Scan(&colCnt).Error; err != nil {
+			return false, fmt.Errorf("storage: 探测 MySQL 防线列失败: %w", err)
+		}
+		if colCnt == 0 {
+			return false, nil
+		}
+		var idxCnt int64
+		if err := s.db.Raw("SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS "+
+			"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND INDEX_NAME = ?",
+			inFlightIndexMySQL).Scan(&idxCnt).Error; err != nil {
+			return false, fmt.Errorf("storage: 探测 MySQL 防线索引失败: %w", err)
+		}
+		return idxCnt > 0, nil
+	}
+	return false, fmt.Errorf("storage: 未知方言 %v，无法复核在飞防线", s.dialect)
+}
+
 // ensureSQLiteSameSHAGuard 既有 SQLite 部分唯一索引（v3.74.2 形态不变）。
 func (s *Store) ensureSQLiteSameSHAGuard() (bool, error) {
 	// v3.74.2 索引升级：v1（不含 kind）删除，重建 v2（含 kind）。DROP 幂等，

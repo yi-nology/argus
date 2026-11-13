@@ -1,0 +1,52 @@
+# Migration Job（#29 P3-04）：schema+数据回写迁移独立先行，副本以
+# ARGUS_MIGRATE_MODE=verify 只校验不迁移（滚动升级顺序见 README「滚动升级」节）。
+#
+# 用法（升级序列第一步，先于 deployment 换镜像）：
+#   kubectl -n argus apply -f 90-migration-job.yaml
+#   kubectl -n argus wait --for=condition=complete job/argus-migrate --timeout=5m
+# 失败排查：kubectl -n argus logs job/argus-migrate
+# 重跑：Job 对象不可变——kubectl -n argus delete job argus-migrate 后重新 apply
+#（幂等：迁移全带租约/哨兵/IF NOT EXISTS，重复执行零副作用）。
+#
+# 镜像必须与 50-deployment 同 tag（迁移语义随二进制版本走——旧 Job 迁不出
+# 新 schema；swap-deploy.sh 换芯时两处一并改）。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: argus-migrate
+  namespace: argus
+  labels:
+    app: argus-migrate
+spec:
+  ttlSecondsAfterFinished: 86400   # 完成一天后自动清理（保留窗口供 logs 排查）
+  backoffLimit: 1                  # 迁移失败不重试循环——fail-closed 交给人
+  template:
+    metadata:
+      labels:
+        app: argus-migrate
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: ubuntu-2404-k3s-master01   # 与主 Deployment 同 pin（local-path 约束）
+      containers:
+        - name: migrate
+          image: argus:v6.17.0-arm64   # ⚠️ 与 50-deployment.yaml 同步修改
+          imagePullPolicy: IfNotPresent
+          command: ["/app/argus"]
+          envFrom:
+            - secretRef:
+                name: argus-env
+          env:
+            - name: ARGUS_MIGRATE_MODE
+              value: "job"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

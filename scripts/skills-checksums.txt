@@ -1,0 +1,4 @@
+9250e605cd6ff309db8ba135e759641c1e3a20a76d2f179f45861c68a4c2a4d5  argus-mcp/SKILL.md
+61507c87ff7aee3bf088dabc6f66bccea85274c078e2c5038f35dcd2a851c210  argus-mcp/references/tools.md
+e2e850e797ab44e96a9f1dd017cfaabb64ed027fb7259fcdca51dc9427fa28e0  argus-precommit/SKILL.md
+f30b187f8eaf7ab6c4868d5ac6c4d85c20828ac22b788a61726a473294acf384  argus-triage/SKILL.md

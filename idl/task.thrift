@@ -87,6 +87,11 @@ struct RepoMapResponse {} // 仓库级代码地图（v5.6.2）：自包含交互
 
 struct HealthReportResponse {}
 
+// QualityConsoleResponse 质量控制台页（#27，v7.1 生产运营）：自包含 HTML
+// 直写（同 TaskImpact，无 JSON 信封）——误报/插件表现/Token 消费/失败原因
+// 聚合视图；数据全部来自既有 stats/usage/Registry 聚合面，零新表。
+struct QualityConsoleResponse {}
+
 
 struct EventsResponse {}
 

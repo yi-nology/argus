@@ -18,6 +18,7 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/agents", append(_listagentsMw(), argus.ListAgents)...)
+	root.GET("/console", append(_qualityconsoleMw(), argus.QualityConsole)...)
 	root.GET("/events", append(_eventsMw(), argus.Events)...)
 	root.GET("/repo-settings", append(_reposettingslistMw(), argus.RepoSettingsList)...)
 	_repo_settings := root.Group("/repo-settings", _repo_settingsMw()...)

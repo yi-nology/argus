@@ -155,6 +155,18 @@ func Open(dsn string) (*Store, error) {
 		}
 	}
 	ctx := context.Background()
+	mode, err := MigrateMode()
+	if err != nil {
+		return nil, err
+	}
+	if mode == "verify" {
+		// #29 只校验不迁移（Migration Job 拆分的副本侧形态）：缺失 fail-closed。
+		if err := s.verifySchemaReady(ctx); err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+	// ""（缺省）与 "job" 同走启动期迁移（job 的进程退出判定在 main）。
 	if err := s.migrateSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -254,9 +266,18 @@ func (s *Store) ensureLeaseTable() error {
 	return nil
 }
 
+// autoMigrateModels 全表模型清单（autoMigrateAll 建表与 verifySchemaReady
+// 只读复核共用单源——新增表登记此处，两面自动同步，防「Job 建了表但 verify
+// 不认」的漂移）。
+func autoMigrateModels() []any {
+	return []any{&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{},
+		&QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{},
+		&OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}}
+}
+
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
 func (s *Store) autoMigrateAll() error {
-	if err := s.db.AutoMigrate(&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{}, &QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{}, &OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}); err != nil {
+	if err := s.db.AutoMigrate(autoMigrateModels()...); err != nil {
 		return fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
 	if s.isMySQL() {
@@ -267,19 +288,34 @@ func (s *Store) autoMigrateAll() error {
 	return nil
 }
 
+// oneTimeMigration 一次性数据回写条目（migrateData 执行与 verifySchemaReady
+// 哨兵复核共用单源——新增回写迁移登记此处，两面自动同步）。
+type oneTimeMigration struct {
+	version string
+	desc    string
+	fn      func(ctx context.Context) (int, error)
+}
+
+// oneTimeMigrations 全部一次性回写迁移清单。
+func (s *Store) oneTimeMigrations() []oneTimeMigration {
+	return []oneTimeMigration{
+		{version: "fingerprint_v2", desc: "指纹 v2", fn: s.migratePrintFingerprintsV2},
+		{version: "print_alias_pr_scope", desc: "print_aliases PR 域", fn: s.migratePrintAliasPRScope},
+	}
+}
+
 // migrateData 一次性数据回写迁移（P0-01，#2 fail-closed 化）：关键回写迁移
 // 失败默认中止启动——半迁移态库继续服务会让存量行按旧形态被下游混读
 // （alias_fp 全局主键 → PR 域复合主键切换期间），根因性失败（方言差异/权限
 // 不足）也会陷入「启动重试-失败-告警」循环白烧全表扫描。显式 env 逃生门
 // ARGUS_MIGRATION_FAIL_OPEN=1 降级回告警继续（可用性优先的显式选择，留痕告警、
-// 下次启动重试）。生产库升级建议拆独立 Migration Job 执行（deploy/k8s43，
-// 与 P3-04 部署规范联动）。
+// 下次启动重试）。生产库升级拆独立 Migration Job 执行（#29：ARGUS_MIGRATE_MODE
+// =job 形态 + deploy/k8s43/90-migration-job.yaml）。
 func (s *Store) migrateData(ctx context.Context) error {
-	if err := s.runOneTimeMigration(ctx, "fingerprint_v2", "指纹 v2", s.migratePrintFingerprintsV2); err != nil {
-		return err
-	}
-	if err := s.runOneTimeMigration(ctx, "print_alias_pr_scope", "print_aliases PR 域", s.migratePrintAliasPRScope); err != nil {
-		return err
+	for _, m := range s.oneTimeMigrations() {
+		if err := s.runOneTimeMigration(ctx, m.version, m.desc, m.fn); err != nil {
+			return err
+		}
 	}
 	// #32 历史实销回填（启动期对账，刻意无哨兵 marker）：滚动发布期间旧二进制
 	// 终态的任务、以及终态差额兜底漏网的任务，下次启动自愈；NOT EXISTS 让已有
