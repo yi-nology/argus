@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline chaos check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -24,6 +24,7 @@ help:
 	@echo "make eval    - golden PR 评测集·打桩回归（编排语义固化，不联网）"
 	@echo "make eval-real - golden PR 评测·真实模型 A/B（ARGUS_EVAL=1，verdict 命中率）"
 	@echo "make eval-baseline - 基准集评测跑批·打桩（P2-02 #25，指标报告样例）"
+	@echo "make eval-baseline-real - 基准集评测跑批·真实模型（ARGUS_EVAL=1，Precision/Recall/稳定性）"
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
 	@echo "make check   - govulncheck 漏洞扫描"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
@@ -71,10 +72,16 @@ eval-real:
 	ARGUS_EVAL=1 go test ./test/e2e/ -run TestGoldenReviewEval -count=1 -v -timeout 150m
 
 # 基准集评测跑批（P2-02，#25）：装载 eval/baseline 打桩跑批出指标报告样例
-# （artifact 面 eval/results/baseline-latest.*）；真实模型评测经
-# internal/evalq.Reviewer 接口装配（不联网，指标口径单源见 docs/eval-baseline.md）。
+# （artifact 面 eval/results/baseline-latest.*）；指标口径单源见
+# docs/eval-baseline.md（不联网，CI 常跑）。
 eval-baseline:
 	go test ./test/evalq/ -run TestEvalPipelineStub -count=1 -v
+
+# 基准集评测跑批·真实模型（P2-02，#25）：单发审查 Reviewer 装配真实模型
+# （ARGUS_EVAL=1 + lacus/.env 的 OPENAI_*，形态照 eval-real）；裁决稳定性轮数
+# 由 ARGUS_EVAL_STABILITY 控制（缺省 3），报告覆盖写 eval/results/baseline-latest.*。
+eval-baseline-real:
+	ARGUS_EVAL=1 go test ./test/evalq/ -run TestEvalBaselineRealModel -count=1 -v -timeout 150m
 
 # 混沌测试矩阵（P2-01，#24）：五族故障 × 注入点逐格实弹回归，
 # 报告落 test/chaos/results/（chaos-latest.{json,md}，CI artifact 面）。
