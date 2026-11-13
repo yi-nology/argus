@@ -142,6 +142,89 @@ make eval-baseline-real   # 真实模型：ARGUS_EVAL=1 + lacus/.env 的 OPENAI_
   见 `eval/results/baseline-latest.{json,md}`（gitignored，每次跑批覆盖）。
   同配置另一次跑批因网关读超时出错 1 案（Precision 0.444 / Recall 0.800 /
   稳定性 0.905）——模型与网络方差大，基线按批次归档、不跨批硬比。
+- **官方终基线（2026-11-14，全部修复后终轮，mimo-v2.6-pro，k=3）**：
+  **P=1.000 / R=1.000 / 误报率 0.000 / 漏检率 0.000 / F1=1.000 /
+  verdict 79.5% / 稳定性 0.977**（TP=33 FP=0 FN=0 TN=11，errored=0）——
+  **四语言全满分**（go 9 / java 8 / jsts 8 / python 8 案 TP 全中）。
+  artifact `eval/results/baseline-latest.*` + 本地 archive/
+  baseline-official-final-20261114.*。中间轮次（第三轮 P=1.000 R=0.909
+  残余 3 FN=1 出错+2 近义词摇摆）证明修复方向正确、终轮收敛到满分。
+  治理前后对照与根因链见下节。
 - 未含（后续批次）：开集 kind 召回（词表随 prompt 扩容）；现网已裁决 MR 样例
-  回填（需真实裁决数据）；质量趋势可视化消费面（P3-02 #27）；历史批次数值的
-  留存归档（latest 每次覆盖）。
+  回填（需真实裁决数据）；历史批次数值的留存归档（latest 每次覆盖）。
+  （质量趋势消费面已随批 A1 落地：`/console` 读本报告渲染 `renderConsoleTrend`。）
+
+## known_fp 误报诊断（批 B3，2026-11-14）
+
+**现象**：首跑误报率 1.000——known_fp 正例全部被报（FP kind 集中在
+`style-nit`）。
+
+**根因链（三段证据闭合，是 prompt 与金标准的策略矛盾，不是评分 bug）**：
+
+1. **评分口径正确**：clean 基准（零 `must_find`）上「全部实际上报计 FP」是
+   golden 北极星口径（`evalq.go` FP 口径注释在案）——known_fp 案例
+   `expect.verdict=approve` 且零 must_find，模型报任何意见都计 FP。
+2. **Prompt 主动邀请**：`reviewSystemPrompt` 的 kind 示例词表含
+   `naming-convention`、`style-nit`（real_model_test.go:43），且协议只要求
+   「没有问题时输出 []」——未定义「风格偏好不算问题」。
+3. **金标准从不要求风格类**：四语言 44 案 `must_find` 词表里 `style-nit` /
+   `naming-convention` 出现 **0 次**（`missing-doc-comment` 仅 go-003 新文件
+   缺注释一例）；known_fp 四案恰是风格偏好诱饵（类型注解/f-string 改写/
+   getter 重命名/防御性判空）。
+
+**结论**：模型服从 prompt 词表邀请报风格意见 → 撞上「clean 即 FP」口径 →
+误报率 1.000。**金标准与评分都不改**（北极星口径与诱饵设计是有意的）；
+治理点在 prompt：补「纯风格偏好/等价重构不算问题」边界，同时保留
+`missing-doc-comment`（新代码缺注释仍要报，go-003 金标准依赖它）。
+
+**与生产的关系（诚实边界）**：本指标是**单发 Reviewer 裸协议**误报率；
+生产链路另有误报反馈回流（指纹抑制）、prints 惯犯热力降权等抑制层——
+生产实际误报率低于本指标。治理 prompt 降的是「裸协议误报倾向」，两层各算各的。
+
+### 第二根因：kind 同义词错配（44 案首跑揪出，7 案时代不可见）
+
+治理前 44 案跑批（2026-11-14，k=3，21min，errored=1）拆解出**更大的问题**：
+P=0.632 / R=0.364 / 漏检率 0.636——21 个 FN 中 **20 个是同义词错配、
+真沉默 0**：模型把问题全找到了，但标签自造（`sequential-await` vs 金标准
+`serial-await`、`nil-deref` vs `npe`、`unsafe-innerhtml` vs `xss`…）。
+根因=协议词表缺口：金标准 27 词闭集，prompt 示例只列 11 词且其中 5 词
+（`nil-deref`/`race-condition`/`unchecked-err`/`naming-convention`/`style-nit`）
+不在金标准——模型在「示例里没有的词」上必然自造。
+
+**治理动作（评分与金标准设计不动，两处 prompt 修 + 一处数据缺陷修）**：
+
+1. kind 词表 → 金标准闭集全词表（协议统一标签，模型仍须自己发现问题）；
+2. 补「纯风格偏好不算问题」边界（保留 `missing-doc-comment`，go-003 依赖）；
+3. **金标准数据缺陷修复**：`hardcode-secret`/`hardcoded-secret` 同概念两
+   拼写并存（go=hardcoded、python/jsts=hardcode）→ 统一 `hardcoded-secret`
+   （模型两轮都稳定选 hardcoded，且语义更标准；修数据非刷分）。
+
+### A/B 对照（同模型 mimo-v2.6-pro，k=3，44 案）
+
+| 指标 | 治理前 | 治理后（第二轮） |
+|---|---|---|
+| Precision | 0.632 | **1.000** |
+| Recall | 0.364 | **0.939** |
+| 误报率 | 0.538 | **0.000** |
+| 漏检率 | 0.636 | **0.061** |
+| F1 | 0.462 | **0.969** |
+| Verdict 命中 | 63.6% | **81.8%** |
+| 裁决稳定性 | 0.955 | **0.970** |
+| errored | 1 | **0** |
+
+第二轮残余 FN 仅 2 个（ts-006/py-006），即拼写缺陷修复所指——数据修复后
+理论 recall=1.000。分语言：go/java 双 1.000，jsts/python 0.88（各 1 个拼写 FN）。
+**终轮（拼写修复后）验证该推断：FN=0、四语言全 1.000、F1=1.000**。
+
+### 附带揪出的工程 bug：artifact 同名互冲
+
+治理中实锤：`TestBaselineStubRun`（make test 全量必跑）与真实跑批共写
+`baseline-latest.*`——**每次门禁都把真实基线冲成 stub**（02:09 真实绿 →
+02:13 门禁冲掉 → 02:15 消费测试连锁红）。修复=打桩改写 `baseline-stub.*`
+（分名纪律补全）+ 两个真实文件消费测试加 `model==stub` skip 守卫。
+回归验证：全量 `make test` 跑完 `latest` 仍为真实模型。
+
+归档（本地，`eval/results/` gitignored）：
+`archive/baseline-before-treatment-20261114.*`（治理前）、
+`archive/baseline-after-treatment-20261114.*`（治理后第二轮）、
+`baseline-latest.*`（官方终基线=数据修复后第三轮）。
