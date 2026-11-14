@@ -9,10 +9,15 @@
 //   - test/evalq = 指标单测 + 数据集完整性门禁 + 打桩跑批回归；报告落
 //     eval/results/（CI artifact 面）。
 //
-// 指标口径（与 golden eval 的 verdict 命中率互补，issue #25 审计原文）：
+// 指标口径（与 golden eval 的 verdict 命中率互补，issue #25 审计原文；
+// Phase1② 口径三分修订）：
 //   - finding 级混淆矩阵：must_find 命中=TP，未命中=FN（漏检）；
 //   - clean 基准（must_find 空）上报的意见全部计 FP（误报，golden 北极星口径）；
 //   - must_not_find 命中的实际上报意见亦计 FP；
+//   - 非 clean 样例未匹配且非禁报的多报 → Unlabeled 显式化（不入 FP 不丢弃），
+//     Precision 因此是「受限标注口径」而非标准 Precision；
+//   - CleanCaseFPRate = 有 FP 的干净样例数 / 干净样例数（样例单位的干净
+//     PR 误报发生率）；旧 fp_rate 分子分母单位不一致，deprecated 保留；
 //   - 裁决稳定性：k 轮同输入裁决的逐案一致率均值。
 package evalq
 
@@ -110,6 +115,15 @@ type CaseResult struct {
 	// 不必回查金标准）。
 	MissedKinds []string `json:"missed_kinds,omitempty"`
 	FPKinds     []string `json:"fp_kinds,omitempty"`
+	// Clean 是否干净样例（must_find 空）——ScoreResult 落结果时判定，
+	// Score 聚合干净样例误报率用（Phase1② 口径三分）。
+	Clean bool `json:"clean,omitempty"`
+	// Unlabeled 非 clean 样例上未匹配、非 must_not_find 的多报意见（Phase1②）：
+	// 不入 FP（未判定 ≠ 误报）、不静默丢弃——受限标注口径的显式缺口，待人工
+	// 标注后判 FP 或有效新发现。
+	Unlabeled []Finding `json:"unlabeled,omitempty"`
+	// UnlabeledKinds 上述多报的类别词（钻取面，与 FPKinds 同形）。
+	UnlabeledKinds []string `json:"unlabeled_kinds,omitempty"`
 }
 
 // Confusion finding 级混淆计数。
@@ -125,12 +139,22 @@ type Metrics struct {
 	Cases      int       `json:"cases"`
 	VerdictHit int       `json:"verdict_hit"`
 	Confusion  Confusion `json:"confusion"`
-	// Precision TP/(TP+FP)；分母 0 时置 0（无样本不算满贯）。
+	// Precision TP/(TP+FP)——**受限标注口径**（Phase1②）：非 clean 样例的
+	// 未标注多报不入 FP（见 Unlabeled），不是可跨标注集对比的标准 Precision；
+	// 完整口径待真实 PR 全量标注基准（Phase2）。分母 0 时置 0。
 	Precision float64 `json:"precision"`
 	// Recall TP/(TP+FN)。
 	Recall float64 `json:"recall"`
-	// FPRate FP/(FP+TN)：干净基准上的误报率。
+	// FPRate FP/(FP+TN)——历史口径 deprecated（Phase1②）：分子是意见条数、
+	// 分母 TN 是样例数，单位不一致；新口径看 CleanCaseFPRate。保留字段供
+	// /console 历史趋势曲线不断裂，下个基线周期淘汰。
 	FPRate float64 `json:"fp_rate"`
+	// Unlabeled 未标注多报意见总条数（json unlabeled_count，Phase1②）。
+	Unlabeled int `json:"unlabeled_count"`
+	// CleanCaseFPRate 干净样例误报发生率 = 有 FP 的干净样例数 / 干净样例数
+	// （json clean_case_fp_rate，Phase1②）：样例单位的真「干净 PR 误报率」；
+	// 出错样例不入分母（评测失败 ≠ 误报行为证据）。
+	CleanCaseFPRate float64 `json:"clean_case_fp_rate"`
 	// MissRate FN/(TP+FN)：严重缺陷漏检率（known_miss 正例的漏报占比）。
 	MissRate float64 `json:"miss_rate"`
 	F1       float64 `json:"f1"`
@@ -152,7 +176,8 @@ func matchFinding(f Finding, e FindingExpect) bool {
 
 // ScoreResult 对单样例计分（混淆矩阵归因与报告钻取共用）。
 func ScoreResult(c Case, out Outcome, err error) CaseResult {
-	res := CaseResult{CaseID: c.ID, Language: c.Language, Label: c.Label}
+	res := CaseResult{CaseID: c.ID, Language: c.Language, Label: c.Label,
+		Clean: len(c.Expect.MustFind) == 0}
 	if err != nil {
 		res.Err = err.Error()
 		// 出错样例保守计：verdict 不命中、全部 must_find 记漏检
@@ -183,7 +208,6 @@ func ScoreResult(c Case, out Outcome, err error) CaseResult {
 		}
 	}
 	// FP 口径：clean 基准（无 must_find）上的全部实际上报 + must_not_find 命中。
-	clean := len(c.Expect.MustFind) == 0
 	for j, f := range out.Findings {
 		if matched[j] {
 			continue
@@ -195,9 +219,13 @@ func ScoreResult(c Case, out Outcome, err error) CaseResult {
 				break
 			}
 		}
-		if clean || forbidden {
+		if res.Clean || forbidden {
 			res.FPs = append(res.FPs, f)
 			res.FPKinds = append(res.FPKinds, f.Kind)
+		} else {
+			// Phase1②：非 clean 未匹配且非禁报 → 显式未标注（不入 FP 不丢弃）。
+			res.Unlabeled = append(res.Unlabeled, f)
+			res.UnlabeledKinds = append(res.UnlabeledKinds, f.Kind)
 		}
 	}
 	return res
@@ -214,13 +242,27 @@ func Score(results []CaseResult) Metrics {
 		m.Confusion.TP += len(r.TPs)
 		m.Confusion.FN += len(r.FNs)
 		m.Confusion.FP += len(r.FPs)
+		m.Unlabeled += len(r.Unlabeled) // Phase1②
 	}
-	// TN：干净基准（must_find 空）且实际上报为零的样例数。
+	// TN：干净基准（must_find 空）且实际上报为零的样例数——Phase1② 起用 Clean
+	// 显式判定（历史实现靠「非 clean 必有 TP/FN」隐含成立，字面构造的结果不再成立）。
 	for _, r := range results {
-		if r.Err == "" && len(r.FPs) == 0 && len(r.TPs) == 0 && len(r.FNs) == 0 {
+		if r.Err == "" && r.Clean && len(r.FPs) == 0 && len(r.TPs) == 0 && len(r.FNs) == 0 {
 			m.Confusion.TN++
 		}
 	}
+	// CleanCaseFPRate：干净样例误报发生率（样例单位）；出错样例不入分母。
+	cleanTotal, cleanWithFP := 0, 0
+	for _, r := range results {
+		if r.Err != "" || !r.Clean {
+			continue
+		}
+		cleanTotal++
+		if len(r.FPs) > 0 {
+			cleanWithFP++
+		}
+	}
+	m.CleanCaseFPRate = ratio(cleanWithFP, cleanTotal)
 	m.Precision = ratio(m.Confusion.TP, m.Confusion.TP+m.Confusion.FP)
 	m.Recall = ratio(m.Confusion.TP, m.Confusion.TP+m.Confusion.FN)
 	m.FPRate = ratio(m.Confusion.FP, m.Confusion.FP+m.Confusion.TN)

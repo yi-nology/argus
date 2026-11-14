@@ -43,6 +43,12 @@ func TestScoreResultFindingMatching(t *testing.T) {
 	if len(res.FPs) != 0 {
 		t.Fatalf("非常规样例的多报意见不应计 FP: %v", res.FPs)
 	}
+	if len(res.Unlabeled) != 1 || res.Unlabeled[0].Kind != "style" || len(res.UnlabeledKinds) != 1 {
+		t.Fatalf("非 clean 多报应进 Unlabeled 显式化（不丢弃不计 FP）: %+v", res.Unlabeled)
+	}
+	if res.Clean {
+		t.Fatal("must_find 非空样例 Clean 应 false")
+	}
 
 	// 漏检：只命中一条
 	out2 := evalq.Outcome{Verdict: evalq.VerdictRequestChanges, Findings: []evalq.Finding{{File: "a.go", Kind: "sql-inject"}}}
@@ -98,20 +104,16 @@ func TestScoreResultError(t *testing.T) {
 
 // TestScoreAggregate 全量指标算术：手算对账。
 func TestScoreAggregate(t *testing.T) {
-	// 构 4 样例：
-	//  s1: must_find 2 条，命中 1 漏 1（TP=1 FN=1）
-	//  s2: clean，零上报（TN=1）
-	//  s3: clean，上报 1（FP=1）
-	//  s4: must_find 1 条，命中（TP+1=2）
 	results := []evalq.CaseResult{
 		{CaseID: "s1", VerdictHit: true, TPs: []int{0}, FNs: []int{1}},
-		{CaseID: "s2", VerdictHit: true},
-		{CaseID: "s3", VerdictHit: false, FPs: []evalq.Finding{{Kind: "style"}}},
+		{CaseID: "s2", Clean: true, VerdictHit: true},
+		{CaseID: "s3", Clean: true, VerdictHit: false, FPs: []evalq.Finding{{Kind: "style"}}},
 		{CaseID: "s4", VerdictHit: true, TPs: []int{0}},
+		{CaseID: "s5", Unlabeled: []evalq.Finding{{Kind: "nit"}}, UnlabeledKinds: []string{"nit"}},
 	}
 	m := evalq.Score(results)
-	if m.Cases != 4 || m.VerdictHit != 3 {
-		t.Fatalf("cases/verdict = %d/%d, want 4/3", m.Cases, m.VerdictHit)
+	if m.Cases != 5 || m.VerdictHit != 3 {
+		t.Fatalf("cases/verdict = %d/%d, want 5/3", m.Cases, m.VerdictHit)
 	}
 	if m.Confusion.TP != 2 || m.Confusion.FN != 1 || m.Confusion.FP != 1 || m.Confusion.TN != 1 {
 		t.Fatalf("混淆矩阵: %+v", m.Confusion)
@@ -125,11 +127,22 @@ func TestScoreAggregate(t *testing.T) {
 	if abs(m.FPRate-0.5) > 1e-9 {
 		t.Fatalf("FPRate = %f, want 0.5", m.FPRate)
 	}
+	// Phase1②：干净样例误报发生率 = 有 FP 的干净样例 / 干净样例 = s3/s2,s3 = 1/2
+	// （样例单位，修复旧 fp_rate 分子分母单位混用）。
+	if abs(m.CleanCaseFPRate-0.5) > 1e-9 {
+		t.Fatalf("CleanCaseFPRate = %f, want 0.5", m.CleanCaseFPRate)
+	}
+	// Unlabeled 聚合：s5 一条，不入 FP。
+	if m.Unlabeled != 1 {
+		t.Fatalf("Unlabeled = %d, want 1", m.Unlabeled)
+	}
 	if abs(m.MissRate-1.0/3.0) > 1e-9 {
 		t.Fatalf("MissRate = %f, want 1/3", m.MissRate)
 	}
-	if abs(m.VerdictAccuracy-0.75) > 1e-9 {
-		t.Fatalf("VerdictAccuracy = %f, want 0.75", m.VerdictAccuracy)
+	// 5 案 3 命中 → 3/5=0.6（brief 草稿沿用旧 4 案 0.75，加 s5 后按其
+	// Cases=5/VerdictHit=3 断言口径修正）。
+	if abs(m.VerdictAccuracy-3.0/5.0) > 1e-9 {
+		t.Fatalf("VerdictAccuracy = %f, want 0.6", m.VerdictAccuracy)
 	}
 	if m.F1 == 0 {
 		t.Fatal("F1 应非零")
@@ -363,7 +376,8 @@ func TestReportRender(t *testing.T) {
 	if err := rep.WriteJSON(&jsonBuf); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"fp_rate"`, `"stability"`, `"by_language"`} {
+	for _, want := range []string{`"fp_rate"`, `"stability"`, `"by_language"`,
+		`"clean_case_fp_rate"`, `"unlabeled_count"`} {
 		if !strings.Contains(jsonBuf.String(), want) {
 			t.Errorf("JSON 报告缺 %s", want)
 		}
