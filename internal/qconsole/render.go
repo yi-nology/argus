@@ -61,9 +61,9 @@ th{background:#eaeef2}
 
 <h2>质量趋势（P2-02 评测基线）</h2>
 {{if .EvalTrend}}<p class="muted">模型 {{.EvalTrend.Model}} · 生成于 {{.EvalTrend.GeneratedAt.Format "2006-01-02 15:04"}} · 裁决稳定性 {{printf "%.3f" .EvalTrend.Stability}}</p>
-<table><tr><th>维度</th><th>Precision</th><th>Recall</th><th>误报率</th><th>漏检率</th></tr>
-<tr><td>总体</td><td>{{printf "%.3f" .EvalTrend.Overall.P}}</td><td>{{printf "%.3f" .EvalTrend.Overall.R}}</td><td>{{printf "%.3f" .EvalTrend.Overall.FP}}</td><td>{{printf "%.3f" .EvalTrend.Overall.Miss}}</td></tr>
-{{range .EvalTrend.ByLanguage}}<tr><td>{{.Language}}</td><td>—</td><td>—</td><td>{{printf "%.3f" .FP}}</td><td>{{printf "%.3f" .Miss}}</td></tr>{{end}}
+<table><tr><th>维度</th><th>Precision(受限)</th><th>Recall</th><th>干净误报率</th><th>误报率(历史)</th><th>漏检率</th><th>未标注</th></tr>
+<tr><td>总体</td><td>{{printf "%.3f" .EvalTrend.Overall.P}}</td><td>{{printf "%.3f" .EvalTrend.Overall.R}}</td><td>{{printf "%.3f" .EvalTrend.Overall.CFP}}</td><td>{{printf "%.3f" .EvalTrend.Overall.FP}}</td><td>{{printf "%.3f" .EvalTrend.Overall.Miss}}</td><td>{{.EvalTrend.Overall.Unlabeled}}</td></tr>
+{{range .EvalTrend.ByLanguage}}<tr><td>{{.Language}}</td><td>—</td><td>—</td><td>{{printf "%.3f" .CFP}}</td><td>{{printf "%.3f" .FP}}</td><td>{{printf "%.3f" .Miss}}</td><td>—</td></tr>{{end}}
 </table>{{else}}<p class="muted">无评测基线报告（make eval-baseline / eval-real 产出 eval/results/baseline-latest.json 后自动上屏）</p>{{end}}
 
 <p class="muted">数据全部来自既有 API 聚合（/stats/overview · /usage/monthly · /metrics · 评测基线文件），无新表。</p>

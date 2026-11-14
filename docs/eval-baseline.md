@@ -12,9 +12,11 @@
 
 | 指标 | 定义 | 口径说明 |
 |---|---|---|
-| Precision | TP/(TP+FP) | finding 级 |
+| Precision（受限标注口径） | TP/(TP+FP) | finding 级；非 clean 样例的未标注多报不入 FP（Phase1②），**非跨标注集可比的标准 Precision** |
 | Recall | TP/(TP+FN) | finding 级 |
-| 误报率 FPRate | FP/(FP+TN) | clean 基准（must_find 空）上报意见全部计 FP——golden 北极星口径延续 |
+| 干净样例误报率 CleanCaseFPRate | 有 FP 的干净样例数 / 干净样例数 | 样例单位的干净 PR 误报发生率（Phase1② 新增）；出错样例不入分母 |
+| 误报率 FPRate（deprecated） | FP/(FP+TN) | **历史口径**：分子意见条数、分母样例数单位不一致（Phase1② 定性）；保留供旧趋势曲线，下个基线周期淘汰 |
+| 未标注多报 Unlabeled | 非 clean 未匹配且非 must_not_find 的意见条数 | 不入 FP、不静默丢弃（Phase1②）；待人工标注判 FP 或有效新发现 |
 | 漏检率 MissRate | FN/(TP+FN) | 金标准有缺陷而模型未报（含 known_miss 正例的漏报） |
 | F1 | 2PR/(P+R) | — |
 | VerdictAccuracy | 命中数/样例数 | golden eval 原口径，保持历史可比 |
@@ -23,6 +25,10 @@
 匹配规则：`must_find` 项按 kind（大小写不敏感）为主键、file（可选）收窄命中；
 `must_not_find` 命中的实际上报意见计 FP；评测出错的样例保守计分（verdict
 不命中 + 记漏检），`errored` 单列——评测失败也是数据。
+
+**口径切换点（Phase1②，2026-11-14）**：本表自本次起为三分口径——此前归档的
+治理前后对照数字（P=1.000 等）均为旧口径，**与切换后数字不可直接比较**；
+切换后首跑基线见下节「新口径基线」。
 
 ## 基准集装载（`eval/baseline/`）
 

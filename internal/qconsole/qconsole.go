@@ -66,6 +66,9 @@ type EvalTrendMets struct {
 	Miss float64 `json:"miss_rate"`
 	P    float64 `json:"precision"`
 	R    float64 `json:"recall"`
+	// Phase1②：新口径投影（json tag 对齐 evalq.Metrics）。
+	CFP       float64 `json:"clean_case_fp_rate"`
+	Unlabeled int     `json:"unlabeled_count"`
 }
 
 // EvalLangMets 分语言指标投影。
@@ -73,6 +76,8 @@ type EvalLangMets struct {
 	Language string  `json:"language"`
 	FP       float64 `json:"fp_rate"`
 	Miss     float64 `json:"miss_rate"`
+	// CFP 分语言干净样例误报率（字段对齐分语言 Metrics，json tag 对齐 evalq.Metrics）。
+	CFP float64 `json:"clean_case_fp_rate"`
 }
 
 // Snapshot 控制台一次聚合的只读快照。

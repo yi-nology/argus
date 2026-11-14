@@ -120,8 +120,8 @@ func TestQualityConsoleTrend(t *testing.T) {
 		path := t.TempDir() + "/baseline.json"
 		raw := `{"generated_at":"2026-11-13T18:53:37+08:00","model":"mimo-v2.6-pro",` +
 			`"stability":0.952,"overall":{"fp_rate":0.727,"miss_rate":0.0,` +
-			`"precision":0.805,"recall":1.0},` +
-			`"by_language":[{"language":"go","fp_rate":1.0,"miss_rate":0.0}]}`
+			`"precision":0.805,"recall":1.0,"clean_case_fp_rate":0.25,"unlabeled_count":3},` +
+			`"by_language":[{"language":"go","fp_rate":1.0,"miss_rate":0.0,"clean_case_fp_rate":0.5}]}`
 		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -132,6 +132,7 @@ func TestQualityConsoleTrend(t *testing.T) {
 		}
 		for _, want := range []string{
 			"mimo-v2.6-pro", "72.7%", "100.0%", "95.2%", "分语言", "go",
+			"干净误报率", "25.0%", "精确率（受限）", "未标注多报 3 条",
 		} {
 			if !strings.Contains(page, want) {
 				t.Errorf("趋势面缺 %q", want)

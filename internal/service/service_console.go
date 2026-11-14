@@ -192,8 +192,9 @@ func renderConsoleFixLoop(b *strings.Builder, ms []obs.ConsoleMetric) {
 }
 
 // renderConsoleTrend 质量趋势（#27 验收「质量趋势」面）：P2-02 评测基线报告
-// 只读投影——总指标卡（FP 率/漏检率/精确率/召回率/裁决稳定性）+ 分语言表。
-// 数据源缺位渲染占位（趋势面缺位属常态，同 qconsole 口径）。
+// 只读投影——总指标卡（干净误报率/历史 FP 率/漏检率/受限精确率/召回率/裁决
+// 稳定性）+ 未标注多报提示 + 分语言表。数据源缺位渲染占位（趋势面缺位属
+// 常态，同 qconsole 口径）。
 func renderConsoleTrend(b *strings.Builder, t *qconsole.EvalTrend) {
 	b.WriteString("<h2>质量趋势（评测基线）</h2>")
 	if t == nil {
@@ -205,22 +206,28 @@ func renderConsoleTrend(b *strings.Builder, t *qconsole.EvalTrend) {
 		html.EscapeString(orDash(t.Model)),
 		t.GeneratedAt.Format("2006-01-02 15:04"), t.Stability)
 	b.WriteString("<div class=\"grid\">")
-	card(b, "误报率（FP）", fmt.Sprintf("%.1f%%", t.Overall.FP*100),
+	card(b, "干净误报率", fmt.Sprintf("%.1f%%", t.Overall.CFP*100),
+		tone(1-t.Overall.CFP, 0.8, 0.5))
+	card(b, "误报率（历史）", fmt.Sprintf("%.1f%%", t.Overall.FP*100),
 		tone(1-t.Overall.FP, 0.8, 0.5))
 	card(b, "漏检率（Miss）", fmt.Sprintf("%.1f%%", t.Overall.Miss*100),
 		tone(1-t.Overall.Miss, 0.9, 0.7))
-	card(b, "精确率", fmt.Sprintf("%.1f%%", t.Overall.P*100), tone(t.Overall.P, 0.8, 0.6))
+	card(b, "精确率（受限）", fmt.Sprintf("%.1f%%", t.Overall.P*100), tone(t.Overall.P, 0.8, 0.6))
 	card(b, "召回率", fmt.Sprintf("%.1f%%", t.Overall.R*100), tone(t.Overall.R, 0.9, 0.7))
 	card(b, "裁决稳定性", fmt.Sprintf("%.1f%%", t.Stability*100), tone(t.Stability, 0.9, 0.7))
 	b.WriteString("</div>")
+	if t.Overall.Unlabeled > 0 {
+		fmt.Fprintf(b, "<p class=\"muted\">未标注多报 %d 条（受限标注口径，待人工标注判 FP 或有效新发现）</p>",
+			t.Overall.Unlabeled)
+	}
 	if len(t.ByLanguage) == 0 {
 		return
 	}
-	b.WriteString("<p class=\"muted\">分语言</p><table><tr><th>语言</th><th class=\"num\">误报率</th>" +
-		"<th class=\"num\">漏检率</th></tr>")
+	b.WriteString("<p class=\"muted\">分语言</p><table><tr><th>语言</th><th class=\"num\">干净误报率</th>" +
+		"<th class=\"num\">误报率(历史)</th><th class=\"num\">漏检率</th></tr>")
 	for _, l := range t.ByLanguage {
-		fmt.Fprintf(b, "<tr><td>%s</td><td class=\"num\">%.1f%%</td><td class=\"num\">%.1f%%</td></tr>",
-			html.EscapeString(orDash(l.Language)), l.FP*100, l.Miss*100)
+		fmt.Fprintf(b, "<tr><td>%s</td><td class=\"num\">%.1f%%</td><td class=\"num\">%.1f%%</td><td class=\"num\">%.1f%%</td></tr>",
+			html.EscapeString(orDash(l.Language)), l.CFP*100, l.FP*100, l.Miss*100)
 	}
 	b.WriteString("</table>")
 }

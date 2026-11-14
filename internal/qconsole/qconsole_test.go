@@ -143,8 +143,8 @@ func TestRenderForms(t *testing.T) {
 	}
 	snap.EvalTrend = &qconsole.EvalTrend{
 		Model: "mimo-v2", Stability: 0.93,
-		Overall:    qconsole.EvalTrendMets{FP: 0.12, Miss: 0.08, P: 0.85, R: 0.91},
-		ByLanguage: []qconsole.EvalLangMets{{Language: "go", FP: 0.10, Miss: 0.06}},
+		Overall:    qconsole.EvalTrendMets{FP: 0.12, Miss: 0.08, P: 0.85, R: 0.91, CFP: 0.05, Unlabeled: 2},
+		ByLanguage: []qconsole.EvalLangMets{{Language: "go", FP: 0.10, Miss: 0.06, CFP: 0.04}},
 	}
 
 	html, err := qconsole.RenderHTML(snap)
@@ -155,7 +155,8 @@ func TestRenderForms(t *testing.T) {
 	if strings.Contains(h, "<script src") || strings.Contains(h, "<link") {
 		t.Error("静态页应自包含（无外部 script/link）")
 	}
-	for _, want := range []string{"误报反馈", "插件表现", "失败原因归类", "Token 消费", "质量趋势", "无新表", "mimo-v2"} {
+	for _, want := range []string{"误报反馈", "插件表现", "失败原因归类", "Token 消费", "质量趋势", "无新表", "mimo-v2",
+		"干净误报率", "Precision(受限)"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("静态页缺区块: %q", want)
 		}

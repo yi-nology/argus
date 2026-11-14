@@ -139,10 +139,12 @@ func (rep *Report) WriteMarkdown(w io.Writer) error {
 | 指标 | 值 |
 |---|---|
 | Verdict 命中率 | %.1f%% |
-| Precision | %.3f |
+| Precision（受限标注口径） | %.3f |
 | Recall | %.3f |
-| 误报率（FP Rate） | %.3f |
+| 干净样例误报率（Clean FPRate） | %.3f |
+| 误报率（FP Rate，历史口径 deprecated） | %.3f |
 | 漏检率（Miss Rate） | %.3f |
+| 未标注多报（Unlabeled） | %d |
 | F1 | %.3f |
 | 裁决稳定性（%d 轮） | %.3f |
 
@@ -150,12 +152,13 @@ func (rep *Report) WriteMarkdown(w io.Writer) error {
 
 ## 分语言指标
 
-| 语言 | 样例 | Verdict 命中 | Precision | Recall | 误报率 | 漏检率 |
-|---|---|---|---|---|---|---|
+| 语言 | 样例 | Verdict 命中 | Precision | Recall | 干净误报率 | 误报率(历史) | 漏检率 |
+|---|---|---|---|---|---|---|---|
 `,
 		rep.GeneratedAt.Format(time.RFC3339), rep.Model, paramsWord(rep.Params),
 		rep.Cases, rep.Errored, erroredNote(rep.Errored),
-		100*o.VerdictAccuracy, o.Precision, o.Recall, o.FPRate, o.MissRate, o.F1,
+		100*o.VerdictAccuracy, o.Precision, o.Recall, o.CleanCaseFPRate, o.FPRate,
+		o.MissRate, o.Unlabeled, o.F1,
 		max(rep.Runs, 1), rep.Stability,
 		o.Confusion.TP, o.Confusion.FP, o.Confusion.FN, o.Confusion.TN,
 	)
@@ -164,8 +167,9 @@ func (rep *Report) WriteMarkdown(w io.Writer) error {
 	}
 	for _, lr := range rep.ByLanguage {
 		m := lr.Metrics
-		line := fmt.Sprintf("| %s | %d | %.1f%% | %.3f | %.3f | %.3f | %.3f |\n",
-			lr.Language, m.Cases, 100*m.VerdictAccuracy, m.Precision, m.Recall, m.FPRate, m.MissRate)
+		line := fmt.Sprintf("| %s | %d | %.1f%% | %.3f | %.3f | %.3f | %.3f | %.3f |\n",
+			lr.Language, m.Cases, 100*m.VerdictAccuracy, m.Precision, m.Recall,
+			m.CleanCaseFPRate, m.FPRate, m.MissRate)
 		if _, err := fmt.Fprint(w, line); err != nil {
 			return err
 		}
@@ -184,18 +188,19 @@ func (rep *Report) WriteMarkdown(w io.Writer) error {
 		}
 	}
 	// 逐案明细（钻取面：漏检/误报归因到样例与类别词）
-	if _, err := fmt.Fprint(w, "\n## 逐案明细\n\n| 样例 | 语言 | 标签 | Verdict 命中 | TP | FN | FP | 漏检类别 | 误报类别 | 错误 |\n|---|---|---|---|---|---|---|---|---|---|\n"); err != nil {
+	if _, err := fmt.Fprint(w, "\n## 逐案明细\n\n| 样例 | 语言 | 标签 | Verdict 命中 | TP | FN | FP | 未标注 | 漏检类别 | 误报类别 | 错误 |\n|---|---|---|---|---|---|---|---|---|---|---|\n"); err != nil {
 		return err
 	}
 	for _, r := range rep.Results {
-		line := fmt.Sprintf("| %s | %s | %s | %t | %d | %d | %d | %s | %s | %s |\n",
+		line := fmt.Sprintf("| %s | %s | %s | %t | %d | %d | %d | %d | %s | %s | %s |\n",
 			r.CaseID, r.Language, r.Label, r.VerdictHit, len(r.TPs), len(r.FNs), len(r.FPs),
+			len(r.Unlabeled),
 			mdCell(strings.Join(r.MissedKinds, ", ")), mdCell(strings.Join(r.FPKinds, ", ")), mdCell(r.Err))
 		if _, err := fmt.Fprint(w, line); err != nil {
 			return err
 		}
 	}
-	_, err := fmt.Fprint(w, "\n> 口径：clean 基准上报意见全部计误报（golden 北极星口径）；must_find 未命中计漏检；\n> 裁决稳定性 = k 轮同输入裁决的逐案一致率均值（internal/evalq.Stability）。\n")
+	_, err := fmt.Fprint(w, "\n> 口径（Phase1② 三分）：clean 基准上报意见全部计误报（golden 北极星口径）；must_find 未命中计漏检；\n> 非 clean 样例未匹配多报计 Unlabeled（不入 FP、待人工标注）——Precision 为受限标注口径，\n> 非跨标注集可比的标准 Precision；干净样例误报率 = 有 FP 的干净样例 / 干净样例（样例单位）；\n> 旧 FP Rate 分子分母单位不一致，deprecated 保留；裁决稳定性 = k 轮同输入裁决的逐案一致率均值。\n")
 	return err
 }
 

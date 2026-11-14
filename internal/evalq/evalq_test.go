@@ -388,7 +388,8 @@ func TestReportRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := mdBuf.String()
-	for _, want := range []string{"# 基准集质量评测报告", "| Precision |", "| go |", "## 逐案明细", "llm timeout"} {
+	for _, want := range []string{"# 基准集质量评测报告", "| Precision（受限标注口径） |",
+		"| go |", "## 逐案明细", "llm timeout", "干净样例误报率", "未标注多报"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("Markdown 报告缺 %q", want)
 		}
