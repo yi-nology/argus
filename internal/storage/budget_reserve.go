@@ -111,6 +111,11 @@ type ReserveResult struct {
 	Verdict   ReserveVerdict
 	QuotaUsed int64 // 配额账已承诺（done 聚合 + 活跃预留）
 	RealUsed  int64 // 真实账已承诺（实销 + 活跃预留）
+	// GrantedTokens 授予额度（Phase1①，spec §2.1）：截断后的 hold 原样回传——
+	// 调用方（runner 预算闸）据此创建任务级 LLM Budget，闭合「账面承诺 5,000
+	// 实跑 20,000」的脱节。无需预留路径（双账本全关/任务预算非正）= in.TaskBudget
+	// 原值（≤0 表示无界）；拒绝路径 = 0（调用方已拦截，不消费本值）。
+	GrantedTokens int64
 }
 
 // ReserveRepoBudget 执行前预留（#32 验收③）：双账本额度判定 + 落预留行在同一
@@ -120,6 +125,7 @@ type ReserveResult struct {
 func (s *Store) ReserveRepoBudget(ctx context.Context, in ReserveInput) (ReserveResult, error) {
 	var out ReserveResult
 	if in.QuotaBudget <= 0 && in.RealBudget <= 0 {
+		out.GrantedTokens = int64(in.TaskBudget)
 		return out, nil // 双账本全关：无额度可超，也无须占承诺
 	}
 	if in.TaskID == "" || in.Platform == "" {
@@ -182,6 +188,7 @@ func (s *Store) ReserveRepoBudget(ctx context.Context, in ReserveInput) (Reserve
 			hold = r
 		}
 	}
+	out.GrantedTokens = int64(hold)
 	if hold <= 0 {
 		return out, nil // 任务预算非正（无界任务）：不占预留，行为同旧闸直通
 	}

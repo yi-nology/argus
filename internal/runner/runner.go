@@ -224,6 +224,8 @@ func PruneSpillRoot(root string) {
 
 // Execute 执行一个已 claim（running）的任务。正常路径始终终结任务状态（done/failed/stale）；
 // 停机硬取消例外（保持 running，心跳过期后重置回 pending）。
+// Phase1①：预算闸提到 Budget 创建之前——任务级 LLM Budget 用闸的授予值
+// （granted）而非原始 knobs.taskTokenBudget，账面预留与执行上限一致。
 func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	task, err := r.Store.GetTask(ctx, taskID)
 	if err != nil {
@@ -232,9 +234,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 	// 按仓旋钮单次加载（v3.187.0）：repo_settings 覆盖 → 全局默认，预算闸/
 	// 任务预算/diff 上限三处消费全程共用（runner_knobs.go）。
 	knobs := r.loadTaskKnobs(ctx, task)
-	budget := dispatch.NewTokenBudget(knobs.taskTokenBudget)
 	taskCost := llm.NewCostTracker()
-	ctx = r.execContext(ctx, task, budget, taskCost)
 	// 任务级 MCP 调用元数据：随 ctx 流入该任务全部工具调用的 _meta，server 侧
 	// 可关联调用来源（哪次评审在调我）；Q&A 等非任务路径无注入。
 	ctx = toolpool.WithCallMeta(ctx, map[string]any{
@@ -242,21 +242,27 @@ func (r *Runner) Execute(ctx context.Context, taskID string) error {
 		"repo":    task.Owner + "/" + task.Repo,
 		"mr":      task.Number,
 	})
+	// Budget 闸后创建（Phase1①）：可能仍为 nil（panic 发生在闸前），失败收尾
+	// 路径必须 nil 守卫。
+	var budget *llm.Budget
 	// v3.185.4：任务体统一 panic 出口——上游 queue/worker 的 panic 隔离只记
 	// 日志不留终态（心跳过期复位重跑），对确定性 panic 是「复位→再炸」死循环
 	// （live 实测：影响面注入 nil map panic 后任务卡 running）；argus 的
 	// failed-retry 退避是重试正道，panic 必须经 handleRunFailure 落 failed 终态。
 	if err = guardPanic(r.Log, task.ID, func() error {
 		start := time.Now()
-		wf := r.wireWorkflow(ctx, task, budget)
-		r.publish(progress.EventTaskRunning, task, "", "")
-
 		// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
 		r.postStartMarker(ctx, task)
 
-		if r.budgetGate(ctx, task, knobs, r.Cfg.RealTokenBudget) {
+		// Phase1①：先闸后建——intercepted 时 Budget 尚未创建（也不需要）。
+		intercepted, granted := r.budgetGate(ctx, task, knobs, r.Cfg.RealTokenBudget)
+		if intercepted {
 			return nil
 		}
+		budget = dispatch.NewTokenBudget(int(granted))
+		ctx = r.execContext(ctx, task, budget, taskCost)
+		wf := r.wireWorkflow(ctx, task, budget)
+		r.publish(progress.EventTaskRunning, task, "", "")
 
 		if rerr := r.run(ctx, task, wf, budget, start, taskCost, knobs); rerr != nil {
 			r.handleRunFailure(ctx, task, budget, rerr)

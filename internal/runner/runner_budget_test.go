@@ -50,23 +50,27 @@ func TestBudgetGateReservesBeforeRun(t *testing.T) {
 	knobs := taskKnobs{monthlyBudget: 500, taskTokenBudget: 400}
 
 	t1 := budgetTask(t, store, "t1")
-	if r.budgetGate(ctx, t1, knobs, 0) {
+	if intercepted, granted := r.budgetGate(ctx, t1, knobs, 0); intercepted {
 		t.Fatal("t1 额度内不应拦截")
+	} else if granted != 400 {
+		t.Fatalf("t1 授予值应 400（任务预算未被钳制），got %d", granted)
 	}
 	if held, _ := store.RepoMonthlyReserved(ctx, "gitea", "acme", "app"); held != 400 {
 		t.Fatalf("t1 放行应落 400 预留，got %d", held)
 	}
 
 	t2 := budgetTask(t, store, "t2")
-	if r.budgetGate(ctx, t2, knobs, 0) {
+	if intercepted, granted := r.budgetGate(ctx, t2, knobs, 0); intercepted {
 		t.Fatal("t2 剩余 100 内不应拦截（按剩余钳制放行）")
+	} else if granted != 100 {
+		t.Fatalf("t2 授予值应钳到剩余 100（评审脱节场景），got %d", granted)
 	}
 	if held, _ := store.RepoMonthlyReserved(ctx, "gitea", "acme", "app"); held != 500 {
 		t.Fatalf("t2 预留应钳到 100（合计 500），got %d", held)
 	}
 
 	t3 := budgetTask(t, store, "t3")
-	if !r.budgetGate(ctx, t3, knobs, 0) {
+	if intercepted, _ := r.budgetGate(ctx, t3, knobs, 0); !intercepted {
 		t.Fatal("t3 已承诺 500/500 应拦截")
 	}
 	row, err := store.GetTask(ctx, "t3")
@@ -101,7 +105,7 @@ func TestBudgetGateRealLedgerRejects(t *testing.T) {
 	}
 
 	target := budgetTask(t, store, "t-target")
-	if !r.budgetGate(ctx, target, knobs, 100) {
+	if intercepted, _ := r.budgetGate(ctx, target, knobs, 100); !intercepted {
 		t.Fatal("实销 100/100 应拦截")
 	}
 	row, err := store.GetTask(ctx, "t-target")
@@ -121,7 +125,7 @@ func TestBudgetGateRealLedgerRejects(t *testing.T) {
 func TestBudgetGateBothLedgersOff(t *testing.T) {
 	r, store, ctx := budgetTestRunner(t)
 	task := budgetTask(t, store, "t-off")
-	if r.budgetGate(ctx, task, taskKnobs{monthlyBudget: 0, taskTokenBudget: 400_000}, 0) {
+	if intercepted, _ := r.budgetGate(ctx, task, taskKnobs{monthlyBudget: 0, taskTokenBudget: 400_000}, 0); intercepted {
 		t.Fatal("双账本全关不应拦截")
 	}
 	if held, _ := store.RepoMonthlyReserved(ctx, "gitea", "acme", "app"); held != 0 {
@@ -137,7 +141,7 @@ func TestBudgetGateFailOpenOnStorageError(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if r.budgetGate(ctx, task, taskKnobs{monthlyBudget: 100, taskTokenBudget: 400_000}, 100) {
+	if intercepted, _ := r.budgetGate(ctx, task, taskKnobs{monthlyBudget: 100, taskTokenBudget: 400_000}, 100); intercepted {
 		t.Fatal("存储故障应 fail-open 放行")
 	}
 }

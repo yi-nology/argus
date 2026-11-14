@@ -58,12 +58,34 @@ func TestReserveRepoBudget_WithinBudget(t *testing.T) {
 	if row.Status != ReservationReserved || row.Tokens != 300 {
 		t.Fatalf("预留行失真: status=%s tokens=%d", row.Status, row.Tokens)
 	}
+	if res.GrantedTokens != 300 {
+		t.Fatalf("GrantedTokens 应与落库预留同值 300，got %d", res.GrantedTokens)
+	}
 	if !row.ExpiresAt.After(time.Now()) {
 		t.Fatalf("租约应未过期: %v", row.ExpiresAt)
 	}
 	held, err := s.RepoMonthlyReserved(ctx, "gitea", "acme", "app")
 	if err != nil || held != 300 {
 		t.Fatalf("活跃预留合计应 300: held=%d err=%v", held, err)
+	}
+}
+
+// TestReserveRepoBudgetGrantedUnbounded 无界任务（TaskBudget≤0）不占预留，
+// GrantedTokens 返回任务预算原值（≤0 = 无界语义交还调用方）。
+func TestReserveRepoBudgetGrantedUnbounded(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	res, err := s.ReserveRepoBudget(ctx, reserveIn("t-unbounded", 0, 1000, 0))
+	if err != nil {
+		t.Fatalf("无界任务应直通: %v", err)
+	}
+	if res.Verdict != ReserveOK || res.GrantedTokens != 0 {
+		t.Fatalf("无界任务授予值应为 0（=任务预算原值）: verdict=%v granted=%d",
+			res.Verdict, res.GrantedTokens)
+	}
+	if getReservation(t, s, "t-unbounded") != nil {
+		t.Fatal("无界任务不应落预留行")
 	}
 }
 
