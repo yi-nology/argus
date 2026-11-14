@@ -90,3 +90,4 @@ web/.vuepress/.temp/
 web/.vuepress/.data/
 web/.vuepress/dist/
 .playwright-mcp/
+.worktrees/
