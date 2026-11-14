@@ -183,10 +183,11 @@ func TestRecordUsageEventStableInvocationKey(t *testing.T) {
 // TestExecContextInjectsCallCounter 计数器接线探针（Phase1③ 主路前提）：
 // execContext 注入 llm.WithCallCounter 后，两次模拟模型回调的 UsageRecord
 // 应携带递增 Iteration（1、2）——若恒为 0 说明计数器未达回调链，主路死、
-// 走 uuid 兜底（见本任务 Step 6）。
+// 走 uuid 兜底（见本任务 Step 6）。预注入确定性执行 nonce（终审 Critical：
+// 稳定键含 exec-nonce 段）使精确键可断言：u-t-counter-0-probe1-{1,2}。
 func TestExecContextInjectsCallCounter(t *testing.T) {
 	r, store := usageTestRunner(t)
-	ctx := context.Background()
+	ctx := withExecNonce(context.Background(), "probe1")
 	task := usageTestTask(t, store, "t-counter")
 
 	budget := dispatch.NewTokenBudget(0)
@@ -210,8 +211,45 @@ func TestExecContextInjectsCallCounter(t *testing.T) {
 		t.Fatalf("两次回调应落 2 行: n=%d err=%v", len(events), err)
 	}
 	got = []string{events[0].InvocationID, events[1].InvocationID}
-	if got[0] != "u-t-counter-0-1" || got[1] != "u-t-counter-0-2" {
-		t.Fatalf("计数器应贯穿成稳定递增键（Iteration 主路探针）: %v", got)
+	if got[0] != "u-t-counter-0-probe1-1" || got[1] != "u-t-counter-0-probe1-2" {
+		t.Fatalf("计数器应贯穿成稳定递增键（含执行 nonce 段，Iteration 主路探针）: %v", got)
+	}
+}
+
+// TestUsageKeyNoCollideAcrossExecutions 跨执行撞键回归（终审 Critical）：
+// 同 task+attempt 的两次 execContext（stale 重跑形态——ResetRunningToPending
+// 不 bump attempt、计数器从 1 重启）各落一笔 Iteration=1。执行 nonce 区分
+// 执行实例 → 两行都在（不收敛）、实销账两笔都计；旧键 u-<task>-<attempt>-
+// <iter> 会让第二次执行的首笔撞唯一索引静默丢账（usage_events 唯一索引收敛）。
+func TestUsageKeyNoCollideAcrossExecutions(t *testing.T) {
+	r, store := usageTestRunner(t)
+	ctx := context.Background()
+	task := usageTestTask(t, store, "t-retry")
+
+	// fireOnce 一次真实执行形态：execContext 装配 + 一笔模型回调（Iteration=1）。
+	fireOnce := func() {
+		budget := dispatch.NewTokenBudget(0)
+		taskCost := llm.NewCostTracker()
+		wctx := r.execContext(ctx, task, budget, taskCost)
+		wctx = callbacks.EnsureRunInfo(wctx, "test-model", components.ComponentOfChatModel)
+		wctx = callbacks.OnStart(wctx, &model.CallbackInput{})
+		_ = callbacks.OnEnd(wctx, &model.CallbackOutput{
+			TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		})
+	}
+	fireOnce() // 执行 A
+	fireOnce() // 执行 B（stale 重跑：同 attempt、计数器重启）
+
+	events, err := store.TaskUsageEvents(ctx, "t-retry")
+	if err != nil || len(events) != 2 {
+		t.Fatalf("两次执行各一笔应落 2 行（跨执行不撞键）: n=%d err=%v", len(events), err)
+	}
+	if events[0].InvocationID == events[1].InvocationID {
+		t.Fatalf("两执行 invocation_id 不应相同（撞键=静默丢账）: %q", events[0].InvocationID)
+	}
+	total, _ := store.RepoMonthlyTokensReal(ctx, "gitea", "acme", "app", time.Now().Add(-time.Hour))
+	if total != 30 {
+		t.Fatalf("两笔实销都应入账（账本和=30）: got %d", total)
 	}
 }
 

@@ -129,6 +129,14 @@ type Runner struct {
 // #32：本 sink 同时是逐调用实销埋点（recordUsageEvent）——全任务唯一的用量
 // 汇聚面，Generate 与旁路两条路径都到此，运行中消费即时入账。
 func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *llm.Budget, taskCost *llm.CostTracker) context.Context {
+	// 终审 Critical：执行实例 nonce——stale 重跑（ResetRunningToPending 不 bump
+	// attempt）同 task+attempt 计数器重启，稳定键无 nonce 会跨执行撞唯一索引
+	// 静默少计。必须在闭包（recordUsageEvent 调用点）创建前注入：闭包捕获本地
+	// ctx 变量，此处先行赋值即保证闭包可见 nonce。缺席才铸新（上游/测试显式
+	// 注入的确定性 nonce 不覆盖）。
+	if execNonceFrom(ctx) == "" {
+		ctx = withExecNonce(ctx, newExecNonce())
+	}
 	// Phase1③：任务作用域 LLM 调用计数器——rec.Iteration 随 UsageRecord 进入
 	// recordUsageEvent，铸造稳定 invocation_id（同物理调用重复投递撞唯一索引
 	// 收敛）。注入必须在 InitCallbacks 之前，使 eino 回调链 ctx 可见。

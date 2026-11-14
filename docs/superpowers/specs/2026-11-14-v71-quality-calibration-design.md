@@ -91,7 +91,7 @@
 
 **风险先行**：上游实锤无稳定 call ID（`UsageRecord` 无 ID、`RunInfo.Name` not unique、`UsageCallCounter` argus 侧零使用、`Iteration` 恒 0）。
 
-1. **主路（argus 本地）**：接上游已有 `WithCallCounter` 使 `UsageRecord.Iteration` 有值，稳定键 = `u-<taskID>-<attempt>-<iteration>`，**调用发起前定型**、ctx 贯穿到 `recordUsageEvent`（`runner_usage.go:40-42` 不再现场铸 uuid）。
+1. **主路（argus 本地）**：接上游已有 `WithCallCounter` 使 `UsageRecord.Iteration` 有值，稳定键 = `u-<taskID>-<attempt>-<exec-nonce>-<iteration>`，**调用发起前定型**、ctx 贯穿到 `recordUsageEvent`（`runner_usage.go:40-42` 不再现场铸 uuid）。nonce per Execute（stale 重跑 attempt 不变，nonce 区分执行实例，防跨执行撞键静默少计——终审 Critical 修正）。
    - **实施前置探针**：先写测试验证 counter 粒度语义（并发 client、`generateRetry` 重试环下是否稳定、是否 per-物理调用递增）——本项唯一技术风险点。
 2. **兜底**：counter 语义不满足 → 保持现铸 uuid，**修掉 `runner_usage.go:26-29` 自相矛盾注释**，端到端幂等明确降级为"依赖上游 CallID"，同步提 oagentkit issue。
 3. **副产物（schema 漂移门禁）**：补 `deploy/migrations/schema.sql` 四张表 DDL（`usage_events`/`budget_reservations`/`repo_settings`/`event_outbox`）+ 门禁测试钉"schema.sql 表清单 == `autoMigrateModels()` 清单"（双向相等），防再漂移。

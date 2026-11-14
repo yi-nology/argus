@@ -17,6 +17,27 @@ import (
 	"github.com/yi-nology/argus/internal/storage"
 )
 
+// execNonceKey 执行实例 nonce 的 ctx 键（未导出：仅 runner 包内装配/读取）。
+type execNonceKey struct{}
+
+// withExecNonce 把执行实例 nonce 注入 ctx。每次 Execute 装配期（execContext）
+// 注入一个新 nonce，同 task+attempt 的 stale 重跑（ResetRunningToPending 不
+// bump attempt）靠它区分执行实例，防稳定 invocation_id 跨执行撞唯一索引。
+func withExecNonce(ctx context.Context, nonce string) context.Context {
+	return context.WithValue(ctx, execNonceKey{}, nonce)
+}
+
+// execNonceFrom 读执行实例 nonce；缺席（直接测试调用等）返回空串。
+func execNonceFrom(ctx context.Context) string {
+	v, _ := ctx.Value(execNonceKey{}).(string)
+	return v
+}
+
+// newExecNonce 铸 8 hex chars 执行实例 nonce（uuid 首段即 8 hex，crypto/rand 源）。
+func newExecNonce() string {
+	return uuid.NewString()[:8]
+}
+
 // recordUsageEvent 单次 LLM 调用落账（#32 验收①调用点埋点）。
 //
 // 埋点层选点：execContext 的 llm.NewUsageHandler sink——它是全任务唯一的
@@ -25,13 +46,19 @@ import (
 // 仓库坐标）在 Execute 装配期即在闭包内，无须再穿 context。
 //
 // 纪律：
-//   - invocation_id 稳定键（Phase1③）：任务作用域计数器（execContext 注入
-//     llm.WithCallCounter）的 Iteration 铸 u-<taskID>-<attempt>-<iteration>——
-//     同一物理调用重复投递（回调重放/写库重试）得同键，由 usage_events
-//     唯一索引幂等收敛；Iteration=0（计数器缺席的旁路）退回新 uuid（旧语义），
-//     「不可重复计费」单源仍在存储层；
+//   - invocation_id 稳定键（Phase1③，终审 Critical 修正）：任务作用域计数器
+//     （execContext 注入 llm.WithCallCounter）的 Iteration 铸
+//     u-<taskID>-<attempt>-<exec-nonce>-<iteration>——同一物理调用重复投递
+//     （回调重放/写库重试）得同键，由 usage_events 唯一索引幂等收敛；执行
+//     nonce 区分执行实例（stale 重跑 attempt 不变、计数器重启，无 nonce 会
+//     跨执行撞键静默少计）。生产唯一调用点是 execContext 闭包（runner.go），
+//     其在闭包创建前注入 nonce——生产路径 nonce 恒在；无 nonce（直接测试
+//     调用）退回旧 u-<taskID>-<attempt>-<iteration> 格式保持既有测试语义。
+//     Iteration=0（计数器缺席的旁路）退回新 uuid（旧语义），「不可重复计费」
+//     单源仍在存储层；
 //   - 同步落账 + WithoutCancel：调用已发生、token 已花——任务取消/停机不得
-//     抹掉这笔账；5s 超时上界防停机路径挂死；
+//     抹掉这笔账；5s 超时上界防停机路径挂死（WithoutCancel 保留 ctx 值，
+//     nonce 读取发生在其前，互不影响）；
 //   - 写失败只告警不返回（sink 契约）：账本绝不阻断审查，丢笔由任务终态的
 //     差额兜底（storage.backfillTaskUsageDelta）补账。
 func (r *Runner) recordUsageEvent(ctx context.Context, task *storage.Task, rec llm.UsageRecord) {
@@ -43,7 +70,12 @@ func (r *Runner) recordUsageEvent(ctx context.Context, task *storage.Task, rec l
 	defer cancel()
 	inv := "u-" + uuid.NewString()
 	if rec.Iteration > 0 {
-		inv = fmt.Sprintf("u-%s-%d-%d", task.ID, task.Attempt, rec.Iteration)
+		if nonce := execNonceFrom(ctx); nonce != "" {
+			inv = fmt.Sprintf("u-%s-%d-%s-%d", task.ID, task.Attempt, nonce, rec.Iteration)
+		} else {
+			// 无 nonce（非 execContext 装配的直接调用）：保持旧格式向后兼容。
+			inv = fmt.Sprintf("u-%s-%d-%d", task.ID, task.Attempt, rec.Iteration)
+		}
 	}
 	ev := &storage.UsageEvent{
 		TaskID: task.ID, AttemptID: strconv.Itoa(task.Attempt),
