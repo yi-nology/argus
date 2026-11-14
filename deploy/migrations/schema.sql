@@ -179,3 +179,82 @@ CREATE TABLE IF NOT EXISTS `comment_deliveries` (
     PRIMARY KEY (`delivery_id`),
     INDEX `idx_comment_deliveries_seen_at` (`seen_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- repo_settings —— 服务侧按仓配置（v3.187.0，Phase1⑤ 补齐）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `repo_settings` (
+    `platform`      VARCHAR(16)   NOT NULL,
+    `owner`         VARCHAR(128)  NOT NULL,
+    `repo`          VARCHAR(128)  NOT NULL,
+    `settings_json` TEXT          NOT NULL,
+    `updated_by`    VARCHAR(64)   DEFAULT NULL,
+    `updated_at`    DATETIME(3)   DEFAULT NULL,
+    PRIMARY KEY (`platform`, `owner`, `repo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- event_outbox —— 进度事件 outbox（at-most-once 投递，Phase1⑤ 补齐）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `event_outbox` (
+    `id`         BIGINT       NOT NULL AUTO_INCREMENT,
+    `event_id`   VARCHAR(64)  DEFAULT NULL,
+    `body`       TEXT,
+    `platform`   VARCHAR(16)  DEFAULT NULL,
+    `owner`      VARCHAR(128) DEFAULT NULL,
+    `repo`       VARCHAR(128) DEFAULT NULL,
+    `type`       VARCHAR(32)  DEFAULT NULL,
+    `created_at` DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    INDEX `idx_event_outbox_event_id` (`event_id`),
+    INDEX `idx_event_outbox_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- usage_events —— 逐调用实销账本（#32，Phase1⑤ 补齐）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `usage_events` (
+    `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `task_id`        VARCHAR(40)  NOT NULL,
+    `attempt_id`     VARCHAR(32)  DEFAULT NULL,
+    `invocation_id`  VARCHAR(80)  NOT NULL,
+    `platform`       VARCHAR(16)  NOT NULL,
+    `owner`          VARCHAR(128) NOT NULL,
+    `repo`           VARCHAR(128) NOT NULL,
+    `provider`       VARCHAR(64)  DEFAULT NULL,
+    `model`          VARCHAR(128) DEFAULT NULL,
+    `input_tokens`   INT          NOT NULL DEFAULT 0,
+    `output_tokens`  INT          NOT NULL DEFAULT 0,
+    `cached_tokens`  INT          NOT NULL DEFAULT 0,
+    `estimated_cost` DOUBLE       NOT NULL DEFAULT 0,
+    `status`         VARCHAR(16)  NOT NULL DEFAULT 'settled',
+    `occurred_at`    DATETIME(3)  NOT NULL,
+    `created_at`     DATETIME(3)  DEFAULT NULL,
+    `updated_at`     DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_ue_inv` (`invocation_id`),
+    INDEX `idx_ue_task` (`task_id`),
+    INDEX `idx_ue_budget` (`platform`, `owner`, `repo`, `status`, `occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- budget_reservations —— 执行前预算预留（#32，Phase1⑤ 补齐）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `budget_reservations` (
+    `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `task_id`    VARCHAR(40)  NOT NULL,
+    `attempt_id` VARCHAR(32)  DEFAULT NULL,
+    `platform`   VARCHAR(16)  NOT NULL,
+    `owner`      VARCHAR(128) NOT NULL,
+    `repo`       VARCHAR(128) NOT NULL,
+    `tokens`     INT          NOT NULL DEFAULT 0,
+    `status`     VARCHAR(16)  NOT NULL DEFAULT 'reserved',
+    `expires_at` DATETIME(3)  DEFAULT NULL,
+    `created_at` DATETIME(3)  DEFAULT NULL,
+    `updated_at` DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_bres_task` (`task_id`),
+    INDEX `idx_bres_repo` (`platform`, `owner`, `repo`),
+    INDEX `idx_budget_reservations_status` (`status`),
+    INDEX `idx_budget_reservations_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
