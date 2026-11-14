@@ -1162,25 +1162,18 @@ FP 循环（:187-202）的 `if clean || forbidden { ... }` 改为：
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `go test ./internal/evalq/ -count=1 && make eval-baseline`
-Expected: PASS——`make eval-baseline`（打桩 44 案）出新字段样例报告；TestReportRender 此时会红（markdown 断言 `| Precision |` 因改名失效）——这属预期，Step 5 处理。
+Expected: PASS——`make eval-baseline`（打桩 44 案）出新字段样例报告（JSON 经 struct tag 自动携带 `clean_case_fp_rate`/`unlabeled_count`）；TestReportRender 既有断言此时仍绿——报告 Markdown 渲染在 Task 7 才改，本任务 Step 5 只扩 JSON 断言。
 
-- [ ] **Step 5: 更新 TestReportRender 断言**
+- [ ] **Step 5: 扩 TestReportRender JSON 断言**
 
-`internal/evalq/evalq_test.go` TestReportRender 两处：
-
-JSON 断言：
+`internal/evalq/evalq_test.go` TestReportRender 的 JSON 断言列表扩为：
 
 ```go
 	for _, want := range []string{`"fp_rate"`, `"stability"`, `"by_language"`,
 		`"clean_case_fp_rate"`, `"unlabeled_count"`} {
 ```
 
-Markdown 断言：
-
-```go
-	for _, want := range []string{"# 基准集质量评测报告", "| Precision（受限标注口径） |",
-		"| go |", "## 逐案明细", "llm timeout", "干净样例误报率", "未标注多报"} {
-```
+（Markdown 断言**本任务不动**——其期望文案依赖 Task 7 的 report.go 渲染改动，与 JSON 断言分离，防本任务收尾 `go test ./internal/evalq` 假红。）
 
 - [ ] **Step 6: 跑全包确认通过**
 
@@ -1312,6 +1305,17 @@ line := fmt.Sprintf("| %s | %s | %s | %t | %d | %d | %d | %d | %s | %s | %s |\n"
 
 ```go
 	_, err := fmt.Fprint(w, "\n> 口径（Phase1② 三分）：clean 基准上报意见全部计误报（golden 北极星口径）；must_find 未命中计漏检；\n> 非 clean 样例未匹配多报计 Unlabeled（不入 FP、待人工标注）——Precision 为受限标注口径，\n> 非跨标注集可比的标准 Precision；干净样例误报率 = 有 FP 的干净样例 / 干净样例（样例单位）；\n> 旧 FP Rate 分子分母单位不一致，deprecated 保留；裁决稳定性 = k 轮同输入裁决的逐案一致率均值。\n")
+```
+
+同批更新 `internal/evalq/evalq_test.go` TestReportRender 的 **Markdown** 断言（依赖上述渲染改动；JSON 断言已在 Task 6 Step 5 扩好，此处只换 Markdown 列表）：
+
+```go
+	for _, want := range []string{"# 基准集质量评测报告", "| Precision（受限标注口径） |",
+		"| go |", "## 逐案明细", "llm timeout", "干净样例误报率", "未标注多报"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Markdown 报告缺 %q", want)
+		}
+	}
 ```
 
 - [ ] **Step 4: qconsole 投影与渲染**
