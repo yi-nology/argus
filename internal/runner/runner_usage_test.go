@@ -138,6 +138,83 @@ func TestExecContextWiresUsageRecording(t *testing.T) {
 	}
 }
 
+// TestRecordUsageEventStableInvocationKey 稳定幂等键（Phase1③）：同一物理调用
+// （同 task/attempt/Iteration）重复投递 → 同一 invocation_id → 撞唯一索引
+// 收敛为一笔——端到端「不可重复计费」。Iteration=0（计数器缺席）退回新 uuid
+// （旧语义，两次投递两行——由 uuid 唯一性保证不撞）。
+func TestRecordUsageEventStableInvocationKey(t *testing.T) {
+	r, store := usageTestRunner(t)
+	ctx := context.Background()
+	task := usageTestTask(t, store, "t-stable")
+
+	rec := llm.UsageRecord{Model: "m", PromptTokens: 50, Iteration: 3}
+	r.recordUsageEvent(ctx, task, rec)
+	r.recordUsageEvent(ctx, task, rec) // 同一物理调用重复投递
+	r.recordUsageEvent(ctx, task, rec)
+
+	events, err := store.TaskUsageEvents(ctx, "t-stable")
+	if err != nil || len(events) != 1 {
+		t.Fatalf("同 Iteration 三次投递应收敛 1 行: n=%d err=%v", len(events), err)
+	}
+	want := "u-t-stable-0-3"
+	if events[0].InvocationID != want {
+		t.Fatalf("稳定键失真: got %q want %q", events[0].InvocationID, want)
+	}
+	total, _ := store.RepoMonthlyTokensReal(ctx, "gitea", "acme", "app", time.Now().Add(-time.Hour))
+	if total != 50 {
+		t.Fatalf("重复投递不应重复计费，got %d", total)
+	}
+
+	// Iteration=0 兜底：两次投递两行（uuid 键，不收敛——旧语义保持）。
+	task2 := usageTestTask(t, store, "t-fallback")
+	r.recordUsageEvent(ctx, task2, llm.UsageRecord{Model: "m", PromptTokens: 1, Iteration: 0})
+	r.recordUsageEvent(ctx, task2, llm.UsageRecord{Model: "m", PromptTokens: 1, Iteration: 0})
+	evs2, _ := store.TaskUsageEvents(ctx, "t-fallback")
+	if len(evs2) != 2 {
+		t.Fatalf("Iteration=0 应退回 uuid 两行: n=%d", len(evs2))
+	}
+	for _, e := range evs2 {
+		if len(e.InvocationID) < 3 || e.InvocationID[:2] != "u-" {
+			t.Fatalf("兜底键应 u- 前缀: %q", e.InvocationID)
+		}
+	}
+}
+
+// TestExecContextInjectsCallCounter 计数器接线探针（Phase1③ 主路前提）：
+// execContext 注入 llm.WithCallCounter 后，两次模拟模型回调的 UsageRecord
+// 应携带递增 Iteration（1、2）——若恒为 0 说明计数器未达回调链，主路死、
+// 走 uuid 兜底（见本任务 Step 6）。
+func TestExecContextInjectsCallCounter(t *testing.T) {
+	r, store := usageTestRunner(t)
+	ctx := context.Background()
+	task := usageTestTask(t, store, "t-counter")
+
+	budget := dispatch.NewTokenBudget(0)
+	taskCost := llm.NewCostTracker()
+	wctx := r.execContext(ctx, task, budget, taskCost)
+
+	var got []string
+	for i := 0; i < 2; i++ {
+		// 每次模型调用开头 EnsureRunInfo（eino 契约：组件 Generate/Stream 每次
+		// 公开方法调用都先调，reflection_test usageEmitModel 同款）。只在循环外
+		// 调一次时，第二次 OnStart 会把回调管理器里仅存的 RunInfo 覆写为 nil
+		// → 第二次 OnEnd info=nil 静默跳过，落不了第 2 行。
+		wctx = callbacks.EnsureRunInfo(wctx, "test-model", components.ComponentOfChatModel)
+		wctx = callbacks.OnStart(wctx, &model.CallbackInput{})
+		_ = callbacks.OnEnd(wctx, &model.CallbackOutput{
+			TokenUsage: &model.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+		})
+	}
+	events, err := store.TaskUsageEvents(ctx, "t-counter")
+	if err != nil || len(events) != 2 {
+		t.Fatalf("两次回调应落 2 行: n=%d err=%v", len(events), err)
+	}
+	got = []string{events[0].InvocationID, events[1].InvocationID}
+	if got[0] != "u-t-counter-0-1" || got[1] != "u-t-counter-0-2" {
+		t.Fatalf("计数器应贯穿成稳定递增键（Iteration 主路探针）: %v", got)
+	}
+}
+
 // TestRecordUsageEventIdempotentByInvocation 重复投递（同 invocation_id 由
 // 落库侧重放）不重复计费——sink 每次生成新键，幂等收敛在 storage.RecordUsageEvent。
 func TestRecordUsageEventIdempotentByInvocation(t *testing.T) {

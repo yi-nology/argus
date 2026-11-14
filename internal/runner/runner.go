@@ -129,6 +129,10 @@ type Runner struct {
 // #32：本 sink 同时是逐调用实销埋点（recordUsageEvent）——全任务唯一的用量
 // 汇聚面，Generate 与旁路两条路径都到此，运行中消费即时入账。
 func (r *Runner) execContext(ctx context.Context, task *storage.Task, budget *llm.Budget, taskCost *llm.CostTracker) context.Context {
+	// Phase1③：任务作用域 LLM 调用计数器——rec.Iteration 随 UsageRecord 进入
+	// recordUsageEvent，铸造稳定 invocation_id（同物理调用重复投递撞唯一索引
+	// 收敛）。注入必须在 InitCallbacks 之前，使 eino 回调链 ctx 可见。
+	ctx = llm.WithCallCounter(ctx)
 	obsOpt := obsx.Options{SlowThreshold: 60 * time.Second}
 	handlers := []callbacks.Handler{obsx.NewTracingHandler(r.Log, obsOpt)}
 	// 用量 handler 装配条件含 Store（#32）：逐调用实销埋点是计费账本、不随

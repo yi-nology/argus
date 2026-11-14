@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -24,8 +25,11 @@ import (
 // 仓库坐标）在 Execute 装配期即在闭包内，无须再穿 context。
 //
 // 纪律：
-//   - invocation_id 每次投递一枚新 uuid：落库重试/重复投递由 usage_events
-//     唯一索引幂等收敛（storage.RecordUsageEvent），「不可重复计费」单源在存储层；
+//   - invocation_id 稳定键（Phase1③）：任务作用域计数器（execContext 注入
+//     llm.WithCallCounter）的 Iteration 铸 u-<taskID>-<attempt>-<iteration>——
+//     同一物理调用重复投递（回调重放/写库重试）得同键，由 usage_events
+//     唯一索引幂等收敛；Iteration=0（计数器缺席的旁路）退回新 uuid（旧语义），
+//     「不可重复计费」单源仍在存储层；
 //   - 同步落账 + WithoutCancel：调用已发生、token 已花——任务取消/停机不得
 //     抹掉这笔账；5s 超时上界防停机路径挂死；
 //   - 写失败只告警不返回（sink 契约）：账本绝不阻断审查，丢笔由任务终态的
@@ -37,9 +41,13 @@ func (r *Runner) recordUsageEvent(ctx context.Context, task *storage.Task, rec l
 	// 独立超时上下文：不随任务取消（账已发生），停机路径 5s 上界。
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	inv := "u-" + uuid.NewString()
+	if rec.Iteration > 0 {
+		inv = fmt.Sprintf("u-%s-%d-%d", task.ID, task.Attempt, rec.Iteration)
+	}
 	ev := &storage.UsageEvent{
 		TaskID: task.ID, AttemptID: strconv.Itoa(task.Attempt),
-		InvocationID: "u-" + uuid.NewString(),
+		InvocationID: inv,
 		Platform:     task.Platform, Owner: task.Owner, Repo: task.Repo,
 		Provider:      r.usageProvider(),
 		Model:         rec.Model,
