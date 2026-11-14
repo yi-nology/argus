@@ -34,8 +34,16 @@ spec:
         envFrom:
         - secretRef:
             name: {{ .Values.existingSecret }}
-        {{- if .Values.config }}
+        {{- /* Phase1④（spec §2.4）：迁移 Job 先行执行 DDL 后，业务 Pod 只校验
+             不迁移——开启 migrationJob 且用户未在 config 显式设置时自动注入
+             verify（K8s env 后者覆盖前者，显式手配优先）。 */}}
+        {{- $injectVerify := and .Values.migrationJob.enabled (not (hasKey .Values.config "ARGUS_MIGRATE_MODE")) }}
+        {{- if or .Values.config $injectVerify }}
         env:
+        {{- if $injectVerify }}
+        - name: ARGUS_MIGRATE_MODE
+          value: "verify"
+        {{- end }}
         {{- range $k, $v := .Values.config }}
         - name: {{ $k }}
           value: {{ $v | quote }}
@@ -54,7 +62,7 @@ spec:
           failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
         livenessProbe:
           httpGet:
-            path: /readyz
+            path: /healthz
             port: {{ .Values.service.port }}
           initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
           periodSeconds: {{ .Values.probes.liveness.periodSeconds }}

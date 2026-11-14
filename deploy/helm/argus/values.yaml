@@ -32,7 +32,7 @@ service:
   type: ClusterIP
   port: 8899
 
-# ---- 探活（/readyz 单面，与 k8s43 同参）----
+# ---- 探活（readiness=/readyz 依赖面；liveness=/healthz 进程级——Phase1④ 分离）----
 probes:
   readiness:
     initialDelaySeconds: 10
@@ -69,7 +69,8 @@ migrationJob:
   enabled: true
   # 迁移接入点已落地（#29，v7.0）：ARGUS_MIGRATE_MODE=job（模板注入）——
   # storage.Open 完成 schema+数据回写后进程退出 0；副本侧 ARGUS_MIGRATE_MODE
-  # =verify 只校验不迁移（三态语义见 docs/deploy-production.md 与
+  # =verify 只校验不迁移（deployment 模板在 migrationJob.enabled 时自动注入，
+  # Phase1④ 已实装——此前仅为注释声明）（三态语义见 docs/deploy-production.md 与
   # deploy/k8s43/README.md 滚动升级 runbook）。
   command: ["/app/argus"]
   backoffLimit: 0        # 迁移失败不重试（fail-closed 语义：人工介入）

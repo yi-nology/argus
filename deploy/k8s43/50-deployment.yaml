@@ -28,6 +28,10 @@ spec:
         envFrom:
         - secretRef:
             name: argus-env
+        env:
+        # Phase1④：迁移 Job（90-migration-job.yaml）先行后业务 Pod 只校验不执行 DDL
+        - name: ARGUS_MIGRATE_MODE
+          value: "verify"
         ports:
         - containerPort: 8899
         volumeMounts:
@@ -57,7 +61,7 @@ spec:
           failureThreshold: 6
         livenessProbe:
           httpGet:
-            path: /readyz
+            path: /healthz
             port: 8899
           initialDelaySeconds: 180
           periodSeconds: 60

@@ -64,10 +64,20 @@ jobs:
       - name: Lint
         run: helm lint deploy/helm/argus
 
-      - name: Template smoke (default + restore drill)
+      - name: Template smoke (default + restore drill + migrate/probes)
         run: |
-          helm template argus deploy/helm/argus > /dev/null
+          helm template argus deploy/helm/argus > /tmp/argus-default.yaml
           helm template argus deploy/helm/argus --set pgRestore.enabled=true > /dev/null
+          # Phase1④：开启迁移 Job 时业务 Pod 必须注入 verify（只校验不执行 DDL）
+          grep -B2 'value: "verify"' /tmp/argus-default.yaml | grep -q ARGUS_MIGRATE_MODE
+          # Phase1④：liveness 走 /healthz（进程级），readiness 走 /readyz
+          grep -A3 'livenessProbe:' /tmp/argus-default.yaml | grep -q '/healthz'
+          grep -A3 'readinessProbe:' /tmp/argus-default.yaml | grep -q '/readyz'
+          # 关闭迁移 Job 时不注入 verify（缺省模式保持历史行为）
+          helm template argus deploy/helm/argus --set migrationJob.enabled=false > /tmp/argus-nojob.yaml
+          if grep -q 'value: "verify"' /tmp/argus-nojob.yaml; then
+            echo "migrationJob 关闭时不应注入 verify" >&2; exit 1
+          fi
 
   # 镜像发布（push main + tag v*）。
   # Dockerfile 形态判定：仓内 Dockerfile 是完整 multi-stage（golang:1.27-alpine builder
