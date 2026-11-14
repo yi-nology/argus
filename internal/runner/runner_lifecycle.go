@@ -61,7 +61,9 @@ func (r *Runner) budgetGate(ctx context.Context, task *storage.Task, knobs taskK
 		// 调用；soft 保持历史 fail-open（可用性优先）。
 		if r.Cfg != nil && r.Cfg.BudgetEnforcement == "hard" {
 			r.rejectByBudget(ctx, task,
-				"预算账本不可用（预留判定失败），ARGUS_BUDGET_ENFORCEMENT=hard 拒绝放行",
+				// spec §2.1.3：reason 携带机器可读 token budget_ledger_unavailable
+				//（runbook/告警可 grep）；中文文案与 markerTail 保持不变。
+				"预算账本不可用（预留判定失败），ARGUS_BUDGET_ENFORCEMENT=hard 拒绝放行 [budget_ledger_unavailable]",
 				"检查数据库与 leader_leases 后 push 新提交重试；可用性优先可切回 soft。")
 			return true, 0
 		}

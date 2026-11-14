@@ -118,10 +118,13 @@ func TestQualityConsoleTrend(t *testing.T) {
 
 	t.Run("基线在", func(t *testing.T) {
 		path := t.TempDir() + "/baseline.json"
+		// by_language 用生产者真实嵌套形态（evalq.LanguageReport：metrics 内嵌）——
+		// 扁平投影解码会把分语言指标零填（终审 Important 回归面）。
 		raw := `{"generated_at":"2026-11-13T18:53:37+08:00","model":"mimo-v2.6-pro",` +
 			`"stability":0.952,"overall":{"fp_rate":0.727,"miss_rate":0.0,` +
 			`"precision":0.805,"recall":1.0,"clean_case_fp_rate":0.25,"unlabeled_count":3},` +
-			`"by_language":[{"language":"go","fp_rate":1.0,"miss_rate":0.0,"clean_case_fp_rate":0.5}]}`
+			`"by_language":[{"language":"go","metrics":{"fp_rate":1.0,"miss_rate":0.125,` +
+			`"precision":0.9,"recall":1.0,"clean_case_fp_rate":0.5,"unlabeled_count":0}}]}`
 		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -133,6 +136,9 @@ func TestQualityConsoleTrend(t *testing.T) {
 		for _, want := range []string{
 			"mimo-v2.6-pro", "72.7%", "100.0%", "95.2%", "分语言", "go",
 			"干净误报率", "25.0%", "精确率（受限）", "未标注多报 3 条",
+			// go 行独有值（overall 对应位为 0.0%/25.0%）：只有嵌套 metrics 解码
+			// 才能渲出——50.0%=go CFP 0.5、12.5%=go miss 0.125。
+			"50.0%", "12.5%",
 		} {
 			if !strings.Contains(page, want) {
 				t.Errorf("趋势面缺 %q", want)

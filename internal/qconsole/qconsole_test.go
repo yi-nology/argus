@@ -186,6 +186,32 @@ func TestLoadEvalTrendTolerant(t *testing.T) {
 	}
 }
 
+// TestLoadEvalTrendNestedByLanguage 分语言嵌套解码回归（终审 Important）：
+// 生产者 by_language 是 [{language, metrics:{fp_rate,miss_rate,...}}] 嵌套形态
+// （evalq.LanguageReport），扁平解码会把每个分语言指标零填——/console 分语言
+// 行恒渲 0.0%。断言只有嵌套解码才能解出的非零值。
+func TestLoadEvalTrendNestedByLanguage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline-latest.json")
+	raw := `{"generated_at":"2026-11-14T00:00:00Z","model":"m","stability":0.9,` +
+		`"overall":{"fp_rate":0.1,"miss_rate":0.0,"precision":0.9,"recall":1.0,"clean_case_fp_rate":0.05,"unlabeled_count":0},` +
+		`"by_language":[{"language":"go","metrics":{"fp_rate":0.25,"miss_rate":0.125,` +
+		`"precision":0.9,"recall":1.0,"clean_case_fp_rate":0.5,"unlabeled_count":2}}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trend := qconsole.LoadEvalTrend(path)
+	if trend == nil {
+		t.Fatal("嵌套形态应解析成功（返回 nil=整体解码失败）")
+	}
+	if len(trend.ByLanguage) != 1 {
+		t.Fatalf("分语言应 1 行: n=%d", len(trend.ByLanguage))
+	}
+	lang := trend.ByLanguage[0]
+	if lang.Language != "go" || lang.Miss != 0.125 || lang.FP != 0.25 || lang.CFP != 0.5 {
+		t.Fatalf("嵌套 metrics 应解出非零值（全零=扁平投影回归）: %+v", lang)
+	}
+}
+
 // TestReadOnlyDiscipline 只读纪律：Snapshot 全程只发 GET。
 func TestReadOnlyDiscipline(t *testing.T) {
 	methods := map[string]int{}
