@@ -156,6 +156,14 @@ make eval-baseline-real   # 真实模型：ARGUS_EVAL=1 + lacus/.env 的 OPENAI_
   baseline-official-final-20261114.*。中间轮次（第三轮 P=1.000 R=0.909
   残余 3 FN=1 出错+2 近义词摇摆）证明修复方向正确、终轮收敛到满分。
   治理前后对照与根因链见下节。
+- **新口径首跑基线（Phase1②，2026-11-14，`make eval-baseline-real`，mimo-v2.6-pro，k=3）**：
+  口径切换后首个基线——**与上方治理前后数字（旧口径）不可直接比较**。
+  指标含 `clean_case_fp_rate` / `unlabeled_count` 两新面；Precision 自本节起为
+  受限标注口径。数值以 `eval/results/archive/baseline-newmetric-*.json` 为准
+  （本地归档，results 目录 gitignored）。
+  实测：**P=1.000 / R=0.909 / CleanCaseFPRate=0.000 / Unlabeled=8 /
+  F1=0.952 / verdict 81.8% / 稳定性 0.970**（44 案，混淆 TP=30 FP=0
+  FN=3 TN=11，errored=0；run 1012s）。
 - 未含（后续批次）：开集 kind 召回（词表随 prompt 扩容）；现网已裁决 MR 样例
   回填（需真实裁决数据）；历史批次数值的留存归档（latest 每次覆盖）。
   （质量趋势消费面已随批 A1 落地：`/console` 读本报告渲染 `renderConsoleTrend`。）
