@@ -245,3 +245,31 @@ func TestLoadNewPlatforms(t *testing.T) {
 		}
 	}
 }
+
+// TestBudgetEnforcementParse ARGUS_BUDGET_ENFORCEMENT 归一（Phase1①）：
+// 仅 hard（大小写不敏感）为 hard，其余（空/soft/非法值）一律 soft——非法值
+// 不阻断启动，缺省可用性优先。
+func TestBudgetEnforcementParse(t *testing.T) {
+	cases := map[string]string{
+		"": "soft", "soft": "soft", "SOFT": "soft",
+		"hard": "hard", "HARD": "hard", " Hard ": "hard",
+		"banana": "soft", "1": "soft",
+	}
+	for in, want := range cases {
+		if got := budgetEnforcement(in); got != want {
+			t.Errorf("budgetEnforcement(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestLoadBudgetEnforcement env 装配面。
+func TestLoadBudgetEnforcement(t *testing.T) {
+	t.Setenv("ARGUS_BUDGET_ENFORCEMENT", "hard")
+	if got := Load().BudgetEnforcement; got != "hard" {
+		t.Fatalf("Load 后应 hard，got %q", got)
+	}
+	t.Setenv("ARGUS_BUDGET_ENFORCEMENT", "junk")
+	if got := Load().BudgetEnforcement; got != "soft" {
+		t.Fatalf("非法值应归一 soft，got %q", got)
+	}
+}

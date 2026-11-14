@@ -40,7 +40,8 @@ import (
 // LLM Budget——账面承诺与执行上限从此一致（Phase1① 修「DB 承诺 5,000 实跑
 // 20,000」脱节）。语义对齐旧双闸：
 //   - 任一账本剩余额度 ≤0 → failed 终态 + start marker + 播报（预算路径不重试）；
-//   - 判定不可得（存储/租约故障）→ fail-open 放行（Phase1② hard 模式收紧见下）；
+//   - 判定不可得（存储/租约故障）→ soft: fail-open 放行（历史语义）；
+//     hard（ARGUS_BUDGET_ENFORCEMENT）: fail-closed 拒绝（Phase1①）；
 //   - 双账本全关（budget<=0）→ 零开销直通不落预留，granted = 任务预算原值。
 func (r *Runner) budgetGate(ctx context.Context, task *storage.Task, knobs taskKnobs, realBudget int) (bool, int64) {
 	if knobs.monthlyBudget <= 0 && realBudget <= 0 {
@@ -56,6 +57,14 @@ func (r *Runner) budgetGate(ctx context.Context, task *storage.Task, knobs taskK
 	})
 	if err != nil {
 		r.Log.Warn("argus.runner.budget_reserve_failed", "task", task.ID, "error", err.Error())
+		// Phase1①：hard 模式判定不可得 fail-closed——账本不可用就不开新计费
+		// 调用；soft 保持历史 fail-open（可用性优先）。
+		if r.Cfg != nil && r.Cfg.BudgetEnforcement == "hard" {
+			r.rejectByBudget(ctx, task,
+				"预算账本不可用（预留判定失败），ARGUS_BUDGET_ENFORCEMENT=hard 拒绝放行",
+				"检查数据库与 leader_leases 后 push 新提交重试；可用性优先可切回 soft。")
+			return true, 0
+		}
 		return false, int64(knobs.taskTokenBudget)
 	}
 	switch res.Verdict {

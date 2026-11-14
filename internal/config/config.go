@@ -131,6 +131,12 @@ type Config struct {
 	// 聚合口径的独立上限；超限 → 新任务失败终态 + 告警指标，配额账（done 口径）
 	// 语义不回退。0 = 关。
 	RealTokenBudget int
+	// BudgetEnforcement 预算「判定不可得」强制模式（Phase1①，spec §2.1）：
+	// soft（缺省）= 存储/租约故障时 fail-open 放行（历史可用性语义）；
+	// hard = 同窗口 fail-closed，拒绝启动新计费调用（成本敏感环境）。
+	// 额度不足两模式均 fail-closed（既有语义，与本开关无关）。
+	// 词表归一见 budgetEnforcement()。
+	BudgetEnforcement string
 
 	// LLMCostPromptPer1K / LLMCostCompletionPer1K 每 1000 token 单价（美元），
 	// 用于报告成本摘要与成本记账；0 = 不计价（报告不出现成本行）。
@@ -532,6 +538,7 @@ func Load() *Config {
 		// LLM 消费聚合口径——失败/重试消费不再绕过硬预算；超限新任务失败终态告知。
 		// 0 = 关。
 		RealTokenBudget:        envInt("ARGUS_REAL_TOKEN_BUDGET", 0),
+		BudgetEnforcement:      budgetEnforcement(envStr("ARGUS_BUDGET_ENFORCEMENT", "soft")),
 		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
 		LLMCostCompletionPer1K: envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0),
 		LLMCacheReadRatio:      envFloat("ARGUS_LLM_COST_CACHE_READ_RATIO", 0.1),
@@ -667,6 +674,15 @@ func fixPushMode(v string) string {
 
 // fixPushEnabled 环开关（mode 非空即开）。
 func fixPushEnabled(v string) bool { return fixPushMode(v) != "" }
+
+// budgetEnforcement 预算强制模式归一：仅 "hard"（大小写不敏感、去空白）为
+// hard，其余（含空/非法值）一律 soft——非法值不阻断启动，缺省可用性优先。
+func budgetEnforcement(v string) string {
+	if strings.EqualFold(strings.TrimSpace(v), "hard") {
+		return "hard"
+	}
+	return "soft"
+}
 
 // WarnLogger WarnOnly 的日志口（与 logx.Logger 解耦，测试可注入）。
 type WarnLogger interface{ Warn(msg string, kv ...any) }

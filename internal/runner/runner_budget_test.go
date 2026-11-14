@@ -145,3 +145,21 @@ func TestBudgetGateFailOpenOnStorageError(t *testing.T) {
 		t.Fatal("存储故障应 fail-open 放行")
 	}
 }
+
+// TestBudgetGateHardRejectsOnStorageError hard 模式（Phase1①）：判定不可得
+// （存储故障）不再 fail-open，闸直接拦截——成本敏感环境「账本不可用就不开
+// 新计费调用」。库已关故只断言拦截行为（终态写入是 best-effort，与既有
+// FailOpen 用例同 harness 形态）；soft 侧由 TestBudgetGateFailOpenOnStorageError
+// 保持回归。
+func TestBudgetGateHardRejectsOnStorageError(t *testing.T) {
+	r, store, ctx := budgetTestRunner(t)
+	r.Cfg.BudgetEnforcement = "hard"
+	knobs := taskKnobs{monthlyBudget: 100, taskTokenBudget: 400_000}
+	task := budgetTask(t, store, "t-hard")
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if intercepted, _ := r.budgetGate(ctx, task, knobs, 0); !intercepted {
+		t.Fatal("hard 模式存储故障应拦截（fail-closed）")
+	}
+}
