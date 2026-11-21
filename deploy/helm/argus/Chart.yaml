@@ -1,0 +1,11 @@
+apiVersion: v2
+name: argus
+description: Argus 可插拔多 Agent 审查平台（HA 双副本 + Migration Job + 备份恢复，P3-04 #29）
+type: application
+# 版本策略（#65）：chart version 跟随 appVersion 去 v 前缀同步演进（一处版本源
+# scripts/sync-version.sh；CI check-version-consistency.sh 门禁对账）。
+version: 8.2.0
+appVersion: "v8.2.0"
+kubeVersion: ">=1.26.0"
+annotations:
+  argus.yi-nology/spec: "docs/ops/deploy-production.md"

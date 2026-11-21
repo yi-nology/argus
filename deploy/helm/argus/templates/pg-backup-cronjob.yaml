@@ -1,0 +1,73 @@
+{{- if .Values.pgBackup.enabled }}
+{{/* pg 定时备份（形态对齐 deploy/k8s43/80-pg-backup.yaml 在役 CronJob）：
+     pg_dump -Fc 全量 + 循环保留最近 N 份到备份 PVC。*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "argus.fullname" . }}-pg-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.pgBackup.storageClass }}
+  storageClassName: {{ .Values.pgBackup.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pgBackup.size }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "argus.fullname" . }}-pg-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "argus.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.pgBackup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: {{ include "argus.fullname" . }}-pg-backup
+        spec:
+          restartPolicy: Never
+          {{- with .Values.pgBackup.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+          - name: backup
+            image: {{ .Values.pgBackup.image }}
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pgBackup.pgSecret }}
+                  key: POSTGRES_PASSWORD
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              set -e
+              BACKUP_DIR=/backup
+              STAMP=$(date +%Y%m%d-%H%M%S)
+              pg_dump -h {{ .Values.pgBackup.pgHost }} -U {{ .Values.pgBackup.pgUser }} -d {{ .Values.pgBackup.pgDB }} -Fc -f "$BACKUP_DIR/argus-$STAMP.dump"
+              echo "backup written: argus-$STAMP.dump ($(du -h "$BACKUP_DIR/argus-$STAMP.dump" | cut -f1))"
+              # 循环保留最近 {{ .Values.pgBackup.retention }} 份
+              ls -1t "$BACKUP_DIR"/argus-*.dump 2>/dev/null | tail -n +{{ add .Values.pgBackup.retention 1 }} | xargs -r rm -f
+              ls -lh "$BACKUP_DIR"
+            volumeMounts:
+            - name: backup
+              mountPath: /backup
+          volumes:
+          - name: backup
+            persistentVolumeClaim:
+              claimName: {{ include "argus.fullname" . }}-pg-backup
+{{- end }}

@@ -1,0 +1,50 @@
+name: Release
+
+# tag v* 时从 argus-service 构建 linux 二进制 + checksums + SBOM，挂 GitHub Release。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（vX.Y.Z）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout argus-service
+        uses: actions/checkout@v4
+        with:
+          repository: yi-nology/argus-service
+          path: argus-service
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: argus-service/go.mod
+
+      - name: Build release binaries
+        env:
+          ARGUS_SERVICE_DIR: ${{ github.workspace }}/argus-service
+        run: |
+          chmod +x scripts/release.sh
+          VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version }}}"
+          ./scripts/release.sh "$VERSION" dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/argus_linux_amd64
+            dist/argus_linux_arm64
+            dist/checksums.txt
+            dist/sbom.json
+          fail_on_unmatched_files: true
+          generate_release_notes: true

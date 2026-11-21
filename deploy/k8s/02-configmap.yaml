@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argus-config
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+data:
+  # 非敏感运行配置
+  ARGUS_ADDR: ":8899"
+  ARGUS_DB_DSN: "/data/argus.db"
+  ARGUS_WORK_ROOT: "/data/work"
+  # OCR delegate 原始产物留档（人工回溯；/data 为 PVC，容器重启不丢）
+  ARGUS_OCR_HISTORY_DIR: "/data/ocr-history"
+  ARGUS_BOT_USERNAME: "demo-user"           # 试点 bot=token 账号同体（demo-user）；独立 bot 账号（如 friday）时同步换 secret 里的 token
+  ARGUS_SKIP_DRAFT: "true"
+  ARGUS_MAX_CONCURRENT_TASKS: "2"
+  ARGUS_TASK_TOKEN_BUDGET: "0" # 0 = 按模型窗口派生（60%）
+  ARGUS_MODEL_CONTEXT_TOKENS: "1000000"
+  ARGUS_TASK_RETENTION_DAYS: "30"
+
+  # 结果上报 sink（v3.9.0，可选）：审查完成后 push 给 review-service 承接端点
+  # （前端「Argus 审查」页）；URL 非空即启用，失败只告警不阻断审查。
+  # ARGUS_SINK_TOKEN 在 argus-secret。默认关闭。
+  # ARGUS_SINK_URL: "http://review-service.<ns>.svc:8000/api/v1/argus/reviews"
+
+  # OCR delegate 委托前置（v3.9.0，可选）：仅当镜像内已装 OCR 二进制（见
+  # 08-ocrshim-sidecar.yaml.example 的镜像构建步骤，/opt/argus/bin/ocr）时取消
+  # 注释——OCR 文件分诊+仓库规则注入 R4，审查循环仍由 argus 执行；OCR 端零 LLM。
+  # ARGUS_OCR_BIN: "/opt/argus/bin/ocr"
+  # ARGUS_OCR_TIMEOUT: "90s"
+
+  # 平台接入（token/secret 在 argus-secret；多平台同构 ARGUS_<平台>_*，换前缀即可）
+  ARGUS_GITEA_URL: "https://git.example.com"
+  # ⚠️ SKIP_TLS=1 同时覆盖平台 API 与 git clone 两条通道：平台 token（header 与
+  # clone URL 内嵌）都在无证书校验的 TLS 上传输，同网段 MITM 可截获。
+  # 此处开启仅因 git.example.com 证书过期（试点实测）；证书修复后必须改 0，
+  # 或改用挂自签 CA（ca-certificates 卷 + SSL_CERT_FILE）。
+  ARGUS_GITEA_SKIP_TLS: "1"
+
+  # 轮询兜底（平台→集群 webhook 不可达时启用；走 Ingress/NodePort 后可关闭）
+  ARGUS_POLL_INTERVAL: "20s"
+  ARGUS_POLL_REPOS: "gitea:demo-user/argus-e2e-test"
+
+  # 评论命令面（v5.2.0）：@bot 自由文本意图路由 + 单条复核/重审显式命令
+  ARGUS_COMMENT_ROUTER: "1"
+  # v5.3.0 烧预算指令门控：仅协作者可触发 review/recheck/fix/testgen（open 放开）
+  ARGUS_COMMENT_GATE: "collaborator"
+  ARGUS_REPO_ALLOWLIST: "gitea:demo-user/argus-pilot,gitea:demo-user/argus-e2e-test"
+  # 审查质量环（与试点同参）
+  ARGUS_REFLECTION_ROUNDS: "2"
+  ARGUS_REGRET_LEARNING: "1"
+  ARGUS_IMPACTVIEW: "1"

@@ -2,17 +2,20 @@
 
 **自托管多 Agent PR 审查与受控变更平台。** 审查留痕，远端写入与合并由维护者逐次确认。
 
-> 产品由两个仓库组成：
+[产品站点](https://yi-nology.github.io/argus/) · [工程介绍](docs/ENGINEERING.md) · [部署指引](docs/DEPLOY.md) · [架构总览](docs/ARCHITECTURE.md)
 
-| 组件 | 仓库 | 说明 |
-|---|---|---|
-| **argus-service** | [yi-nology/argus-service](https://github.com/yi-nology/argus-service) | Go 服务：R1–R5 需求复核、多专家插件、确定性裁决、合并资格门、修复审批票、受控推送、多用户与出站治理 |
-| **argus-frontend** | [yi-nology/argus-frontend](https://github.com/yi-nology/argus-frontend) | 审查工作台前端（React + Vite + Ant Design）：任务 / 审批 / 合并 / 推送 confirm |
+## 三仓拓扑
+
+| 仓库 | 职责 |
+|---|---|
+| **argus**（本仓） | **工程交付中心**：docker-compose · Helm Chart · 裸 K8s · 发布二进制 · 工程规范 · 产品站点 |
+| [argus-service](https://github.com/yi-nology/argus-service) | Go 审查引擎 + 受控变更 API（R1–R5 / 插件 / 审批票 / 合并门 / 多用户） |
+| [argus-frontend](https://github.com/yi-nology/argus-frontend) | TypeScript + Ant Design 6 + **Ant Design X** 审查工作台 |
 
 ## 它如何工作
 
 ```
-PR 事件（webhook / poller / TaskAPI）
+PR 事件（webhook / poller / TaskAPI / MCP）
         │
         ▼
 R1 需求解析 → R2 变更理解 → R3 完成度判定 → R4 多专家并发审查
@@ -36,28 +39,62 @@ R1 需求解析 → R2 变更理解 → R3 完成度判定 → R4 多专家并�
 
 ## 快速开始
 
+### docker-compose（单机）
+
+```bash
+git clone https://github.com/yi-nology/argus.git && cd argus/deploy/docker-compose
+cp .env.example .env && chmod 600 .env   # 填 ARGUS_APITOKEN + 平台 token + OPENAI_*
+docker compose up -d
+curl http://127.0.0.1:8899/healthz
+```
+
+### Helm（K8s HA）
+
+```bash
+cd deploy/helm
+helm lint argus && helm install argus argus -n argus --create-namespace
+```
+
+### 源码开发
+
 ```bash
 # 服务
-git clone git@github.com:yi-nology/argus-service.git && cd argus-service
-export ARGUS_APITOKEN=change-me
-export ARGUS_GITHUB_TOKEN=...   # 或其它平台凭据
-export OPENAI_BASE_URL=... OPENAI_API_KEY=... OPENAI_MODEL=...
+git clone https://github.com/yi-nology/argus-service.git && cd argus-service
 make run
 
-# 前端（另开终端）
-git clone git@github.com:yi-nology/argus-frontend.git && cd argus-frontend
+# 工作台
+git clone https://github.com/yi-nology/argus-frontend.git && cd argus-frontend
 npm install && npm run dev      # http://127.0.0.1:5177
 ```
 
-首管登录：服务端设 `ARGUS_BOOTSTRAP_ADMIN_USER` / `ARGUS_BOOTSTRAP_ADMIN_PASS` 冷启动后，在前端「登录」页进入。
+首管登录：设 `ARGUS_BOOTSTRAP_ADMIN_USER` / `ARGUS_BOOTSTRAP_ADMIN_PASS` 冷启动后在工作台登录。
+
+## 发布物
+
+```bash
+scripts/release.sh v8.2.0      # linux amd64/arm64 + checksums + SBOM
+```
+
+GHCR 镜像：`ghcr.io/yi-nology/argus` · Release 二进制见 [Releases](https://github.com/yi-nology/argus/releases)。
+
+## 部署物索引（本仓）
+
+| 路径 | 内容 |
+|---|---|
+| [`deploy/docker-compose/`](deploy/docker-compose/) | 单机 compose + plugins + `.env.example` |
+| [`deploy/helm/argus/`](deploy/helm/argus/) | HA Chart（双副本 + Migration Job + 备份恢复） |
+| [`deploy/k8s/`](deploy/k8s/) | 裸 K8s 清单（namespace → ingress） |
+| [`deploy/schema.sql`](deploy/schema.sql) | MySQL 8.0 规范 schema |
+| [`scripts/release.sh`](scripts/release.sh) | 二进制构建发布 |
+| [`scripts/preflight.sh`](scripts/preflight.sh) | 部署前自检 |
+| [`web/`](web/) | 产品站点（GitHub Pages） |
 
 ## 文档
 
-- 能力矩阵与验收清单：[argus-service/docs/delivery](https://github.com/yi-nology/argus-service/tree/main/docs/delivery)
-- 架构与设计：[argus-service/ARCHITECTURE.md](https://github.com/yi-nology/argus-service/blob/main/ARCHITECTURE.md)
-- API 目录：[argus-service/README.md](https://github.com/yi-nology/argus-service/blob/main/README.md)
-- 前端说明：[argus-frontend/README.md](https://github.com/yi-nology/argus-frontend/blob/main/README.md)
+- [工程介绍](docs/ENGINEERING.md) · [部署指引](docs/DEPLOY.md) · [架构总览](docs/ARCHITECTURE.md)
+- 能力矩阵 / 验收清单：[argus-service/docs/delivery](https://github.com/yi-nology/argus-service/tree/main/docs/delivery)
+- API 与环境变量：[argus-service/README](https://github.com/yi-nology/argus-service/blob/main/README.md)
 
 ## License
 
-Apache-2.0（见 argus-service/LICENSE）
+Apache-2.0（见 [argus-service/LICENSE](https://github.com/yi-nology/argus-service/blob/main/LICENSE)）

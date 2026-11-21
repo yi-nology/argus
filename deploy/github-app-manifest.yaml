@@ -1,0 +1,47 @@
+# GitHub App Manifest — 用于 GitHub App 创建流程 (POST /app-manifests/{code})
+# https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest
+#
+# 使用方法：
+#   1. 在 GitHub 创建 App 时选择 "Create a GitHub App from a manifest"
+#   2. 将此文件内容作为 manifest JSON 提交（需转换为 JSON 格式）
+#   3. 或使用 GitHub API 直接提交：
+#      curl -X POST https://api.github.com/app-manifests/{code} \
+#        -H "Accept: application/vnd.github+json" \
+#        -d @deploy/github-app-manifest.json
+#
+# 注意：manifest 是 JSON 格式；此 YAML 文件仅供阅读参考。
+# 如需直接使用，请用 yq 或手动转换为 JSON。
+
+name: "Argus Code Review"
+description: "AI-powered code review bot — automated PR analysis, requirement compliance checks, and inline review comments."
+url: "https://github.com/your-org/argus"
+hook_attributes:
+  # 替换为 Argus 实际可访问的 webhook URL
+  url: "https://argus.example.com/webhook/github"
+  # webhook secret 在安装后配置（ARGUS_GITHUB_SECRET）
+  active: true
+redirect_url: "https://argus.example.com/callback"
+setup_url: "https://argus.example.com/setup"
+public: false
+
+# 所需权限
+default_permissions:
+  # PR 读写：读取 diff、提交 review 评论
+  pull_requests: "write"
+  # Issues 读写：读取关联 issue、提交总结评论
+  issues: "write"
+  # 仓库内容读取：读取 .reviewagents.yaml 配置
+  contents: "read"
+  # Commit 状态：可选，用于标记审查结果
+  # statuses: "write"
+  # Metadata（必需，GitHub 自动授予）
+  metadata: "read"
+
+# 订阅事件
+default_events:
+  - pull_request          # PR 开启/同步/关闭
+  - pull_request_review   # PR review 提交
+  - issue_comment         # 评论（含 @argus ask 问答）
+  - push                  # 推送（分支保护场景）
+  - installation          # App 安装/卸载
+  - installation_repositories  # 安装后仓库变更

@@ -1,0 +1,26 @@
+# 可选：Ingress（webhook 入口）。工作区 studio 集群用 APISIX（apisix namespace，16 路由），
+# 若走 APISIX 则不使用本文件，在 APISIX dashboard/routes 里把 *.example.com/argus/* 指到
+# argus.argus.svc:8899。此处给 nginx-ingress 形态做参考，未加入 kustomization resources。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argus
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+  annotations:
+    # Forgejo webhook body 最大几百 KB，放宽请求体限制
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argus
+                port:
+                  number: 8899

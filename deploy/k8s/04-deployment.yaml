@@ -1,0 +1,92 @@
+# 关键约束（SQLite 单写模型——当前默认部署形态）：
+#   - replicas 恒为 1，禁止多副本（storage.go 连接数=1 + 写锁保证幂等/去重事务性）
+#   - strategy 必须用 Recreate：RWO PVC + 滚动更新会卡在卷挂载
+#   - terminationGracePeriodSeconds(120) > 应用 ShutdownTimeout(90s)：k8s 侧宽限
+#     必须大于应用侧，否则最坏停机链的关库动作会被 SIGKILL 掐断（v3.8.0 修正）
+#     SIGTERM 后 HTTP 停止、在途审查自然完成，超时才硬取消（保持 running 待重启重置）
+#
+# 多副本横向扩展：切 MySQL（ARGUS_DB_DSN 指向网络库）+ 去掉 DB PVC 后放开 replicas，
+# 任务抢占/心跳接管/poller 选主/工作副本隔离均已就绪——步骤与容量公式见
+# deploy/k8s/README-scaling.md（SQLite 形态下本文件约束仍然全部有效）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus
+  namespace: argus
+  labels:
+    app.kubernetes.io/name: argus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argus
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8899"
+        prometheus.io/path: "/metrics"
+    spec:
+      # v3.8.0：cli/acpx 插件派生的孙进程由 init(PAUSE) 收养 reap，防僵尸累积
+      shareProcessNamespace: true
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: argus
+          image: argus:v5.2.0-rpi        # 内网构建（make docker + ctr import 到各节点）
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8899
+          envFrom:
+            - configMapRef:
+                name: argus-config
+            - secretRef:
+                name: argus-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: plugins
+              mountPath: /app/plugins.yaml
+              subPath: plugins.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz            # DB 连通 + LLM 端点可达（未配 LLM 时跳过后者）
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: argus-data
+        - name: plugins
+          configMap:
+            name: argus-plugins
