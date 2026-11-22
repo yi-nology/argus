@@ -85,6 +85,46 @@
       </figure>
     </div>
 
+
+    <h2 class="section-title">真实 <span class="grad-text">E2E 实测</span></h2>
+    <p class="section-sub">真二进制起服（argus-service :8899）+ 真实登录会话 · Playwright 抓拍 · 权限物理分离实证</p>
+
+    <div class="grid g2">
+      <figure class="shot">
+        <img src="assets/real/me-maintainer.png" alt="maintainer 权限实拍" loading="lazy" />
+        <figcaption>⑨ maintainer（alice）——decide / merge / fix ✓ · manage ✗（侧栏无邀请）</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/real/me-admin.png" alt="admin 权限实拍" loading="lazy" />
+        <figcaption>⑩ admin——decide / merge / fix ✗（刻意无）· manage ✓ · read_audit ✓</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/real/approvals-real.png" alt="审批票真实界面" loading="lazy" />
+        <figcaption>⑪ 修复审批（真实服务）——空态如实显示</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/real/merges-real.png" alt="合并门真实界面" loading="lazy" />
+        <figcaption>⑫ 合并资格门（真实服务）——平台不可达如实 502</figcaption>
+      </figure>
+    </div>
+
+    <div class="doc" style="margin-top:14px">
+      <h3>API 实测矩阵（10 项）</h3>
+      <table>
+        <tr><th>用例</th><th>预期</th><th>实测</th></tr>
+        <tr><td>静态 token /auth/me</td><td>部署超管两面全开</td><td>✅</td></tr>
+        <tr><td>会话 admin 权限投影</td><td>decide=false, manage=true</td><td>✅</td></tr>
+        <tr><td>会话 maintainer 权限投影</td><td>decide=true, manage=false</td><td>✅</td></tr>
+        <tr><td>alice 邀请（maintainer）</td><td>403</td><td>✅</td></tr>
+        <tr><td>admin 合并资格（session）</td><td>403（无裁定权）</td><td>✅</td></tr>
+        <tr><td>read token 建任务</td><td>403</td><td>✅</td></tr>
+        <tr><td>无 token 访问</td><td>401</td><td>✅</td></tr>
+        <tr><td>POST /ask（未配 LLM）</td><td>ok=false 如实</td><td>✅</td></tr>
+        <tr><td>邀请授 admin 角色</td><td>400 拒绝</td><td>✅</td></tr>
+        <tr><td>bootstrap admin 冷启动</td><td>首管可登录</td><td>✅</td></tr>
+      </table>
+    </div>
+
     <h2 class="section-title">技术栈</h2>
     <div class="stack">
       <span class="chip">TypeScript 5.9</span>
