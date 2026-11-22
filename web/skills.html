@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 协作 · Argus</title>
+  <meta name="description" content="Agent Skills 与 MCP 工具，让 AI 直驱 Argus" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <nav>
+    <a class="logo grad-text" href="index.html">ARGUS</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="features.html">能力演示</a>
+      <a href="pipeline.html">审查管线</a>
+      <a href="gates.html">受控变更</a>
+      <a href="workbench.html">工作台</a>
+      <a href="architecture.html">架构</a>
+      <a href="deploy.html">部署</a>
+      <a href="skills.html" class="active">AI 协作</a>
+      <a href="roadmap.html">规划</a>
+      <a href="vs.html">竞品</a>
+      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+  <div class="wrap">
+
+    <h1 class="section-title" style="margin-top:36px">Skills · 让 AI <span class="grad-text">直驱 Argus</span></h1>
+    <p class="section-sub">装进你的 AI 客户端（Claude Code / ZCode / Cursor），AI 就知道怎么发起审查、读意见、执行修复。</p>
+
+    <div class="grid g2">
+      <div class="glass card"><h3>argus-mcp</h3>
+        <p>AI agent 驱动 Argus 的完整工作流：何时调哪个工具、失败降级、安全边界。配合 MCP 24 工具。</p></div>
+      <div class="glass card"><h3>argus-precommit</h3>
+        <p>提交前预审闭环：review -async 提交 diff 预审 + poll 轮询结论，审查左移倒灌 coding agent。</p></div>
+    </div>
+
+    <h2 class="section-title">一键安装</h2>
+    <div class="doc">
+<pre><code>curl -fsSL https://raw.githubusercontent.com/yi-nology/argus-service/main/scripts/install-skills.sh | bash</code></pre>
+    </div>
+
+    <h2 class="section-title">MCP 24 工具（节选）</h2>
+    <div class="doc">
+      <table>
+        <tr><th>工具</th><th>说明</th></tr>
+        <tr><td class="mono">review_pr</td><td>发起审查并可选等待终态</td></tr>
+        <tr><td class="mono">ask_argus</td><td>最新结论 / 基于报告追问</td></tr>
+        <tr><td class="mono">list_findings</td><td>结构化意见（fp 短码 / evidence 四态）</td></tr>
+        <tr><td class="mono">fix_finding</td><td>沙箱修复 + 确定性验证（绝不 push）</td></tr>
+        <tr><td class="mono">get_impact</td><td>影响面快照（图 / 风险分 / 共变）</td></tr>
+        <tr><td class="mono">search_sem</td><td>语义检索（哪里处理认证？）</td></tr>
+      </table>
+    </div>
+
+  </div>
+  <footer>
+    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
+    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
+    <div class="links">
+      <a href="https://github.com/yi-nology/argus">工程交付</a>
+      <a href="https://github.com/yi-nology/argus-service">argus-service</a>
+      <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
+      <a href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+    </div>
+  </footer>
+</body>
+</html>

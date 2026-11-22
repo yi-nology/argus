@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>部署 · Argus</title>
+  <meta name="description" content="docker-compose / Helm / K8s / 二进制部署指引" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <nav>
+    <a class="logo grad-text" href="index.html">ARGUS</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="features.html">能力演示</a>
+      <a href="pipeline.html">审查管线</a>
+      <a href="gates.html">受控变更</a>
+      <a href="workbench.html">工作台</a>
+      <a href="architecture.html">架构</a>
+      <a href="deploy.html" class="active">部署</a>
+      <a href="skills.html">AI 协作</a>
+      <a href="roadmap.html">规划</a>
+      <a href="vs.html">竞品</a>
+      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+  <div class="wrap">
+
+    <h1 class="section-title" style="margin-top:36px">快速 <span class="grad-text">部署</span></h1>
+    <p class="section-sub">docker-compose 单机 · Helm HA · 裸 K8s · 发布二进制</p>
+
+    <h2 class="section-title">🐳 docker-compose</h2>
+    <div class="doc">
+<pre><code>git clone https://github.com/yi-nology/argus.git &amp;&amp; cd argus/deploy/docker-compose
+cp .env.example .env &amp;&amp; chmod 600 .env   # 填 ARGUS_APITOKEN + 平台 token + OPENAI_*
+docker compose up -d
+curl http://127.0.0.1:8899/healthz</code></pre>
+    </div>
+
+    <h2 class="section-title">⎈ Helm（K8s HA）</h2>
+    <div class="doc">
+<pre><code>cd deploy/helm
+helm lint argus
+helm install argus argus -n argus --create-namespace</code></pre>
+      <p>缺省拓扑：双副本 RollingUpdate · PostgreSQL + PVC · Migration Job 先行 · 备份 Cron + 恢复演练 Job。</p>
+    </div>
+
+    <h2 class="section-title">📦 发布二进制</h2>
+    <div class="doc">
+<pre><code>scripts/release.sh v8.2.0
+# → argus_linux_amd64 / argus_linux_arm64 + checksums.txt + sbom.json</code></pre>
+      <p>GHCR 镜像：<code>ghcr.io/yi-nology/argus</code> · <a href="https://github.com/yi-nology/argus/releases">Releases</a> 下载校验。</p>
+    </div>
+
+    <h2 class="section-title">🔍 部署后自检</h2>
+    <div class="doc">
+<pre><code>scripts/preflight.sh --live</code></pre>
+      <blockquote>验收清单见 argus-service/docs/delivery/ACCEPTANCE-CHECKLIST.md；能力边界见 CAPABILITY-MATRIX.md。</blockquote>
+    </div>
+
+    <div class="cta" style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
+      <a class="btn btn-primary" href="https://github.com/yi-nology/argus/tree/main/deploy">deploy 目录</a>
+      <a class="btn btn-ghost" href="https://github.com/yi-nology/argus/blob/main/docs/DEPLOY.md">部署指引</a>
+    </div>
+
+  </div>
+  <footer>
+    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
+    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
+    <div class="links">
+      <a href="https://github.com/yi-nology/argus">工程交付</a>
+      <a href="https://github.com/yi-nology/argus-service">argus-service</a>
+      <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
+      <a href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+    </div>
+  </footer>
+</body>
+</html>

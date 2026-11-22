@@ -3,148 +3,32 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Argus — 自托管多 Agent PR 审查与受控变更平台</title>
-  <meta name="description" content="审查留痕，远端写入与合并由维护者逐次确认。R1-R5 需求复核 · 多专家插件 · 合并资格门 · 修复审批票。" />
+  <title>自托管多 Agent PR 审查与受控变更平台 · Argus</title>
+  <meta name="description" content="自托管多 Agent PR 审查与受控变更平台" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-      --bg: #070b14;
-      --bg2: #0d1424;
-      --glass: rgba(18,28,48,.72);
-      --border: rgba(88,148,255,.16);
-      --cyan: #22d3ee;
-      --violet: #8b5cf6;
-      --emerald: #34d399;
-      --amber: #fbbf24;
-      --rose: #fb7185;
-      --text: #e8eefc;
-      --text2: #93a4c3;
-      --text3: #5c6f92;
-      --grad: linear-gradient(135deg,#22d3ee,#8b5cf6 55%,#d946ef);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; }
-    body {
-      font-family: 'Space Grotesk', system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
-      background:
-        radial-gradient(1200px 600px at 85% -10%, rgba(139,92,246,.18), transparent 55%),
-        radial-gradient(900px 500px at -10% 100%, rgba(34,211,238,.12), transparent 50%),
-        var(--bg);
-      color: var(--text);
-      line-height: 1.55;
-      -webkit-font-smoothing: antialiased;
-    }
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
-    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
-
-    /* nav */
-    nav {
-      position: sticky; top: 0; z-index: 30;
-      display: flex; align-items: center; gap: 16px;
-      padding: 14px 24px;
-      background: rgba(10,16,30,.8); backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--border);
-    }
-    .logo { font-weight: 700; font-size: 20px; letter-spacing: 1.5px; }
-    .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .nav-links { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
-    .nav-links a { color: var(--text2); text-decoration: none; font-size: 14px; transition: color .2s; }
-    .nav-links a:hover { color: var(--cyan); }
-    .btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: 14px;
-      text-decoration: none; transition: transform .2s, box-shadow .2s;
-    }
-    .btn-primary { background: var(--grad); color: #041018; box-shadow: 0 0 28px rgba(34,211,238,.35); }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 40px rgba(139,92,246,.5); }
-    .btn-ghost { background: rgba(34,211,238,.1); color: var(--text); border: 1px solid var(--border); }
-    .btn-ghost:hover { border-color: rgba(34,211,238,.4); }
-
-    /* hero */
-    .hero { padding: 88px 0 56px; text-align: center; }
-    .badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 14px; border-radius: 999px; font-size: 12px; letter-spacing: .5px;
-      background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.3); color: var(--cyan);
-      margin-bottom: 22px;
-    }
-    .hero h1 { font-size: clamp(34px, 6vw, 58px); font-weight: 700; letter-spacing: -.5px; line-height: 1.15; }
-    .hero p.sub { margin: 18px auto 0; max-width: 640px; color: var(--text2); font-size: 17px; }
-    .hero .cta { margin-top: 32px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-
-    /* cards */
-    .glass {
-      background: var(--glass); border: 1px solid var(--border); border-radius: 16px;
-      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-    }
-    .grid { display: grid; gap: 16px; margin-top: 28px; }
-    .g3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-    .g2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-    .card { padding: 22px 22px 20px; transition: transform .25s, border-color .25s; }
-    .card:hover { transform: translateY(-3px); border-color: rgba(34,211,238,.35); }
-    .card .icon {
-      width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
-      font-size: 20px; margin-bottom: 12px;
-    }
-    .card h3 { font-size: 17px; margin-bottom: 8px; }
-    .card p { color: var(--text2); font-size: 13.5px; }
-
-    /* pipeline */
-    .pipe {
-      margin: 48px 0 8px; padding: 26px;
-      border: 1px solid var(--border); border-radius: 16px;
-      background: rgba(5,10,20,.55); overflow-x: auto;
-    }
-    .pipe pre {
-      font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.7;
-      color: var(--text2); white-space: pre;
-    }
-    .pipe .hl { color: var(--cyan); }
-
-    /* gates */
-    .gate { display: flex; gap: 12px; padding: 12px 14px; border-radius: 10px; margin-top: 8px;
-      border: 1px solid rgba(52,211,153,.22); background: rgba(52,211,153,.08); }
-    .gate .ok { color: var(--emerald); font-family: monospace; min-width: 150px; }
-    .gate p { color: var(--text2); font-size: 13px; margin: 0; }
-
-    /* stack */
-    .stack { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-    .chip {
-      padding: 8px 14px; border-radius: 999px; font-size: 12.5px;
-      background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.3); color: var(--text);
-    }
-
-    /* repo cards */
-    .repo { display: block; text-decoration: none; color: inherit; }
-    .repo h3 { display: flex; align-items: center; gap: 8px; }
-    .repo .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px;
-      background: rgba(34,211,238,.15); color: var(--cyan); }
-
-    footer {
-      margin-top: 64px; padding: 28px 0; text-align: center;
-      border-top: 1px solid var(--border); color: var(--text3); font-size: 12.5px;
-    }
-    .section-title { font-size: 24px; font-weight: 700; margin-top: 56px; }
-    .section-title .grad-text { font-size: inherit; }
-    .section-sub { color: var(--text2); margin-top: 6px; font-size: 14px; }
-  </style>
+  <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
   <nav>
-    <div class="logo grad-text">ARGUS</div>
+    <a class="logo grad-text" href="index.html">ARGUS</a>
     <div class="nav-links">
-      <a href="#features">能力</a>
-      <a href="#pipeline">管线</a>
-      <a href="#gates">受控变更</a>
-      <a href="#repos">仓库</a>
-      <a href="#deploy">部署</a>
-      <a class="btn btn-primary" style="padding:8px 14px" href="https://github.com/yi-nology/argus-service" target="_blank" rel="noopener">GitHub</a>
+      <a href="index.html" class="active">首页</a>
+      <a href="features.html">能力演示</a>
+      <a href="pipeline.html">审查管线</a>
+      <a href="gates.html">受控变更</a>
+      <a href="workbench.html">工作台</a>
+      <a href="architecture.html">架构</a>
+      <a href="deploy.html">部署</a>
+      <a href="skills.html">AI 协作</a>
+      <a href="roadmap.html">规划</a>
+      <a href="vs.html">竞品</a>
+      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
     </div>
   </nav>
-
   <div class="wrap">
+
     <header class="hero">
       <div class="badge">⚡ 自托管 · 受控变更 · 开源 Apache-2.0</div>
       <h1>多 Agent PR 审查<br /><span class="grad-text">审查留痕，合并由你定</span></h1>
@@ -153,134 +37,49 @@
         高危修复审批票 · 合并资格门七条 fail-closed · preview→confirm 受控写。
       </p>
       <div class="cta">
-        <a class="btn btn-primary" href="#deploy">快速部署</a>
-        <a class="btn btn-ghost" href="https://github.com/yi-nology/argus-service" target="_blank" rel="noopener">argus-service</a>
-        <a class="btn btn-ghost" href="https://github.com/yi-nology/argus-frontend" target="_blank" rel="noopener">工作台 UI</a>
+        <a class="btn btn-primary" href="deploy.html">快速部署</a>
+        <a class="btn btn-ghost" href="features.html">能力演示</a>
+        <a class="btn btn-ghost" href="workbench.html">工作台</a>
       </div>
     </header>
 
-    <h2 class="section-title" id="features">核心 <span class="grad-text">能力</span></h2>
-    <p class="section-sub">不只看代码，还看「做没做完」；不只报问题，还能受控地改与合。</p>
+    <h2 class="section-title">六块 <span class="grad-text">核心能力</span></h2>
     <div class="grid g3">
-      <div class="glass card">
-        <div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">📋</div>
-        <h3>需求复核 R1–R5</h3>
-        <p>从 PR/issue 改写验收清单，逐条 implemented / partial / missing，证据必须 file:line，无证据降级 unverifiable。</p>
-      </div>
-      <div class="glass card">
-        <div class="icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🤝</div>
-        <h3>多专家并发审查</h3>
-        <p>builtin / CLI 编码 agent / 远端 agent 插件 fan-out；互盲独立或黑板共识；指纹去重、冲突取高、best-of-N 复现投票。</p>
-      </div>
-      <div class="glass card">
-        <div class="icon" style="background:rgba(52,211,153,.15);color:#34d399">⚖️</div>
-        <h3>确定性裁决</h3>
-        <p>真值表按序短路（R5.1–R5.5）零 LLM：需求未完成一票否决，注入攻击极限只是 COMMENT，永不白给 APPROVE。</p>
-      </div>
-      <div class="glass card">
-        <div class="icon" style="background:rgba(251,113,133,.15);color:#fb7185">🔐</div>
-        <h3>修复审批票</h3>
-        <p>critical/high 按 (PR, fp, head) 建具名票；缺票 = 未批准（fail-closed）；新 head 旧票 stale。</p>
-      </div>
-      <div class="glass card">
-        <div class="icon" style="background:rgba(251,191,36,.15);color:#fbbf24">🚧</div>
-        <h3>合并资格门</h3>
-        <p>七条 fail-closed：开放 / 非 draft / head 一致 / mergeable 已知 / 审查完成 / 无高危 / CI 通过。</p>
-      </div>
-      <div class="glass card">
-        <div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">🤖</div>
-        <h3>AI 工作台</h3>
-        <p>Ant Design X 问答、任务态势、审批票、合并向导——所有写操作 preview → confirm。</p>
-      </div>
+      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">📋</div>
+        <h3>需求复核 R1–R5</h3><p>验收清单逐条 implemented / partial / missing，证据必须 file:line，无证据降级 unverifiable。</p></div>
+      <div class="glass card"><div class="icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🤝</div>
+        <h3>多专家并发审查</h3><p>builtin / CLI 编码 agent / 远端 agent fan-out；互盲或共识；指纹去重、best-of-N 复现投票。</p></div>
+      <div class="glass card"><div class="icon" style="background:rgba(52,211,153,.15);color:#34d399">⚖️</div>
+        <h3>确定性裁决</h3><p>真值表按序短路零 LLM；注入攻击极限只是 COMMENT，永不白给 APPROVE。</p></div>
+      <div class="glass card"><div class="icon" style="background:rgba(251,113,133,.15);color:#fb7185">🔐</div>
+        <h3>修复审批票</h3><p>critical/high 具名批准；缺票 = 未批准（fail-closed）；新 head 旧票 stale。</p></div>
+      <div class="glass card"><div class="icon" style="background:rgba(251,191,36,.15);color:#fbbf24">🚧</div>
+        <h3>合并资格门</h3><p>七条 fail-closed：开放 / 非 draft / head 一致 / mergeable / 审查完成 / 无高危 / CI 通过。</p></div>
+      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">🤖</div>
+        <h3>AI 工作台</h3><p>Ant Design X 问答、任务态势、审批票、合并向导——所有写操作 preview → confirm。</p></div>
     </div>
 
-    <h2 class="section-title" id="pipeline">审查 <span class="grad-text">管线</span></h2>
-    <p class="section-sub">一次审查的旅程：事件 → 多专家 → 确定性裁决 → 双层回帖。</p>
-    <div class="pipe">
-<pre>
-  PR opened / push ─┬─ <span class="hl">webhook</span>（签名校验、delivery 幂等）
-                    ├─ <span class="hl">poller</span>（NAT/VPN 兜底）
-                    ├─ <span class="hl">POST /tasks</span>（Bearer）
-                    └─ <span class="hl">MCP review_pr</span>
-                            │
-                            ▼
-              R1 需求解析 → R2 变更理解 → R3 完成度判定（ReAct+工具）
-              → R4 并发委派插件（builtin / cli / acpx / remote）
-              → R5 真值表裁决  <span class="hl">APPROVE / COMMENT / REQUEST_CHANGES</span>
-                            │
-                            ▼
-              行内评论 + 总结报告（原地更新，不刷屏）
-                            │
-              ┌─────────────┼─────────────┐
-              ▼             ▼             ▼
-        修复审批票      受控推送       合并资格门
-        （具名批准）   （绑 head）    （七条 fail-closed）
-</pre>
-    </div>
-
-    <h2 class="section-title" id="gates">受控 <span class="grad-text">变更</span></h2>
-    <p class="section-sub">三类远端写全部 preview → confirm；超时进 uncertain，读回对账，不盲重试。</p>
-    <div class="glass" style="padding: 22px; margin-top: 16px;">
-      <div class="gate"><div class="ok">✓ cr_open</div><p>平台 PR 状态 opened</p></div>
-      <div class="gate"><div class="ok">✓ head_match</div><p>远端 head 与 expected_remote_head 一致（陈旧拒绝）</p></div>
-      <div class="gate"><div class="ok">✓ review_done</div><p>当前 head 审查完成且 verdict 已知</p></div>
-      <div class="gate"><div class="ok">✓ no_blocking</div><p>无未处理 critical / high 发现</p></div>
-      <div class="gate"><div class="ok">✓ ci_pass</div><p>CI 通过（无 CI 或读取失败 = 阻断，fail-closed）</p></div>
-    </div>
-
-    <h2 class="section-title" id="repos">三仓 <span class="grad-text">拓扑</span></h2>
+    <h2 class="section-title">三仓 <span class="grad-text">拓扑</span></h2>
     <div class="grid g3">
-      <a class="glass card repo" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">
-        <h3>argus <span class="tag">本仓</span></h3>
-        <p>工程交付中心：docker-compose · Helm Chart · 裸 K8s · 发布脚本 · 工程规范 · 产品站点。</p>
-      </a>
-      <a class="glass card repo" href="https://github.com/yi-nology/argus-service" target="_blank" rel="noopener">
-        <h3>argus-service</h3>
-        <p>Go 审查引擎与受控变更 API：R1–R5、插件编排、审批票、合并门、多用户、出站治理。</p>
-      </a>
-      <a class="glass card repo" href="https://github.com/yi-nology/argus-frontend" target="_blank" rel="noopener">
-        <h3>argus-frontend</h3>
-        <p>TypeScript + Ant Design 6 + Ant Design X 工作台：任务、审批、合并向导、AI 助手。</p>
-      </a>
+      <a class="glass card" href="https://github.com/yi-nology/argus" style="text-decoration:none;color:inherit">
+        <h3>argus <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(34,211,238,.15);color:var(--cyan)">本仓</span></h3>
+        <p>工程交付中心：compose · Helm · K8s · 发布二进制 · 文档 · 产品站。</p></a>
+      <a class="glass card" href="https://github.com/yi-nology/argus-service" style="text-decoration:none;color:inherit">
+        <h3>argus-service</h3><p>Go 审查引擎与受控变更 API：R1–R5、插件编排、审批票、合并门、多用户。</p></a>
+      <a class="glass card" href="https://github.com/yi-nology/argus-frontend" style="text-decoration:none;color:inherit">
+        <h3>argus-frontend</h3><p>TypeScript + Ant Design 6 + Ant Design X 工作台。</p></a>
     </div>
 
-    <h2 class="section-title" id="deploy">快速 <span class="grad-text">部署</span></h2>
-    <div class="grid g2">
-      <div class="glass card">
-        <h3>🐳 docker-compose</h3>
-        <p class="mono" style="margin-top:10px">
-          cd deploy/docker-compose<br />
-          cp .env.example .env<br />
-          docker compose up -d<br />
-          curl localhost:8899/healthz
-        </p>
-      </div>
-      <div class="glass card">
-        <h3>⎈ Helm（HA 双副本）</h3>
-        <p class="mono" style="margin-top:10px">
-          cd deploy/helm<br />
-          helm lint argus<br />
-          helm install argus argus<br />
-          &nbsp;&nbsp;-n argus --create-namespace
-        </p>
-      </div>
-    </div>
-
-    <div class="stack">
-      <span class="chip">Go · Hertz · GORM</span>
-      <span class="chip">React 19 · antd 6 · Ant Design X</span>
-      <span class="chip">PostgreSQL / SQLite</span>
-      <span class="chip">Prometheus</span>
-      <span class="chip">Docker / K8s / Helm</span>
-      <span class="chip">MCP 原生</span>
-      <span class="chip">Apache-2.0</span>
-    </div>
   </div>
-
   <footer>
-    <div class="grad-text" style="font-size:16px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
-    © 2026 Argus · 自托管多 Agent PR 审查与受控变更平台 ·
-    <a href="https://github.com/yi-nology/argus" style="color:var(--cyan)">GitHub</a>
+    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
+    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
+    <div class="links">
+      <a href="https://github.com/yi-nology/argus">工程交付</a>
+      <a href="https://github.com/yi-nology/argus-service">argus-service</a>
+      <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
+      <a href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+    </div>
   </footer>
 </body>
 </html>

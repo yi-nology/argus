@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>架构 · Argus</title>
+  <meta name="description" content="Argus 架构总览与工程原则" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <nav>
+    <a class="logo grad-text" href="index.html">ARGUS</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="features.html">能力演示</a>
+      <a href="pipeline.html">审查管线</a>
+      <a href="gates.html">受控变更</a>
+      <a href="workbench.html">工作台</a>
+      <a href="architecture.html" class="active">架构</a>
+      <a href="deploy.html">部署</a>
+      <a href="skills.html">AI 协作</a>
+      <a href="roadmap.html">规划</a>
+      <a href="vs.html">竞品</a>
+      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+  <div class="wrap">
+
+    <h1 class="section-title" style="margin-top:36px">架构 <span class="grad-text">总览</span></h1>
+    <p class="section-sub">模块化单体 · 分层可执行门禁 · 受控写闭环</p>
+
+    <div class="pipe">
+<pre>
+        webhook / poller / TaskAPI / MCP
+                    │
+                    ▼
+        ┌───────────────────────┐
+        │   argus-service (Go)  │
+        │  R1→R5 审查管线       │
+        │  多专家插件 fan-out   │
+        │  确定性真值表裁决     │
+        └───────────┬───────────┘
+                    │ 行内评论 + 总结报告
+                    ▼
+        ┌───────────────────────────────┐
+        │  受控变更面（preview→confirm）  │
+        │  · 修复审批票（critical/high）  │
+        │  · 受控推送（绑定 head）        │
+        │  · 合并资格门（七条 fail-closed）│
+        └───────────┬───────────────────┘
+                    ▼
+        ┌───────────────────────┐
+        │ argus-frontend 工作台 │
+        └───────────────────────┘
+</pre>
+    </div>
+
+    <h2 class="section-title">分层（argus-service）</h2>
+    <div class="doc">
+      <pre><code>L1 bootstrap 组合根（装配一切，无人 import 它）
+L2 runner / service / poller / worker / mcpserver（编排与入口）
+L3 workflow / poster / qa / storage / sastscan / effect / egress …
+L4 plugin 契约单源 + domain + learning
+L0 config / obs（纯底座）</code></pre>
+      <p>依赖由 <code>architecture-policy.yaml</code> 钉住，<code>make arch</code> 可执行门禁（分层白名单 / 组合根单向 / 词表门禁）。</p>
+    </div>
+
+    <h2 class="section-title">工程原则</h2>
+    <div class="grid g2">
+      <div class="glass card"><h3>fail-closed 优先</h3><p>无 CI 不合并、缺票不修复、无 token 不服务、未知态先对账。</p></div>
+      <div class="glass card"><h3>确定性裁决</h3><p>R5 真值表零 LLM；路由/去重/合并指纹全是确定性 Go 代码。</p></div>
+      <div class="glass card"><h3>受控远端写</h3><p>三类写全部 preview → confirm，绑定 expected_remote_head。</p></div>
+      <div class="glass card"><h3>版本一处源</h3><p>sync-version 五处同源；CI check-version-consistency 钉住。</p></div>
+    </div>
+
+  </div>
+  <footer>
+    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
+    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
+    <div class="links">
+      <a href="https://github.com/yi-nology/argus">工程交付</a>
+      <a href="https://github.com/yi-nology/argus-service">argus-service</a>
+      <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
+      <a href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+    </div>
+  </footer>
+</body>
+</html>

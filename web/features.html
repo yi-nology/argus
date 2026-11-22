@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>能力演示 · Argus</title>
+  <meta name="description" content="真实回帖截图与确定性产物演示" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <nav>
+    <a class="logo grad-text" href="index.html">ARGUS</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="features.html" class="active">能力演示</a>
+      <a href="pipeline.html">审查管线</a>
+      <a href="gates.html">受控变更</a>
+      <a href="workbench.html">工作台</a>
+      <a href="architecture.html">架构</a>
+      <a href="deploy.html">部署</a>
+      <a href="skills.html">AI 协作</a>
+      <a href="roadmap.html">规划</a>
+      <a href="vs.html">竞品</a>
+      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+  <div class="wrap">
+
+    <h1 class="section-title" style="margin-top:36px">能力 <span class="grad-text">演示</span></h1>
+    <p class="section-sub">真实回帖截图 · 确定性产物 · 影响面视图——全部来自生产试点实测。</p>
+
+    <div class="grid g2">
+      <figure class="shot">
+        <img src="assets/img/tldr-production.png" alt="生产回帖 TL;DR" />
+        <figcaption>① 生产回帖 TL;DR —— 结论先行，分级计数 + 重点关注 top3</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/report-checklist.png" alt="验收清单报告" />
+        <figcaption>② 需求复核报告 —— AC 逐条判定，证据 file:line</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/inline-suggestion.png" alt="行内修复建议" />
+        <figcaption>③ 行内意见 + suggestion 围栏 —— 平台端一键应用</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/verdict-receipt.png" alt="裁决回执" />
+        <figcaption>④ 确定性裁决回执 —— 真值表规则号（R5.1–R5.5）</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/progress.png" alt="执行进度条" />
+        <figcaption>⑤ 执行期进度条 —— R1–R5 阶段原地更新</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/impact-graph.png" alt="影响面图谱" />
+        <figcaption>⑥ 影响面视图 —— 调用图 / 受影响包 / 风险分</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/funcdiff-card.png" alt="函数级 diff" />
+        <figcaption>⑦ 函数级图 diff —— Go=AST，其它语言=词法级</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/mermaid-diff.png" alt="Mermaid 架构 diff" />
+        <figcaption>⑧ Mermaid 架构对照 —— 变更前后架构图 diff</figcaption>
+      </figure>
+    </div>
+
+  </div>
+  <footer>
+    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
+    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
+    <div class="links">
+      <a href="https://github.com/yi-nology/argus">工程交付</a>
+      <a href="https://github.com/yi-nology/argus-service">argus-service</a>
+      <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
+      <a href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+    </div>
+  </footer>
+</body>
+</html>
