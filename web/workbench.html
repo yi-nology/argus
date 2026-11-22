@@ -4,155 +4,72 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>工作台 · Argus</title>
-  <meta name="description" content="TypeScript + Ant Design X 审查工作台界面实拍" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <meta name="description" content="TypeScript + Ant Design X 审查工作台界面" />
   <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
-  <nav>
-    <a class="logo grad-text" href="index.html">ARGUS</a>
-    <div class="nav-links">
-      <a href="index.html">首页</a>
-      <a href="features.html">能力演示</a>
+  <header class="site">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="mark"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2 L6 10 L10 2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Argus</a>
+      <nav class="primary">
+      <a href="index.html">概览</a>
       <a href="pipeline.html">审查管线</a>
       <a href="gates.html">受控变更</a>
       <a href="workbench.html" class="active">工作台</a>
       <a href="architecture.html">架构</a>
       <a href="deploy.html">部署</a>
+      <a href="features.html">产物</a>
       <a href="skills.html">AI 协作</a>
-      <a href="roadmap.html">规划</a>
-      <a href="vs.html">竞品</a>
-      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      <a href="vs.html">对比</a>
+        <a href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      </nav>
     </div>
-  </nav>
-  <div class="wrap">
+  </header>
+  <main class="wrap">
 
-    <h1 class="section-title" style="margin-top:36px">审查 <span class="grad-text">工作台</span></h1>
-    <p class="section-sub">TypeScript + Ant Design 6 + Ant Design X · 深空科技风 · 所有写操作 preview → confirm</p>
+<div class="page-head">
+  <div class="eyebrow">Workbench</div>
+  <h1>界面：把复杂度摊在台面上</h1>
+  <p class="lead">TypeScript + Ant Design 6 + Ant Design X。任务态势、审批票、合并向导、受控推送、AI 问答——所有写操作都在界面上走 preview → confirm。</p>
+</div>
 
-    <div class="grid g3">
-      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">📊</div>
-        <h3>总览态势</h3><p>30 天裁决分布统计卡 + 最近任务流。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🚀</div>
-        <h3>审查任务</h3><p>发起审查、任务表、报告查看；同 head 去重。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(251,113,133,.15);color:#fb7185">🔐</div>
-        <h3>修复审批</h3><p>审批票批准 / 拒绝（CAS），fp 短码 + 严重度。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(251,191,36,.15);color:#fbbf24">🚧</div>
-        <h3>合并资格门</h3><p>七条 gate 行 + preview → confirm 向导。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(52,211,153,.15);color:#34d399">📤</div>
-        <h3>受控推送</h3><p>await_confirm 就绪态 + 绑定 head 确认。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">🤖</div>
-        <h3>Argus 助手</h3><p>Ant Design X 问答，接真 Q&A API。</p></div>
-    </div>
+<h2>界面实拍</h2>
+<div class="grid g2">
+  <figure class="shot"><img src="assets/ui/dashboard.png" alt="总览态势" loading="lazy" />
+    <figcaption>总览态势 —— 30 天裁决分布与最近任务</figcaption></figure>
+  <figure class="shot"><img src="assets/ui/task-detail.png" alt="任务详情" loading="lazy" />
+    <figcaption>任务详情 —— 裁决 / head / 审查报告</figcaption></figure>
+  <figure class="shot"><img src="assets/ui/merges.png" alt="合并资格门" loading="lazy" />
+    <figcaption>合并资格门 —— 七条判定与 preview → confirm 向导</figcaption></figure>
+  <figure class="shot"><img src="assets/ui/assistant.png" alt="Argus 助手" loading="lazy" />
+    <figcaption>Argus 助手 —— Ant Design X 问答面</figcaption></figure>
+</div>
 
-    <h2 class="section-title">界面 <span class="grad-text">实拍</span></h2>
-    <p class="section-sub">深空底 + 玻璃拟态 + 渐变描边统计卡 + 状态光点（含 running 呼吸动画）</p>
+<h2>权限分离：界面即证据</h2>
+<p class="section-sub">真二进制起服 + 真实登录会话抓拍。服务端投影，前端只做提示。</p>
+<div class="grid g2">
+  <figure class="shot"><img src="assets/real/me-maintainer.png" alt="maintainer 权限" loading="lazy" />
+    <figcaption>maintainer —— 裁定 ✓ · 管理 ✗（侧栏无"邀请成员"）</figcaption></figure>
+  <figure class="shot"><img src="assets/real/me-admin.png" alt="admin 权限" loading="lazy" />
+    <figcaption>admin —— 裁定 ✗ · 管理 ✓（平台管理≠业务裁定）</figcaption></figure>
+</div>
 
-    <div class="grid g2">
-      <figure class="shot">
-        <img src="assets/ui/login.png" alt="① 登录 —— 渐变描边玻璃卡 · 会话 / 邀请注册" loading="lazy" />
-        <figcaption>① 登录 —— 渐变描边玻璃卡 · 会话 / 邀请注册</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/dashboard.png" alt="② 总览态势 —— 渐变统计卡 + 最近任务流 · 状态光点" loading="lazy" />
-        <figcaption>② 总览态势 —— 渐变统计卡 + 最近任务流 · 状态光点</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/tasks.png" alt="③ 审查任务 —— 发起审查 · 任务表 · 状态筛选" loading="lazy" />
-        <figcaption>③ 审查任务 —— 发起审查 · 任务表 · 状态筛选</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/task-detail.png" alt="④ 任务详情 —— 裁决 / head / 报告查看器" loading="lazy" />
-        <figcaption>④ 任务详情 —— 裁决 / head / 报告查看器</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/merges.png" alt="⑤ 合并资格门 —— preview → confirm 向导" loading="lazy" />
-        <figcaption>⑤ 合并资格门 —— preview → confirm 向导</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/fix-push.png" alt="⑥ 受控推送 —— await_confirm 就绪态 + 绑定 head" loading="lazy" />
-        <figcaption>⑥ 受控推送 —— await_confirm 就绪态 + 绑定 head</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/assistant.png" alt="⑦ Argus 助手 —— Ant Design X 问答（Bubble / Sender / Prompts）" loading="lazy" />
-        <figcaption>⑦ Argus 助手 —— Ant Design X 问答（Bubble / Sender / Prompts）</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/ui/me.png" alt="⑧ 我的权限 —— my_permissions 非递增矩阵" loading="lazy" />
-        <figcaption>⑧ 我的权限 —— my_permissions 非递增矩阵</figcaption>
-      </figure>
-    </div>
+<h2>技术栈</h2>
+<div class="grid g4">
+  <div class="card"><h3>TypeScript 5.9</h3><p>strict 模式</p></div>
+  <div class="card"><h3>React 19</h3><p>React Router 7</p></div>
+  <div class="card"><h3>Ant Design 6</h3><p>暗色 token 定制</p></div>
+  <div class="card"><h3>Ant Design X</h3><p>Bubble / Sender / Prompts</p></div>
+</div>
 
-
-    <h2 class="section-title">真实 <span class="grad-text">E2E 实测</span></h2>
-    <p class="section-sub">真二进制起服（argus-service :8899）+ 真实登录会话 · Playwright 抓拍 · 权限物理分离实证</p>
-
-    <div class="grid g2">
-      <figure class="shot">
-        <img src="assets/real/me-maintainer.png" alt="maintainer 权限实拍" loading="lazy" />
-        <figcaption>⑨ maintainer（alice）——decide / merge / fix ✓ · manage ✗（侧栏无邀请）</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/real/me-admin.png" alt="admin 权限实拍" loading="lazy" />
-        <figcaption>⑩ admin——decide / merge / fix ✗（刻意无）· manage ✓ · read_audit ✓</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/real/approvals-real.png" alt="审批票真实界面" loading="lazy" />
-        <figcaption>⑪ 修复审批（真实服务）——空态如实显示</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="assets/real/merges-real.png" alt="合并门真实界面" loading="lazy" />
-        <figcaption>⑫ 合并资格门（真实服务）——平台不可达如实 502</figcaption>
-      </figure>
-    </div>
-
-    <div class="doc" style="margin-top:14px">
-      <h3>API 实测矩阵（10 项）</h3>
-      <table>
-        <tr><th>用例</th><th>预期</th><th>实测</th></tr>
-        <tr><td>静态 token /auth/me</td><td>部署超管两面全开</td><td>✅</td></tr>
-        <tr><td>会话 admin 权限投影</td><td>decide=false, manage=true</td><td>✅</td></tr>
-        <tr><td>会话 maintainer 权限投影</td><td>decide=true, manage=false</td><td>✅</td></tr>
-        <tr><td>alice 邀请（maintainer）</td><td>403</td><td>✅</td></tr>
-        <tr><td>admin 合并资格（session）</td><td>403（无裁定权）</td><td>✅</td></tr>
-        <tr><td>read token 建任务</td><td>403</td><td>✅</td></tr>
-        <tr><td>无 token 访问</td><td>401</td><td>✅</td></tr>
-        <tr><td>POST /ask（未配 LLM）</td><td>ok=false 如实</td><td>✅</td></tr>
-        <tr><td>邀请授 admin 角色</td><td>400 拒绝</td><td>✅</td></tr>
-        <tr><td>bootstrap admin 冷启动</td><td>首管可登录</td><td>✅</td></tr>
-      </table>
-    </div>
-
-    <h2 class="section-title">技术栈</h2>
-    <div class="stack">
-      <span class="chip">TypeScript 5.9</span>
-      <span class="chip">React 19</span>
-      <span class="chip">Ant Design 6</span>
-      <span class="chip">@ant-design/x</span>
-      <span class="chip">Vite 7</span>
-      <span class="chip">React Router 7</span>
-      <span class="chip">Space Grotesk + JetBrains Mono</span>
-    </div>
-
-    <h2 class="section-title">启动</h2>
-    <div class="doc">
 <pre><code>git clone https://github.com/yi-nology/argus-frontend.git
 cd argus-frontend &amp;&amp; npm install &amp;&amp; npm run dev
 # http://127.0.0.1:5177 · /api 代理到 argus-service :8899</code></pre>
-    </div>
 
-    <div class="cta" style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap">
-      <a class="btn btn-primary" href="https://github.com/yi-nology/argus-frontend" target="_blank" rel="noopener">源码</a>
-      <a class="btn btn-ghost" href="features.html">回帖产物演示</a>
-    </div>
-
-  </div>
+  </main>
   <footer>
-    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
-    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
-    <div class="links">
+    <div class="footer-inner">
+      <span>© 2026 Argus · 自托管多 Agent PR 审查与受控变更平台</span>
       <a href="https://github.com/yi-nology/argus">工程交付</a>
       <a href="https://github.com/yi-nology/argus-service">argus-service</a>
       <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>

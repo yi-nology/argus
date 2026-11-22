@@ -3,62 +3,70 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>竞品分析 · Argus</title>
+  <title>对比 · Argus</title>
   <meta name="description" content="Argus 与业界 AI Code Review 的定位差异" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
-  <nav>
-    <a class="logo grad-text" href="index.html">ARGUS</a>
-    <div class="nav-links">
-      <a href="index.html">首页</a>
-      <a href="features.html">能力演示</a>
+  <header class="site">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="mark"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2 L6 10 L10 2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Argus</a>
+      <nav class="primary">
+      <a href="index.html">概览</a>
       <a href="pipeline.html">审查管线</a>
       <a href="gates.html">受控变更</a>
       <a href="workbench.html">工作台</a>
       <a href="architecture.html">架构</a>
       <a href="deploy.html">部署</a>
+      <a href="features.html">产物</a>
       <a href="skills.html">AI 协作</a>
-      <a href="roadmap.html">规划</a>
-      <a href="vs.html" class="active">竞品</a>
-      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      <a href="vs.html" class="active">对比</a>
+        <a href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      </nav>
     </div>
-  </nav>
-  <div class="wrap">
+  </header>
+  <main class="wrap">
 
-    <h1 class="section-title" style="margin-top:36px">竞品 <span class="grad-text">分析</span></h1>
-    <p class="section-sub">调研快照 2026-09 ~ 2026-11 · 业界迭代快，以各家官网为准</p>
+<div class="page-head">
+  <div class="eyebrow">Comparison</div>
+  <h1>与典型 AI Code Review 的分界</h1>
+  <p class="lead">调研快照 2026-09 ~ 2026-11。业界迭代快，以各家官网为准。</p>
+</div>
 
-    <div class="doc">
-      <h2>定位差异</h2>
-      <table>
-        <tr><th>维度</th><th>Argus</th><th>典型 AI Code Review</th></tr>
-        <tr><td>需求复核</td><td>✅ AC 逐条判定 + 证据 file:line</td><td>多为代码级意见</td></tr>
-        <tr><td>裁决确定性</td><td>✅ 真值表零 LLM</td><td>多为 LLM 生成结论</td></tr>
-        <tr><td>合并控制</td><td>✅ 资格门七条 fail-closed</td><td>多为评论建议</td></tr>
-        <tr><td>受控写</td><td>✅ preview→confirm 绑定 head</td><td>多为自动改码/直接写</td></tr>
-        <tr><td>审批流</td><td>✅ 高危具名批准票</td><td>少见</td></tr>
-        <tr><td>自托管</td><td>✅ 全开源 Apache-2.0</td><td>部分 SaaS-only</td></tr>
-        <tr><td>多专家互盲/共识</td><td>✅ 编队 + best-of-N</td><td>单模型居多</td></tr>
-        <tr><td>影响面视图</td><td>✅ 图谱 + 函数级 diff</td><td>少见</td></tr>
-      </table>
+<table class="doc">
+  <tr><th>维度</th><th>Argus</th><th>典型 AI Code Review</th></tr>
+  <tr><td>需求复核</td><td>AC 逐条判定 + 证据 file:line</td><td>多为代码级意见</td></tr>
+  <tr><td>裁决确定性</td><td>真值表零 LLM，规则号可复现</td><td>LLM 生成结论</td></tr>
+  <tr><td>合并控制</td><td>七条 fail-closed 资格门</td><td>多为评论建议</td></tr>
+  <tr><td>远端写</td><td>preview → confirm 绑定 head</td><td>自动改码 / 直接写</td></tr>
+  <tr><td>审批流</td><td>高危具名批准票</td><td>少见</td></tr>
+  <tr><td>多专家</td><td>互盲 / 共识编队 + best-of-N</td><td>单模型居多</td></tr>
+  <tr><td>影响面</td><td>调用图 + 函数级 diff + 共变</td><td>少见</td></tr>
+  <tr><td>自托管</td><td>Apache-2.0 全开源</td><td>部分 SaaS-only</td></tr>
+</table>
 
-      <h2>为什么做受控变更</h2>
-      <blockquote>
-        AI 参与代码变更的最大风险不是「审不准」，而是「改得不稳、合得不慎、管不住」。
-        Argus 把审查做深的同时，把远端写全部收进 preview→confirm + 资格门——
-        审查留痕，合并由维护者定。
-      </blockquote>
-    </div>
+<h2>设计取向</h2>
+<blockquote>
+  AI 参与代码变更的最大风险不是"审不准"，而是"改得不稳、合得不慎、管不住"。
+  Argus 把审查做深的同时，把远端写全部收进 preview → confirm + 资格门——
+  审查留痕，合并由维护者定。
+</blockquote>
 
+<div class="grid g2">
+  <div class="card">
+    <h3>不用"自动修复"当卖点</h3>
+    <p>修复建议是建议；真正落码要过审批票与沙箱验证，推送要过 confirm。慢一点，但每一步可解释。</p>
   </div>
+  <div class="card">
+    <h3>能力边界如实写</h3>
+    <p>无 CI 不合并、缺票不修复——这些是设计，不是缺陷。能力矩阵里每条都标了依赖与代码出处。</p>
+  </div>
+</div>
+
+  </main>
   <footer>
-    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
-    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
-    <div class="links">
+    <div class="footer-inner">
+      <span>© 2026 Argus · 自托管多 Agent PR 审查与受控变更平台</span>
       <a href="https://github.com/yi-nology/argus">工程交付</a>
       <a href="https://github.com/yi-nology/argus-service">argus-service</a>
       <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>

@@ -4,79 +4,84 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>审查管线 · Argus</title>
-  <meta name="description" content="R1-R5 审查管线与确定性裁决真值表" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <meta name="description" content="R1–R5 审查管线与确定性裁决真值表" />
   <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
-  <nav>
-    <a class="logo grad-text" href="index.html">ARGUS</a>
-    <div class="nav-links">
-      <a href="index.html">首页</a>
-      <a href="features.html">能力演示</a>
+  <header class="site">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="mark"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2 L6 10 L10 2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Argus</a>
+      <nav class="primary">
+      <a href="index.html">概览</a>
       <a href="pipeline.html" class="active">审查管线</a>
       <a href="gates.html">受控变更</a>
       <a href="workbench.html">工作台</a>
       <a href="architecture.html">架构</a>
       <a href="deploy.html">部署</a>
+      <a href="features.html">产物</a>
       <a href="skills.html">AI 协作</a>
-      <a href="roadmap.html">规划</a>
-      <a href="vs.html">竞品</a>
-      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      <a href="vs.html">对比</a>
+        <a href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      </nav>
     </div>
-  </nav>
-  <div class="wrap">
+  </header>
+  <main class="wrap">
 
-    <h1 class="section-title" style="margin-top:36px">审查 <span class="grad-text">管线</span></h1>
-    <p class="section-sub">一次审查的旅程：事件 → 多专家 → 确定性裁决 → 双层回帖。</p>
+<div class="page-head">
+  <div class="eyebrow">Review Pipeline</div>
+  <h1>五步审查，结论可复现</h1>
+  <p class="lead">R1–R5 是固定编排：需求解析 → 变更理解 → 完成度取证 → 多专家互查 → 确定性裁决。同样的输入给出同样的结论。</p>
+</div>
 
-    <div class="pipe">
-<pre>
-  PR opened / push ─┬─ <span class="hl">webhook</span>（签名校验、delivery 幂等）
-                    ├─ <span class="hl">poller</span>（NAT/VPN 兜底）
-                    ├─ <span class="hl">POST /tasks</span>（Bearer）
-                    └─ <span class="hl">MCP review_pr</span>
-                            │
-                            ▼
-              R1 需求解析（改写验收清单 AC-1..N）
-              R2 变更理解（diff / 影响面）
-              R3 完成度判定（ReAct+工具，证据 file:line）
-              R4 多专家并发（builtin / cli / acpx / remote）
-              R5 真值表裁决  <span class="hl">APPROVE / COMMENT / REQUEST_CHANGES</span>
-                            │
-                            ▼
-              行内评论 + 总结报告（原地更新，不刷屏）
-</pre>
-    </div>
+<figure class="figure">
+      <div class="fig-body"><svg viewBox="0 0 960 220" role="img" aria-label="审查管线 R1 到 R5 与三道受控门" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--line-strong)"/></marker></defs><rect x="20" y="24" width="130" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="85.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">PR 事件</text><text x="85.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">webhook · poller · API</text><line x1="150" y1="46" x2="200" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="205" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="251.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R1</text><text x="251.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">需求解析</text><line x1="297" y1="46" x2="305" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="305" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="351.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R2</text><text x="351.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">变更理解</text><line x1="397" y1="46" x2="405" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="405" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="451.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R3</text><text x="451.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">完成度判定</text><line x1="497" y1="46" x2="505" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="505" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="551.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R4</text><text x="551.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">多专家审查</text><line x1="597" y1="46" x2="605" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="605" y="24" width="92" height="44" rx="8" class="dg-accent" stroke="none" stroke-width="1"/><text x="651.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="#fff" font-size="13" font-weight="600">R5</text><text x="651.0" y="58.0" text-anchor="middle" fill="rgba(255,255,255,.75)" font-size="10.5">真值表裁决</text><line x1="697" y1="46" x2="735" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="737" y="24" width="120" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="797.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">双层回帖</text><text x="797.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">行内 + 总结报告</text><line x1="500" y1="68" x2="500" y2="120" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="180" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="267.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">修复审批票</text><text x="267.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">critical / high 具名</text><rect x="178" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><rect x="375" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="462.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">受控推送</text><text x="462.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">绑定 expected_head</text><rect x="373" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><rect x="570" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="657.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">合并资格门</text><text x="657.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">七条 fail-closed</text><rect x="568" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><line x1="287" y1="92" x2="267" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><line x1="500" y1="92" x2="500" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><line x1="712" y1="92" x2="732" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><text x="460" y="200" text-anchor="middle" fill="var(--text-3)" font-size="11">三道门全部 preview → confirm；缺一不放行</text>
+</svg></div>
+      <figcaption>图 1 · 从 PR 事件到双层回帖的完整链路。</figcaption>
+    </figure>
 
-    <h2 class="section-title">裁决真值表 <span class="grad-text">（零 LLM）</span></h2>
-    <div class="doc">
-      <table>
-        <tr><th>序</th><th>条件</th><th>结论</th></tr>
-        <tr><td class="mono">R5.1</td><td>missing + partial &gt; 0</td><td><b>REQUEST_CHANGES</b>（需求未完成，一票否决）</td></tr>
-        <tr><td class="mono">R5.2</td><td>存在 high finding</td><td><b>REQUEST_CHANGES</b></td></tr>
-        <tr><td class="mono">R5.3</td><td>unverifiable / 需求模糊 / scope creep</td><td><b>COMMENT</b>（人工确认）</td></tr>
-        <tr><td class="mono">R5.4</td><td>存在 medium/low finding</td><td><b>COMMENT</b></td></tr>
-        <tr><td class="mono">R5.5</td><td>其余</td><td><b>APPROVE</b></td></tr>
-      </table>
-      <blockquote>R5.3 是防注入兜底：攻击者即使通过注入踢掉难满足的 AC，结果也只是「人工确认」——永远拿不到白给的 APPROVE。</blockquote>
-    </div>
+<h2>各阶段做什么</h2>
+<div class="steps">
+  <div class="step"><h3>R1 需求解析</h3><p>从 PR 描述 / 关联 issue 改写验收清单 AC-1..N。分支名含 #N 也能自动关联 issue。</p></div>
+  <div class="step"><h3>R2 变更理解</h3><p>解析 diff、影响面（调用图 / 受影响包 / 历史共变），供后续阶段引用。</p></div>
+  <div class="step"><h3>R3 完成度判定</h3><p>带工具的 ReAct agent 逐条核对 AC，每条判定必须带 file:line 证据；无证据强制降级 unverifiable。</p></div>
+  <div class="step"><h3>R4 多专家并发</h3><p>builtin / CLI 编码 agent / 远端 agent fan-out。互盲独立或黑板共识；指纹去重、冲突取高严重度。</p></div>
+  <div class="step"><h3>R5 确定性裁决</h3><p>真值表按序短路，零 LLM。产出 APPROVE / COMMENT / REQUEST_CHANGES 与规则号。</p></div>
+</div>
 
-    <h2 class="section-title">多专家编队</h2>
-    <div class="grid g2">
-      <div class="glass card"><h3>互盲独立（缺省）</h3>
-        <p>成员并发盲审，分歧由 Merger 事后标注「另一专家未复现」——保留分歧信号。</p></div>
-      <div class="glass card"><h3>黑板共识（mode: consensus）</h3>
-        <p>成员按轮互看共享黑板，只补他人未覆盖的新问题，一整轮无人补充即收敛——适合高危变更。</p></div>
-    </div>
+<h2>裁决真值表</h2>
+<figure class="figure">
+      <div class="fig-body"><svg viewBox="0 0 620 365" role="img" aria-label="R5 真值表决策流" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--line-strong)"/></marker></defs><rect x="20" y="20" width="175" height="44" rx="8" class="dg-bg-2" stroke="var(--line)"/><text x="107.5" y="40.0" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">R5.1  missing+partial>0？</text><rect x="230" y="23" width="130" height="38" rx="7" fill="color-mix(in srgb, var(--err) 10%, transparent)" stroke="var(--err)"/><text x="295" y="46" text-anchor="middle" fill="var(--err)" font-size="12" font-weight="700">REQUEST_CHANGES</text><line x1="195" y1="42" x2="228" y2="42" stroke="var(--line-strong)" stroke-width="1.3" marker-end="url(#arr5)"/><text x="210" y="34" fill="var(--err)" font-size="10" font-weight="600">是</text><rect x="20" y="90" width="175" height="44" rx="8" class="dg-bg-2" stroke="var(--line)"/><text x="107.5" y="110.0" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">R5.2  存在 high？</text><rect x="230" y="93" width="130" height="38" rx="7" fill="color-mix(in srgb, var(--err) 10%, transparent)" stroke="var(--err)"/><text x="295" y="116" text-anchor="middle" fill="var(--err)" font-size="12" font-weight="700">REQUEST_CHANGES</text><line x1="195" y1="112" x2="228" y2="112" stroke="var(--line-strong)" stroke-width="1.3" marker-end="url(#arr5)"/><rect x="20" y="160" width="175" height="44" rx="8" class="dg-bg-2" stroke="var(--line)"/><text x="107.5" y="180.0" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">R5.3  unverifiable / 模糊？</text><rect x="230" y="163" width="130" height="38" rx="7" fill="color-mix(in srgb, var(--warn) 10%, transparent)" stroke="var(--warn)"/><text x="295" y="186" text-anchor="middle" fill="var(--warn)" font-size="12" font-weight="700">COMMENT</text><line x1="195" y1="182" x2="228" y2="182" stroke="var(--line-strong)" stroke-width="1.3" marker-end="url(#arr5)"/><rect x="20" y="230" width="175" height="44" rx="8" class="dg-bg-2" stroke="var(--line)"/><text x="107.5" y="250.0" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">R5.4  medium / low？</text><rect x="230" y="233" width="130" height="38" rx="7" fill="color-mix(in srgb, var(--warn) 10%, transparent)" stroke="var(--warn)"/><text x="295" y="256" text-anchor="middle" fill="var(--warn)" font-size="12" font-weight="700">COMMENT</text><line x1="195" y1="252" x2="228" y2="252" stroke="var(--line-strong)" stroke-width="1.3" marker-end="url(#arr5)"/><rect x="20" y="300" width="175" height="44" rx="8" class="dg-bg-2" stroke="var(--line)"/><text x="107.5" y="320.0" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">R5.5  其余</text><rect x="230" y="303" width="130" height="38" rx="7" fill="color-mix(in srgb, var(--ok) 10%, transparent)" stroke="var(--ok)"/><text x="295" y="326" text-anchor="middle" fill="var(--ok)" font-size="12" font-weight="700">APPROVE</text><line x1="195" y1="322" x2="228" y2="322" stroke="var(--line-strong)" stroke-width="1.3" marker-end="url(#arr5)"/><line x1="107" y1="64" x2="107" y2="90" stroke="var(--line-strong)" stroke-width="1.3" stroke-dasharray="3 2"/><line x1="107" y1="134" x2="107" y2="160" stroke="var(--line-strong)" stroke-width="1.3" stroke-dasharray="3 2"/><line x1="107" y1="204" x2="107" y2="230" stroke="var(--line-strong)" stroke-width="1.3" stroke-dasharray="3 2"/><line x1="107" y1="274" x2="107" y2="300" stroke="var(--line-strong)" stroke-width="1.3" stroke-dasharray="3 2"/><text x="420" y="170" fill="var(--text-3)" font-size="11.5">按序短路 · 确定性 Go 代码 · 零 LLM</text><text x="420" y="190" fill="var(--text-3)" font-size="11.5">注入攻击极限只是 COMMENT，</text><text x="420" y="208" fill="var(--text-3)" font-size="11.5">永远拿不到白给的 APPROVE</text>
+</svg></div>
+      <figcaption>图 2 · R5 真值表决策流。R5.3 是防注入兜底：攻击者踢掉难满足的 AC，结果也只是人工确认。</figcaption>
+    </figure>
 
+<table class="doc">
+  <tr><th>规则</th><th>条件</th><th>结论</th></tr>
+  <tr><td class="mono">R5.1</td><td>missing + partial &gt; 0</td><td><strong>REQUEST_CHANGES</strong> — 需求未完成，一票否决</td></tr>
+  <tr><td class="mono">R5.2</td><td>存在 high finding</td><td><strong>REQUEST_CHANGES</strong></td></tr>
+  <tr><td class="mono">R5.3</td><td>unverifiable / 需求模糊 / scope creep</td><td><strong>COMMENT</strong> — 人工确认</td></tr>
+  <tr><td class="mono">R5.4</td><td>存在 medium / low finding</td><td><strong>COMMENT</strong></td></tr>
+  <tr><td class="mono">R5.5</td><td>其余</td><td><strong>APPROVE</strong></td></tr>
+</table>
+
+<h2>多专家编队</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>互盲独立</h3>
+    <p>成员并发盲审，分歧由 Merger 标注"另一专家未复现"。保留分歧信号，适合探索型审查。</p>
   </div>
+  <div class="card">
+    <h3>黑板共识</h3>
+    <p>成员按轮互看共享黑板，只补他人未覆盖的新问题；一整轮无人补充即收敛。适合高危变更。</p>
+  </div>
+</div>
+
+  </main>
   <footer>
-    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
-    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
-    <div class="links">
+    <div class="footer-inner">
+      <span>© 2026 Argus · 自托管多 Agent PR 审查与受控变更平台</span>
       <a href="https://github.com/yi-nology/argus">工程交付</a>
       <a href="https://github.com/yi-nology/argus-service">argus-service</a>
       <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>

@@ -3,78 +3,97 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>自托管多 Agent PR 审查与受控变更平台 · Argus</title>
+  <title>自托管 PR 审查与受控变更 · Argus</title>
   <meta name="description" content="自托管多 Agent PR 审查与受控变更平台" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
-  <nav>
-    <a class="logo grad-text" href="index.html">ARGUS</a>
-    <div class="nav-links">
-      <a href="index.html" class="active">首页</a>
-      <a href="features.html">能力演示</a>
+  <header class="site">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="mark"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2 L6 10 L10 2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Argus</a>
+      <nav class="primary">
+      <a href="index.html" class="active">概览</a>
       <a href="pipeline.html">审查管线</a>
       <a href="gates.html">受控变更</a>
       <a href="workbench.html">工作台</a>
       <a href="architecture.html">架构</a>
       <a href="deploy.html">部署</a>
+      <a href="features.html">产物</a>
       <a href="skills.html">AI 协作</a>
-      <a href="roadmap.html">规划</a>
-      <a href="vs.html">竞品</a>
-      <a class="btn btn-primary" style="padding:6px 12px;font-size:12px" href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      <a href="vs.html">对比</a>
+        <a href="https://github.com/yi-nology/argus" target="_blank" rel="noopener">GitHub</a>
+      </nav>
     </div>
-  </nav>
-  <div class="wrap">
+  </header>
+  <main class="wrap">
 
-    <header class="hero">
-      <div class="badge">⚡ 自托管 · 受控变更 · 开源 Apache-2.0</div>
-      <h1>多 Agent PR 审查<br /><span class="grad-text">审查留痕，合并由你定</span></h1>
-      <p class="sub">
-        R1–R5 需求复核 · 多专家插件互查 · 确定性真值表裁决 ·
-        高危修复审批票 · 合并资格门七条 fail-closed · preview→confirm 受控写。
-      </p>
-      <div class="cta">
-        <a class="btn btn-primary" href="deploy.html">快速部署</a>
-        <a class="btn btn-ghost" href="features.html">能力演示</a>
-        <a class="btn btn-ghost" href="workbench.html">工作台</a>
-      </div>
-    </header>
-
-    <h2 class="section-title">六块 <span class="grad-text">核心能力</span></h2>
-    <div class="grid g3">
-      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">📋</div>
-        <h3>需求复核 R1–R5</h3><p>验收清单逐条 implemented / partial / missing，证据必须 file:line，无证据降级 unverifiable。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🤝</div>
-        <h3>多专家并发审查</h3><p>builtin / CLI 编码 agent / 远端 agent fan-out；互盲或共识；指纹去重、best-of-N 复现投票。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(52,211,153,.15);color:#34d399">⚖️</div>
-        <h3>确定性裁决</h3><p>真值表按序短路零 LLM；注入攻击极限只是 COMMENT，永不白给 APPROVE。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(251,113,133,.15);color:#fb7185">🔐</div>
-        <h3>修复审批票</h3><p>critical/high 具名批准；缺票 = 未批准（fail-closed）；新 head 旧票 stale。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(251,191,36,.15);color:#fbbf24">🚧</div>
-        <h3>合并资格门</h3><p>七条 fail-closed：开放 / 非 draft / head 一致 / mergeable / 审查完成 / 无高危 / CI 通过。</p></div>
-      <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">🤖</div>
-        <h3>AI 工作台</h3><p>Ant Design X 问答、任务态势、审批票、合并向导——所有写操作 preview → confirm。</p></div>
-    </div>
-
-    <h2 class="section-title">三仓 <span class="grad-text">拓扑</span></h2>
-    <div class="grid g3">
-      <a class="glass card" href="https://github.com/yi-nology/argus" style="text-decoration:none;color:inherit">
-        <h3>argus <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(34,211,238,.15);color:var(--cyan)">本仓</span></h3>
-        <p>工程交付中心：compose · Helm · K8s · 发布二进制 · 文档 · 产品站。</p></a>
-      <a class="glass card" href="https://github.com/yi-nology/argus-service" style="text-decoration:none;color:inherit">
-        <h3>argus-service</h3><p>Go 审查引擎与受控变更 API：R1–R5、插件编排、审批票、合并门、多用户。</p></a>
-      <a class="glass card" href="https://github.com/yi-nology/argus-frontend" style="text-decoration:none;color:inherit">
-        <h3>argus-frontend</h3><p>TypeScript + Ant Design 6 + Ant Design X 工作台。</p></a>
-    </div>
-
+<div class="hero">
+  <div class="eyebrow">Open Source · Apache-2.0</div>
+  <h1>审得准，更要改得稳、合得慎</h1>
+  <p class="lead">
+    Argus 把 AI 审查做成确定性工程：验收清单逐条取证、多专家互查、真值表裁决；
+    高危修复走具名审批，合并与推送全部 preview → confirm——审查留痕，合并由维护者定。
+  </p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="deploy.html">开始部署</a>
+    <a class="btn btn-secondary" href="pipeline.html">看它怎么审</a>
+    <a class="btn btn-secondary" href="gates.html">看它怎么改</a>
   </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="num">R1–R5</div><div class="lbl">需求复核管线</div></div>
+  <div class="stat"><div class="num">0</div><div class="lbl">裁决 LLM 调用</div></div>
+  <div class="stat"><div class="num">7</div><div class="lbl">合并门判定条</div></div>
+  <div class="stat"><div class="num">3</div><div class="lbl">受控远端写类别</div></div>
+  <div class="stat"><div class="num">24</div><div class="lbl">MCP 工具</div></div>
+</div>
+
+<h2>它如何工作</h2>
+<p class="section-sub">一条链路：事件 → 多专家审查 → 确定性裁决 → 受控变更。</p>
+<figure class="figure">
+      <div class="fig-body"><svg viewBox="0 0 960 220" role="img" aria-label="审查管线 R1 到 R5 与三道受控门" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--line-strong)"/></marker></defs><rect x="20" y="24" width="130" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="85.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">PR 事件</text><text x="85.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">webhook · poller · API</text><line x1="150" y1="46" x2="200" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="205" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="251.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R1</text><text x="251.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">需求解析</text><line x1="297" y1="46" x2="305" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="305" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="351.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R2</text><text x="351.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">变更理解</text><line x1="397" y1="46" x2="405" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="405" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="451.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R3</text><text x="451.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">完成度判定</text><line x1="497" y1="46" x2="505" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="505" y="24" width="92" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="551.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">R4</text><text x="551.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">多专家审查</text><line x1="597" y1="46" x2="605" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="605" y="24" width="92" height="44" rx="8" class="dg-accent" stroke="none" stroke-width="1"/><text x="651.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="#fff" font-size="13" font-weight="600">R5</text><text x="651.0" y="58.0" text-anchor="middle" fill="rgba(255,255,255,.75)" font-size="10.5">真值表裁决</text><line x1="697" y1="46" x2="735" y2="46" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="737" y="24" width="120" height="44" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="797.0" y="42.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">双层回帖</text><text x="797.0" y="58.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">行内 + 总结报告</text><line x1="500" y1="68" x2="500" y2="120" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><rect x="180" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="267.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">修复审批票</text><text x="267.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">critical / high 具名</text><rect x="178" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><rect x="375" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="462.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">受控推送</text><text x="462.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">绑定 expected_head</text><rect x="373" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><rect x="570" y="122" width="175" height="48" rx="8" class="dg-bg" stroke="dg-line" stroke-width="1"/><text x="657.5" y="142.0" text-anchor="middle" dominant-baseline="middle" class="" fill="dg-text" font-size="13" font-weight="600">合并资格门</text><text x="657.5" y="158.0" text-anchor="middle" fill="var(--text-3)" font-size="10.5">七条 fail-closed</text><rect x="568" y="120" width="179" height="52" rx="9" fill="none" stroke="var(--ok)" stroke-width="1.5"/><line x1="287" y1="92" x2="267" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><line x1="500" y1="92" x2="500" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><line x1="712" y1="92" x2="732" y2="122" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr)"/><text x="460" y="200" text-anchor="middle" fill="var(--text-3)" font-size="11">三道门全部 preview → confirm；缺一不放行</text>
+</svg></div>
+      <figcaption>图 1 · 审查管线。R5 裁决后进入三道受控门——修复审批票、受控推送、合并资格门，全部 preview → confirm。</figcaption>
+    </figure>
+
+<h2>为什么这样设计</h2>
+<div class="grid g3">
+  <div class="card">
+    <h3>需求不是代码</h3>
+    <p>从 PR / issue 改写验收清单，逐条判定 implemented / partial / missing。缺证据的判定降级为 unverifiable，不许"看起来做了"。</p>
+  </div>
+  <div class="card">
+    <h3>裁决不靠模型心情</h3>
+    <p>R5 真值表按序短路，纯 Go 代码。注入攻击的极限只是 COMMENT——永不白给 APPROVE。</p>
+  </div>
+  <div class="card">
+    <h3>写远端是特权</h3>
+    <p>评论、推送、合并三类写全部两阶段确认，绑定 expected_remote_head。超时进 uncertain，读回对账，不盲重试。</p>
+  </div>
+</div>
+
+<h2>三仓构成</h2>
+<figure class="figure">
+      <div class="fig-body"><svg viewBox="0 0 1000 270" role="img" aria-label="三仓拓扑 argus / argus-service / argus-frontend" xmlns="http://www.w3.org/2000/svg">
+<rect x="30" y="30" width="280" height="170" rx="10" class="dg-bg" stroke="var(--accent)" stroke-width="2"/><text x="46" y="56" fill="var(--text)" font-size="15" font-weight="700">argus</text><text x="46" y="78" fill="var(--text-2)" font-size="12">工程交付中心</text><text x="46" y="98" fill="var(--text-2)" font-size="12">compose / Helm / K8s</text><text x="46" y="118" fill="var(--text-2)" font-size="12">发布二进制 / SBOM</text><text x="46" y="138" fill="var(--text-2)" font-size="12">产品演示站</text><rect x="360" y="30" width="280" height="170" rx="10" class="dg-bg-2" stroke="var(--line)" stroke-width="1"/><text x="376" y="56" fill="var(--text)" font-size="15" font-weight="700">argus-service</text><text x="376" y="78" fill="var(--text-2)" font-size="12">Go 审查引擎</text><text x="376" y="98" fill="var(--text-2)" font-size="12">R1–R5 管线 · 插件编排</text><text x="376" y="118" fill="var(--text-2)" font-size="12">受控变更 API</text><text x="376" y="138" fill="var(--text-2)" font-size="12">多用户 / 出站治理</text><rect x="690" y="30" width="280" height="170" rx="10" class="dg-bg-2" stroke="var(--line)" stroke-width="1"/><text x="706" y="56" fill="var(--text)" font-size="15" font-weight="700">argus-frontend</text><text x="706" y="78" fill="var(--text-2)" font-size="12">TypeScript + antd 6</text><text x="706" y="98" fill="var(--text-2)" font-size="12">Ant Design X 工作台</text><text x="706" y="118" fill="var(--text-2)" font-size="12">任务 / 审批 / 合并</text><text x="706" y="138" fill="var(--text-2)" font-size="12">AI 问答</text><defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--line-strong)"/></marker></defs><line x1="310" y1="115" x2="355" y2="115" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr2)"/><line x1="640" y1="115" x2="685" y2="115" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#arr2)"/><text x="480" y="230" text-anchor="middle" fill="var(--text-3)" font-size="12">部署物 · 引擎 · 界面 三向分离，经 HTTP API（/tasks /merges /ask …）连接</text><path d="M 170 200 C 170 240, 480 250, 480 205" fill="none" stroke="var(--line-strong)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr2)"/><path d="M 830 200 C 830 240, 520 250, 505 205" fill="none" stroke="var(--line-strong)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr2)"/>
+</svg></div>
+      <figcaption>图 2 · 部署物、引擎、界面三向分离。argus 是工程交付中心，服务与前端各自独立演进，经 HTTP API 连接。</figcaption>
+    </figure>
+
+<h2>权限：非递增</h2>
+<figure class="figure">
+      <div class="fig-body"><svg viewBox="0 0 620 318" role="img" aria-label="权限矩阵 maintainer 与 admin 非递增" xmlns="http://www.w3.org/2000/svg">
+<text x="250" y="22" fill="var(--text)" font-size="12" font-weight="700" text-anchor="middle">maintainer</text><text x="380" y="22" fill="var(--text)" font-size="12" font-weight="700" text-anchor="middle">admin</text><text x="510" y="22" fill="var(--text)" font-size="12" font-weight="700" text-anchor="middle">部署超管</text><text x="16" y="54" fill="var(--text-2)" font-size="12" font-family="var(--mono)">read_repository</text><circle cx="250" cy="50" r="9" class="dg-ok"/><text x="250" y="54" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="380" cy="50" r="9" class="dg-ok"/><text x="380" y="54" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="510" cy="50" r="9" class="dg-ok"/><text x="510" y="54" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="64" x2="580" y2="64" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="84" fill="var(--text-2)" font-size="12" font-family="var(--mono)">request_review</text><circle cx="250" cy="80" r="9" class="dg-ok"/><text x="250" y="84" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="380" cy="80" r="9" class="dg-ok"/><text x="380" y="84" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="510" cy="80" r="9" class="dg-ok"/><text x="510" y="84" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="94" x2="580" y2="94" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="114" fill="var(--text-2)" font-size="12" font-family="var(--mono)">decide_review</text><circle cx="250" cy="110" r="9" class="dg-ok"/><text x="250" y="114" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="380" cy="110" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="380" y="114" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="510" cy="110" r="9" class="dg-ok"/><text x="510" y="114" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="124" x2="580" y2="124" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="144" fill="var(--text-2)" font-size="12" font-family="var(--mono)">apply_fix</text><circle cx="250" cy="140" r="9" class="dg-ok"/><text x="250" y="144" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="380" cy="140" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="380" y="144" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="510" cy="140" r="9" class="dg-ok"/><text x="510" y="144" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="154" x2="580" y2="154" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="174" fill="var(--text-2)" font-size="12" font-family="var(--mono)">merge_pr</text><circle cx="250" cy="170" r="9" class="dg-ok"/><text x="250" y="174" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="380" cy="170" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="380" y="174" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="510" cy="170" r="9" class="dg-ok"/><text x="510" y="174" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="184" x2="580" y2="184" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="204" fill="var(--text-2)" font-size="12" font-family="var(--mono)">read_audit</text><circle cx="250" cy="200" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="250" y="204" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="380" cy="200" r="9" class="dg-ok"/><text x="380" y="204" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="510" cy="200" r="9" class="dg-ok"/><text x="510" y="204" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="214" x2="580" y2="214" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="234" fill="var(--text-2)" font-size="12" font-family="var(--mono)">manage_membership</text><circle cx="250" cy="230" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="250" y="234" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="380" cy="230" r="9" class="dg-ok"/><text x="380" y="234" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="510" cy="230" r="9" class="dg-ok"/><text x="510" y="234" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="244" x2="580" y2="244" stroke="var(--line)" stroke-width="0.8"/><text x="16" y="264" fill="var(--text-2)" font-size="12" font-family="var(--mono)">manage_instance</text><circle cx="250" cy="260" r="9" fill="var(--surface-2)" stroke="var(--line)"/><text x="250" y="264" text-anchor="middle" fill="var(--text-3)" font-size="11">—</text><circle cx="380" cy="260" r="9" class="dg-ok"/><text x="380" y="264" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><circle cx="510" cy="260" r="9" class="dg-ok"/><text x="510" y="264" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">✓</text><line x1="16" y1="274" x2="580" y2="274" stroke="var(--line)" stroke-width="0.8"/><text x="300" y="300" fill="var(--text-3)" font-size="11.5">平台管理与业务裁定物理分离：admin 不可合码，maintainer 不可管人</text>
+</svg></div>
+      <figcaption>图 3 · 平台管理与业务裁定物理分离。会话 admin 不能合码，maintainer 不能管人；静态 token 是部署超管。</figcaption>
+    </figure>
+
+  </main>
   <footer>
-    <div class="grad-text" style="font-size:15px;letter-spacing:2px;margin-bottom:6px">ARGUS</div>
-    自托管多 Agent PR 审查与受控变更平台 · Apache-2.0
-    <div class="links">
+    <div class="footer-inner">
+      <span>© 2026 Argus · 自托管多 Agent PR 审查与受控变更平台</span>
       <a href="https://github.com/yi-nology/argus">工程交付</a>
       <a href="https://github.com/yi-nology/argus-service">argus-service</a>
       <a href="https://github.com/yi-nology/argus-frontend">argus-frontend</a>
