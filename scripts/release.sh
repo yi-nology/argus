@@ -47,7 +47,8 @@ done
   echo "  \"version\": \"$VERSION\","
   echo "  \"commit\": \"$GIT_COMMIT\","
   echo "  \"modules\": ["
-  ( cd "$SRC" && go list -m -f '    {"path":"{{.Path}}","version":"{{.Version}}"}' all ) | sed '$s/,$//'
+  ( cd "$SRC" && go list -m -f '    {"path":"{{.Path}}","version":"{{.Version}}"}' all ) \
+    | awk 'NR>1{print prev ","} {prev=$0} END{print prev}'
   echo "  ]"
   echo "}"
 } > "$OUT/sbom.json"
