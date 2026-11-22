@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>工作台 · Argus</title>
-  <meta name="description" content="TypeScript + Ant Design X 审查工作台" />
+  <meta name="description" content="TypeScript + Ant Design X 审查工作台界面实拍" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
@@ -34,17 +34,55 @@
 
     <div class="grid g3">
       <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">📊</div>
-        <h3>总览态势</h3><p>30 天裁决分布统计卡 + 最近任务流，一眼看清审查健康度。</p></div>
+        <h3>总览态势</h3><p>30 天裁决分布统计卡 + 最近任务流。</p></div>
       <div class="glass card"><div class="icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🚀</div>
-        <h3>审查任务</h3><p>发起审查、任务表、报告查看；同 head 去重，staleness 不覆盖新 SHA。</p></div>
+        <h3>审查任务</h3><p>发起审查、任务表、报告查看；同 head 去重。</p></div>
       <div class="glass card"><div class="icon" style="background:rgba(251,113,133,.15);color:#fb7185">🔐</div>
-        <h3>修复审批</h3><p>审批票批准 / 拒绝（CAS），fp 短码 + 严重度 + 文件定位。</p></div>
+        <h3>修复审批</h3><p>审批票批准 / 拒绝（CAS），fp 短码 + 严重度。</p></div>
       <div class="glass card"><div class="icon" style="background:rgba(251,191,36,.15);color:#fbbf24">🚧</div>
-        <h3>合并资格门</h3><p>七条 gate 行 ok/err 着色 + preview → confirm 向导 + 读回对账。</p></div>
+        <h3>合并资格门</h3><p>七条 gate 行 + preview → confirm 向导。</p></div>
       <div class="glass card"><div class="icon" style="background:rgba(52,211,153,.15);color:#34d399">📤</div>
-        <h3>受控推送</h3><p>await_confirm 就绪态 + 绑定 task_id / expected_remote_head 确认。</p></div>
+        <h3>受控推送</h3><p>await_confirm 就绪态 + 绑定 head 确认。</p></div>
       <div class="glass card"><div class="icon" style="background:rgba(34,211,238,.15);color:#22d3ee">🤖</div>
-        <h3>Argus 助手</h3><p>Ant Design X 问答（Bubble / Sender / Prompts / XMarkdown），接真 Q&A API。</p></div>
+        <h3>Argus 助手</h3><p>Ant Design X 问答，接真 Q&A API。</p></div>
+    </div>
+
+    <h2 class="section-title">界面 <span class="grad-text">实拍</span></h2>
+    <p class="section-sub">深空底 + 玻璃拟态 + 渐变描边统计卡 + 状态光点（含 running 呼吸动画）</p>
+
+    <div class="grid g2">
+      <figure class="shot">
+        <img src="assets/ui/login.png" alt="① 登录 —— 渐变描边玻璃卡 · 会话 / 邀请注册" loading="lazy" />
+        <figcaption>① 登录 —— 渐变描边玻璃卡 · 会话 / 邀请注册</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/dashboard.png" alt="② 总览态势 —— 渐变统计卡 + 最近任务流 · 状态光点" loading="lazy" />
+        <figcaption>② 总览态势 —— 渐变统计卡 + 最近任务流 · 状态光点</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/tasks.png" alt="③ 审查任务 —— 发起审查 · 任务表 · 状态筛选" loading="lazy" />
+        <figcaption>③ 审查任务 —— 发起审查 · 任务表 · 状态筛选</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/task-detail.png" alt="④ 任务详情 —— 裁决 / head / 报告查看器" loading="lazy" />
+        <figcaption>④ 任务详情 —— 裁决 / head / 报告查看器</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/merges.png" alt="⑤ 合并资格门 —— preview → confirm 向导" loading="lazy" />
+        <figcaption>⑤ 合并资格门 —— preview → confirm 向导</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/fix-push.png" alt="⑥ 受控推送 —— await_confirm 就绪态 + 绑定 head" loading="lazy" />
+        <figcaption>⑥ 受控推送 —— await_confirm 就绪态 + 绑定 head</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/assistant.png" alt="⑦ Argus 助手 —— Ant Design X 问答（Bubble / Sender / Prompts）" loading="lazy" />
+        <figcaption>⑦ Argus 助手 —— Ant Design X 问答（Bubble / Sender / Prompts）</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/ui/me.png" alt="⑧ 我的权限 —— my_permissions 非递增矩阵" loading="lazy" />
+        <figcaption>⑧ 我的权限 —— my_permissions 非递增矩阵</figcaption>
+      </figure>
     </div>
 
     <h2 class="section-title">技术栈</h2>
@@ -67,7 +105,7 @@ cd argus-frontend &amp;&amp; npm install &amp;&amp; npm run dev
 
     <div class="cta" style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap">
       <a class="btn btn-primary" href="https://github.com/yi-nology/argus-frontend" target="_blank" rel="noopener">源码</a>
-      <a class="btn btn-ghost" href="https://yi-nology.github.io/argus-service/">服务文档站</a>
+      <a class="btn btn-ghost" href="features.html">回帖产物演示</a>
     </div>
 
   </div>
