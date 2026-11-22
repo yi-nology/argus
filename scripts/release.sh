@@ -19,7 +19,9 @@ if [[ ! -f "$SRC/Makefile" ]]; then
   exit 1
 fi
 
+# OUT 转绝对路径：make build 会 cd 进 $SRC，相对 dist 会在源码树下找不着
 mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
 GIT_COMMIT="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 

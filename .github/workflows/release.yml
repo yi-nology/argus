@@ -29,6 +29,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: argus-service/go.mod
+          cache-dependency-path: argus-service/go.sum
 
       - name: Build release binaries
         env:
